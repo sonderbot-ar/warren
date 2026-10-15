@@ -35,7 +35,7 @@ Durations are indicative, assuming part-time work (roughly 8–12 hours a week).
 | Milestone | Focus | Weeks | Indicative dates | Depends on | Status |
 |---|---|---|---|---|---|
 | M0 | Foundations and documentation | 1 | oct.19 – oct.25 | — | **Done** (oct.14.2026) |
-| M1 | Fundamentals data layer (EDGAR, point-in-time) | 2 | oct.26 – nov.08 | M0 | In progress (started oct.14.2026) |
+| M1 | Fundamentals data layer (EDGAR, point-in-time) | 2 | oct.26 – nov.08 | M0 | **Done** (oct.14.2026) |
 | M2 | Deterministic forecast and DCF engine | 2 | nov.09 – nov.22 | M1 | Not started |
 | M3 | Evaluation harness v1 (baseline only) | 1.5 | nov.23 – dec.03 | M2 | Not started |
 | M4 | Shock model and Monte Carlo (manual shocks) | 1.5 | dec.04 – dec.13 | M2 | Not started |
@@ -135,6 +135,18 @@ financial_facts(
 **Exit criterion:** for every Phase 1 company, ten years of quarterly and annual canonical items load with a data-quality report showing no unexplained gaps.
 
 **Learning notes:** the same economic item can use different XBRL tags across companies and years (for example, revenue tags changed after the 2018 revenue-recognition standard). That is why the concept map has priorities. Restatements are why `filed_at` matters: without it a backtest silently uses numbers nobody had at the time.
+
+**Implementation notes (M1, oct.14.2026).** Decisions made while building, beyond the tasks above:
+
+- **Schema.** `financial_facts` has a surrogate `fact_id` and a unique index on `(cik, xbrl_concept, unit, COALESCE(period_start,''), period_end, accession_no)`, because SQLite treats NULLs as distinct and a plain key would let duplicate balance-sheet facts in. `concepts.xbrl_concept` is unique and referenced by `financial_facts`, so unmapped tags can't be stored.
+- **Fiscal labels** come from each filing's own period (the end date most of its facts share), not from the JSON's `fy`/`fp`, which describe the filing: a comparative in the FY2024 10-K carries `fy=2024`. Earlier periods are placed whole years back, with a few days' tolerance for 52/53-week years. Labels: Q1–Q4 and FY, plus H1 and M9 for year-to-date durations.
+- **Point-in-time selection.** For each period, take the newest filing public on `as_of` (the earliest in `first_reported` mode), then the highest-priority tag within that filing. Choosing the filing first means a restatement filed under a different tag still takes effect.
+- **Derived quarters** (Q2 = H1 − Q1, Q3 = M9 − H1, Q4 = FY − M9) are computed at query time from the inputs selected for that date, never stored. A derived value's `filed_at` is its latest input's, it lists its input filings, and it is flagged when it mixes restated and first-reported inputs. Only USD flows are derived: weighted-average shares are not additive.
+- **API.** `get_facts(conn, cik, names, as_of, mode="latest"|"first_reported", frequency="reported"|"quarterly"|"annual")`.
+- **Concept map** (`domains/fundamentals/concept_map.csv`): one precise definition per canonical item; only tags with the same meaning share a name. Owner decisions: restricted-cash-inclusive cash and basic shares are priority-2 fallbacks; `operating_expenses` stays strict. Debt is stored as components (non-current, current portion, short-term borrowings, commercial paper) for M2 to sum.
+- **Universe** (`domains/fundamentals/universe.py`): AAPL, MSFT, WMT, KO, PG, JNJ, CAT, XOM. XOM is pinned to CIK 0000034088 (Exxon Mobil Corp), the registrant before the 2026-07-01 holding-company reorganisation; the ticker now maps to ExxonMobil Holdings Corp, whose filings start in 2026.
+- **Gaps** are documented in `domains/fundamentals/known_gaps.csv` with a basis: `[annual only]`, `[not presented]`, `[extension tag]`, `[different line]`, `[bundled]` or `[inferred]`. The `[inferred]` ones (mostly debt balances absent for some periods) were not verified filing by filing.
+- **Result.** 8 companies, 24,770 facts, 0 unexplained gaps for FY2016–FY2025. Spot check on MSFT FY2017 Q1 revenue (restated for ASC 606 on 2017-10-26): as of 2016-10-19 no value; as of 2017-10-25 20,453M; as of 2017-10-26 21,928M (restated); `first_reported` 20,453M.
 
 ### M2 — Deterministic Forecast and DCF Engine
 
@@ -333,3 +345,7 @@ load_fundamentals → build_baseline → fetch_news → cluster_events
 | Yahoo Finance interface changes or breaks | Small adapter plus local cache; only used for beta and comparison (M2) |
 | Decision 1 (models and keys) still open | Decide before M6 |
 | Telemetry details still open | Decide during M7 |
+| SEC companyfacts omits company-specific (extension) and dimensional tags: no cash-flow D&A for MSFT, no interest expense for CAT, no quarterly pretax income for PG (M1) | Documented as known gaps; M2 decides whether to parse full XBRL filings or use fallbacks |
+| JNJ and XOM present no operating income line (M1) | M2 derives EBIT from other lines, as a documented `computed` assumption |
+| Debt components absent for some periods (M1) | M2 treats a missing component as zero, with a warning |
+| XOM history sits on the predecessor CIK; filings from Q3 2026 are on the new holding company (M1) | Link predecessor and successor before analysing XOM dates after 2026-07-01 |

@@ -27,4 +27,13 @@ ruff check .            # lint
 ruff format .           # format
 ```
 
+## Fundamentals data (M1)
+
+```bash
+python -m domains.fundamentals ingest --all     # download the Phase 1 universe from SEC EDGAR (cached in data/raw/edgar/)
+python -m domains.fundamentals report --all     # data-quality reports in data/reports/quality/; exits 1 on any unexplained gap
+```
+
+Query point-in-time facts with `domains.fundamentals.facts.get_facts(conn, cik, ["revenue"], as_of="2024-06-30", frequency="quarterly")`.
+
 Local data (the SQLite database, logs, raw downloads and reports) lives in `data/`, which is git-ignored.
