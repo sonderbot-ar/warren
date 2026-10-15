@@ -1,0 +1,31 @@
+canonical_name,xbrl_concept,priority,unit,period_type,definition,note
+revenue,us-gaap:Revenues,1,USD,duration,"Total revenue (top line of the income statement), as reported.",Preferred within a filing because it is the total when a filing also tags a contract-revenue subtotal (e.g. WMT).
+revenue,us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax,2,USD,duration,"Total revenue (top line of the income statement), as reported.",Post-2018 (ASC 606) tag; the top line for AAPL MSFT JNJ.
+revenue,us-gaap:SalesRevenueNet,3,USD,duration,"Total revenue (top line of the income statement), as reported.",Pre-2018 tag.
+revenue,us-gaap:SalesRevenueGoodsNet,4,USD,duration,"Total revenue (top line of the income statement), as reported.",Pre-2018 top line for KO JNJ; ranked below SalesRevenueNet because MSFT used it for product revenue only.
+cost_of_revenue,us-gaap:CostOfRevenue,1,USD,duration,"Total cost of revenue (cost of goods and services sold).",
+cost_of_revenue,us-gaap:CostOfGoodsAndServicesSold,2,USD,duration,"Total cost of revenue (cost of goods and services sold).",
+cost_of_revenue,us-gaap:CostOfGoodsSold,3,USD,duration,"Total cost of revenue (cost of goods and services sold).",Pre-2018 tag; ranked last because MSFT used it for product cost only.
+operating_expenses,us-gaap:OperatingExpenses,1,USD,duration,"Operating expenses excluding cost of revenue (e.g. R&D plus SG&A).",JUDGMENT: most companies tag only SG&A; CostsAndExpenses (includes cost of revenue) is deliberately not mapped.
+operating_income,us-gaap:OperatingIncomeLoss,1,USD,duration,"Operating income (loss): revenue minus cost of revenue and operating expenses.",
+income_tax_expense,us-gaap:IncomeTaxExpenseBenefit,1,USD,duration,"Income tax expense (benefit) on continuing operations.",
+pretax_income,us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest,1,USD,duration,"Income from continuing operations before income taxes.",
+pretax_income,us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments,2,USD,duration,"Income from continuing operations before income taxes.",JUDGMENT: older tag that MSFT WMT JNJ used for the same income-statement line before retagging around 2021-22.
+depreciation_amortization,us-gaap:DepreciationDepletionAndAmortization,1,USD,duration,"Depreciation, depletion and amortization from the cash-flow statement.",
+depreciation_amortization,us-gaap:DepreciationAmortizationAndAccretionNet,2,USD,duration,"Depreciation, depletion and amortization from the cash-flow statement.",Includes small accretion amounts.
+depreciation_amortization,us-gaap:DepreciationAndAmortization,3,USD,duration,"Depreciation, depletion and amortization from the cash-flow statement.",
+capex,us-gaap:PaymentsToAcquirePropertyPlantAndEquipment,1,USD,duration,"Cash paid for capital expenditures (property, plant and equipment).",
+capex,us-gaap:PaymentsToAcquireProductiveAssets,2,USD,duration,"Cash paid for capital expenditures (property, plant and equipment).",JUDGMENT: CAT 2015-19; includes equipment leased to others.
+cash,us-gaap:CashAndCashEquivalentsAtCarryingValue,1,USD,instant,"Cash and cash equivalents at period end, excluding restricted cash.",JUDGMENT: the restricted-cash-inclusive tag is not mapped; PG (2020+) and CAT (2018-20) then have gaps.
+debt_noncurrent,us-gaap:LongTermDebtNoncurrent,1,USD,instant,"Long-term debt, non-current portion, at period end.",
+debt_noncurrent,us-gaap:LongTermDebtAndCapitalLeaseObligations,2,USD,instant,"Long-term debt, non-current portion, at period end.",JUDGMENT: includes finance-lease obligations; KO 2024+.
+debt_current,us-gaap:LongTermDebtCurrent,1,USD,instant,"Current portion of long-term debt at period end.",DebtCurrent is deliberately not mapped: it bundles short-term borrowings and commercial paper (double count).
+debt_current,us-gaap:LongTermDebtAndCapitalLeaseObligationsCurrent,2,USD,instant,"Current portion of long-term debt at period end.",JUDGMENT: includes finance-lease obligations; KO 2024+.
+short_term_borrowings,us-gaap:ShortTermBorrowings,1,USD,instant,"Short-term borrowings (loans and notes payable) at period end.",
+commercial_paper,us-gaap:CommercialPaper,1,USD,instant,"Commercial paper outstanding at period end.",
+diluted_shares,us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding,1,shares,duration,"Weighted-average diluted shares outstanding for the period.",
+current_assets,us-gaap:AssetsCurrent,1,USD,instant,"Total current assets at period end.",
+current_liabilities,us-gaap:LiabilitiesCurrent,1,USD,instant,"Total current liabilities at period end.",
+interest_expense,us-gaap:InterestExpense,1,USD,duration,"Interest expense recognised in the income statement.",InterestPaidNet (cash paid) is deliberately not mapped.
+interest_expense,us-gaap:InterestExpenseNonoperating,2,USD,duration,"Interest expense recognised in the income statement.",2024+ taxonomy tag for the same line.
+interest_expense,us-gaap:InterestExpenseDebt,3,USD,duration,"Interest expense recognised in the income statement.",JUDGMENT: WMT; interest on debt only (finance-lease interest excluded).
