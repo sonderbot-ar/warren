@@ -35,7 +35,7 @@ Durations are indicative, assuming part-time work (roughly 8–12 hours a week).
 | Milestone | Focus | Weeks | Indicative dates | Depends on | Status |
 |---|---|---|---|---|---|
 | M0 | Foundations and documentation | 1 | oct.19 – oct.25 | — | **Done** (oct.14.2026) |
-| M1 | Fundamentals data layer (EDGAR, point-in-time) | 2 | oct.26 – nov.08 | M0 | Not started |
+| M1 | Fundamentals data layer (EDGAR, point-in-time) | 2 | oct.26 – nov.08 | M0 | In progress (started oct.14.2026) |
 | M2 | Deterministic forecast and DCF engine | 2 | nov.09 – nov.22 | M1 | Not started |
 | M3 | Evaluation harness v1 (baseline only) | 1.5 | nov.23 – dec.03 | M2 | Not started |
 | M4 | Shock model and Monte Carlo (manual shocks) | 1.5 | dec.04 – dec.13 | M2 | Not started |
