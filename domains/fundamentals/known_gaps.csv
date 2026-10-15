@@ -1,0 +1,39 @@
+ticker,canonical_name,fiscal_years,periods,reason
+AAPL,short_term_borrowings,*,*,[not presented] Apple has no short-term borrowings line; its short-term debt is commercial paper.
+AAPL,commercial_paper,2020,Q2;Q3,[inferred] No CommercialPaper fact at these two quarter ends although the quarters either side report one; not tagged as a plain balance in those 10-Qs.
+AAPL,interest_expense,2024-2025,*,[inferred] No interest-expense tag after FY2023; Apple folds interest into other income/(expense) without a separate figure.
+MSFT,operating_expenses,2016-2024,*,[not presented] No total operating-expense line excluding cost of revenue before FY2025 (only components).
+MSFT,depreciation_amortization,*,*,"[extension tag] The cash-flow line 'Depreciation, amortization, and other' uses a company-specific tag; us-gaap:Depreciation is the narrower PP&E note figure (FY2024 15.2B vs 22.3B) and is not mapped."
+MSFT,debt_current,2017,Q1,[inferred] Not tagged at 2016-09-30; reported as 0 at the prior year-end and 599M at the next quarter.
+MSFT,short_term_borrowings,2019-2025,*,[inferred] No short-term borrowings presented after FY2018.
+MSFT,commercial_paper,2020-2023,*,[inferred] No commercial paper presented from FY2020 until the FY2023 year-end.
+WMT,operating_expenses,*,*,[not presented] Walmart presents operating SG&A only; no total operating-expense line excluding cost of revenue.
+WMT,commercial_paper,*,*,[bundled] Commercial paper is included in 'Short-term borrowings' and not tagged separately.
+KO,operating_expenses,*,*,[not presented] Coca-Cola presents SG&A and other operating charges; no total operating-expense line excluding cost of revenue.
+KO,short_term_borrowings,*,*,[bundled] 'Loans and notes payable' (NotesAndLoansPayable) includes commercial paper and is not mapped to avoid double counting; ShortTermBorrowings appears only in some 10-K notes.
+KO,commercial_paper,2016-2022,Q1;Q2;Q3,[annual only] Commercial paper is disclosed only in the 10-K debt note before FY2023.
+PG,operating_expenses,*,*,[not presented] P&G presents SG&A only; no total operating-expense line excluding cost of revenue.
+PG,pretax_income,*,Q1;Q2;Q3;Q4,[extension tag] Quarterly pretax income is not tagged with a us-gaap concept in P&G's 10-Qs.
+PG,pretax_income,2016-2021,FY,[extension tag] Before FY2022 the income-statement pretax line used a company-specific tag (only the domestic/foreign split is us-gaap).
+PG,debt_current,*,Q1;Q2;Q3,"[annual only] The current portion of long-term debt is disclosed only in the 10-K debt note; 10-Qs show 'Debt due within one year' (DebtCurrent, not mapped because it bundles commercial paper)."
+PG,short_term_borrowings,*,*,"[bundled] Short-term debt is presented only within 'Debt due within one year' (DebtCurrent), which is not mapped."
+PG,commercial_paper,*,Q1;Q2;Q3,[annual only] Commercial paper is disclosed only in the 10-K debt note.
+JNJ,operating_expenses,*,*,[not presented] J&J presents SG&A and R&D separately; no total operating-expense line excluding cost of revenue.
+JNJ,operating_income,*,*,[not presented] J&J's income statement has no operating income subtotal (it goes from expenses to earnings before taxes).
+JNJ,debt_current,*,Q1;Q2;Q3,[annual only] The current portion of long-term debt is disclosed only in the 10-K; quarterly it is within 'Loans and notes payable' (short_term_borrowings).
+JNJ,debt_current,2019,Q4;FY,[inferred] Not tagged at the FY2019 year-end; reported in the years either side.
+JNJ,commercial_paper,*,*,[bundled] Commercial paper is included in 'Loans and notes payable' (short_term_borrowings) and not tagged as a balance.
+CAT,operating_expenses,2020-2025,*,"[not presented] From FY2020 Caterpillar tags only total costs including cost of revenue (CostsAndExpenses, not mapped)."
+CAT,cash,2016,Q1;Q2;Q3,"[different line] The FY2016 10-Qs present 'Cash and short-term investments' (CashCashEquivalentsAndShortTermInvestments), which is not mapped."
+CAT,debt_noncurrent,*,Q1;Q2;Q3,[annual only] Total long-term debt is tagged only at year-end; quarterly it is split by segment (Machinery/Financial Products) with dimensions that companyfacts omits.
+CAT,debt_current,*,*,"[extension tag] 'Long-term debt due within one year' is reported only by segment (dimensional facts), which companyfacts omits."
+CAT,short_term_borrowings,*,Q1;Q2;Q3,[annual only] Total short-term borrowings are tagged only at year-end; quarterly they are split by segment.
+CAT,commercial_paper,*,*,[bundled] Commercial paper is included in short-term borrowings (mainly Cat Financial) and not tagged as a balance.
+CAT,interest_expense,*,*,[extension tag] 'Interest expense excluding Financial Products' uses a company-specific tag.
+XOM,revenue,2016,Q1;Q2;Q3;Q4,[extension tag] The FY2016 10-Qs do not tag total revenue with a us-gaap concept (us-gaap:Revenues appears in 10-Qs from FY2017); without the nine-month figure Q4 can't be derived.
+XOM,cost_of_revenue,*,*,"[not presented] ExxonMobil presents costs by category (purchases, production, etc.); no cost of revenue line."
+XOM,operating_expenses,*,*,[not presented] No total operating-expense line excluding cost of revenue.
+XOM,operating_income,*,*,[not presented] ExxonMobil's income statement has no operating income subtotal.
+XOM,debt_current,*,Q1;Q2;Q3,"[annual only] The current portion of long-term debt is disclosed only in the 10-K; 10-Qs show 'Notes and loans payable' (DebtCurrent, not mapped because it bundles components)."
+XOM,short_term_borrowings,*,Q1;Q2;Q3,[annual only] Short-term bank loans and notes payable are disclosed only in the 10-K; 10-Qs show the bundled DebtCurrent.
+XOM,commercial_paper,*,Q1;Q2;Q3,[annual only] Commercial paper is disclosed only in the 10-K debt note.

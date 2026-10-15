@@ -4,6 +4,12 @@
 # Schemas and validation (shared_kernel/schemas.py)
 pydantic==2.14.1
 
+# Settings from .env (shared_kernel/config.py)
+python-dotenv==1.2.4
+
+# SEC EDGAR client (domains/fundamentals/edgar_client.py)
+requests==2.34.2
+
 # Development: tests, lint and format
 pytest==9.1.1
 ruff==0.17.0
