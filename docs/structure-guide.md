@@ -52,7 +52,7 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 | 2 | State management: SQLite, typed fact table, small data in graph state | **Accepted** (replaces EAV) | oct.14.2026 |
 | 3 | Data processing: SQLite only, no vector database | **Accepted** (replaces ChromaDB) | oct.14.2026 |
 | 4 | Deterministic math engine with explicit, sourced assumptions | **Accepted** (strengthened) | oct.14.2026 |
-| 5 | Telemetry: local JSON log file | Accepted (details under review) | sep.24.2026 |
+| 5 | Telemetry: local JSON log file | Accepted (details under review; timestamp bug fixed) | oct.14.2026 |
 | 6 | Shock model: event taxonomy, time-shaped and probabilistic shocks | **Accepted** | oct.14.2026 |
 | 7 | Evaluation harness on point-in-time data | **Accepted** | oct.14.2026 |
 | 8 | Data sources: SEC EDGAR, Yahoo Finance, GDELT | **Accepted** | oct.14.2026 |
@@ -99,7 +99,7 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 
 - **Decision:** The decoupled observer records system health and token usage by appending JSON lines to a local log file, rather than calling an external API.
 - **Reasoning:** Writing to a local file avoids network-related bugs during the initial build. Once the orchestrator and database are stable, the emitter can be swapped for an API-based system.
-- **Known issue:** `TelemetryEvent.timestamp` currently uses `default_factory=datetime`, which raises an error. The fix (a timezone-aware "now") will be applied with the first code change.
+- **Known issue (fixed oct.14.2026, M0):** `TelemetryEvent.timestamp` used `default_factory=datetime`, which raised an error. It now defaults to a timezone-aware UTC "now".
 - **Proposed additions (under review):** record model name, input and output tokens separately, cost and latency per call.
 
 ### Decision 6 — Shock Model · *Accepted*
