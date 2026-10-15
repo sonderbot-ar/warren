@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Warren local data: database, logs, raw downloads, reports
+data/
