@@ -34,7 +34,7 @@ Durations are indicative, assuming part-time work (roughly 8–12 hours a week).
 
 | Milestone | Focus | Weeks | Indicative dates | Depends on | Status |
 |---|---|---|---|---|---|
-| M0 | Foundations and documentation | 1 | oct.19 – oct.25 | — | Not started |
+| M0 | Foundations and documentation | 1 | oct.19 – oct.25 | — | **Done** (oct.14.2026) |
 | M1 | Fundamentals data layer (EDGAR, point-in-time) | 2 | oct.26 – nov.08 | M0 | Not started |
 | M2 | Deterministic forecast and DCF engine | 2 | nov.09 – nov.22 | M1 | Not started |
 | M3 | Evaluation harness v1 (baseline only) | 1.5 | nov.23 – dec.03 | M2 | Not started |
@@ -160,6 +160,7 @@ assumptions(run_id TEXT REFERENCES runs, name TEXT, period TEXT, value REAL,
 
 - **`financial_math.py` (pure functions, no I/O):** project revenue and operating income from drivers; unlevered free cash flow = EBIT × (1 − tax) + D&A − capex − ΔNWC; discount factors for a time-varying discount rate; Gordon-growth terminal value; enterprise value to equity value (minus net debt) to value per diluted share; CAPM cost of equity; WACC.
 - **Cost of capital:** beta estimated from Yahoo Finance returns of the stock against a broad index over a documented window; risk-free rate from a Treasury yield series; equity risk premium is a `user` assumption (never defaulted silently); cost of debt from interest expense over average debt; weights from market value of equity and book debt. Price data is cached in a `prices` table and used for nothing else.
+- **Existing work on the `finance` branch (decided oct.14.2026):** the branch stays unmerged. Its pure ratio library `financial_math.py` moves into `domains/analysis/` with tests here in M2. Its EAV-based `math_engine.py` is discarded and rewritten against `financial_facts`.
 - **`math_engine.py`:** pulls point-in-time facts (M1) and prices, pivots them into DataFrames, computes baseline drivers and calls `financial_math.py`.
 - **Sanity checks (raise errors):** terminal growth ≥ discount rate; non-positive diluted shares; missing required inputs. **Warnings:** terminal value above a set share of enterprise value; margins outside the company's historical range by a wide margin.
 
