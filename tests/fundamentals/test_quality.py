@@ -59,3 +59,14 @@ def test_markdown_shows_grid_tags_and_gap_lists(ingested, two_years):
 
 def test_shipped_known_gaps_file_loads():
     assert isinstance(quality.load_known_gaps(), list)
+
+
+def test_unquoted_comma_in_a_reason_is_reported_with_its_line(tmp_path):
+    path = tmp_path / "gaps.csv"
+    path.write_text(
+        "ticker,canonical_name,fiscal_years,periods,reason\n"
+        'TST,cash,*,*,"Quoted, fine."\n'
+        "TST,capex,*,*,Unquoted, broken.\n"
+    )
+    with pytest.raises(ValueError, match="line 3"):
+        quality.load_known_gaps(path)

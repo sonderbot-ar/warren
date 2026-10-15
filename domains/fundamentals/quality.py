@@ -42,8 +42,13 @@ class KnownGap:
 
 
 def load_known_gaps(path: Path = KNOWN_GAPS_PATH) -> list[KnownGap]:
+    gaps = []
     with open(path, newline="") as f:
-        return [KnownGap(**{k: v.strip() for k, v in row.items()}) for row in csv.DictReader(f)]
+        for line, row in enumerate(csv.DictReader(f), start=2):
+            if None in row or None in row.values():
+                raise ValueError(f"{path.name} line {line}: wrong number of fields (quote commas)")
+            gaps.append(KnownGap(**{k: v.strip() for k, v in row.items()}))
+    return gaps
 
 
 @dataclass(frozen=True)
