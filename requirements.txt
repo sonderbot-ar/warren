@@ -1,0 +1,9 @@
+# Pinned dependencies. Install with: pip install -r requirements.txt
+# Add each new dependency in the milestone that first uses it (see docs/build-plan.md).
+
+# Schemas and validation (shared_kernel/schemas.py)
+pydantic==2.14.1
+
+# Development: tests, lint and format
+pytest==9.1.1
+ruff==0.17.0

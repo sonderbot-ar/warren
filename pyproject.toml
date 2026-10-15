@@ -1,0 +1,17 @@
+[project]
+name = "warren"
+version = "0.0.1"
+description = "Fundamental financial analysis engine: point-in-time fundamentals, DCF and time-shaped news shocks."
+requires-python = ">=3.11"
+# Pinned dependencies live in requirements.txt.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
