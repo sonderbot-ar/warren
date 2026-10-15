@@ -1,0 +1,101 @@
+from datetime import date
+
+import pytest
+
+from domains.fundamentals.edgar_client import EdgarError
+from domains.fundamentals.ingest import (
+    CalendarEntry,
+    build_filing_calendar,
+    ingest_company,
+    label_fact,
+)
+from tests.fundamentals.conftest import TEST_CIK, FakeEdgar
+
+
+def facts_for(conn, tag, end, start=None):
+    return conn.execute(
+        "SELECT value, fiscal_year, fiscal_period, accession_no FROM financial_facts "
+        "WHERE xbrl_concept = ? AND period_end = ? AND COALESCE(period_start, '') = ? "
+        "ORDER BY filed_at",
+        (f"us-gaap:{tag}", end, start or ""),
+    ).fetchall()
+
+
+def test_filing_calendar_labels_each_filing_period():
+    calendar = build_filing_calendar(FakeEdgar().facts)
+    assert [(e.end.isoformat(), e.fiscal_year, e.quarter) for e in calendar] == [
+        ("2023-12-31", 2023, 4),
+        ("2024-03-31", 2024, 1),
+        ("2024-06-30", 2024, 2),
+        ("2024-09-30", 2024, 3),
+        ("2024-12-31", 2024, 4),
+        ("2025-12-31", 2025, 4),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("start", "end", "expected"),
+    [
+        ("2024-01-01", "2024-03-31", (2024, "Q1", None)),
+        ("2024-01-01", "2024-06-30", (2024, "H1", None)),
+        ("2024-01-01", "2024-09-30", (2024, "M9", None)),
+        ("2024-01-01", "2024-12-31", (2024, "FY", None)),
+        (None, "2024-06-30", (2024, "Q2", None)),
+        (None, "2024-12-31", (2024, "FY", None)),
+        ("2023-01-01", "2023-03-31", (2023, "Q1", None)),  # placed one year before 2024 Q1
+        ("2025-11-01", "2025-12-31", (None, None, "odd_duration")),
+        ("2023-07-01", "2024-06-30", (None, None, "non_ytd_duration")),  # trailing 12 months
+    ],
+)
+def test_label_fact(start, end, expected):
+    calendar = build_filing_calendar(FakeEdgar().facts)
+    assert label_fact(calendar, start, end) == expected
+
+
+def test_52_53_week_ends_within_tolerance_share_a_label():
+    calendar = [CalendarEntry(end=date(2025, 9, 27), fiscal_year=2025, quarter=4)]
+    assert label_fact(calendar, None, "2025-09-29") == (2025, "FY", None)
+    assert label_fact(calendar, "2023-10-01", "2024-09-28") == (2024, "FY", None)
+
+
+def test_comparative_gets_its_own_fiscal_year_not_the_filings(ingested):
+    conn, _ = ingested
+    # the FY2024 10-K reports FY2023 revenue with fy=2024 in the JSON
+    rows = facts_for(conn, "Revenues", "2023-12-31", "2023-01-01")
+    assert [(r["fiscal_year"], r["fiscal_period"]) for r in rows] == [(2023, "FY")]
+
+
+def test_every_filing_version_is_kept(ingested):
+    conn, _ = ingested
+    rows = facts_for(conn, "Revenues", "2024-12-31", "2024-01-01")
+    assert [r["value"] for r in rows] == [460.0, 455.0]  # original, then restated
+
+
+def test_unmapped_tags_8k_facts_and_odd_durations_are_skipped(ingested):
+    conn, result = ingested
+    tags = {r[0] for r in conn.execute("SELECT DISTINCT xbrl_concept FROM financial_facts")}
+    assert "us-gaap:SomethingElse" not in tags
+    forms = {r[0] for r in conn.execute("SELECT DISTINCT form FROM financial_facts")}
+    assert "8-K" not in forms
+    assert result.skipped["form"] == 1
+    assert result.skipped["odd_duration"] == 1
+
+
+def test_reingest_adds_nothing(ingested):
+    conn, first = ingested
+    second = ingest_company(conn, "TST", client=FakeEdgar())
+    assert first.facts_new == first.facts_kept > 0
+    assert second.facts_new == 0
+    assert second.facts_kept == first.facts_kept
+
+
+def test_company_row_and_aliases(ingested):
+    conn, _ = ingested
+    row = conn.execute("SELECT * FROM companies WHERE cik = ?", (TEST_CIK,)).fetchone()
+    assert row["ticker"] == "TST"
+    assert row["aliases_json"] == '["Test Corp", "Test Holdings"]'
+
+
+def test_financial_company_is_rejected(conn):
+    with pytest.raises(EdgarError, match="outside the Phase 1 universe"):
+        ingest_company(conn, "BNK", client=FakeEdgar(sic="6021"))
