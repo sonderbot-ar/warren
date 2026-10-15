@@ -1,12 +1,11 @@
 import re
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 
-# absolute paths to the data folder and the migrations folder
-PROJECT_ROOT = Path(__file__).parent.parent
-DB_PATH = PROJECT_ROOT / "data" / "warren.db"
+from shared_kernel.config import DB_PATH
+
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 # migration files are named NNNN_description.sql, e.g. 0001_init.sql
@@ -14,7 +13,7 @@ MIGRATION_PATTERN = re.compile(r"^(\d{4})_[a-z0-9_]+\.sql$")
 
 
 @contextmanager
-def get_db_connection(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
+def get_db_connection(db_path: Path | None = None) -> Generator[sqlite3.Connection, None, None]:
     """Atomic context manager that ensures a connection is SAFELY closed even if an agent crashes.
 
     Every connection runs in WAL mode (readers are not blocked by a writer) with foreign keys on.
