@@ -151,24 +151,32 @@ def _quarters_for_flow(year: dict[str, Fact]) -> list[Fact]:
     return [q[p] for p in ("Q1", "Q2", "Q3", "Q4") if p in q]
 
 
-def _quarterly(facts: list[Fact]) -> list[Fact]:
-    years: dict[tuple, dict[str, Fact]] = defaultdict(dict)
-    quarters = []
+def _one_per_period(facts: list[Fact]) -> list[Fact]:
+    """One fact per (item, fiscal year, fiscal period); unplaced facts are dropped.
+
+    Two dated facts can share a label: an amended filing's cover page repeats shares outstanding
+    under a later date, and rarely two balance-sheet dates fall in one period. The later one wins.
+    """
+    best: dict[tuple, Fact] = {}
     for fact in facts:
         if fact.fiscal_year is None:
             continue  # periods that couldn't be placed in the fiscal calendar
+        key = (fact.canonical_name, fact.fiscal_year, fact.fiscal_period, fact.period_start is None)
+        if key not in best or fact.period_end > best[key].period_end:
+            best[key] = fact
+    return list(best.values())
+
+
+def _quarterly(facts: list[Fact]) -> list[Fact]:
+    years: dict[tuple, dict[str, Fact]] = defaultdict(dict)
+    quarters = []
+    for fact in _one_per_period(facts):
         if fact.period_start is None:  # balance-sheet item: the Q4 balance is the year-end one
             if fact.fiscal_period == "FY":
                 fact = fact.model_copy(update={"fiscal_period": "Q4"})
             quarters.append(fact)
         else:
-            year = years[(fact.canonical_name, fact.fiscal_year)]
-            # two reported periods can share a label (rare); keep the later-ending one
-            if (
-                fact.fiscal_period not in year
-                or fact.period_end > year[fact.fiscal_period].period_end
-            ):
-                year[fact.fiscal_period] = fact
+            years[(fact.canonical_name, fact.fiscal_year)][fact.fiscal_period] = fact
     for year in years.values():
         quarters.extend(_quarters_for_flow(year))
     return sorted(quarters, key=lambda f: (f.canonical_name, f.period_end))
@@ -192,7 +200,8 @@ def get_facts(
     if frequency == "reported":
         return facts
     if frequency == "annual":
-        return [f for f in facts if f.fiscal_period == "FY"]
+        annual = _one_per_period([f for f in facts if f.fiscal_period == "FY"])
+        return sorted(annual, key=lambda f: (f.canonical_name, f.period_end))
     if frequency == "quarterly":
         return _quarterly(facts)
     raise ValueError(f"Unknown frequency: {frequency!r}")

@@ -79,6 +79,30 @@ def build_filing_calendar(facts_json: dict[str, Any]) -> list[CalendarEntry]:
     A filing's own period is the end date most of its facts share (comparatives are a minority).
     When filings disagree about an end date, the majority label wins.
     """
+    votes: dict[date, Counter] = defaultdict(Counter)
+    for primary_end, fy, fp in _primary_periods(facts_json).values():
+        votes[primary_end][(fy, FP_TO_QUARTER[fp])] += 1
+
+    entries = []
+    for end, counter in sorted(votes.items()):
+        (fy, quarter), _ = counter.most_common(1)[0]
+        entries.append(CalendarEntry(end=end, fiscal_year=fy, quarter=quarter))
+    return entries
+
+
+def filing_periods(
+    facts_json: dict[str, Any], calendar: list[CalendarEntry]
+) -> dict[str, tuple[int, int]]:
+    """accession -> (fiscal_year, quarter) of the filing's own period, placed in the calendar."""
+    placed = {
+        accn: place_period_end(calendar, primary_end)
+        for accn, (primary_end, _fy, _fp) in _primary_periods(facts_json).items()
+    }
+    return {accn: p for accn, p in placed.items() if p is not None}
+
+
+def _primary_periods(facts_json: dict[str, Any]) -> dict[str, tuple[date, int, str]]:
+    """accession -> (its own period end, the filing's fy, the filing's fp)."""
     ends_by_accession: dict[str, Counter] = defaultdict(Counter)
     label_by_accession: dict[str, tuple[int, str]] = {}
     for taxonomy, _tag, _unit, row in _iter_facts(facts_json):
@@ -89,18 +113,12 @@ def build_filing_calendar(facts_json: dict[str, Any]) -> list[CalendarEntry]:
         ends_by_accession[row["accn"]][row["end"]] += 1
         label_by_accession.setdefault(row["accn"], (row["fy"], row["fp"]))
 
-    votes: dict[date, Counter] = defaultdict(Counter)
+    periods = {}
     for accn, ends in ends_by_accession.items():
         top = max(ends.values())
         primary_end = max(end for end, n in ends.items() if n == top)
-        fy, fp = label_by_accession[accn]
-        votes[date.fromisoformat(primary_end)][(fy, FP_TO_QUARTER[fp])] += 1
-
-    entries = []
-    for end, counter in sorted(votes.items()):
-        (fy, quarter), _ = counter.most_common(1)[0]
-        entries.append(CalendarEntry(end=end, fiscal_year=fy, quarter=quarter))
-    return entries
+        periods[accn] = (date.fromisoformat(primary_end), *label_by_accession[accn])
+    return periods
 
 
 def place_period_end(calendar: list[CalendarEntry], end: date) -> tuple[int, int] | None:
@@ -148,6 +166,16 @@ def label_fact(
     return fy, label, None
 
 
+def label_cover_fact(
+    filing_period: tuple[int, int] | None,
+) -> tuple[int | None, str | None, str | None]:
+    """Label a cover-page fact with its filing's own (fiscal_year, quarter)."""
+    if filing_period is None:
+        return None, None, None
+    fy, quarter = filing_period
+    return fy, ("FY" if quarter == 4 else f"Q{quarter}"), None
+
+
 # -- ingestion -------------------------------------------------------------------------------
 
 UPSERT_COMPANY = """
@@ -183,6 +211,7 @@ def extract_facts(
     """Rows for financial_facts: mapped concepts only, every filing's version, labelled."""
     by_tag = {(c.taxonomy, c.tag): c for c in concepts}
     calendar = build_filing_calendar(facts_json)
+    own_period = filing_periods(facts_json, calendar)
     result.calendar_entries = len(calendar)
 
     rows: dict[tuple, tuple] = {}
@@ -204,7 +233,12 @@ def extract_facts(
         if (start is None) != (concept.period_type == "instant"):
             result.skipped["period_type"] += 1
             continue
-        fy, fp, reason = label_fact(calendar, start, fact["end"])
+        if taxonomy == "dei":
+            # cover-page facts are dated near the filing date, not at a period end: they take the
+            # fiscal period of the filing they appear in
+            fy, fp, reason = label_cover_fact(own_period.get(fact["accn"]))
+        else:
+            fy, fp, reason = label_fact(calendar, start, fact["end"])
         if reason:
             result.skipped[reason] += 1
             continue

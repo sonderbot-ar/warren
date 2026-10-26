@@ -128,6 +128,52 @@ def test_content_hash_ignores_key_order():
     assert content_sha256({"a": 1}) != content_sha256({"a": 2})
 
 
+def with_cover_shares(edgar):
+    """Add cover-page shares outstanding to the Q1 2024 10-Q and the FY2024 10-K (and a 10-K/A)."""
+
+    def cover(val, end, accn, form, filed, fy, fp):
+        return {"end": end, "val": val, "accn": accn, "fy": fy, "fp": fp, "form": form,
+                "filed": filed}  # fmt: skip
+
+    edgar.facts["facts"]["dei"] = {
+        "EntityCommonStockSharesOutstanding": {
+            "units": {
+                "shares": [
+                    cover(
+                        1000, "2024-04-20", "0000000123-24-000010", "10-Q", "2024-05-01", 2024, "Q1"
+                    ),
+                    cover(
+                        990, "2025-02-01", "0000000123-25-000001", "10-K", "2025-02-15", 2024, "FY"
+                    ),
+                    cover(
+                        985,
+                        "2025-03-10",
+                        "0000000123-25-000077",
+                        "10-K/A",
+                        "2025-03-20",
+                        2024,
+                        "FY",
+                    ),
+                ]
+            }
+        }
+    }
+    return edgar
+
+
+def test_cover_page_shares_take_their_filings_fiscal_period(conn):
+    ingest_company(conn, "TST", client=with_cover_shares(FakeEdgar()))
+    rows = conn.execute(
+        "SELECT period_end, fiscal_year, fiscal_period FROM financial_facts "
+        "WHERE xbrl_concept = 'dei:EntityCommonStockSharesOutstanding' ORDER BY period_end"
+    ).fetchall()
+    assert [tuple(r) for r in rows] == [
+        ("2024-04-20", 2024, "Q1"),  # a date between quarter ends, labelled by its filing
+        ("2025-02-01", 2024, "FY"),
+        ("2025-03-10", None, None),  # the 10-K/A has no other facts, so its period is unknown
+    ]
+
+
 def test_mid_quarter_balance_is_stored_without_a_label(conn):
     edgar = FakeEdgar()
     cash = edgar.facts["facts"]["us-gaap"]["CashAndCashEquivalentsAtCarryingValue"]["units"]["USD"]
