@@ -37,7 +37,7 @@ Durations are indicative, assuming part-time work (roughly 8–12 hours a week).
 | M0 | Foundations and documentation | 1 | oct.19 – oct.25 | — | **Done** (oct.14.2026) |
 | M1 | Fundamentals data layer (EDGAR, point-in-time) | 2 | oct.26 – nov.08 | M0 | **Done** (oct.14.2026) |
 | M1.1 | Fundamentals hardening (review of M1) | 0.5 | oct.26 – oct.29 | M1 | **Done** (oct.26.2026) |
-| M2 | Deterministic forecast and DCF engine | 2 | nov.09 – nov.22 | M1.1 | In progress (oct.26.2026; two PRs: inputs, then engine) |
+| M2 | Deterministic forecast and DCF engine | 2 | nov.09 – nov.22 | M1.1 | In progress (oct.26.2026): PR A (inputs) open; PR B (engine) next |
 | M3 | Evaluation harness v1 (baseline only) | 1.5 | nov.23 – dec.03 | M2 | Not started |
 | M4 | Shock model and Monte Carlo (manual shocks) | 1.5 | dec.04 – dec.13 | M2 | Not started |
 | M5 | News ingestion (GDELT) and event clustering | 2.5 | dec.14 – jan.03 | M1 | Not started |
@@ -188,13 +188,34 @@ assumptions(run_id TEXT REFERENCES runs, name TEXT, period TEXT, value REAL,
 
 - **`financial_math.py` (pure functions, no I/O):** project revenue and operating income from drivers; unlevered free cash flow = EBIT × (1 − tax) + D&A − capex − ΔNWC; discount factors for a time-varying discount rate; Gordon-growth terminal value; enterprise value to equity value (minus net debt) to value per diluted share; CAPM cost of equity; WACC.
 - **Cost of capital:** beta estimated from Yahoo Finance returns of the stock against a broad index over a documented window; risk-free rate from a Treasury yield series; equity risk premium is a `user` assumption (never defaulted silently); cost of debt from interest expense over average debt; weights from market value of equity and book debt. Price data is cached in a `prices` table and used for nothing else.
-- **Existing work on the `finance` branch (decided oct.14.2026):** the branch stays unmerged. Its pure ratio library `financial_math.py` moves into `domains/analysis/` with tests here in M2. Its EAV-based `math_engine.py` is discarded and rewritten against `financial_facts`.
+- **Existing work on the `finance` branch (decided oct.14.2026, narrowed oct.26.2026):** the branch stays unmerged. Only the formulas the DCF needs move into `domains/analysis/financial_math.py`, rewritten to raise errors instead of returning NaN; the other ratio functions stay on `finance` until a milestone uses them (owner decision D9). Its EAV-based `math_engine.py` is discarded and rewritten against `financial_facts`.
 - **`math_engine.py`:** pulls point-in-time facts (M1) and prices, pivots them into DataFrames, computes baseline drivers and calls `financial_math.py`.
 - **Sanity checks (raise errors):** terminal growth ≥ discount rate; non-positive diluted shares; missing required inputs. **Warnings:** terminal value above a set share of enterprise value; margins outside the company's historical range by a wide margin.
 
 **Tests:** every formula against hand-computed examples (a spreadsheet you build yourself is a great fixture); property tests (higher discount rate never raises value; zero growth and zero reinvestment reduce to a perpetuity); sanity checks fire when they should.
 
 **Exit criterion:** a baseline DCF for every Phase 1 company as of any date, reproducible to the cent from the stored assumptions.
+
+**Owner decisions (oct.26.2026)**, settled before any M2 code, from the M2 plan and the review of M1.1:
+
+- **D1 Securities.** Map marketable securities (current, non-current) and other short-term investments. Reverses the M1.1 choice: without them both net debt and operating working capital are wrong for AAPL and MSFT.
+- **D2 Growth basis and seasonality.** Annual growth from each 10-K's own current-vs-prior-year comparatives (one restatement basis per pair), 3-year average, fading linearly to terminal growth by year 5. Quarters grow from the same quarter a year earlier; a fiscal year listed under "Quarters vs full year" falls back to the full year × average seasonal share.
+- **D3 Net debt.** Debt components plus finance leases (skipped where the selected debt tag already includes them, KO 2024+), commercial paper only when short-term borrowings are absent, minus cash, marketable securities and other short-term investments. Operating leases excluded (GAAP EBIT already deducts lease cost). Minority interest subtracted after EV. A missing component counts as zero, with a warning.
+- **D4 Shares.** Value per share uses the latest cover-page shares outstanding, split-adjusted to the as-of date; weighted-average diluted shares are the fallback.
+- **D5 Risk-free rate.** FRED DGS10, the latest observation before the as-of date. Prices: the last close on or before the as-of date.
+- **D6 Beta.** 2 years of weekly total returns against the S&P 500 (`^GSPC`), Blume-adjusted.
+- **D7 User assumptions.** Equity risk premium and terminal growth are `user` assumptions in a tracked file, signed and dated by the owner; values confirmed before PR B.
+- **D8 Coverage fallbacks.** EBIT = pretax + interest expense (JNJ, XOM); D&A = depreciation + intangibles amortization (MSFT); pretax = domestic + foreign, else net income including NCI + tax (PG); cost of debt from cash interest paid (CAT). Each is a documented `computed` method.
+- **D9** Port only the formulas the DCF needs (see above).
+- **D10** Two PRs: A (inputs: data refresh, concept map, `financial_math.py`, market data) and B (engine, runs, CLI, real run). M2 is Done when B is merged.
+
+**Implementation notes, PR A (oct.26.2026)**
+
+- **Data refresh.** `ingest --all --refresh` once before any M2 number: two new 10-Qs (PG, JNJ), 78 new facts, no previously selected value changed; every `ingest_runs` row now has a fetch time.
+- **Concept map.** New items `marketable_securities_current` (4 tags), `marketable_securities_noncurrent` (2), `other_short_term_investments` (KO), and fallbacks `depreciation`, `amortization_intangibles`, `pretax_income_domestic`, `pretax_income_foreign`, `net_income_including_nci` (`ProfitLoss`; PG FY2020–21 tag neither pretax nor its split) and `interest_paid`. A `gate` column marks them `optional`: their gaps are listed in the quality report but never fail it, so no known-gap rows were added.
+- **Tag-change audit, now standing.** The quality report's "Newest filing disagrees with the selected value" section lists periods the newest filing reports only under a lower-ranked tag with a different value. On the refreshed data: 70 periods, all cash including restricted cash (cash-flow statement) and one XOM debt figure including leases; no restatement missed.
+- **`financial_math.py`.** Plain arithmetic (works on floats or numpy arrays), end-of-period discounting with a rate per period, terminal value from an annual cash flow, errors instead of NaN.
+- **Market data (migration `0004`).** `prices` (split-adjusted close, total-return close, split ratio), `yields`, and `market_fetches` (download time and content hash; a refresh replaces a symbol's rows). Queries refuse as-of dates after the download, and a row dated on the download day is dropped because it may be mid-session. Splits seen: AAPL 2014 (7:1) and 2020 (4:1), KO 2012 (2:1), WMT 2024 (3:1).
 
 **Learning notes:** a DCF is usually dominated by the terminal value, which is why the warning exists and why small changes to terminal growth or WACC move the result so much. Seeing that in your own numbers is one of the best lessons the engine will give you.
 
@@ -365,7 +386,10 @@ load_fundamentals → build_baseline → fetch_news → cluster_events
 | JNJ and XOM present no operating income line (M1) | M2 derives EBIT from other lines, as a documented `computed` assumption |
 | Debt components absent for some periods (M1) | M2 treats a missing component as zero, with a warning |
 | XOM history sits on the predecessor CIK; filings from Q3 2026 are on the new holding company (M1) | `CoverageWarning` from 2026-11-01 (M1.1); link predecessor and successor before analysing later XOM dates |
-| Marketable securities are not mapped (M1.1 owner decision); AAPL and MSFT hold large portfolios outside cash | M2's net debt overstates debt for AAPL and MSFT unless securities are added; decide in the M2 plan |
+| Marketable securities: mapped in M2 (D1); balance-sheet tagging varies (KO uses `MarketableSecurities` plus a separate short-term investments line) | Optional items in the concept map; checked against balance sheets for AAPL, MSFT, KO, JNJ, PG |
+| CAT's consolidated debt includes its captive finance arm (Cat Financial), which a free-cash-flow DCF does not model | Phase 1 accepts it and the DCF report says so; companyfacts has no non-dimensional split |
+| `ShortTermBorrowings` may already include commercial paper | M2 counts commercial paper only when short-term borrowings are absent (D3) |
+| MSFT D&A fallback (depreciation + intangibles amortization) excludes the 'other' in its cash-flow line | Slightly understates D&A; documented `computed` method |
 | Quarterly series can mix restatement vintages (13 item-years, M1.1 report) | M2 chooses the basis for growth rates (e.g. latest 10-K comparatives) |
 | Finance leases may also sit inside lease-inclusive debt tags (KO 2024+) | M2 must not count them twice in net debt |
 | `DepreciationAmortizationAndAccretionNet` differs from `DepreciationDepletionAndAmortization` for AAPL FY2015 (11.3B vs 9.2B) | Outside FY2016–FY2025 today; watch if the range extends |
