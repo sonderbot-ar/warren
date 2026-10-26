@@ -199,3 +199,14 @@ def test_fallback_backtest_compares_where_both_exist(company):
     assert len(ebit.gaps) >= 3 and ebit.median == pytest.approx(0.0)
     assert not ebit.flagged
     assert checks[("interest", "interest_paid")].gaps == []
+
+
+def test_shares_are_adjusted_only_for_splits_after_their_basis(company):
+    # a 2:1 split on 2020-04-17: after the Q1 quarter end (03-31) but before the 10-Q filing
+    # (04-30), whose share counts are therefore already restated, and before the cover date
+    company.execute(
+        "UPDATE prices SET split_ratio = 2 WHERE ticker = 'TST' AND date = '2020-04-17'"
+    )
+    result = build(company)
+    assert by_key(result)[("shares", "-")].value == 100
+    assert not any("differ from diluted" in w for w in result.warnings)

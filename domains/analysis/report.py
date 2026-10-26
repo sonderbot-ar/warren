@@ -107,7 +107,10 @@ def render(conn: sqlite3.Connection, run_id: str) -> str:
         lines.append(f"| {label} | " + " | ".join(_pct(a(name, p)) for p in periods) + " |")
     lines += [""]
     for name, label in DRIVER_LABELS.items():
-        lines.append(f"- **{label}**: {by_key[(name, periods[-1])].method}")
+        method = by_key[(name, periods[-1])].method
+        if name == "revenue_growth":
+            method = method.split(": ", 1)[1]  # drop "forecast year 5 of 5"
+        lines.append(f"- **{label}**: {method}")
     if "Q" in periods[0]:
         lines.append(f"- **Quarterly margins**: {by_key[('operating_margin', periods[0])].method}")
     seed = sorted((p, r) for (n, p), r in by_key.items() if n == dcf.SEED)

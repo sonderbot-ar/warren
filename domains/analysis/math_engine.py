@@ -171,8 +171,9 @@ def resolve(chain: str, get: Callable[[str], Fact | None], where: str) -> Resolv
     for i, items in enumerate(alternatives):
         facts = [get(item) for item in items]
         if all(f is not None for f in facts):
-            label = " + ".join(items)
-            method = ("fallback: " if i else "") + f"{label} = " + "; ".join(map(trace, facts))
+            method = "; ".join(map(trace, facts))
+            if i:
+                method = f"fallback: {' + '.join(items)} = {method}"
             return Resolved(sum(f.value for f in facts), method, fallback=i > 0)
     tried = " | ".join(" + ".join(items) for items in alternatives)
     raise EngineError(f"{chain} for {where}: none of the alternatives is reported ({tried})")
@@ -506,7 +507,10 @@ def _shares(
     """Cover-page shares outstanding, split-adjusted to the price date (D4); diluted as fallback."""
 
     def adjusted(fact: Fact) -> tuple[float, float]:
-        factor = price_split_factor(conn, result.ticker, fact.period_end, price.date)
+        # a cover-page count is as of its own date; statement share counts in a filing made
+        # after a split are already restated for it, so only later splits apply
+        basis = fact.period_end if fact.canonical_name == "shares_outstanding" else fact.filed_at
+        factor = price_split_factor(conn, result.ticker, basis, price.date)
         return fact.value * factor, factor
 
     cover = history.instants.get("shares_outstanding", [])
