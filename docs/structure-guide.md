@@ -97,6 +97,7 @@ These goals shape the design so the Phase 1 build does not block them, but none 
   - **Assumptions are explicit and sourced.** Every assumption (WACC, terminal growth, margins, growth rates) is an input record with a `source` field: `computed`, `user` or `llm_proposed`. Nothing is silently defaulted. ("Must be computed or asked, never assumed" becomes a rule enforced in code, not a comment.)
   - **Sanity checks that fail loudly.** Examples: terminal growth must be below WACC; shares outstanding must be positive; a warning when terminal value dominates total value.
   - **Cost-of-capital inputs are computed (oct.26.2026, M2).** The equity risk premium is the realized geometric premium of the S&P 500 Total Return over a 10-year Treasury bond's total return (built from DGS10, the same rate CAPM uses), over full years from 1989 to the last year ended before the as-of date. Terminal growth equals the risk-free rate at the as-of date. The owner sets the methods, not the numbers; each run stores the computed values with their years, standard error and data hashes. Limits (noise, procyclicality, window dependence) are listed in the build plan's risks.
+  - **Runs are reproducible from their rows (oct.26.2026, M2).** Every input of a DCF run, including the base values taken from filings and the reported history behind each driver, is an assumption row with its rule, tag and filing; the valuation is a pure function of those rows, and each run records the code version and the hashes of the data it was built from. Driver, net-debt and share-count rules are in the build plan (M2, owner decisions and implementation notes).
   - **Checks are universal (oct.26.2026, M2).** Data-quality and sanity checks apply the same rules to every company; there is no per-company review list. Optional concept-map items are not part of the quality report; they are traced through the assumption rows of the runs that use them.
   - **Monte Carlo.** The DCF runs over sampled driver distributions with a fixed random seed for reproducibility, producing percentiles (p10/p50/p90) instead of a single value.
 
@@ -142,7 +143,7 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 
 ## 4. Project Structure
 
-Target layout for Phase 1, created step by step through the build plan. So far `shared_kernel/` (config, database, migrations, schemas) and `domains/fundamentals/` exist (M0–M1.1); the other domain packages are empty placeholders until their milestone:
+Target layout for Phase 1, created step by step through the build plan. So far `shared_kernel/` (config, database, migrations, schemas), `domains/fundamentals/` (M0–M1.1), `domains/market/` and `domains/analysis/` (M2) exist; the other domain packages are empty placeholders until their milestone:
 
 ```text
 warren/

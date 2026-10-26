@@ -11,6 +11,7 @@ selected for that as-of date, so a derived value is never built from a number no
 
 import sqlite3
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Literal
 
@@ -137,6 +138,48 @@ def newest_filing_disagreements(
         if newest["value"] != selected["value"]:
             pairs.append((_to_fact(selected, restated=False), _to_fact(newest, restated=False)))
     return pairs
+
+
+@dataclass(frozen=True)
+class AnnualComparison:
+    """A 10-K's current fiscal year against the prior year, both as reported in that filing."""
+
+    fiscal_year: int
+    current: Fact
+    prior: Fact
+
+    @property
+    def growth(self) -> float:
+        return self.current.value / self.prior.value - 1
+
+
+def same_filing_annual_comparisons(
+    conn: sqlite3.Connection, cik: str, canonical_name: str, as_of: date | str
+) -> list[AnnualComparison]:
+    """Year-on-year pairs from each annual report, newest fiscal year first.
+
+    Both years come from one filing (its best tag for each), so each pair sits on one restatement
+    basis: growth isn't distorted by a restated year next to an unrestated one. An amended 10-K
+    replaces the original for its fiscal year.
+    """
+    by_filing: dict[str, dict[tuple, list[sqlite3.Row]]] = defaultdict(lambda: defaultdict(list))
+    for (_name, start, end), filings in _rows_by_period(conn, cik, [canonical_name], as_of).items():
+        for accn, rows in filings.items():
+            if rows[0]["form"].startswith("10-K") and rows[0]["fiscal_period"] == "FY" and start:
+                by_filing[accn][(start, end)].extend(rows)
+
+    newest: dict[int, tuple[str, AnnualComparison]] = {}
+    for accn, periods in by_filing.items():
+        rows = sorted((_best_in_filing(r) for r in periods.values()), key=lambda r: r["period_end"])
+        if len(rows) < 2 or rows[-1]["fiscal_year"] != rows[-2]["fiscal_year"] + 1:
+            continue
+        pair = AnnualComparison(
+            rows[-1]["fiscal_year"], _to_fact(rows[-1], False), _to_fact(rows[-2], False)
+        )
+        filed = (rows[-1]["filed_at"], accn)
+        if pair.fiscal_year not in newest or filed > newest[pair.fiscal_year][0]:
+            newest[pair.fiscal_year] = (filed, pair)
+    return [newest[y][1] for y in sorted(newest, reverse=True)]
 
 
 # -- quarterly and annual views ---------------------------------------------------------------
