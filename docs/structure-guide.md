@@ -1,7 +1,7 @@
 ---
 title: "PROJECT WARREN — Structure Guide"
 version: "2.0"
-updated: "oct.14.2026"
+updated: "oct.26.2026"
 supersedes: "Structure Guide, sep.2026 (archived at docs/archive/structure-guide-sep2026.pdf)"
 companion: "build-plan.md (Phase 1 timeline and implementation plan)"
 ---
@@ -49,7 +49,7 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 | # | Decision | Status | Date |
 |---|---|---|---|
 | 1 | Model allocation and API keys | Under review | sep.24.2026 |
-| 2 | State management: SQLite, typed fact table, small data in graph state | **Accepted** (replaces EAV) | oct.14.2026 |
+| 2 | State management: SQLite, typed fact table, small data in graph state | **Accepted** (replaces EAV; version-selection rule revised and provenance added in M1.1) | oct.26.2026 |
 | 3 | Data processing: SQLite only, no vector database | **Accepted** (replaces ChromaDB) | oct.14.2026 |
 | 4 | Deterministic math engine with explicit, sourced assumptions | **Accepted** (strengthened) | oct.14.2026 |
 | 5 | Telemetry: local JSON log file | Accepted (details under review; timestamp bug fixed) | oct.14.2026 |
@@ -60,6 +60,7 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 | — | Entity-Attribute-Value (EAV) metrics table | Superseded by 2 | sep.24.2026 |
 | — | Passing only database IDs between graph nodes | Superseded by 2 | sep.24.2026 |
 | — | ChromaDB vector store for documents | Superseded by 3 | sep.24.2026 |
+| — | Point-in-time selection "newest filing first, then tag" | Superseded by 2 (M1.1) | oct.26.2026 |
 
 ### Decision 1 — Model Allocation and API Keys · *Under review*
 
@@ -72,6 +73,8 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 - **Decision:** A single SQLite database is the system of record. Reported financial data lives in a **typed, narrow `financial_facts` table keyed by US-GAAP XBRL concept**, with the reporting period and the date the fact was filed. All other entities (runs, assumptions, events, shocks, valuation results, evaluation cases) live in ordinary relational tables with real columns.
 - **Controlled vocabulary:** a `concepts` table lists the XBRL concepts Warren uses (e.g., `us-gaap:Revenues`) and their canonical Warren names. Agents and code may only write concepts that exist in this table; they never invent metric names.
 - **Point-in-time:** every fact stores `filed_at`. Queries take an `as_of` date and return only what was public on that date. Restated numbers never leak into a historical analysis.
+- **Which version wins (revised oct.26.2026, M1.1):** for each period, the highest-priority tag that reports it, then that tag's newest filing public on `as_of`; "as first reported" is the earliest filing. Ranking the tag first separates a restatement from definition drift (a later filing repeating the period under a broader or narrower measure). Superseded: newest filing first, then tag (M1, oct.14.2026).
+- **Provenance (oct.26.2026, M1.1):** every ingest records the content hash of the data it loaded, when that data was fetched, and the concept-map hash, because a different concept map can give different answers for the same date.
 - **Graph state:** LangGraph state carries **small, typed data directly** (one company's financials are a few KB). Database IDs are used only for large objects (full filings, article bodies). `current_node` is removed from `SimulationState`; LangGraph already tracks it.
 - **Audit trail:** LangGraph's SQLite checkpointer stores the full state after every step, which provides the permanent, step-by-step record the original design wanted.
 - **Concurrency:** SQLite runs in **WAL (write-ahead logging) mode**, which lets readers keep reading while one writer writes, instead of locking the whole file.
