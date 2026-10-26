@@ -14,10 +14,18 @@ from datetime import date, datetime
 
 import requests
 
-from domains.market.store import MarketDataError, record_fetch, require_coverage, utc_now
+from domains.analysis.financial_math import bond_total_return
+from domains.market.store import (
+    MarketDataError,
+    record_fetch,
+    require_coverage,
+    utc_now,
+    year_end_values,
+)
 
 FRED_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={series}"
 RISK_FREE_SERIES = "DGS10"
+RISK_FREE_MATURITY = 10  # years, for the bond returns behind the equity risk premium
 TIMEOUT_SECONDS = 30
 
 Downloader = Callable[[str], list[dict]]
@@ -82,3 +90,26 @@ def risk_free_rate(
     return YieldPoint(
         series, date.fromisoformat(row["date"]), row["value"] / 100, fetch["fetch_id"]
     )
+
+
+def annual_bond_returns(
+    conn: sqlite3.Connection,
+    first_year: int,
+    last_year: int,
+    series: str = RISK_FREE_SERIES,
+    maturity: int = RISK_FREE_MATURITY,
+) -> dict[int, float]:
+    """Calendar-year total returns on a par bond at the series' year-end yields (the R_f leg)."""
+    require_coverage(conn, "fred", series, date(last_year, 12, 31))
+    yields = year_end_values(
+        conn,
+        "SELECT date, value FROM yields WHERE series = ? AND date >= ? AND date <= ? ORDER BY date",
+        series,
+        first_year - 1,
+        last_year,
+        series,
+    )
+    return {
+        y: bond_total_return(yields[y - 1] / 100, yields[y] / 100, maturity)
+        for y in range(first_year, last_year + 1)
+    }

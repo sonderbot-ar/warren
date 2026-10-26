@@ -62,3 +62,22 @@ def require_coverage(
             f"{as_of}: refresh it"
         )
     return fetch
+
+
+def year_end_values(
+    conn: sqlite3.Connection, sql: str, key: str, first_year: int, last_year: int, what: str
+) -> dict[int, float]:
+    """The last value of each calendar year first_year..last_year from (date, value) rows.
+
+    Each year must end with an observation in its last week, so a year-end is never taken from a
+    gap or from a partial year.
+    """
+    values: dict[int, tuple[str, float]] = {}
+    for day, value in conn.execute(sql, (key, f"{first_year}-01-01", f"{last_year}-12-31")):
+        values[int(day[:4])] = (day, value)
+    out = {}
+    for year in range(first_year, last_year + 1):
+        if year not in values or values[year][0] < f"{year}-12-24":
+            raise MarketDataError(f"{what}: no observation in the last week of {year}")
+        out[year] = values[year][1]
+    return out

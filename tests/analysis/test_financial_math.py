@@ -132,3 +132,31 @@ def test_ols_beta_rejects_unusable_returns():
         fm.ols_beta([0.1, 0.2], [0.1, 0.2])
     with pytest.raises(FinancialMathError, match="variance"):
         fm.ols_beta([0.1, 0.2, 0.3], [0.01, 0.01, 0.01])
+
+
+def test_bond_total_return():
+    # yields unchanged: the price stays at par, so the return is the coupon
+    assert fm.bond_total_return(0.05, 0.05) == pytest.approx(0.05)
+    # 1-year maturity, 5% → 10%: price 1.05 / 1.10 = 0.954545, return 0.05 + 0.954545 − 1
+    assert fm.bond_total_return(0.05, 0.10, maturity=1) == pytest.approx(0.004545, abs=1e-6)
+    # yields fall to 0%: price = 10 coupons of 3% + par = 1.30, return 0.03 + 0.30
+    assert fm.bond_total_return(0.03, 0.0) == pytest.approx(0.33)
+    assert fm.bond_total_return(0.05, 0.06) < 0.05 < fm.bond_total_return(0.05, 0.04)
+
+
+def test_historical_premium():
+    # stocks +21%, −10%; bonds +10%, +10%
+    premium = fm.historical_premium([0.21, -0.10], [0.10, 0.10])
+    # geometric: √(1.21 × 0.90) − 1 = 0.043560 vs 0.10
+    assert premium.geometric == pytest.approx(1.21**0.5 * 0.9**0.5 - 1 - 0.10)
+    # excess 0.11 and −0.20: mean −0.045, stdev √((0.155² + 0.155²) / 1), SE stdev / √2
+    assert premium.arithmetic == pytest.approx(-0.045)
+    assert premium.std_error == pytest.approx(0.155)
+    assert premium.years == 2
+
+
+def test_historical_premium_rejects_mismatched_or_short_series():
+    with pytest.raises(FinancialMathError, match="same years"):
+        fm.historical_premium([0.1, 0.2], [0.05])
+    with pytest.raises(FinancialMathError, match="at least 2"):
+        fm.historical_premium([0.1], [0.05])

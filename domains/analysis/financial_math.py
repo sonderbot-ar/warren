@@ -9,6 +9,7 @@ Discounting is end-of-period: a cash flow at the end of period t is discounted o
 elapsed until then, each period at its own annual rate.
 """
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -186,3 +187,53 @@ def ols_beta(stock_returns: Sequence[float], market_returns: Sequence[float]) ->
 
 def blume_adjusted_beta(raw_beta: Number) -> Number:
     return BLUME_WEIGHT * raw_beta + (1 - BLUME_WEIGHT)
+
+
+# -- equity risk premium ----------------------------------------------------------------------
+
+
+def bond_total_return(start_yield: float, end_yield: float, maturity: int = 10) -> float:
+    """One year's total return on a par bond: the coupon plus the price change as yields move.
+
+    Bought at par at start_yield (so its coupon is start_yield) and priced a year later at
+    end_yield, as a bond of the same maturity (the standard approximation, as in Damodaran's
+    historical returns).
+    """
+    if start_yield <= -1 or end_yield <= -1:
+        raise FinancialMathError("yields must be above -100%")
+    discount = (1 + end_yield) ** -maturity
+    annuity = maturity if end_yield == 0 else (1 - discount) / end_yield
+    price = start_yield * annuity + discount
+    return start_yield + price - 1
+
+
+@dataclass(frozen=True)
+class RiskPremium:
+    geometric: float  # geometric mean equity return − geometric mean bond return
+    arithmetic: float  # mean of the yearly excess returns
+    std_error: float  # of the arithmetic mean: stdev of yearly excess returns / √years
+    years: int
+
+
+def _geometric_mean(returns: Sequence[float]) -> float:
+    return math.prod(1 + r for r in returns) ** (1 / len(returns)) - 1
+
+
+def historical_premium(
+    equity_returns: Sequence[float], bond_returns: Sequence[float]
+) -> RiskPremium:
+    """Realized premium of stocks over bonds, from yearly total returns over the same years."""
+    n = len(equity_returns)
+    if n != len(bond_returns):
+        raise FinancialMathError("equity and bond returns must cover the same years")
+    if n < 2:
+        raise FinancialMathError(f"at least 2 years are needed for a premium, got {n}")
+    excess = [e - b for e, b in zip(equity_returns, bond_returns, strict=True)]
+    mean = sum(excess) / n
+    stdev = math.sqrt(sum((x - mean) ** 2 for x in excess) / (n - 1))
+    return RiskPremium(
+        geometric=_geometric_mean(equity_returns) - _geometric_mean(bond_returns),
+        arithmetic=mean,
+        std_error=stdev / math.sqrt(n),
+        years=n,
+    )

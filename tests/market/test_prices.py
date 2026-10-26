@@ -95,7 +95,7 @@ def test_aligned_weekly_returns_regress_to_the_known_beta(conn):
     days = fridays(len(market))
     load_prices(
         conn,
-        "^GSPC",
+        "^SP500TR",
         download=FakeYahoo([row(d.isoformat(), p) for d, p in zip(days, market, strict=True)]),
         now=fixed_clock,
     )

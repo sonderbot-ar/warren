@@ -16,10 +16,19 @@ from datetime import date, datetime, timedelta
 
 import pandas as pd
 
-from domains.market.store import MarketDataError, record_fetch, require_coverage, utc_now
+from domains.market.store import (
+    MarketDataError,
+    record_fetch,
+    require_coverage,
+    utc_now,
+    year_end_values,
+)
 
 HISTORY_START = date(2010, 1, 1)
-MARKET_INDEX = "^GSPC"  # S&P 500, the market for beta (owner decision D6)
+# S&P 500 Total Return (dividends reinvested): the market for beta (D6) and the equity leg of the
+# equity risk premium (D7). Total returns on both sides, as stock returns come from adj_close.
+MARKET_INDEX = "^SP500TR"
+MARKET_INDEX_HISTORY_START = date(1988, 1, 1)  # the first Yahoo serves for ^SP500TR
 
 Downloader = Callable[[str, date], list[dict]]
 
@@ -49,6 +58,7 @@ def load_prices(
     refresh: bool = False,
     download: Downloader = yahoo_download,
     now: Callable[[], datetime] = utc_now,
+    start: date = HISTORY_START,
 ) -> int:
     """Download a ticker's history unless it is stored already; returns the fetch id in use."""
     if not refresh:
@@ -60,7 +70,7 @@ def load_prices(
     fetched_at = now()
     # a row dated on the download day may be a mid-session price, not a close: keep earlier days
     today = fetched_at.date().isoformat()
-    rows = [r for r in download(ticker, HISTORY_START) if r["date"] < today]
+    rows = [r for r in download(ticker, start) if r["date"] < today]
     if not rows:
         raise MarketDataError(f"No prices downloaded for {ticker}")
     with conn:
@@ -171,3 +181,20 @@ def aligned_weekly_returns(
         first_week=joined.index[0].date(),
         last_week=joined.index[-1].date(),
     )
+
+
+def annual_total_returns(
+    conn: sqlite3.Connection, ticker: str, first_year: int, last_year: int
+) -> dict[int, float]:
+    """Calendar-year total returns (from adj_close, year-end to year-end) for each year."""
+    require_coverage(conn, "yahoo", ticker, date(last_year, 12, 31))
+    closes = year_end_values(
+        conn,
+        "SELECT date, adj_close FROM prices WHERE ticker = ? AND date >= ? AND date <= ? "
+        "ORDER BY date",
+        ticker,
+        first_year - 1,
+        last_year,
+        ticker,
+    )
+    return {y: closes[y] / closes[y - 1] - 1 for y in range(first_year, last_year + 1)}

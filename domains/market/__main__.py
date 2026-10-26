@@ -2,15 +2,16 @@
 
     python -m domains.market load [--refresh]
 
-Loads daily prices for the Phase 1 universe and the S&P 500 (Yahoo Finance), and the 10-year
-Treasury yield (FRED). Without --refresh, symbols already stored are not downloaded again.
+Loads daily prices for the Phase 1 universe and the S&P 500 Total Return index (Yahoo Finance),
+and the 10-year Treasury yield (FRED). Without --refresh, symbols already stored are not downloaded
+again.
 """
 
 import argparse
 import sys
 
 from domains.fundamentals.universe import PHASE1_UNIVERSE
-from domains.market.prices import MARKET_INDEX, load_prices
+from domains.market.prices import MARKET_INDEX, MARKET_INDEX_HISTORY_START, load_prices
 from domains.market.yields import RISK_FREE_SERIES, load_yields
 from shared_kernel.database import apply_migrations, get_db_connection
 
@@ -23,11 +24,15 @@ def _describe(conn, fetch_id: int) -> str:
 def cmd_load(args: argparse.Namespace) -> int:
     with get_db_connection() as conn:
         apply_migrations(conn)
-        for ticker in [c.ticker for c in PHASE1_UNIVERSE] + [MARKET_INDEX]:
+        for ticker in [c.ticker for c in PHASE1_UNIVERSE]:
             fetch_id = load_prices(conn, ticker, refresh=args.refresh)
-            print(f"{ticker:6} {_describe(conn, fetch_id)}")
+            print(f"{ticker:8} {_describe(conn, fetch_id)}")
+        fetch_id = load_prices(
+            conn, MARKET_INDEX, refresh=args.refresh, start=MARKET_INDEX_HISTORY_START
+        )
+        print(f"{MARKET_INDEX:8} {_describe(conn, fetch_id)}")
         fetch_id = load_yields(conn, RISK_FREE_SERIES, refresh=args.refresh)
-        print(f"{RISK_FREE_SERIES:6} {_describe(conn, fetch_id)}")
+        print(f"{RISK_FREE_SERIES:8} {_describe(conn, fetch_id)}")
     return 0
 
 
