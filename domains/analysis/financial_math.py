@@ -1,0 +1,188 @@
+"""Pure DCF formulas: no I/O, no database, no LLM (Decision 4).
+
+Every function is plain arithmetic, so each argument may be a float or, for the Monte Carlo in M4,
+a numpy array of samples; sequences are one element per forecast period. Rates are annual decimals
+(0.08 = 8%). Invalid inputs raise FinancialMathError instead of returning NaN or infinity: a number
+that can't be computed must stop the run, never flow silently into a valuation.
+
+Discounting is end-of-period: a cash flow at the end of period t is discounted over the years
+elapsed until then, each period at its own annual rate.
+"""
+
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Any
+
+Number = Any  # float, or a numpy array of samples (M4)
+
+# Blume (1971): betas regress toward 1 over time; the adjusted beta weights the raw one by 2/3.
+BLUME_WEIGHT = 2 / 3
+
+
+class FinancialMathError(ValueError):
+    """An input makes a formula meaningless (e.g. terminal growth at or above the discount rate)."""
+
+
+def _any(condition: Number) -> bool:
+    """True if the condition holds for the value, or for any sample in an array."""
+    return bool(condition.any()) if hasattr(condition, "any") else bool(condition)
+
+
+# -- projection -------------------------------------------------------------------------------
+
+
+def compound(seed: Sequence[Number], growth: Sequence[Number], lag: int = 1) -> list[Number]:
+    """Project a series forward: value[t] = value[t - lag] × (1 + growth[t]).
+
+    lag=1 compounds period on period; lag=4 on quarters grows each quarter from the same quarter a
+    year earlier, which keeps seasonality. `seed` holds the last `lag` actual values, oldest first.
+    """
+    if lag < 1 or len(seed) != lag:
+        raise FinancialMathError(f"compound needs exactly lag={lag} seed values, got {len(seed)}")
+    values = list(seed)
+    for g in growth:
+        values.append(values[-lag] * (1 + g))
+    return values[lag:]
+
+
+def fcff(
+    ebit: Number, tax_rate: Number, d_and_a: Number, capex: Number, delta_nwc: Number
+) -> Number:
+    """Unlevered free cash flow: EBIT × (1 − tax) + D&A − capex − ΔNWC (capex is positive)."""
+    return ebit * (1 - tax_rate) + d_and_a - capex - delta_nwc
+
+
+# -- discounting ------------------------------------------------------------------------------
+
+
+def discount_factors(rates: Sequence[Number], year_fractions: Sequence[float]) -> list[Number]:
+    """End-of-period discount factors under a time-varying annual rate.
+
+    Period i lasts year_fractions[i] years (0.25 for a quarter, 1 for a year) and is discounted at
+    rates[i]: factor[t] = Π over i ≤ t of (1 + rates[i]) ** −year_fractions[i].
+    """
+    if len(rates) != len(year_fractions):
+        raise FinancialMathError("rates and year_fractions must have one value per period")
+    factors, factor = [], 1.0
+    for rate, years in zip(rates, year_fractions, strict=True):
+        if _any(rate <= -1):
+            raise FinancialMathError(f"discount rate must be above -100%, got {rate}")
+        if years <= 0:
+            raise FinancialMathError(f"period length must be positive, got {years}")
+        factor = factor * (1 + rate) ** -years
+        factors.append(factor)
+    return factors
+
+
+def gordon_terminal_value(
+    final_annual_cash_flow: Number, discount_rate: Number, terminal_growth: Number
+) -> Number:
+    """Value, at the end of the last forecast year, of the cash flows after it growing forever."""
+    if _any(terminal_growth >= discount_rate):
+        raise FinancialMathError(
+            f"terminal growth ({terminal_growth}) must be below the discount rate ({discount_rate})"
+        )
+    return final_annual_cash_flow * (1 + terminal_growth) / (discount_rate - terminal_growth)
+
+
+@dataclass(frozen=True)
+class DCFValue:
+    pv_explicit: Number  # present value of the forecast-period cash flows
+    terminal_value: Number  # at the end of the last forecast period
+    pv_terminal: Number
+    enterprise_value: Number
+
+    @property
+    def terminal_share(self) -> Number:
+        """Share of enterprise value that comes from the terminal value."""
+        return self.pv_terminal / self.enterprise_value
+
+
+def enterprise_value(
+    cash_flows: Sequence[Number],
+    rates: Sequence[Number],
+    year_fractions: Sequence[float],
+    terminal_growth: Number,
+    final_annual_cash_flow: Number | None = None,
+) -> DCFValue:
+    """DCF enterprise value: forecast cash flows plus a Gordon terminal value, both discounted.
+
+    The terminal value grows an annual cash flow; it defaults to the last period's cash flow, which
+    is right when the last period is a year. It is discounted at the last period's rate.
+    """
+    if len(cash_flows) != len(rates):
+        raise FinancialMathError("cash_flows and rates must have one value per period")
+    if not cash_flows:
+        raise FinancialMathError("at least one forecast period is required")
+    factors = discount_factors(rates, year_fractions)
+    pv_explicit = sum(cf * df for cf, df in zip(cash_flows, factors, strict=True))
+    final = cash_flows[-1] if final_annual_cash_flow is None else final_annual_cash_flow
+    terminal = gordon_terminal_value(final, rates[-1], terminal_growth)
+    pv_terminal = terminal * factors[-1]
+    return DCFValue(pv_explicit, terminal, pv_terminal, pv_explicit + pv_terminal)
+
+
+# -- enterprise value to value per share ------------------------------------------------------
+
+
+def equity_value(enterprise: Number, net_debt: Number, minority_interest: Number = 0.0) -> Number:
+    """Equity value attributable to shareholders: EV − net debt − noncontrolling interests."""
+    return enterprise - net_debt - minority_interest
+
+
+def value_per_share(equity: Number, shares: Number) -> Number:
+    if _any(shares <= 0):
+        raise FinancialMathError(f"share count must be positive, got {shares}")
+    return equity / shares
+
+
+# -- cost of capital --------------------------------------------------------------------------
+
+
+def capm_cost_of_equity(risk_free: Number, beta: Number, equity_risk_premium: Number) -> Number:
+    """CAPM: risk-free rate + beta × equity risk premium."""
+    return risk_free + beta * equity_risk_premium
+
+
+def wacc(
+    equity_market_value: Number,
+    debt: Number,
+    cost_of_equity: Number,
+    cost_of_debt: Number,
+    tax_rate: Number,
+) -> Number:
+    """Weighted average cost of capital, with debt's cost after tax."""
+    if _any(equity_market_value <= 0) or _any(debt < 0):
+        raise FinancialMathError("equity value must be positive and debt non-negative")
+    total = equity_market_value + debt
+    return equity_market_value / total * cost_of_equity + debt / total * cost_of_debt * (
+        1 - tax_rate
+    )
+
+
+def cost_of_debt(interest: Number, average_debt: Number) -> Number:
+    """Pre-tax cost of debt: a year's interest over the average debt outstanding in that year."""
+    if _any(average_debt <= 0):
+        raise FinancialMathError(f"average debt must be positive, got {average_debt}")
+    return interest / average_debt
+
+
+def ols_beta(stock_returns: Sequence[float], market_returns: Sequence[float]) -> float:
+    """Slope of stock returns on market returns: cov(stock, market) / var(market)."""
+    n = len(stock_returns)
+    if n != len(market_returns):
+        raise FinancialMathError("stock and market returns must cover the same dates")
+    if n < 3:
+        raise FinancialMathError(f"at least 3 returns are needed for a beta, got {n}")
+    mean_s, mean_m = sum(stock_returns) / n, sum(market_returns) / n
+    cov = sum(
+        (s - mean_s) * (m - mean_m) for s, m in zip(stock_returns, market_returns, strict=True)
+    )
+    var = sum((m - mean_m) ** 2 for m in market_returns)
+    if var == 0:
+        raise FinancialMathError("market returns have no variance")
+    return cov / var
+
+
+def blume_adjusted_beta(raw_beta: Number) -> Number:
+    return BLUME_WEIGHT * raw_beta + (1 - BLUME_WEIGHT)
