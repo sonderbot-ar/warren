@@ -4,6 +4,7 @@ import pytest
 
 from domains.fundamentals import quality
 from domains.fundamentals.quality import KnownGap, build_report
+from tests.fundamentals.conftest import TEST_CIK
 
 
 @pytest.fixture
@@ -117,3 +118,26 @@ def test_consistent_quarters_are_not_listed(ingested, two_years):
     report = report_for(conn)
     assert report.inconsistencies == []
     assert "## Quarters vs full year" in report.to_markdown()
+
+
+def test_optional_item_gaps_are_listed_but_never_gated(ingested, two_years):
+    conn, _ = ingested
+    report = report_for(conn)  # the fixture holds no securities and no fallback items
+    assert any(g.canonical_name == "marketable_securities_current" for g in report.optional_gaps)
+    assert not any(g.canonical_name == "marketable_securities_current" for g in report.unexplained)
+    assert not any(g.canonical_name == "interest_paid" for g in report.explained)
+    assert "- marketable_securities_current: 10 of 10 periods missing" in report.to_markdown()
+
+
+def test_newest_filing_disagreement_appears_in_the_report(ingested, two_years):
+    conn, _ = ingested
+    conn.execute(
+        "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, fiscal_year, "
+        "fiscal_period, value, unit, form, accession_no, filed_at) VALUES (?, "
+        "'us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax', '2024-01-01', "
+        "'2024-12-31', 2024, 'FY', 450, 'USD', '10-K', 'a-25-9', '2025-02-20')",
+        (TEST_CIK,),
+    )
+    markdown = report_for(conn).to_markdown()
+    assert "selected Revenues, newest filing RevenueFromContractWithCustomer" in markdown
+    assert "2024-12-31 0M vs 0M" in markdown  # fixture values are tiny; shown in millions

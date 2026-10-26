@@ -55,6 +55,31 @@ def _to_fact(row: sqlite3.Row, restated: bool) -> Fact:
     )
 
 
+def _rows_by_period(
+    conn: sqlite3.Connection, cik: str, canonical_names: list[str], as_of: date | str
+) -> dict[tuple, dict[str, list[sqlite3.Row]]]:
+    """(name, start, end) -> accession -> rows (one per tag that filing used), public on as_of."""
+    known = {r[0] for r in conn.execute("SELECT DISTINCT canonical_name FROM concepts")}
+    unknown = sorted(set(canonical_names) - known)
+    if unknown:
+        raise ValueError(f"Not in the concept map: {unknown}")
+    periods: dict[tuple, dict[str, list[sqlite3.Row]]] = defaultdict(lambda: defaultdict(list))
+    if not canonical_names:
+        return periods
+
+    warn_if_beyond_history(cik, _as_date(as_of))
+    sql = QUERY.format(placeholders=", ".join("?" * len(canonical_names)))
+    params = [cik, _as_date(as_of).isoformat(), *canonical_names]
+    for row in conn.execute(sql, params):
+        key = (row["canonical_name"], row["period_start"] or "", row["period_end"])
+        periods[key][row["accession_no"]].append(row)
+    return periods
+
+
+def _filing_order(filings: dict[str, list[sqlite3.Row]]) -> list[str]:
+    return sorted(filings, key=lambda accn: (filings[accn][0]["filed_at"], accn))
+
+
 def get_reported_facts(
     conn: sqlite3.Connection,
     cik: str,
@@ -65,28 +90,12 @@ def get_reported_facts(
     """Every reported period for the requested items, exactly as known on `as_of` (inclusive)."""
     if mode not in ("latest", "first_reported"):
         raise ValueError(f"Unknown mode: {mode!r}")
-    known = {r[0] for r in conn.execute("SELECT DISTINCT canonical_name FROM concepts")}
-    unknown = sorted(set(canonical_names) - known)
-    if unknown:
-        raise ValueError(f"Not in the concept map: {unknown}")
-    if not canonical_names:
-        return []
-
-    warn_if_beyond_history(cik, _as_date(as_of))
-    sql = QUERY.format(placeholders=", ".join("?" * len(canonical_names)))
-    params = [cik, _as_date(as_of).isoformat(), *canonical_names]
-
-    # (name, start, end) -> accession -> rows (one per tag that filing used)
-    periods: dict[tuple, dict[str, list[sqlite3.Row]]] = defaultdict(lambda: defaultdict(list))
-    for row in conn.execute(sql, params):
-        key = (row["canonical_name"], row["period_start"] or "", row["period_end"])
-        periods[key][row["accession_no"]].append(row)
+    periods = _rows_by_period(conn, cik, canonical_names, as_of)
 
     facts = []
     for key in sorted(periods):
         filings = periods[key]
-        order = sorted(filings, key=lambda accn: (filings[accn][0]["filed_at"], accn))
-        first = _best_in_filing(filings[order[0]])
+        first = _best_in_filing(filings[_filing_order(filings)[0]])
         if mode == "first_reported":
             facts.append(_to_fact(first, restated=False))
         else:
@@ -107,6 +116,27 @@ def _latest_of_best_tag(rows: list[sqlite3.Row]) -> sqlite3.Row:
     return max(
         (r for r in rows if r["priority"] == best), key=lambda r: (r["filed_at"], r["accession_no"])
     )
+
+
+def newest_filing_disagreements(
+    conn: sqlite3.Connection, cik: str, canonical_names: list[str], as_of: date | str
+) -> list[tuple[Fact, Fact]]:
+    """Periods where the newest filing's value differs from the selected one: (selected, newest).
+
+    Under best-tag-first selection this happens when the newest filing reports a period only under
+    a lower-ranked tag. Usually that is a different measure (definition drift, correctly ignored),
+    but it can be a restatement filed only under that tag, which the selection rule would miss.
+    """
+    pairs = []
+    periods = _rows_by_period(conn, cik, canonical_names, as_of)
+    for key in sorted(periods):
+        filings = periods[key]
+        rows = [row for rows in filings.values() for row in rows]
+        selected = _latest_of_best_tag(rows)
+        newest = _best_in_filing(filings[_filing_order(filings)[-1]])
+        if newest["value"] != selected["value"]:
+            pairs.append((_to_fact(selected, restated=False), _to_fact(newest, restated=False)))
+    return pairs
 
 
 # -- quarterly and annual views ---------------------------------------------------------------
