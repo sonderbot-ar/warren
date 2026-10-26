@@ -12,14 +12,17 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
-from domains.fundamentals.concepts import load_concept_map
+from domains.fundamentals.concepts import concept_map_sha256, load_concept_map
 from domains.fundamentals.facts import DERIVABLE_UNITS, get_facts
 from domains.fundamentals.schemas import Fact
 from domains.fundamentals.universe import FISCAL_YEARS
 
 KNOWN_GAPS_PATH = Path(__file__).parent / "known_gaps.csv"
+EDGAR_ARCHIVES = "https://www.sec.gov/Archives/edgar/data"
 PERIODS = ("Q1", "Q2", "Q3", "Q4", "FY")
 NON_ADDITIVE_REASON = "Q4 not reported; weighted-average shares can't be derived (not additive)."
+# Quarters of a flow should add up to its fiscal year; beyond this they come from different bases.
+CONSISTENCY_TOLERANCE = 0.005
 
 
 @dataclass(frozen=True)
@@ -59,6 +62,17 @@ class Gap:
     reason: str | None  # None = unexplained
 
 
+@dataclass(frozen=True)
+class Inconsistency:
+    """A flow whose four quarters don't add up to its fiscal year (mixed restatement vintages)."""
+
+    canonical_name: str
+    fiscal_year: int
+    quarters_total: float
+    fiscal_year_value: float
+    restated: tuple[str, ...]  # which of Q1-Q4 and FY are restated values
+
+
 @dataclass
 class QualityReport:
     ticker: str
@@ -72,6 +86,10 @@ class QualityReport:
     derived: Counter = field(default_factory=Counter)
     mixed_vintage: list[Fact] = field(default_factory=list)
     canonical_names: list[str] = field(default_factory=list)
+    inconsistencies: list[Inconsistency] = field(default_factory=list)
+    last_ingest: dict | None = None  # the latest ingest_runs row: what data the facts came from
+    concept_map_changed: bool = False  # concept_map.csv edited since that ingest
+    gap_links: dict[tuple[str, int, str], str] = field(default_factory=dict)  # [inferred] gaps
 
     @property
     def unexplained(self) -> list[Gap]:
@@ -101,6 +119,8 @@ class QualityReport:
             f"{self.name} · CIK {self.cik} · facts as known on {self.as_of.isoformat()} · "
             f"FY{years[0]}–FY{years[-1]}",
             "",
+            self._provenance_line(),
+            "",
             "## Summary",
             "",
             f"- Canonical items found: {sum(1 for n in self.canonical_names if self._found(n))}"
@@ -110,6 +130,8 @@ class QualityReport:
             f"- Restated values in use: {sum(self.restated.values())} · derived quarters: "
             f"{sum(self.derived.values())} · derived from mixed restatement vintages: "
             f"{len(self.mixed_vintage)}",
+            f"- Fiscal years whose quarters don't add up to the full year: "
+            f"{len(self.inconsistencies)} (informational; see below)",
             "",
             "## Coverage",
             "",
@@ -142,7 +164,41 @@ class QualityReport:
                 f"- Mixed vintage: {fact.canonical_name} FY{fact.fiscal_year} "
                 f"{fact.fiscal_period} (inputs {', '.join(fact.inputs)})"
             )
+
+        lines += [
+            "",
+            "## Quarters vs full year",
+            "",
+            "Flows whose Q1-Q4 differ from the fiscal year by more than "
+            f"{CONSISTENCY_TOLERANCE:.1%}. Usually a restated year next to quarters that were never"
+            " restated, so growth rates"
+            " across these periods compare different bases.",
+            "",
+        ]
+        if not self.inconsistencies:
+            lines.append("None.")
+        for i in self.inconsistencies:
+            share = (i.quarters_total - i.fiscal_year_value) / abs(i.fiscal_year_value)
+            lines.append(
+                f"- **{i.canonical_name}** FY{i.fiscal_year}: quarters "
+                f"{i.quarters_total / 1e6:,.0f}M vs year {i.fiscal_year_value / 1e6:,.0f}M "
+                f"({share:+.1%}); "
+                f"restated: {', '.join(i.restated) or 'none'}"
+            )
         return "\n".join(lines) + "\n"
+
+    def _provenance_line(self) -> str:
+        run = self.last_ingest
+        if run is None:
+            return "Data: no ingest run recorded."
+        line = (
+            f"Data: company facts `{run['companyfacts_sha256'][:12]}` fetched "
+            f"{run['companyfacts_fetched_at'] or 'at an unrecorded time'}; concept map "
+            f"`{run['concept_map_sha256'][:12]}`; ingested {run['ingested_at']}."
+        )
+        if self.concept_map_changed:
+            line += " **Warning: concept_map.csv changed since this ingest; re-run ingest.**"
+        return line
 
     def _found(self, name: str) -> bool:
         return any(key[0] == name for key in self.cells)
@@ -159,11 +215,14 @@ class QualityReport:
             f"{tag.split(':', 1)[1]} FY{a}" + (f"–FY{b}" if b != a else "") for tag, a, b in runs
         )
 
-    @staticmethod
-    def _gap_lines(gaps: list[Gap], with_reason: bool = False) -> list[str]:
+    def _gap_lines(self, gaps: list[Gap], with_reason: bool = False) -> list[str]:
         grouped: dict[tuple, list[str]] = defaultdict(list)
         for g in gaps:
-            grouped[(g.canonical_name, g.reason)].append(f"FY{g.fiscal_year} {g.period}")
+            where = f"FY{g.fiscal_year} {g.period}"
+            link = self.gap_links.get((g.canonical_name, g.fiscal_year, g.period))
+            grouped[(g.canonical_name, g.reason)].append(
+                f"{where} ([check]({link}))" if link else where
+            )
         lines = []
         for (name, reason), where in grouped.items():
             line = f"- **{name}** ({len(where)}): {', '.join(where)}"
@@ -185,6 +244,7 @@ def build_report(
     concepts = load_concept_map()
     names = list(dict.fromkeys(c.canonical_name for c in concepts))
     unit_of = {c.canonical_name: c.unit for c in concepts}
+    flows = {c.canonical_name for c in concepts if c.period_type == "duration"}
 
     report = QualityReport(
         ticker=company["ticker"],
@@ -230,4 +290,44 @@ def build_report(
                 ):
                     reason = NON_ADDITIVE_REASON
                 report.gaps.append(Gap(name, year, period, reason))
+
+    for name in names:
+        if name not in flows or unit_of[name] not in DERIVABLE_UNITS:
+            continue
+        for year in FISCAL_YEARS:
+            facts = [report.cells.get((name, year, period)) for period in PERIODS]
+            if any(f is None for f in facts) or facts[-1].value == 0:
+                continue
+            total = sum(f.value for f in facts[:-1])
+            if abs(total - facts[-1].value) / abs(facts[-1].value) > CONSISTENCY_TOLERANCE:
+                restated = tuple(p for p, f in zip(PERIODS, facts, strict=True) if f.restated)
+                report.inconsistencies.append(
+                    Inconsistency(name, year, total, facts[-1].value, restated)
+                )
+
+    run = conn.execute(
+        "SELECT * FROM ingest_runs WHERE cik = ? ORDER BY run_id DESC LIMIT 1", (company["cik"],)
+    ).fetchone()
+    if run is not None:
+        report.last_ingest = dict(run)
+        report.concept_map_changed = run["concept_map_sha256"] != concept_map_sha256()
+    for gap in report.explained:
+        if gap.reason.startswith("[inferred]"):
+            link = _filing_link(conn, company["cik"], gap.fiscal_year, gap.period)
+            if link:
+                report.gap_links[(gap.canonical_name, gap.fiscal_year, gap.period)] = link
     return report
+
+
+def _filing_link(conn: sqlite3.Connection, cik: str, fiscal_year: int, period: str) -> str | None:
+    """EDGAR folder of the first filing that reported this fiscal period, to check a gap by hand."""
+    periods = ("FY", "Q4") if period in ("FY", "Q4") else (period,)
+    row = conn.execute(
+        "SELECT accession_no FROM financial_facts WHERE cik = ? AND fiscal_year = ? "
+        f"AND fiscal_period IN ({', '.join('?' * len(periods))}) AND form IN ('10-K', '10-Q') "
+        "ORDER BY filed_at, accession_no LIMIT 1",
+        (cik, fiscal_year, *periods),
+    ).fetchone()
+    if row is None:
+        return None
+    return f"{EDGAR_ARCHIVES}/{int(cik)}/{row[0].replace('-', '')}/"

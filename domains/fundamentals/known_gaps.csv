@@ -37,3 +37,42 @@ XOM,operating_income,*,*,[not presented] ExxonMobil's income statement has no op
 XOM,debt_current,*,Q1;Q2;Q3,"[annual only] The current portion of long-term debt is disclosed only in the 10-K; 10-Qs show 'Notes and loans payable' (DebtCurrent, not mapped because it bundles components)."
 XOM,short_term_borrowings,*,Q1;Q2;Q3,[annual only] Short-term bank loans and notes payable are disclosed only in the 10-K; 10-Qs show the bundled DebtCurrent.
 XOM,commercial_paper,*,Q1;Q2;Q3,[annual only] Commercial paper is disclosed only in the 10-K debt note.
+AAPL,operating_lease_liabilities,2016-2019,*,[not presented] Lease liabilities reach the balance sheet with ASC 842 (adopted by Apple in FY2020).
+AAPL,operating_lease_liabilities,2021-2025,Q1;Q2;Q3,[annual only] Lease liabilities are disclosed in the 10-K lease note only.
+AAPL,finance_lease_liabilities,2016-2019,*,[not presented] Lease liabilities reach the balance sheet with ASC 842 (adopted by Apple in FY2020).
+AAPL,finance_lease_liabilities,2021-2025,Q1;Q2;Q3,[annual only] Lease liabilities are disclosed in the 10-K lease note only.
+AAPL,minority_interest,*,*,[not presented] Apple has no noncontrolling interests.
+MSFT,operating_lease_liabilities,2016-2017,Q1;Q2;Q3,"[annual only] Microsoft adopted ASC 842 in FY2019 and restated earlier year-ends only, not quarters."
+MSFT,finance_lease_liabilities,2016,*,[not presented] No finance lease liability is reported for FY2016.
+MSFT,finance_lease_liabilities,2017,Q1;Q2;Q3,"[annual only] Microsoft adopted ASC 842 in FY2019 and restated earlier year-ends only, not quarters."
+MSFT,minority_interest,*,*,[not presented] Microsoft has no noncontrolling interests.
+WMT,operating_lease_liabilities,2016-2019,*,[not presented] Lease liabilities reach the balance sheet with ASC 842 (adopted by Walmart in FY2020).
+WMT,operating_lease_liabilities,2021-2025,Q1;Q2;Q3,[annual only] Lease liabilities are disclosed in the 10-K lease note only.
+WMT,finance_lease_liabilities,2016-2019,*,[not presented] Lease liabilities reach the balance sheet with ASC 842 (adopted by Walmart in FY2020).
+WMT,finance_lease_liabilities,2021-2025,Q1;Q2;Q3,[annual only] Lease liabilities are disclosed in the 10-K lease note only.
+KO,operating_lease_liabilities,2016-2018,*,[not presented] Lease liabilities reach the balance sheet with ASC 842 (adopted in FY2019).
+KO,operating_lease_liabilities,2020-2025,Q1;Q2;Q3,[annual only] Lease liabilities are disclosed in the 10-K lease note only.
+KO,finance_lease_liabilities,*,*,"[inferred] No finance lease total is tagged; from FY2024 finance leases sit inside KO's lease-inclusive debt tags."
+KO,shares_outstanding,2024,Q1,[inferred] The only Q1 FY2024 cover-page figure comes from a 10-Q/A that contains no other facts; so its fiscal period can't be determined.
+PG,operating_lease_liabilities,2016-2019,*,[not presented] Lease liabilities reach the balance sheet with ASC 842 (adopted by P&G in FY2020).
+PG,operating_lease_liabilities,2020,Q4;FY,[components only] The FY2020 year-end tags only the non-current part (652M); no total.
+PG,operating_lease_liabilities,2021,*,[inferred] No operating lease liability total is tagged in FY2021 filings.
+PG,operating_lease_liabilities,2022-2025,Q1;Q2;Q3,[annual only] Lease liabilities are disclosed in the 10-K lease note only.
+PG,finance_lease_liabilities,*,*,[not presented] No finance lease total is tagged (immaterial for P&G).
+JNJ,operating_lease_liabilities,2016-2018,*,[not presented] Lease liabilities reach the balance sheet with ASC 842 (adopted in FY2019).
+JNJ,operating_lease_liabilities,2020-2025,Q1;Q2;Q3,[annual only] Lease liabilities are disclosed in the 10-K lease note only.
+JNJ,finance_lease_liabilities,*,*,[not presented] No finance lease total is tagged (immaterial for J&J).
+JNJ,minority_interest,2016-2021,*,[not presented] Noncontrolling interest is immaterial and tagged only in some FY2022-23 filings.
+JNJ,minority_interest,2022,Q1;Q2;Q3,[not presented] Noncontrolling interest is immaterial and tagged only in some FY2022-23 filings.
+JNJ,minority_interest,2023,Q1;Q3;Q4;FY,[not presented] Noncontrolling interest is immaterial and tagged only in some FY2022-23 filings.
+JNJ,minority_interest,2024-2025,*,[not presented] Noncontrolling interest is immaterial and tagged only in some FY2022-23 filings.
+CAT,operating_lease_liabilities,2016-2018,*,[not presented] Lease liabilities reach the balance sheet with ASC 842 (adopted in FY2019).
+CAT,operating_lease_liabilities,2020-2021,*,"[components only] Tagged only as current plus non-current parts (e.g. FY2021: 158M + 484M), not as a total."
+CAT,operating_lease_liabilities,2022-2025,Q1;Q2;Q3,[annual only] Lease liabilities are disclosed in the 10-K lease note only.
+CAT,finance_lease_liabilities,*,*,[not presented] No finance lease total is tagged.
+XOM,operating_lease_liabilities,2016-2017,*,[not presented] Lease liabilities reach the balance sheet with ASC 842 (adopted in FY2019).
+XOM,operating_lease_liabilities,2018,Q1;Q2;Q3,[not presented] Lease liabilities reach the balance sheet with ASC 842 (adopted in FY2019).
+XOM,operating_lease_liabilities,2019-2020,*,[inferred] No operating lease liability total or parts are tagged in FY2019-20 filings.
+XOM,operating_lease_liabilities,2021-2025,Q1;Q2;Q3,[annual only] Lease liabilities are disclosed in the 10-K lease note only.
+XOM,finance_lease_liabilities,2016-2020,*,[inferred] No finance lease total is tagged before FY2021.
+XOM,finance_lease_liabilities,2021-2025,Q1;Q2;Q3,[annual only] Lease liabilities are disclosed in the 10-K lease note only.

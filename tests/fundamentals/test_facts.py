@@ -7,6 +7,7 @@ from tests.fundamentals.conftest import TEST_CIK
 
 FY2024 = (date(2024, 1, 1), date(2024, 12, 31))
 FY2023 = (date(2023, 1, 1), date(2023, 12, 31))
+FY2022 = (date(2022, 1, 1), date(2022, 12, 31))
 
 
 def revenue_for(conn, period, as_of, mode="latest"):
@@ -68,11 +69,21 @@ def test_priority_decides_between_tags_in_the_same_filing(ingested):
     assert (fact.value, fact.xbrl_concept) == (460, "us-gaap:Revenues")
 
 
-def test_newer_filing_wins_even_under_a_lower_priority_tag(ingested):
+def test_newer_filing_under_a_lower_priority_tag_is_definition_drift_not_a_restatement(ingested):
     conn, _ = ingested
+    # e.g. a later filing repeats the period only under a broader or narrower measure
     add_fact(conn, "SalesRevenueNet", 450, "0000000123-26-000099", "2026-06-01")
     fact = revenue_for(conn, FY2024, "2026-07-01")
-    assert (fact.value, fact.xbrl_concept, fact.restated) == (450, "us-gaap:SalesRevenueNet", True)
+    assert (fact.value, fact.xbrl_concept) == (455, "us-gaap:Revenues")
+
+
+def test_restatement_under_a_higher_ranked_tag_wins(ingested):
+    conn, _ = ingested
+    # FY2022 was first reported as SalesRevenueNet 350; a later filing restates it as Revenues
+    add_fact(conn, "Revenues", 340, "0000000123-25-000001", "2025-02-15", period=FY2022)
+    fact = revenue_for(conn, FY2022, "2025-03-01")
+    assert (fact.value, fact.xbrl_concept, fact.restated) == (340, "us-gaap:Revenues", True)
+    assert revenue_for(conn, FY2022, "2025-03-01", mode="first_reported").value == 350
 
 
 def test_balance_sheet_items_have_no_start(ingested):

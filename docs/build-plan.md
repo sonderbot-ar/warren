@@ -1,14 +1,14 @@
 ---
 title: "PROJECT WARREN — Phase 1 Build Plan"
-version: "1.0 (proposal)"
-updated: "oct.14.2026"
+version: "1.1"
+updated: "oct.26.2026"
 companion: "structure-guide.md (design decisions; wins on any conflict about decisions)"
-status: "Proposed. Awaiting owner approval. No code is written until the owner commands each step."
+status: "Approved and in progress. No code is written until the owner commands each step (\"go M<n>\")."
 ---
 
 # PROJECT WARREN — Phase 1 Build Plan
 
-**Version 1.0 (proposal) · oct.2026**\
+**Version 1.1 · oct.2026**\
 Collaborators: Andrés Rodarte — sonderbot-ar
 
 > **How to use this document (humans and LLMs).** This plan turns the decisions in `structure-guide.md` into an ordered sequence of milestones. Each milestone lists its goal, the decisions it implements, the tasks, what gets tested, and an exit criterion that must be met before the next milestone starts. Work happens one milestone at a time and only on the owner's command. When a milestone finishes, its status in Section 2 is updated and any decision that changed is recorded in the Structure Guide's decision log.
@@ -36,7 +36,8 @@ Durations are indicative, assuming part-time work (roughly 8–12 hours a week).
 |---|---|---|---|---|---|
 | M0 | Foundations and documentation | 1 | oct.19 – oct.25 | — | **Done** (oct.14.2026) |
 | M1 | Fundamentals data layer (EDGAR, point-in-time) | 2 | oct.26 – nov.08 | M0 | **Done** (oct.14.2026) |
-| M2 | Deterministic forecast and DCF engine | 2 | nov.09 – nov.22 | M1 | Not started |
+| M1.1 | Fundamentals hardening (review of M1) | 0.5 | oct.26 – oct.29 | M1 | **Done** (oct.26.2026) |
+| M2 | Deterministic forecast and DCF engine | 2 | nov.09 – nov.22 | M1.1 | Not started |
 | M3 | Evaluation harness v1 (baseline only) | 1.5 | nov.23 – dec.03 | M2 | Not started |
 | M4 | Shock model and Monte Carlo (manual shocks) | 1.5 | dec.04 – dec.13 | M2 | Not started |
 | M5 | News ingestion (GDELT) and event clustering | 2.5 | dec.14 – jan.03 | M1 | Not started |
@@ -140,13 +141,28 @@ financial_facts(
 
 - **Schema.** `financial_facts` has a surrogate `fact_id` and a unique index on `(cik, xbrl_concept, unit, COALESCE(period_start,''), period_end, accession_no)`, because SQLite treats NULLs as distinct and a plain key would let duplicate balance-sheet facts in. `concepts.xbrl_concept` is unique and referenced by `financial_facts`, so unmapped tags can't be stored.
 - **Fiscal labels** come from each filing's own period (the end date most of its facts share), not from the JSON's `fy`/`fp`, which describe the filing: a comparative in the FY2024 10-K carries `fy=2024`. Earlier periods are placed whole years back, with a few days' tolerance for 52/53-week years. Labels: Q1–Q4 and FY, plus H1 and M9 for year-to-date durations.
-- **Point-in-time selection.** For each period, take the newest filing public on `as_of` (the earliest in `first_reported` mode), then the highest-priority tag within that filing. Choosing the filing first means a restatement filed under a different tag still takes effect.
+- **Point-in-time selection.** *(Revised in M1.1, see below.)* As built in M1: take the newest filing public on `as_of` (the earliest in `first_reported` mode), then the highest-priority tag within that filing.
 - **Derived quarters** (Q2 = H1 − Q1, Q3 = M9 − H1, Q4 = FY − M9) are computed at query time from the inputs selected for that date, never stored. A derived value's `filed_at` is its latest input's, it lists its input filings, and it is flagged when it mixes restated and first-reported inputs. Only USD flows are derived: weighted-average shares are not additive.
 - **API.** `get_facts(conn, cik, names, as_of, mode="latest"|"first_reported", frequency="reported"|"quarterly"|"annual")`.
 - **Concept map** (`domains/fundamentals/concept_map.csv`): one precise definition per canonical item; only tags with the same meaning share a name. Owner decisions: restricted-cash-inclusive cash and basic shares are priority-2 fallbacks; `operating_expenses` stays strict. Debt is stored as components (non-current, current portion, short-term borrowings, commercial paper) for M2 to sum.
 - **Universe** (`domains/fundamentals/universe.py`): AAPL, MSFT, WMT, KO, PG, JNJ, CAT, XOM. XOM is pinned to CIK 0000034088 (Exxon Mobil Corp), the registrant before the 2026-07-01 holding-company reorganisation; the ticker now maps to ExxonMobil Holdings Corp, whose filings start in 2026.
 - **Gaps** are documented in `domains/fundamentals/known_gaps.csv` with a basis: `[annual only]`, `[not presented]`, `[extension tag]`, `[different line]`, `[bundled]` or `[inferred]`. The `[inferred]` ones (mostly debt balances absent for some periods) were not verified filing by filing.
 - **Result.** 8 companies, 24,770 facts, 0 unexplained gaps for FY2016–FY2025. Spot check on MSFT FY2017 Q1 revenue (restated for ASC 606 on 2017-10-26): as of 2016-10-19 no value; as of 2017-10-25 20,453M; as of 2017-10-26 21,928M (restated); `first_reported` 20,453M.
+
+### M1.1 — Fundamentals Hardening (review of M1)
+
+**Goal:** fix what a review of M1 against the docs and the M1 lesson notes found, before M2 depends on it.
+
+**Changes (oct.26.2026)**
+
+- **Selection rule: best tag first, then its newest filing** (owner decision). Picking the newest filing first let later filings that repeat an old period under a broader or narrower tag replace the preferred value: definition drift treated as a restatement (90 cases, mostly cash including restricted cash from cash-flow statements, plus WMT revenue and XOM debt). Restatements filed under a higher-ranked tag still win (the ASC 606 revenue and cost-of-revenue restatements of MSFT, KO, PG, JNJ and CAT are unchanged). Concept-map rule: a renamed tag ranks above its old name (`InterestExpenseNonoperating` above `InterestExpense`). `first_reported` is unchanged; `restated` means "differs from first-reported", which also covers a period first reported only under a fallback tag (4 cases, 1 inside FY2016–FY2025: CAT FY2020 cash, 14M).
+- **Ingestion guards.** Facts whose period ends after their filing date are rejected (one WMT EDGAR error) and refused by a database trigger (migration `0003`). Facts that can't be placed in a fiscal period are counted separately.
+- **Quarters vs full year.** The quality report lists flows whose Q1–Q4 differ from the fiscal year by more than 0.5% (13 item-years), with which periods are restated: mixed restatement vintages (e.g. JNJ FY2022 after the Kenvue separation). Informational; M2 decides the basis for growth rates (owner decision).
+- **Provenance.** `ingest_runs` records, per ingest, the company-facts content hash, when it was fetched (a `.meta.json` sidecar next to each cached download; `NULL` for files cached before M1.1), the concept-map hash and fact counts. The quality report names its data snapshot, warns when `concept_map.csv` changed since the last ingest, and links each `[inferred]` gap to the EDGAR filing to check.
+- **New canonical items** (owner decision): `operating_lease_liabilities`, `finance_lease_liabilities` (totals, from ASC 842 adoption), `minority_interest`, and `shares_outstanding` (cover-page `dei:EntityCommonStockSharesOutstanding`, labelled with its filing's own fiscal period because its date falls after the period end). Quarterly and annual views keep one value per period when two dates share a label. Marketable securities are not mapped (owner decision).
+- **XOM guard** (owner decision): `get_facts` raises a `CoverageWarning` for XOM as of 2026-11-01 or later, when its new filings move to the holding company's CIK.
+
+**Result.** 26,340 facts; 0 unexplained gaps for all 8 companies with the new items; tag-change audit shows only genuine restatements or moves to the preferred definition; 106 tests.
 
 ### M2 — Deterministic Forecast and DCF Engine
 
@@ -348,4 +364,9 @@ load_fundamentals → build_baseline → fetch_news → cluster_events
 | SEC companyfacts omits company-specific (extension) and dimensional tags: no cash-flow D&A for MSFT, no interest expense for CAT, no quarterly pretax income for PG (M1) | Documented as known gaps; M2 decides whether to parse full XBRL filings or use fallbacks |
 | JNJ and XOM present no operating income line (M1) | M2 derives EBIT from other lines, as a documented `computed` assumption |
 | Debt components absent for some periods (M1) | M2 treats a missing component as zero, with a warning |
-| XOM history sits on the predecessor CIK; filings from Q3 2026 are on the new holding company (M1) | Link predecessor and successor before analysing XOM dates after 2026-07-01 |
+| XOM history sits on the predecessor CIK; filings from Q3 2026 are on the new holding company (M1) | `CoverageWarning` from 2026-11-01 (M1.1); link predecessor and successor before analysing later XOM dates |
+| Marketable securities are not mapped (M1.1 owner decision); AAPL and MSFT hold large portfolios outside cash | M2's net debt overstates debt for AAPL and MSFT unless securities are added; decide in the M2 plan |
+| Quarterly series can mix restatement vintages (13 item-years, M1.1 report) | M2 chooses the basis for growth rates (e.g. latest 10-K comparatives) |
+| Finance leases may also sit inside lease-inclusive debt tags (KO 2024+) | M2 must not count them twice in net debt |
+| `DepreciationAmortizationAndAccretionNet` differs from `DepreciationDepletionAndAmortization` for AAPL FY2015 (11.3B vs 9.2B) | Outside FY2016–FY2025 today; watch if the range extends |
+| CAT FY2020–21 and PG FY2020 operating leases are tagged only as current + non-current parts | Small next to debt; add component items if M2 needs them |

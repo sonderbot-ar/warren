@@ -1,8 +1,8 @@
 """Point-in-time fact queries: what a company had reported as of a given date.
 
-For each canonical item and period, the value comes from the newest filing public on the as-of date
-(or the earliest, in first_reported mode); within that filing, the highest-priority tag wins.
-Choosing the filing first means a restatement filed under a different tag still takes effect.
+For each canonical item and period, the value is the newest version (public on the as-of date) of
+the highest-priority tag that reports the period. In first_reported mode it is the earliest filing,
+and the highest-priority tag within it. `restated` means the value differs from first_reported.
 
 Quarterly results add the quarters companies never report on their own (Q4, and standalone Q2/Q3
 for cash-flow items reported only year-to-date). They are derived at query time from the inputs
@@ -15,6 +15,7 @@ from datetime import date, timedelta
 from typing import Literal
 
 from domains.fundamentals.schemas import Fact
+from domains.fundamentals.universe import warn_if_beyond_history
 
 Mode = Literal["latest", "first_reported"]
 Frequency = Literal["reported", "quarterly", "annual"]
@@ -71,6 +72,7 @@ def get_reported_facts(
     if not canonical_names:
         return []
 
+    warn_if_beyond_history(cik, _as_date(as_of))
     sql = QUERY.format(placeholders=", ".join("?" * len(canonical_names)))
     params = [cik, _as_date(as_of).isoformat(), *canonical_names]
 
@@ -88,9 +90,23 @@ def get_reported_facts(
         if mode == "first_reported":
             facts.append(_to_fact(first, restated=False))
         else:
-            latest = _best_in_filing(filings[order[-1]])
+            latest = _latest_of_best_tag([row for rows in filings.values() for row in rows])
             facts.append(_to_fact(latest, restated=latest["value"] != first["value"]))
     return facts
+
+
+def _latest_of_best_tag(rows: list[sqlite3.Row]) -> sqlite3.Row:
+    """The newest version of the highest-priority tag that reports this period.
+
+    Ranking the tag before the filing stops definition drift: later filings often repeat an old
+    period under a broader or narrower tag (e.g. cash including restricted cash, on the cash-flow
+    statement), which is a different measure, not a restatement. A restatement filed under a
+    higher-ranked tag still wins, because that tag is preferred.
+    """
+    best = min(r["priority"] for r in rows)
+    return max(
+        (r for r in rows if r["priority"] == best), key=lambda r: (r["filed_at"], r["accession_no"])
+    )
 
 
 # -- quarterly and annual views ---------------------------------------------------------------
@@ -137,24 +153,32 @@ def _quarters_for_flow(year: dict[str, Fact]) -> list[Fact]:
     return [q[p] for p in ("Q1", "Q2", "Q3", "Q4") if p in q]
 
 
-def _quarterly(facts: list[Fact]) -> list[Fact]:
-    years: dict[tuple, dict[str, Fact]] = defaultdict(dict)
-    quarters = []
+def _one_per_period(facts: list[Fact]) -> list[Fact]:
+    """One fact per (item, fiscal year, fiscal period); unplaced facts are dropped.
+
+    Two dated facts can share a label: an amended filing's cover page repeats shares outstanding
+    under a later date, and rarely two balance-sheet dates fall in one period. The later one wins.
+    """
+    best: dict[tuple, Fact] = {}
     for fact in facts:
         if fact.fiscal_year is None:
             continue  # periods that couldn't be placed in the fiscal calendar
+        key = (fact.canonical_name, fact.fiscal_year, fact.fiscal_period, fact.period_start is None)
+        if key not in best or fact.period_end > best[key].period_end:
+            best[key] = fact
+    return list(best.values())
+
+
+def _quarterly(facts: list[Fact]) -> list[Fact]:
+    years: dict[tuple, dict[str, Fact]] = defaultdict(dict)
+    quarters = []
+    for fact in _one_per_period(facts):
         if fact.period_start is None:  # balance-sheet item: the Q4 balance is the year-end one
             if fact.fiscal_period == "FY":
                 fact = fact.model_copy(update={"fiscal_period": "Q4"})
             quarters.append(fact)
         else:
-            year = years[(fact.canonical_name, fact.fiscal_year)]
-            # two reported periods can share a label (rare); keep the later-ending one
-            if (
-                fact.fiscal_period not in year
-                or fact.period_end > year[fact.fiscal_period].period_end
-            ):
-                year[fact.fiscal_period] = fact
+            years[(fact.canonical_name, fact.fiscal_year)][fact.fiscal_period] = fact
     for year in years.values():
         quarters.extend(_quarters_for_flow(year))
     return sorted(quarters, key=lambda f: (f.canonical_name, f.period_end))
@@ -178,7 +202,8 @@ def get_facts(
     if frequency == "reported":
         return facts
     if frequency == "annual":
-        return [f for f in facts if f.fiscal_period == "FY"]
+        annual = _one_per_period([f for f in facts if f.fiscal_period == "FY"])
+        return sorted(annual, key=lambda f: (f.canonical_name, f.period_end))
     if frequency == "quarterly":
         return _quarterly(facts)
     raise ValueError(f"Unknown frequency: {frequency!r}")

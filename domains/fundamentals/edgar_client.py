@@ -10,6 +10,7 @@ import os
 import tempfile
 import time
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,19 @@ FINANCIAL_SIC_RANGE = range(6000, 6800)
 
 class EdgarError(RuntimeError):
     """EDGAR returned something unusable, or a lookup found nothing."""
+
+
+def _meta_path(path: Path) -> Path:
+    return path.with_name(path.name + ".meta.json")
+
+
+def _write_atomic(path: Path, data: Any) -> None:
+    """Write JSON to a temp file and rename, so an interrupted run never leaves half a file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    with os.fdopen(fd, "w") as f:
+        json.dump(data, f)
+    os.replace(tmp, path)
 
 
 def pad_cik(cik: int | str) -> str:
@@ -111,13 +125,19 @@ class EdgarClient:
         if path.exists() and not refresh:
             return json.loads(path.read_text())
         data = self._get(url)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        # write to a temp file and rename, so an interrupted run never leaves half a file
-        fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
-        with os.fdopen(fd, "w") as f:
-            json.dump(data, f)
-        os.replace(tmp, path)
+        fetched_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        _write_atomic(path, data)
+        # a sidecar records where and when the cached copy came from (provenance)
+        _write_atomic(_meta_path(path), {"url": url, "fetched_at": fetched_at})
         return data
+
+    def fetched_at(self, relative_path: str) -> str | None:
+        """When a cached file was downloaded, or None if it predates provenance sidecars."""
+        meta = _meta_path(self.cache_dir / relative_path)
+        return json.loads(meta.read_text())["fetched_at"] if meta.exists() else None
+
+    def company_facts_fetched_at(self, cik: str) -> str | None:
+        return self.fetched_at(f"companyfacts/CIK{pad_cik(cik)}.json")
 
     # -- endpoints ----------------------------------------------------------------------------
 

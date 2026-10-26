@@ -6,6 +6,7 @@ from domains.fundamentals.edgar_client import EdgarError
 from domains.fundamentals.ingest import (
     CalendarEntry,
     build_filing_calendar,
+    content_sha256,
     ingest_company,
     label_fact,
 )
@@ -99,3 +100,85 @@ def test_company_row_and_aliases(ingested):
 def test_financial_company_is_rejected(conn):
     with pytest.raises(EdgarError, match="outside the Phase 1 universe"):
         ingest_company(conn, "BNK", client=FakeEdgar(sic="6021"))
+
+
+def test_fact_ending_after_its_filing_date_is_rejected(conn):
+    edgar = FakeEdgar()
+    cash = edgar.facts["facts"]["us-gaap"]["CashAndCashEquivalentsAtCarryingValue"]["units"]["USD"]
+    bad = dict(cash[0], end="2025-06-30")  # filed 2024-02-15, so the period hasn't ended yet
+    cash.append(bad)
+    result = ingest_company(conn, "TST", client=edgar)
+    assert result.skipped["future_period"] == 1
+    assert not conn.execute("SELECT 1 FROM financial_facts WHERE period_end > filed_at").fetchone()
+
+
+def test_each_ingest_records_what_data_and_concept_map_it_used(ingested):
+    conn, first = ingested
+    ingest_company(conn, "TST", client=FakeEdgar())
+    runs = conn.execute("SELECT * FROM ingest_runs ORDER BY run_id").fetchall()
+    assert len(runs) == 2
+    assert runs[0]["companyfacts_sha256"] == runs[1]["companyfacts_sha256"]  # same content
+    assert len(runs[0]["concept_map_sha256"]) == 64
+    assert runs[0]["companyfacts_fetched_at"] == "2026-10-26T12:00:00Z"
+    assert (runs[0]["facts_new"], runs[1]["facts_new"]) == (first.facts_new, 0)
+
+
+def test_content_hash_ignores_key_order():
+    assert content_sha256({"a": 1, "b": [1, 2]}) == content_sha256({"b": [1, 2], "a": 1})
+    assert content_sha256({"a": 1}) != content_sha256({"a": 2})
+
+
+def with_cover_shares(edgar):
+    """Add cover-page shares outstanding to the Q1 2024 10-Q and the FY2024 10-K (and a 10-K/A)."""
+
+    def cover(val, end, accn, form, filed, fy, fp):
+        return {"end": end, "val": val, "accn": accn, "fy": fy, "fp": fp, "form": form,
+                "filed": filed}  # fmt: skip
+
+    edgar.facts["facts"]["dei"] = {
+        "EntityCommonStockSharesOutstanding": {
+            "units": {
+                "shares": [
+                    cover(
+                        1000, "2024-04-20", "0000000123-24-000010", "10-Q", "2024-05-01", 2024, "Q1"
+                    ),
+                    cover(
+                        990, "2025-02-01", "0000000123-25-000001", "10-K", "2025-02-15", 2024, "FY"
+                    ),
+                    cover(
+                        985,
+                        "2025-03-10",
+                        "0000000123-25-000077",
+                        "10-K/A",
+                        "2025-03-20",
+                        2024,
+                        "FY",
+                    ),
+                ]
+            }
+        }
+    }
+    return edgar
+
+
+def test_cover_page_shares_take_their_filings_fiscal_period(conn):
+    ingest_company(conn, "TST", client=with_cover_shares(FakeEdgar()))
+    rows = conn.execute(
+        "SELECT period_end, fiscal_year, fiscal_period FROM financial_facts "
+        "WHERE xbrl_concept = 'dei:EntityCommonStockSharesOutstanding' ORDER BY period_end"
+    ).fetchall()
+    assert [tuple(r) for r in rows] == [
+        ("2024-04-20", 2024, "Q1"),  # a date between quarter ends, labelled by its filing
+        ("2025-02-01", 2024, "FY"),
+        ("2025-03-10", None, None),  # the 10-K/A has no other facts, so its period is unknown
+    ]
+
+
+def test_mid_quarter_balance_is_stored_without_a_label(conn):
+    edgar = FakeEdgar()
+    cash = edgar.facts["facts"]["us-gaap"]["CashAndCashEquivalentsAtCarryingValue"]["units"]["USD"]
+    cash.append(dict(cash[-1], end="2025-05-15", val=1))  # filed 2026-02-15
+    result = ingest_company(conn, "TST", client=edgar)
+    assert result.unlabelled == 1
+    row = conn.execute("SELECT fiscal_year FROM financial_facts WHERE period_end = '2025-05-15'")
+    assert row.fetchone()[0] is None

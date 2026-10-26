@@ -79,6 +79,25 @@ def test_weighted_average_shares_are_never_derived(ingested):
     assert "Q4" not in quarters(conn, "diluted_shares", "2025-03-01")
 
 
+def test_one_value_per_period_when_two_dates_share_a_label(ingested):
+    conn, _ = ingested
+    # the 10-K cover and a later 10-K/A cover both carry FY2024 shares outstanding
+    for end, value, accession, filed in [
+        ("2025-02-01", 990, K1, "2025-02-15"),
+        ("2025-03-10", 985, "0000000123-25-000077", "2025-03-20"),
+    ]:
+        conn.execute(
+            "INSERT INTO financial_facts (cik, xbrl_concept, period_end, fiscal_year, "
+            "fiscal_period, value, unit, form, accession_no, filed_at) VALUES (?, "
+            "'dei:EntityCommonStockSharesOutstanding', ?, 2024, 'FY', ?, 'shares', '10-K', ?, ?)",
+            (TEST_CIK, end, value, accession, filed),
+        )
+    q = quarters(conn, "shares_outstanding", "2025-04-01")
+    assert (q["Q4"].value, q["Q4"].period_end) == (985, date(2025, 3, 10))
+    annual = get_facts(conn, TEST_CIK, ["shares_outstanding"], "2025-04-01", frequency="annual")
+    assert [f.value for f in annual] == [985]
+
+
 def test_annual_returns_fiscal_years_only(ingested):
     conn, _ = ingested
     facts = get_facts(conn, TEST_CIK, ["revenue", "cash"], "2025-03-01", frequency="annual")

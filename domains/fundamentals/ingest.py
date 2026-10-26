@@ -4,6 +4,7 @@ Fiscal labels come from the company's own filing calendar, not from the JSON's f
 those describe the *filing*: a prior-year comparative in the FY2024 10-K carries fy=2024.
 """
 
+import hashlib
 import json
 import sqlite3
 from collections import Counter, defaultdict
@@ -11,7 +12,12 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
-from domains.fundamentals.concepts import ConceptRow, load_concept_map, sync_concepts
+from domains.fundamentals.concepts import (
+    ConceptRow,
+    concept_map_sha256,
+    load_concept_map,
+    sync_concepts,
+)
 from domains.fundamentals.edgar_client import (
     EdgarClient,
     EdgarError,
@@ -51,6 +57,7 @@ class IngestResult:
     facts_kept: int = 0
     facts_new: int = 0
     calendar_entries: int = 0
+    unlabelled: int = 0  # stored, but no fiscal period could be assigned
     skipped: Counter = field(default_factory=Counter)
 
 
@@ -72,6 +79,30 @@ def build_filing_calendar(facts_json: dict[str, Any]) -> list[CalendarEntry]:
     A filing's own period is the end date most of its facts share (comparatives are a minority).
     When filings disagree about an end date, the majority label wins.
     """
+    votes: dict[date, Counter] = defaultdict(Counter)
+    for primary_end, fy, fp in _primary_periods(facts_json).values():
+        votes[primary_end][(fy, FP_TO_QUARTER[fp])] += 1
+
+    entries = []
+    for end, counter in sorted(votes.items()):
+        (fy, quarter), _ = counter.most_common(1)[0]
+        entries.append(CalendarEntry(end=end, fiscal_year=fy, quarter=quarter))
+    return entries
+
+
+def filing_periods(
+    facts_json: dict[str, Any], calendar: list[CalendarEntry]
+) -> dict[str, tuple[int, int]]:
+    """accession -> (fiscal_year, quarter) of the filing's own period, placed in the calendar."""
+    placed = {
+        accn: place_period_end(calendar, primary_end)
+        for accn, (primary_end, _fy, _fp) in _primary_periods(facts_json).items()
+    }
+    return {accn: p for accn, p in placed.items() if p is not None}
+
+
+def _primary_periods(facts_json: dict[str, Any]) -> dict[str, tuple[date, int, str]]:
+    """accession -> (its own period end, the filing's fy, the filing's fp)."""
     ends_by_accession: dict[str, Counter] = defaultdict(Counter)
     label_by_accession: dict[str, tuple[int, str]] = {}
     for taxonomy, _tag, _unit, row in _iter_facts(facts_json):
@@ -82,18 +113,12 @@ def build_filing_calendar(facts_json: dict[str, Any]) -> list[CalendarEntry]:
         ends_by_accession[row["accn"]][row["end"]] += 1
         label_by_accession.setdefault(row["accn"], (row["fy"], row["fp"]))
 
-    votes: dict[date, Counter] = defaultdict(Counter)
+    periods = {}
     for accn, ends in ends_by_accession.items():
         top = max(ends.values())
         primary_end = max(end for end, n in ends.items() if n == top)
-        fy, fp = label_by_accession[accn]
-        votes[date.fromisoformat(primary_end)][(fy, FP_TO_QUARTER[fp])] += 1
-
-    entries = []
-    for end, counter in sorted(votes.items()):
-        (fy, quarter), _ = counter.most_common(1)[0]
-        entries.append(CalendarEntry(end=end, fiscal_year=fy, quarter=quarter))
-    return entries
+        periods[accn] = (date.fromisoformat(primary_end), *label_by_accession[accn])
+    return periods
 
 
 def place_period_end(calendar: list[CalendarEntry], end: date) -> tuple[int, int] | None:
@@ -141,6 +166,16 @@ def label_fact(
     return fy, label, None
 
 
+def label_cover_fact(
+    filing_period: tuple[int, int] | None,
+) -> tuple[int | None, str | None, str | None]:
+    """Label a cover-page fact with its filing's own (fiscal_year, quarter)."""
+    if filing_period is None:
+        return None, None, None
+    fy, quarter = filing_period
+    return fy, ("FY" if quarter == 4 else f"Q{quarter}"), None
+
+
 # -- ingestion -------------------------------------------------------------------------------
 
 UPSERT_COMPANY = """
@@ -163,12 +198,20 @@ DO UPDATE SET fiscal_year = excluded.fiscal_year, fiscal_period = excluded.fisca
 """
 
 
+INSERT_RUN = """
+INSERT INTO ingest_runs (cik, companyfacts_sha256, companyfacts_fetched_at, concept_map_sha256,
+                         facts_kept, facts_new)
+VALUES (?, ?, ?, ?, ?, ?)
+"""
+
+
 def extract_facts(
     cik: str, facts_json: dict[str, Any], concepts: list[ConceptRow], result: IngestResult
 ) -> list[tuple]:
     """Rows for financial_facts: mapped concepts only, every filing's version, labelled."""
     by_tag = {(c.taxonomy, c.tag): c for c in concepts}
     calendar = build_filing_calendar(facts_json)
+    own_period = filing_periods(facts_json, calendar)
     result.calendar_entries = len(calendar)
 
     rows: dict[tuple, tuple] = {}
@@ -183,16 +226,24 @@ def extract_facts(
         if unit != concept.unit:
             result.skipped["unit"] += 1
             continue
+        if fact["end"] > fact["filed"]:
+            result.skipped["future_period"] += 1  # a period can't end after its filing: data error
+            continue
         start = fact.get("start")
         if (start is None) != (concept.period_type == "instant"):
             result.skipped["period_type"] += 1
             continue
-        fy, fp, reason = label_fact(calendar, start, fact["end"])
+        if taxonomy == "dei":
+            # cover-page facts are dated near the filing date, not at a period end: they take the
+            # fiscal period of the filing they appear in
+            fy, fp, reason = label_cover_fact(own_period.get(fact["accn"]))
+        else:
+            fy, fp, reason = label_fact(calendar, start, fact["end"])
         if reason:
             result.skipped[reason] += 1
             continue
         if fy is None:
-            result.skipped["unplaced_label"] += 1  # still stored, without a fiscal label
+            result.unlabelled += 1  # still stored, e.g. a mid-quarter date
         key = (concept.xbrl_concept, unit, start or "", fact["end"], fact["accn"])
         row = (
             cik, concept.xbrl_concept, start, fact["end"], fy, fp,
@@ -235,5 +286,22 @@ def ingest_company(
         before = conn.execute("SELECT COUNT(*) FROM financial_facts").fetchone()[0]
         conn.executemany(UPSERT_FACT, rows)
         after = conn.execute("SELECT COUNT(*) FROM financial_facts").fetchone()[0]
-    result.facts_new = after - before
+        result.facts_new = after - before
+        conn.execute(
+            INSERT_RUN,
+            (
+                company["cik"],
+                content_sha256(facts_json),
+                client.company_facts_fetched_at(cik),
+                concept_map_sha256(),
+                result.facts_kept,
+                result.facts_new,
+            ),
+        )
     return result
+
+
+def content_sha256(document: dict[str, Any]) -> str:
+    """Fingerprint of a JSON document's content, independent of key order and whitespace."""
+    canonical = json.dumps(document, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
