@@ -15,6 +15,7 @@ from datetime import date, timedelta
 from typing import Literal
 
 from domains.fundamentals.schemas import Fact
+from domains.fundamentals.universe import warn_if_beyond_history
 
 Mode = Literal["latest", "first_reported"]
 Frequency = Literal["reported", "quarterly", "annual"]
@@ -71,6 +72,7 @@ def get_reported_facts(
     if not canonical_names:
         return []
 
+    warn_if_beyond_history(cik, _as_date(as_of))
     sql = QUERY.format(placeholders=", ".join("?" * len(canonical_names)))
     params = [cik, _as_date(as_of).isoformat(), *canonical_names]
 
