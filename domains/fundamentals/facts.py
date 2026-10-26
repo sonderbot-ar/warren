@@ -1,8 +1,8 @@
 """Point-in-time fact queries: what a company had reported as of a given date.
 
-For each canonical item and period, the value comes from the newest filing public on the as-of date
-(or the earliest, in first_reported mode); within that filing, the highest-priority tag wins.
-Choosing the filing first means a restatement filed under a different tag still takes effect.
+For each canonical item and period, the value is the newest version (public on the as-of date) of
+the highest-priority tag that reports the period. In first_reported mode it is the earliest filing,
+and the highest-priority tag within it. `restated` means the value differs from first_reported.
 
 Quarterly results add the quarters companies never report on their own (Q4, and standalone Q2/Q3
 for cash-flow items reported only year-to-date). They are derived at query time from the inputs
@@ -88,9 +88,23 @@ def get_reported_facts(
         if mode == "first_reported":
             facts.append(_to_fact(first, restated=False))
         else:
-            latest = _best_in_filing(filings[order[-1]])
+            latest = _latest_of_best_tag([row for rows in filings.values() for row in rows])
             facts.append(_to_fact(latest, restated=latest["value"] != first["value"]))
     return facts
+
+
+def _latest_of_best_tag(rows: list[sqlite3.Row]) -> sqlite3.Row:
+    """The newest version of the highest-priority tag that reports this period.
+
+    Ranking the tag before the filing stops definition drift: later filings often repeat an old
+    period under a broader or narrower tag (e.g. cash including restricted cash, on the cash-flow
+    statement), which is a different measure, not a restatement. A restatement filed under a
+    higher-ranked tag still wins, because that tag is preferred.
+    """
+    best = min(r["priority"] for r in rows)
+    return max(
+        (r for r in rows if r["priority"] == best), key=lambda r: (r["filed_at"], r["accession_no"])
+    )
 
 
 # -- quarterly and annual views ---------------------------------------------------------------
