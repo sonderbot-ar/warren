@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from domains.fundamentals.facts import get_reported_facts
+from domains.fundamentals.facts import get_reported_facts, newest_filing_disagreements
 from tests.fundamentals.conftest import TEST_CIK
 
 FY2024 = (date(2024, 1, 1), date(2024, 12, 31))
@@ -98,3 +98,22 @@ def test_unknown_canonical_name_is_rejected(ingested):
     conn, _ = ingested
     with pytest.raises(ValueError, match="Not in the concept map"):
         get_reported_facts(conn, TEST_CIK, ["revenues"], "2025-03-01")
+
+
+def test_newest_filing_under_a_lower_ranked_tag_is_listed_as_a_disagreement(ingested):
+    conn, _ = ingested
+    # a later filing repeats FY2024 only under the ASC 606 tag, with a different value
+    add_fact(
+        conn, "RevenueFromContractWithCustomerExcludingAssessedTax", 450, "a-27-1", "2027-02-15"
+    )
+    assert revenue_for(conn, FY2024, "2027-03-01").value == 455  # best tag still wins
+    pairs = newest_filing_disagreements(conn, TEST_CIK, ["revenue"], "2027-03-01")
+    assert [(s.value, n.value, n.accession_no) for s, n in pairs if s.period_end == FY2024[1]] == [
+        (455, 450, "a-27-1")
+    ]
+    # not yet public on the earlier date
+    assert not [
+        p
+        for p in newest_filing_disagreements(conn, TEST_CIK, ["revenue"], "2026-12-31")
+        if p[0].period_end == FY2024[1]
+    ]

@@ -2,7 +2,9 @@
 
 A gap is a missing quarter or fiscal year in FY2016-FY2025. It is *explained* when known_gaps.csv
 gives a reason (or when it is a weighted-average shares Q4, which can't be derived); anything else
-is *unexplained*, and the M1 exit criterion requires none.
+is *unexplained*, and the M1 exit criterion requires none. Only required items are checked:
+optional items (fallbacks, and holdings a company may not have) are not part of this report; a run
+that uses one records it in its assumptions.
 """
 
 import csv
@@ -13,7 +15,7 @@ from datetime import date
 from pathlib import Path
 
 from domains.fundamentals.concepts import concept_map_sha256, load_concept_map
-from domains.fundamentals.facts import DERIVABLE_UNITS, get_facts
+from domains.fundamentals.facts import DERIVABLE_UNITS, get_facts, newest_filing_disagreements
 from domains.fundamentals.schemas import Fact
 from domains.fundamentals.universe import FISCAL_YEARS
 
@@ -23,6 +25,7 @@ PERIODS = ("Q1", "Q2", "Q3", "Q4", "FY")
 NON_ADDITIVE_REASON = "Q4 not reported; weighted-average shares can't be derived (not additive)."
 # Quarters of a flow should add up to its fiscal year; beyond this they come from different bases.
 CONSISTENCY_TOLERANCE = 0.005
+AUDIT_EXAMPLES = 4  # periods listed per group in the newest-filing audit
 
 
 @dataclass(frozen=True)
@@ -90,6 +93,8 @@ class QualityReport:
     last_ingest: dict | None = None  # the latest ingest_runs row: what data the facts came from
     concept_map_changed: bool = False  # concept_map.csv edited since that ingest
     gap_links: dict[tuple[str, int, str], str] = field(default_factory=dict)  # [inferred] gaps
+    # (selected, newest filing's value) where they differ: the standing tag-change audit
+    disagreements: list[tuple[Fact, Fact]] = field(default_factory=list)
 
     @property
     def unexplained(self) -> list[Gap]:
@@ -132,11 +137,13 @@ class QualityReport:
             f"{len(self.mixed_vintage)}",
             f"- Fiscal years whose quarters don't add up to the full year: "
             f"{len(self.inconsistencies)} (informational; see below)",
+            f"- Periods where the newest filing disagrees with the selected value: "
+            f"{len(self.disagreements)} (informational; see below)",
             "",
             "## Coverage",
             "",
             "Each cell is Q1 Q2 Q3 Q4 FY: `R` reported, `d` derived, `e` explained gap, "
-            "`!` unexplained gap.",
+            "`!` unexplained gap. Required items only.",
             "",
             "| Item | " + " | ".join(f"FY{y}" for y in years) + " |",
             "|---|" + "---|" * len(years),
@@ -185,7 +192,37 @@ class QualityReport:
                 f"({share:+.1%}); "
                 f"restated: {', '.join(i.restated) or 'none'}"
             )
+
+        lines += [
+            "",
+            "## Newest filing disagrees with the selected value",
+            "",
+            "Periods where the newest filing reports a different value, only under a lower-ranked "
+            "tag. Usually a different measure (correctly ignored); a restatement filed only under "
+            "that tag would be missed by the selection rule, so check any new group after a "
+            "concept-map edit.",
+            "",
+        ]
+        lines += self._disagreement_lines() or ["None."]
         return "\n".join(lines) + "\n"
+
+    def _disagreement_lines(self) -> list[str]:
+        groups: dict[tuple, list[tuple[Fact, Fact]]] = defaultdict(list)
+        for selected, newest in self.disagreements:
+            key = (selected.canonical_name, selected.xbrl_concept, newest.xbrl_concept)
+            groups[key].append((selected, newest))
+        lines = []
+        for (name, selected_tag, newest_tag), pairs in groups.items():
+            examples = ", ".join(
+                f"{s.period_end} {s.value / 1e6:,.0f}M vs {n.value / 1e6:,.0f}M"
+                for s, n in pairs[:AUDIT_EXAMPLES]
+            )
+            more = f", +{len(pairs) - AUDIT_EXAMPLES} more" if len(pairs) > AUDIT_EXAMPLES else ""
+            lines.append(
+                f"- **{name}** ({len(pairs)}): selected {selected_tag.split(':', 1)[1]}, newest "
+                f"filing {newest_tag.split(':', 1)[1]}: {examples}{more}"
+            )
+        return lines
 
     def _provenance_line(self) -> str:
         run = self.last_ingest
@@ -241,7 +278,7 @@ def build_report(
         raise ValueError(f"{ticker} has not been ingested")
     as_of = as_of or date.today()
     known_gaps = load_known_gaps() if known_gaps is None else known_gaps
-    concepts = load_concept_map()
+    concepts = [c for c in load_concept_map() if c.gate == "required"]
     names = list(dict.fromkeys(c.canonical_name for c in concepts))
     unit_of = {c.canonical_name: c.unit for c in concepts}
     flows = {c.canonical_name for c in concepts if c.period_type == "duration"}
@@ -304,6 +341,12 @@ def build_report(
                 report.inconsistencies.append(
                     Inconsistency(name, year, total, facts[-1].value, restated)
                 )
+
+    report.disagreements = [
+        (selected, newest)
+        for selected, newest in newest_filing_disagreements(conn, company["cik"], names, as_of)
+        if selected.fiscal_year in years
+    ]
 
     run = conn.execute(
         "SELECT * FROM ingest_runs WHERE cik = ? ORDER BY run_id DESC LIMIT 1", (company["cik"],)

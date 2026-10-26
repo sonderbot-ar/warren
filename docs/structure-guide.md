@@ -51,11 +51,11 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 | 1 | Model allocation and API keys | Under review | sep.24.2026 |
 | 2 | State management: SQLite, typed fact table, small data in graph state | **Accepted** (replaces EAV; version-selection rule revised and provenance added in M1.1) | oct.26.2026 |
 | 3 | Data processing: SQLite only, no vector database | **Accepted** (replaces ChromaDB) | oct.14.2026 |
-| 4 | Deterministic math engine with explicit, sourced assumptions | **Accepted** (strengthened) | oct.14.2026 |
+| 4 | Deterministic math engine with explicit, sourced assumptions | **Accepted** (strengthened; equity risk premium and terminal growth computed from market data, M2) | oct.26.2026 |
 | 5 | Telemetry: local JSON log file | Accepted (details under review; timestamp bug fixed) | oct.14.2026 |
 | 6 | Shock model: event taxonomy, time-shaped and probabilistic shocks | **Accepted** | oct.14.2026 |
 | 7 | Evaluation harness on point-in-time data | **Accepted** | oct.14.2026 |
-| 8 | Data sources: SEC EDGAR, Yahoo Finance, GDELT | **Accepted** (EDGAR coverage limits noted, M1) | oct.14.2026 |
+| 8 | Data sources: SEC EDGAR, Yahoo Finance, FRED, GDELT | **Accepted** (EDGAR coverage limits noted, M1; FRED added for the risk-free rate, M2) | oct.26.2026 |
 | 9 | LLM usage limited to judgment-over-text steps | **Accepted** | oct.14.2026 |
 | — | Entity-Attribute-Value (EAV) metrics table | Superseded by 2 | sep.24.2026 |
 | — | Passing only database IDs between graph nodes | Superseded by 2 | sep.24.2026 |
@@ -96,6 +96,8 @@ These goals shape the design so the Phase 1 build does not block them, but none 
   - **Multi-year inputs.** A DCF needs several historical years of revenue, operating expenses, taxes, D&A, capex, working capital, cash, debt and diluted shares, not a single year of revenue and COGS. `BaselineFinancials` becomes a view built from facts.
   - **Assumptions are explicit and sourced.** Every assumption (WACC, terminal growth, margins, growth rates) is an input record with a `source` field: `computed`, `user` or `llm_proposed`. Nothing is silently defaulted. ("Must be computed or asked, never assumed" becomes a rule enforced in code, not a comment.)
   - **Sanity checks that fail loudly.** Examples: terminal growth must be below WACC; shares outstanding must be positive; a warning when terminal value dominates total value.
+  - **Cost-of-capital inputs are computed (oct.26.2026, M2).** The equity risk premium is the realized geometric premium of the S&P 500 Total Return over a 10-year Treasury bond's total return (built from DGS10, the same rate CAPM uses), over full years from 1989 to the last year ended before the as-of date. Terminal growth equals the risk-free rate at the as-of date. The owner sets the methods, not the numbers; each run stores the computed values with their years, standard error and data hashes. Limits (noise, procyclicality, window dependence) are listed in the build plan's risks.
+  - **Checks are universal (oct.26.2026, M2).** Data-quality and sanity checks apply the same rules to every company; there is no per-company review list. Optional concept-map items are not part of the quality report; they are traced through the assumption rows of the runs that use them.
   - **Monte Carlo.** The DCF runs over sampled driver distributions with a fixed random seed for reproducibility, producing percentiles (p10/p50/p90) instead of a single value.
 
 ### Decision 5 — Telemetry: Local Log File · *Accepted (details under review)*
@@ -129,7 +131,8 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 | Data | Source | Notes |
 |---|---|---|
 | Fundamentals | **SEC EDGAR** XBRL APIs (company facts / company concept) | Official and free; includes filing dates for point-in-time queries. Requires a descriptive User-Agent and respects SEC rate limits. Company facts include only standard-taxonomy, non-dimensional facts: lines a company reports under its own extension tag, or only by segment, are missing (found in M1; each gap is documented). |
-| Prices | **Yahoo Finance** (via the `yfinance` library) | Used for beta / cost of capital and peer comparison only. Unofficial interface, so it sits behind a small adapter and results are cached in SQLite. |
+| Prices | **Yahoo Finance** (via the `yfinance` library) | Used for beta / cost of capital (including the S&P 500 Total Return index behind the equity risk premium, M2) and peer comparison only. Unofficial interface, so it sits behind a small adapter and results are cached in SQLite. Closes come adjusted for later splits; stored split ratios put a price back on its own day's share basis (M2). |
+| Risk-free rate | **FRED** (series DGS10, 10-year Treasury, from the Fed's H.15 release) | Added in M2 (owner decision oct.26.2026). Keyless CSV download, cached in SQLite. Published the next business day, so a query uses the latest observation dated before its as-of date. |
 | News and events | **GDELT** (GDELT 2.0 Events and Global Knowledge Graph) | Free, global, timestamped, with themes, tone and organisations. Noisy by design: cleaning, company matching and deduplication are part of the work and part of the learning goal. GDELT provides article URLs and metadata, not full article text. |
 
 ### Decision 9 — LLM Usage · *Accepted*
@@ -139,7 +142,7 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 
 ## 4. Project Structure
 
-Proposed target layout for Phase 1 (to be created step by step through the build plan; nothing here exists until the owner commands it):
+Target layout for Phase 1, created step by step through the build plan. So far `shared_kernel/` (config, database, migrations, schemas) and `domains/fundamentals/` exist (M0–M1.1); the other domain packages are empty placeholders until their milestone:
 
 ```text
 warren/

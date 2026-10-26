@@ -32,6 +32,7 @@ ruff format .           # format
 ```bash
 python -m domains.fundamentals ingest --all     # download the Phase 1 universe from SEC EDGAR (cached in data/raw/edgar/)
 python -m domains.fundamentals report --all     # data-quality reports in data/reports/quality/; exits 1 on any unexplained gap
+python -m domains.market load                   # daily prices (Yahoo Finance) and the 10-year Treasury yield (FRED); add --refresh to update
 ```
 
 Query point-in-time facts with `domains.fundamentals.facts.get_facts(conn, cik, ["revenue"], as_of="2024-06-30", frequency="quarterly")`.

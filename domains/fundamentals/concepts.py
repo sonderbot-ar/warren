@@ -17,11 +17,15 @@ COLUMNS = [
     "priority",
     "unit",
     "period_type",
+    "gate",
     "definition",
     "note",
 ]
 UNITS = {"USD", "shares", "USD/shares"}
 PERIOD_TYPES = {"duration", "instant"}
+# required: every gap must be explained (the quality gate). optional: fallbacks and items a company
+# may not hold (e.g. marketable securities); gaps are listed but never fail the gate.
+GATES = {"required", "optional"}
 TAXONOMIES = ("us-gaap:", "dei:")
 
 
@@ -37,6 +41,7 @@ class ConceptRow:
     unit: str
     period_type: str
     definition: str
+    gate: str = "required"
 
     @property
     def taxonomy(self) -> str:
@@ -57,6 +62,9 @@ def load_concept_map(path: Path = CONCEPT_MAP_PATH) -> list[ConceptRow]:
 
     errors, rows = [], []
     for line, r in enumerate(raw, start=2):
+        if None in r or None in r.values():
+            errors.append(f"line {line}: wrong number of fields (quote any field with a comma)")
+            continue
         if not r["priority"].isdigit():
             errors.append(f"line {line}: priority must be a positive integer")
             continue
@@ -67,6 +75,7 @@ def load_concept_map(path: Path = CONCEPT_MAP_PATH) -> list[ConceptRow]:
             unit=r["unit"].strip(),
             period_type=r["period_type"].strip(),
             definition=r["definition"].strip(),
+            gate=r["gate"].strip(),
         )
         if not row.xbrl_concept.startswith(TAXONOMIES):
             errors.append(f"line {line}: {row.xbrl_concept} must start with one of {TAXONOMIES}")
@@ -74,6 +83,8 @@ def load_concept_map(path: Path = CONCEPT_MAP_PATH) -> list[ConceptRow]:
             errors.append(f"line {line}: unknown unit {row.unit!r}")
         if row.period_type not in PERIOD_TYPES:
             errors.append(f"line {line}: unknown period_type {row.period_type!r}")
+        if row.gate not in GATES:
+            errors.append(f"line {line}: gate must be one of {sorted(GATES)}")
         if not row.definition:
             errors.append(f"line {line}: definition is required")
         rows.append(row)
@@ -86,7 +97,7 @@ def load_concept_map(path: Path = CONCEPT_MAP_PATH) -> list[ConceptRow]:
         group = [r for r in rows if r.canonical_name == name]
         if sorted(r.priority for r in group) != list(range(1, len(group) + 1)):
             errors.append(f"{name}: priorities must be 1..{len(group)} with no gaps or repeats")
-        for field in ("unit", "period_type", "definition"):
+        for field in ("unit", "period_type", "definition", "gate"):
             if len({getattr(r, field) for r in group}) > 1:
                 errors.append(f"{name}: every tag must share the same {field}")
 

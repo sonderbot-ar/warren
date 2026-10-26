@@ -10,6 +10,12 @@ python-dotenv==1.2.4
 # SEC EDGAR client (domains/fundamentals/edgar_client.py)
 requests==2.34.2
 
+# Market data and the analysis pipeline (domains/market, domains/analysis); numpy 2.4 is the
+# last line supporting Python 3.11
+yfinance==1.7.0
+pandas==3.0.6
+numpy==2.4.6
+
 # Development: tests, lint and format
 pytest==9.1.1
 ruff==0.17.0
