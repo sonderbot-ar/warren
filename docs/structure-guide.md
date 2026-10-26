@@ -55,7 +55,7 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 | 5 | Telemetry: local JSON log file | Accepted (details under review; timestamp bug fixed) | oct.14.2026 |
 | 6 | Shock model: event taxonomy, time-shaped and probabilistic shocks | **Accepted** | oct.14.2026 |
 | 7 | Evaluation harness on point-in-time data | **Accepted** | oct.14.2026 |
-| 8 | Data sources: SEC EDGAR, Yahoo Finance, GDELT | **Accepted** (EDGAR coverage limits noted, M1) | oct.14.2026 |
+| 8 | Data sources: SEC EDGAR, Yahoo Finance, FRED, GDELT | **Accepted** (EDGAR coverage limits noted, M1; FRED added for the risk-free rate, M2) | oct.26.2026 |
 | 9 | LLM usage limited to judgment-over-text steps | **Accepted** | oct.14.2026 |
 | — | Entity-Attribute-Value (EAV) metrics table | Superseded by 2 | sep.24.2026 |
 | — | Passing only database IDs between graph nodes | Superseded by 2 | sep.24.2026 |
@@ -129,7 +129,8 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 | Data | Source | Notes |
 |---|---|---|
 | Fundamentals | **SEC EDGAR** XBRL APIs (company facts / company concept) | Official and free; includes filing dates for point-in-time queries. Requires a descriptive User-Agent and respects SEC rate limits. Company facts include only standard-taxonomy, non-dimensional facts: lines a company reports under its own extension tag, or only by segment, are missing (found in M1; each gap is documented). |
-| Prices | **Yahoo Finance** (via the `yfinance` library) | Used for beta / cost of capital and peer comparison only. Unofficial interface, so it sits behind a small adapter and results are cached in SQLite. |
+| Prices | **Yahoo Finance** (via the `yfinance` library) | Used for beta / cost of capital and peer comparison only. Unofficial interface, so it sits behind a small adapter and results are cached in SQLite. Closes come adjusted for later splits; stored split ratios put a price back on its own day's share basis (M2). |
+| Risk-free rate | **FRED** (series DGS10, 10-year Treasury, from the Fed's H.15 release) | Added in M2 (owner decision oct.26.2026). Keyless CSV download, cached in SQLite. Published the next business day, so a query uses the latest observation dated before its as-of date. |
 | News and events | **GDELT** (GDELT 2.0 Events and Global Knowledge Graph) | Free, global, timestamped, with themes, tone and organisations. Noisy by design: cleaning, company matching and deduplication are part of the work and part of the learning goal. GDELT provides article URLs and metadata, not full article text. |
 
 ### Decision 9 — LLM Usage · *Accepted*
