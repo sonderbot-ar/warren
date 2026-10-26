@@ -20,6 +20,8 @@ from domains.fundamentals.universe import FISCAL_YEARS
 KNOWN_GAPS_PATH = Path(__file__).parent / "known_gaps.csv"
 PERIODS = ("Q1", "Q2", "Q3", "Q4", "FY")
 NON_ADDITIVE_REASON = "Q4 not reported; weighted-average shares can't be derived (not additive)."
+# Quarters of a flow should add up to its fiscal year; beyond this they come from different bases.
+CONSISTENCY_TOLERANCE = 0.005
 
 
 @dataclass(frozen=True)
@@ -59,6 +61,17 @@ class Gap:
     reason: str | None  # None = unexplained
 
 
+@dataclass(frozen=True)
+class Inconsistency:
+    """A flow whose four quarters don't add up to its fiscal year (mixed restatement vintages)."""
+
+    canonical_name: str
+    fiscal_year: int
+    quarters_total: float
+    fiscal_year_value: float
+    restated: tuple[str, ...]  # which of Q1-Q4 and FY are restated values
+
+
 @dataclass
 class QualityReport:
     ticker: str
@@ -72,6 +85,7 @@ class QualityReport:
     derived: Counter = field(default_factory=Counter)
     mixed_vintage: list[Fact] = field(default_factory=list)
     canonical_names: list[str] = field(default_factory=list)
+    inconsistencies: list[Inconsistency] = field(default_factory=list)
 
     @property
     def unexplained(self) -> list[Gap]:
@@ -110,6 +124,8 @@ class QualityReport:
             f"- Restated values in use: {sum(self.restated.values())} · derived quarters: "
             f"{sum(self.derived.values())} · derived from mixed restatement vintages: "
             f"{len(self.mixed_vintage)}",
+            f"- Fiscal years whose quarters don't add up to the full year: "
+            f"{len(self.inconsistencies)} (informational; see below)",
             "",
             "## Coverage",
             "",
@@ -141,6 +157,27 @@ class QualityReport:
             lines.append(
                 f"- Mixed vintage: {fact.canonical_name} FY{fact.fiscal_year} "
                 f"{fact.fiscal_period} (inputs {', '.join(fact.inputs)})"
+            )
+
+        lines += [
+            "",
+            "## Quarters vs full year",
+            "",
+            "Flows whose Q1-Q4 differ from the fiscal year by more than "
+            f"{CONSISTENCY_TOLERANCE:.1%}. Usually a restated year next to quarters that were never"
+            " restated, so growth rates"
+            " across these periods compare different bases.",
+            "",
+        ]
+        if not self.inconsistencies:
+            lines.append("None.")
+        for i in self.inconsistencies:
+            share = (i.quarters_total - i.fiscal_year_value) / abs(i.fiscal_year_value)
+            lines.append(
+                f"- **{i.canonical_name}** FY{i.fiscal_year}: quarters "
+                f"{i.quarters_total / 1e6:,.0f}M vs year {i.fiscal_year_value / 1e6:,.0f}M "
+                f"({share:+.1%}); "
+                f"restated: {', '.join(i.restated) or 'none'}"
             )
         return "\n".join(lines) + "\n"
 
@@ -185,6 +222,7 @@ def build_report(
     concepts = load_concept_map()
     names = list(dict.fromkeys(c.canonical_name for c in concepts))
     unit_of = {c.canonical_name: c.unit for c in concepts}
+    flows = {c.canonical_name for c in concepts if c.period_type == "duration"}
 
     report = QualityReport(
         ticker=company["ticker"],
@@ -230,4 +268,18 @@ def build_report(
                 ):
                     reason = NON_ADDITIVE_REASON
                 report.gaps.append(Gap(name, year, period, reason))
+
+    for name in names:
+        if name not in flows or unit_of[name] not in DERIVABLE_UNITS:
+            continue
+        for year in FISCAL_YEARS:
+            facts = [report.cells.get((name, year, period)) for period in PERIODS]
+            if any(f is None for f in facts) or facts[-1].value == 0:
+                continue
+            total = sum(f.value for f in facts[:-1])
+            if abs(total - facts[-1].value) / abs(facts[-1].value) > CONSISTENCY_TOLERANCE:
+                restated = tuple(p for p, f in zip(PERIODS, facts, strict=True) if f.restated)
+                report.inconsistencies.append(
+                    Inconsistency(name, year, total, facts[-1].value, restated)
+                )
     return report

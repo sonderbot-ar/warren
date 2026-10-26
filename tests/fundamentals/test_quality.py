@@ -70,3 +70,27 @@ def test_unquoted_comma_in_a_reason_is_reported_with_its_line(tmp_path):
     )
     with pytest.raises(ValueError, match="line 3"):
         quality.load_known_gaps(path)
+
+
+def test_quarters_that_do_not_add_up_to_the_year_are_listed(ingested, two_years):
+    conn, _ = ingested
+    # a later filing restates Q3 2024 revenue; FY and the nine months stay as first filed
+    conn.execute(
+        "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, fiscal_year, "
+        "fiscal_period, value, unit, form, accession_no, filed_at) VALUES ('0000000123', "
+        "'us-gaap:Revenues', '2024-07-01', '2024-09-30', 2024, 'Q3', 150, 'USD', '10-Q', "
+        "'0000000123-25-000050', '2025-02-20')"
+    )
+    report = report_for(conn)
+    found = [i for i in report.inconsistencies if i.canonical_name == "revenue"]
+    assert [(i.fiscal_year, i.quarters_total, i.restated) for i in found] == [
+        (2024, 100 + 110 + 150 + 130, ("Q3",))
+    ]
+    assert "- **revenue** FY2024: quarters" in report.to_markdown()
+
+
+def test_consistent_quarters_are_not_listed(ingested, two_years):
+    conn, _ = ingested
+    report = report_for(conn)
+    assert report.inconsistencies == []
+    assert "## Quarters vs full year" in report.to_markdown()
