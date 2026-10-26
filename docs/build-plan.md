@@ -37,7 +37,7 @@ Durations are indicative, assuming part-time work (roughly 8–12 hours a week).
 | M0 | Foundations and documentation | 1 | oct.19 – oct.25 | — | **Done** (oct.14.2026) |
 | M1 | Fundamentals data layer (EDGAR, point-in-time) | 2 | oct.26 – nov.08 | M0 | **Done** (oct.14.2026) |
 | M1.1 | Fundamentals hardening (review of M1) | 0.5 | oct.26 – oct.29 | M1 | **Done** (oct.26.2026) |
-| M2 | Deterministic forecast and DCF engine | 2 | nov.09 – nov.22 | M1.1 | Not started |
+| M2 | Deterministic forecast and DCF engine | 2 | nov.09 – nov.22 | M1.1 | In progress (oct.26.2026; two PRs: inputs, then engine) |
 | M3 | Evaluation harness v1 (baseline only) | 1.5 | nov.23 – dec.03 | M2 | Not started |
 | M4 | Shock model and Monte Carlo (manual shocks) | 1.5 | dec.04 – dec.13 | M2 | Not started |
 | M5 | News ingestion (GDELT) and event clustering | 2.5 | dec.14 – jan.03 | M1 | Not started |
@@ -327,7 +327,7 @@ load_fundamentals → build_baseline → fetch_news → cluster_events
 
 **Tests:** the graph runs end to end on a fixture company with LLM calls stubbed; a run can be resumed from its checkpoint; telemetry lines are valid JSON.
 
-**Exit criterion:** `python -m warren run --ticker XXX --as-of YYYY-MM-DD` produces a report and a complete trace.
+**Exit criterion:** a single CLI run command (entry point chosen in M7), given a ticker and an as-of date, produces a report and a complete trace.
 
 ### M8 — Full Backtest and Phase 1 Review
 

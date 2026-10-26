@@ -139,7 +139,7 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 
 ## 4. Project Structure
 
-Proposed target layout for Phase 1 (to be created step by step through the build plan; nothing here exists until the owner commands it):
+Target layout for Phase 1, created step by step through the build plan. So far `shared_kernel/` (config, database, migrations, schemas) and `domains/fundamentals/` exist (M0–M1.1); the other domain packages are empty placeholders until their milestone:
 
 ```text
 warren/
