@@ -38,7 +38,8 @@ def cmd_ingest(args: argparse.Namespace) -> int:
             print(
                 f"{result.ticker:5} CIK {result.cik}: {result.facts_kept} facts kept "
                 f"({result.facts_new} new) of {result.facts_seen} mapped; "
-                f"{result.calendar_entries} filing periods; skipped: {skipped}"
+                f"{result.calendar_entries} filing periods; {result.unlabelled} without a fiscal "
+                f"period; skipped: {skipped}"
             )
     return 0
 

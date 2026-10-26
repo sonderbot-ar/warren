@@ -51,6 +51,7 @@ class IngestResult:
     facts_kept: int = 0
     facts_new: int = 0
     calendar_entries: int = 0
+    unlabelled: int = 0  # stored, but no fiscal period could be assigned
     skipped: Counter = field(default_factory=Counter)
 
 
@@ -183,6 +184,9 @@ def extract_facts(
         if unit != concept.unit:
             result.skipped["unit"] += 1
             continue
+        if fact["end"] > fact["filed"]:
+            result.skipped["future_period"] += 1  # a period can't end after its filing: data error
+            continue
         start = fact.get("start")
         if (start is None) != (concept.period_type == "instant"):
             result.skipped["period_type"] += 1
@@ -192,7 +196,7 @@ def extract_facts(
             result.skipped[reason] += 1
             continue
         if fy is None:
-            result.skipped["unplaced_label"] += 1  # still stored, without a fiscal label
+            result.unlabelled += 1  # still stored, e.g. a mid-quarter date
         key = (concept.xbrl_concept, unit, start or "", fact["end"], fact["accn"])
         row = (
             cik, concept.xbrl_concept, start, fact["end"], fy, fp,

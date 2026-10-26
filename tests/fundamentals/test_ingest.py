@@ -99,3 +99,23 @@ def test_company_row_and_aliases(ingested):
 def test_financial_company_is_rejected(conn):
     with pytest.raises(EdgarError, match="outside the Phase 1 universe"):
         ingest_company(conn, "BNK", client=FakeEdgar(sic="6021"))
+
+
+def test_fact_ending_after_its_filing_date_is_rejected(conn):
+    edgar = FakeEdgar()
+    cash = edgar.facts["facts"]["us-gaap"]["CashAndCashEquivalentsAtCarryingValue"]["units"]["USD"]
+    bad = dict(cash[0], end="2025-06-30")  # filed 2024-02-15, so the period hasn't ended yet
+    cash.append(bad)
+    result = ingest_company(conn, "TST", client=edgar)
+    assert result.skipped["future_period"] == 1
+    assert not conn.execute("SELECT 1 FROM financial_facts WHERE period_end > filed_at").fetchone()
+
+
+def test_mid_quarter_balance_is_stored_without_a_label(conn):
+    edgar = FakeEdgar()
+    cash = edgar.facts["facts"]["us-gaap"]["CashAndCashEquivalentsAtCarryingValue"]["units"]["USD"]
+    cash.append(dict(cash[-1], end="2025-05-15", val=1))  # filed 2026-02-15
+    result = ingest_company(conn, "TST", client=edgar)
+    assert result.unlabelled == 1
+    row = conn.execute("SELECT fiscal_year FROM financial_facts WHERE period_end = '2025-05-15'")
+    assert row.fetchone()[0] is None
