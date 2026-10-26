@@ -1,0 +1,4 @@
+name,value,set_by,set_on,note
+erp_method,historical_geometric,owner (sonderbot-ar),2026-10-26,"Realized geometric premium of the S&P 500 Total Return over a 10-year Treasury bond's total return (D7)."
+erp_first_year,1989,owner (sonderbot-ar),2026-10-26,"First full calendar year of ^SP500TR on Yahoo; the window expands from here to the last year ended before the as-of date."
+terminal_growth_method,risk_free,owner (sonderbot-ar),2026-10-26,"Terminal growth equals the risk-free rate (DGS10) at the as-of date (D7)."

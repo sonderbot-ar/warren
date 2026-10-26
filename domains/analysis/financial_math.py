@@ -126,6 +126,13 @@ def enterprise_value(
 # -- enterprise value to value per share ------------------------------------------------------
 
 
+def roll_forward(value: Number, rate: Number, years: float) -> Number:
+    """A value at one date carried `years` later at an annual rate: value × (1 + rate) ** years."""
+    if years < 0:
+        raise FinancialMathError(f"can only roll a value forward, got {years} years")
+    return value * (1 + rate) ** years
+
+
 def equity_value(enterprise: Number, net_debt: Number, minority_interest: Number = 0.0) -> Number:
     """Equity value attributable to shareholders: EV − net debt − noncontrolling interests."""
     return enterprise - net_debt - minority_interest
