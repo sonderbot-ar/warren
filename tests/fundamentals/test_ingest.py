@@ -6,6 +6,7 @@ from domains.fundamentals.edgar_client import EdgarError
 from domains.fundamentals.ingest import (
     CalendarEntry,
     build_filing_calendar,
+    content_sha256,
     ingest_company,
     label_fact,
 )
@@ -109,6 +110,22 @@ def test_fact_ending_after_its_filing_date_is_rejected(conn):
     result = ingest_company(conn, "TST", client=edgar)
     assert result.skipped["future_period"] == 1
     assert not conn.execute("SELECT 1 FROM financial_facts WHERE period_end > filed_at").fetchone()
+
+
+def test_each_ingest_records_what_data_and_concept_map_it_used(ingested):
+    conn, first = ingested
+    ingest_company(conn, "TST", client=FakeEdgar())
+    runs = conn.execute("SELECT * FROM ingest_runs ORDER BY run_id").fetchall()
+    assert len(runs) == 2
+    assert runs[0]["companyfacts_sha256"] == runs[1]["companyfacts_sha256"]  # same content
+    assert len(runs[0]["concept_map_sha256"]) == 64
+    assert runs[0]["companyfacts_fetched_at"] == "2026-10-26T12:00:00Z"
+    assert (runs[0]["facts_new"], runs[1]["facts_new"]) == (first.facts_new, 0)
+
+
+def test_content_hash_ignores_key_order():
+    assert content_sha256({"a": 1, "b": [1, 2]}) == content_sha256({"b": [1, 2], "a": 1})
+    assert content_sha256({"a": 1}) != content_sha256({"a": 2})
 
 
 def test_mid_quarter_balance_is_stored_without_a_label(conn):

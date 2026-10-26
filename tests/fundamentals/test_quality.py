@@ -89,6 +89,29 @@ def test_quarters_that_do_not_add_up_to_the_year_are_listed(ingested, two_years)
     assert "- **revenue** FY2024: quarters" in report.to_markdown()
 
 
+def test_report_names_its_data_snapshot(ingested, two_years):
+    conn, _ = ingested
+    report = report_for(conn)
+    assert report.last_ingest is not None and not report.concept_map_changed
+    assert "fetched 2026-10-26T12:00:00Z" in report.to_markdown()
+
+
+def test_report_warns_when_the_concept_map_changed_after_ingest(ingested, two_years, monkeypatch):
+    conn, _ = ingested
+    monkeypatch.setattr(quality, "concept_map_sha256", lambda: "0" * 64)
+    assert "changed since this ingest" in report_for(conn).to_markdown()
+
+
+def test_inferred_gaps_link_to_the_filing_to_check(ingested, two_years):
+    conn, _ = ingested
+    known = [KnownGap("TST", "capex", "2023", "Q1", "[inferred] Not tagged in that 10-Q.")]
+    report = report_for(conn, known)
+    link = report.gap_links[("capex", 2023, "Q1")]
+    # Q1 2023 was first reported (as a comparative) in the Q1 2024 10-Q
+    assert link == "https://www.sec.gov/Archives/edgar/data/123/000000012324000010/"
+    assert f"([check]({link}))" in report.to_markdown()
+
+
 def test_consistent_quarters_are_not_listed(ingested, two_years):
     conn, _ = ingested
     report = report_for(conn)

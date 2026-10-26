@@ -4,6 +4,7 @@ Fiscal labels come from the company's own filing calendar, not from the JSON's f
 those describe the *filing*: a prior-year comparative in the FY2024 10-K carries fy=2024.
 """
 
+import hashlib
 import json
 import sqlite3
 from collections import Counter, defaultdict
@@ -11,7 +12,12 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
-from domains.fundamentals.concepts import ConceptRow, load_concept_map, sync_concepts
+from domains.fundamentals.concepts import (
+    ConceptRow,
+    concept_map_sha256,
+    load_concept_map,
+    sync_concepts,
+)
 from domains.fundamentals.edgar_client import (
     EdgarClient,
     EdgarError,
@@ -164,6 +170,13 @@ DO UPDATE SET fiscal_year = excluded.fiscal_year, fiscal_period = excluded.fisca
 """
 
 
+INSERT_RUN = """
+INSERT INTO ingest_runs (cik, companyfacts_sha256, companyfacts_fetched_at, concept_map_sha256,
+                         facts_kept, facts_new)
+VALUES (?, ?, ?, ?, ?, ?)
+"""
+
+
 def extract_facts(
     cik: str, facts_json: dict[str, Any], concepts: list[ConceptRow], result: IngestResult
 ) -> list[tuple]:
@@ -239,5 +252,22 @@ def ingest_company(
         before = conn.execute("SELECT COUNT(*) FROM financial_facts").fetchone()[0]
         conn.executemany(UPSERT_FACT, rows)
         after = conn.execute("SELECT COUNT(*) FROM financial_facts").fetchone()[0]
-    result.facts_new = after - before
+        result.facts_new = after - before
+        conn.execute(
+            INSERT_RUN,
+            (
+                company["cik"],
+                content_sha256(facts_json),
+                client.company_facts_fetched_at(cik),
+                concept_map_sha256(),
+                result.facts_kept,
+                result.facts_new,
+            ),
+        )
     return result
+
+
+def content_sha256(document: dict[str, Any]) -> str:
+    """Fingerprint of a JSON document's content, independent of key order and whitespace."""
+    canonical = json.dumps(document, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()

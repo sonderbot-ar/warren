@@ -32,6 +32,9 @@ class FakeEdgar:
     def get_company_facts(self, cik, refresh=False):
         return self.facts
 
+    def company_facts_fetched_at(self, cik):
+        return "2026-10-26T12:00:00Z"
+
 
 @pytest.fixture
 def conn(db_path):

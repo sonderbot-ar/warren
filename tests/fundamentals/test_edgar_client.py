@@ -97,6 +97,16 @@ def test_cache_hit_skips_fetching(tmp_path):
     assert (tmp_path / "companyfacts" / "CIK0000320193.json").exists()
 
 
+def test_download_records_when_it_was_fetched(tmp_path):
+    client, _, _ = make_client(tmp_path, FakeResponse(payload={"facts": {}}))
+    assert client.company_facts_fetched_at("320193") is None  # not downloaded yet
+    client.get_company_facts("320193")
+    fetched_at = client.company_facts_fetched_at("320193")
+    assert fetched_at is not None and fetched_at.endswith("Z")
+    meta = tmp_path / "companyfacts" / "CIK0000320193.json.meta.json"
+    assert "companyfacts/CIK0000320193.json" in meta.read_text()
+
+
 def test_refresh_fetches_again(tmp_path):
     client, session, _ = make_client(
         tmp_path, FakeResponse(payload={"v": 1}), FakeResponse(payload={"v": 2})

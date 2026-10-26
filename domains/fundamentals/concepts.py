@@ -5,6 +5,7 @@ is the enforced vocabulary (financial_facts can only reference tags that exist t
 """
 
 import csv
+import hashlib
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -92,6 +93,11 @@ def load_concept_map(path: Path = CONCEPT_MAP_PATH) -> list[ConceptRow]:
     if errors:
         raise ConceptMapError("Invalid concept map:\n  " + "\n  ".join(errors))
     return rows
+
+
+def concept_map_sha256(path: Path = CONCEPT_MAP_PATH) -> str:
+    """Fingerprint of the concept map: a different map can give different answers for old dates."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def sync_concepts(conn: sqlite3.Connection, rows: list[ConceptRow]) -> dict[str, int]:
