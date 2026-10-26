@@ -2,8 +2,9 @@
 
 A gap is a missing quarter or fiscal year in FY2016-FY2025. It is *explained* when known_gaps.csv
 gives a reason (or when it is a weighted-average shares Q4, which can't be derived); anything else
-is *unexplained*, and the M1 exit criterion requires none. Gaps in optional items (fallbacks, and
-holdings a company may not have) are listed but never fail the gate.
+is *unexplained*, and the M1 exit criterion requires none. Only required items are checked:
+optional items (fallbacks, and holdings a company may not have) are not part of this report; a run
+that uses one records it in its assumptions.
 """
 
 import csv
@@ -62,7 +63,6 @@ class Gap:
     fiscal_year: int
     period: str
     reason: str | None  # None = unexplained
-    optional: bool = False  # an optional item's gap: listed, never gated
 
 
 @dataclass(frozen=True)
@@ -93,21 +93,16 @@ class QualityReport:
     last_ingest: dict | None = None  # the latest ingest_runs row: what data the facts came from
     concept_map_changed: bool = False  # concept_map.csv edited since that ingest
     gap_links: dict[tuple[str, int, str], str] = field(default_factory=dict)  # [inferred] gaps
-    optional_names: set[str] = field(default_factory=set)
     # (selected, newest filing's value) where they differ: the standing tag-change audit
     disagreements: list[tuple[Fact, Fact]] = field(default_factory=list)
 
     @property
     def unexplained(self) -> list[Gap]:
-        return [g for g in self.gaps if g.reason is None and not g.optional]
+        return [g for g in self.gaps if g.reason is None]
 
     @property
     def explained(self) -> list[Gap]:
-        return [g for g in self.gaps if g.reason is not None and not g.optional]
-
-    @property
-    def optional_gaps(self) -> list[Gap]:
-        return [g for g in self.gaps if g.optional]
+        return [g for g in self.gaps if g.reason is not None]
 
     def to_markdown(self) -> str:
         years = list(FISCAL_YEARS)
@@ -119,8 +114,6 @@ class QualityReport:
                 fact = self.cells.get((name, year, period))
                 if fact is not None:
                     out.append("d" if fact.derived else "R")
-                elif gap_at[(name, year, period)].optional:
-                    out.append("-")
                 else:
                     out.append("!" if gap_at[(name, year, period)].reason is None else "e")
             return "`" + "".join(out) + "`"
@@ -146,13 +139,11 @@ class QualityReport:
             f"{len(self.inconsistencies)} (informational; see below)",
             f"- Periods where the newest filing disagrees with the selected value: "
             f"{len(self.disagreements)} (informational; see below)",
-            f"- Optional items (fallbacks and holdings): {len(self.optional_gaps)} periods "
-            "missing, not gated",
             "",
             "## Coverage",
             "",
             "Each cell is Q1 Q2 Q3 Q4 FY: `R` reported, `d` derived, `e` explained gap, "
-            "`!` unexplained gap, `-` missing optional item (not gated).",
+            "`!` unexplained gap. Required items only.",
             "",
             "| Item | " + " | ".join(f"FY{y}" for y in years) + " |",
             "|---|" + "---|" * len(years),
@@ -168,12 +159,6 @@ class QualityReport:
         lines += self._gap_lines(self.unexplained) or ["None."]
         lines += ["", "## Explained gaps", ""]
         lines += self._gap_lines(self.explained, with_reason=True) or ["None."]
-
-        lines += ["", "## Optional items", ""]
-        for name in self.canonical_names:
-            if name in self.optional_names:
-                missing = sum(1 for g in self.optional_gaps if g.canonical_name == name)
-                lines.append(f"- {name}: {missing} of {len(years) * len(PERIODS)} periods missing")
 
         lines += ["", "## Restatements and derivations", ""]
         for name in self.canonical_names:
@@ -293,7 +278,7 @@ def build_report(
         raise ValueError(f"{ticker} has not been ingested")
     as_of = as_of or date.today()
     known_gaps = load_known_gaps() if known_gaps is None else known_gaps
-    concepts = load_concept_map()
+    concepts = [c for c in load_concept_map() if c.gate == "required"]
     names = list(dict.fromkeys(c.canonical_name for c in concepts))
     unit_of = {c.canonical_name: c.unit for c in concepts}
     flows = {c.canonical_name for c in concepts if c.period_type == "duration"}
@@ -304,7 +289,6 @@ def build_report(
         name=company["name"],
         as_of=as_of,
         canonical_names=names,
-        optional_names={c.canonical_name for c in concepts if c.gate == "optional"},
     )
     years = set(FISCAL_YEARS)
     quarterly = get_facts(conn, company["cik"], names, as_of, frequency="quarterly")
@@ -342,9 +326,7 @@ def build_report(
                     and (name, year, "FY") in report.cells
                 ):
                     reason = NON_ADDITIVE_REASON
-                report.gaps.append(
-                    Gap(name, year, period, reason, optional=name in report.optional_names)
-                )
+                report.gaps.append(Gap(name, year, period, reason))
 
     for name in names:
         if name not in flows or unit_of[name] not in DERIVABLE_UNITS:

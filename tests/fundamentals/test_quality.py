@@ -120,13 +120,13 @@ def test_consistent_quarters_are_not_listed(ingested, two_years):
     assert "## Quarters vs full year" in report.to_markdown()
 
 
-def test_optional_item_gaps_are_listed_but_never_gated(ingested, two_years):
+def test_optional_items_are_not_checked(ingested, two_years):
     conn, _ = ingested
     report = report_for(conn)  # the fixture holds no securities and no fallback items
-    assert any(g.canonical_name == "marketable_securities_current" for g in report.optional_gaps)
-    assert not any(g.canonical_name == "marketable_securities_current" for g in report.unexplained)
-    assert not any(g.canonical_name == "interest_paid" for g in report.explained)
-    assert "- marketable_securities_current: 10 of 10 periods missing" in report.to_markdown()
+    optional = {"marketable_securities_current", "interest_paid", "depreciation"}
+    assert not optional & {g.canonical_name for g in report.gaps}
+    assert not optional & set(report.canonical_names)
+    assert "marketable_securities_current" not in report.to_markdown()
 
 
 def test_newest_filing_disagreement_appears_in_the_report(ingested, two_years):
