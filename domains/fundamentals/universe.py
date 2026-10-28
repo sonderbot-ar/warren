@@ -36,8 +36,9 @@ PHASE1_UNIVERSE = [
             "reorganisation. The XOM ticker now maps to ExxonMobil Holdings Corp (CIK 0002115436), "
             "whose filings start in 2026. Linking predecessor and successor is a later task."
         ),
-        # the Q3 2026 10-Q (due early November) is the first periodic report on the new CIK
-        history_ends=date(2026, 11, 1),
+        # the Q2 2026 10-Q (filed 2026-08-03) was filed jointly on the new CIK and is missing
+        # from the predecessor's companyfacts: from then on the history here is incomplete
+        history_ends=date(2026, 8, 3),
     ),
 ]
 
