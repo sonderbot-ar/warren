@@ -1,3 +1,4 @@
+import warnings
 from datetime import date
 
 import pytest
@@ -250,3 +251,14 @@ def test_spread_warning_fires_below_three_points(company):
         warnings = [w for w in post_checks(shifted, dcf.run_outputs(shifted)) if "WACC" in w]
         assert bool(warnings) is fires
     assert "2.90 points" in warnings[0] and "of enterprise value" in warnings[0]
+
+
+def test_a_data_warning_raised_by_every_query_is_noted_once(company, monkeypatch):
+    from domains.fundamentals import facts
+
+    monkeypatch.setattr(
+        facts,
+        "warn_if_beyond_history",
+        lambda cik, as_of: warnings.warn("coverage ends", stacklevel=2),
+    )
+    assert build(company).warnings.count("coverage ends") == 1

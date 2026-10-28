@@ -270,7 +270,7 @@ def build_inputs(
         warnings.simplefilter("always")
         history = load_history(conn, company["cik"], as_of)
         comparisons = same_filing_annual_comparisons(conn, company["cik"], "revenue", as_of)
-    result.warnings += [str(w.message) for w in caught]
+    result.warnings += list(dict.fromkeys(str(w.message) for w in caught))  # one per query
 
     last_year, last_quarter, base_date = _last_actual_quarter(history, result)
     fiscal_years = _history_years(history, last_year, result)
