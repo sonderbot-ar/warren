@@ -17,6 +17,7 @@ import requests
 from domains.analysis.financial_math import bond_total_return
 from domains.market.store import (
     MarketDataError,
+    latest_fetch,
     record_fetch,
     require_coverage,
     utc_now,
@@ -49,19 +50,19 @@ def load_yields(
     download: Downloader = fred_download,
     now: Callable[[], datetime] = utc_now,
 ) -> int:
-    """Download a series unless it is stored already; returns the fetch id in use."""
+    """Download a series unless it is stored already; returns the fetch id in use.
+
+    A refresh adds a fetch and keeps the earlier ones, so runs built from them can be rebuilt.
+    """
     if not refresh:
-        row = conn.execute(
-            "SELECT fetch_id FROM yields WHERE series = ? LIMIT 1", (series,)
-        ).fetchone()
-        if row is not None:
-            return row["fetch_id"]
+        fetch = latest_fetch(conn, "fred", series)
+        if fetch is not None:
+            return fetch["fetch_id"]
     rows = download(series)
     if not rows:
         raise MarketDataError(f"No observations downloaded for {series}")
     with conn:
         fetch_id = record_fetch(conn, "fred", series, rows, now())
-        conn.execute("DELETE FROM yields WHERE series = ?", (series,))
         conn.executemany(
             "INSERT INTO yields (series, date, value, fetch_id) VALUES (?, ?, ?, ?)",
             [(series, r["date"], r["value"], fetch_id) for r in rows],
@@ -82,8 +83,9 @@ def risk_free_rate(
 ) -> YieldPoint:
     fetch = require_coverage(conn, "fred", series, as_of)
     row = conn.execute(
-        "SELECT date, value FROM yields WHERE series = ? AND date < ? ORDER BY date DESC LIMIT 1",
-        (series, as_of.isoformat()),
+        "SELECT date, value FROM yields WHERE series = ? AND fetch_id = ? AND date < ? "
+        "ORDER BY date DESC LIMIT 1",
+        (series, fetch["fetch_id"], as_of.isoformat()),
     ).fetchone()
     if row is None:
         raise MarketDataError(f"No {series} observation before {as_of}")
@@ -100,11 +102,12 @@ def annual_bond_returns(
     maturity: int = RISK_FREE_MATURITY,
 ) -> dict[int, float]:
     """Calendar-year total returns on a par bond at the series' year-end yields (the R_f leg)."""
-    require_coverage(conn, "fred", series, date(last_year, 12, 31))
+    fetch = require_coverage(conn, "fred", series, date(last_year, 12, 31))
     yields = year_end_values(
         conn,
-        "SELECT date, value FROM yields WHERE series = ? AND date >= ? AND date <= ? ORDER BY date",
-        series,
+        "SELECT date, value FROM yields WHERE series = ? AND fetch_id = ? AND date >= ? "
+        "AND date <= ? ORDER BY date",
+        (series, fetch["fetch_id"]),
         first_year - 1,
         last_year,
         series,

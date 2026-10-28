@@ -33,7 +33,7 @@ from domains.fundamentals.universe import FISCAL_YEARS
 from domains.market.erp import equity_risk_premium
 from domains.market.prices import MARKET_INDEX, PricePoint, aligned_weekly_returns, raw_close
 from domains.market.prices import split_factor as price_split_factor
-from domains.market.store import latest_fetch
+from domains.market.store import selected_fetch
 from domains.market.yields import RISK_FREE_SERIES, risk_free_rate
 
 USER_ASSUMPTIONS_PATH = Path(__file__).parent / "user_assumptions.csv"
@@ -764,7 +764,7 @@ def _snapshot(conn: sqlite3.Connection, cik: str, ticker: str, price: PricePoint
         "ingest_run_id": ingest["run_id"],
         "concept_map_sha256": concept_map_sha256(),
         "ingest_concept_map_sha256": ingest["concept_map_sha256"],
-        "price_fetch_sha256": latest_fetch(conn, "yahoo", ticker)["content_sha256"],
+        "price_fetch_sha256": selected_fetch(conn, "yahoo", ticker)["content_sha256"],
     }
 
 

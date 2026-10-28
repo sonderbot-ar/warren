@@ -9,7 +9,12 @@ from domains.market.prices import (
     split_factor,
     weekly_returns,
 )
-from domains.market.store import MarketDataError
+from domains.market.store import (
+    MarketDataError,
+    fetch_with_hash,
+    pin_fetches,
+    selected_fetch,
+)
 from tests.market.conftest import fixed_clock
 
 
@@ -51,7 +56,7 @@ def test_load_is_cached_until_refresh(conn):
     fake.rows = AAPL[:-1]
     second = load_prices(conn, "AAPL", refresh=True, download=fake, now=fixed_clock)
     assert second != first
-    assert conn.execute("SELECT COUNT(*) FROM prices").fetchone()[0] == 4  # replaced, not added
+    assert conn.execute("SELECT COUNT(*) FROM prices").fetchone()[0] == 9  # both kept
     fetch = conn.execute("SELECT * FROM market_fetches WHERE fetch_id = ?", (second,)).fetchone()
     assert (fetch["source"], fetch["row_count"], fetch["last_date"]) == ("yahoo", 4, "2020-09-01")
     assert len(fetch["content_sha256"]) == 64
@@ -132,3 +137,37 @@ def test_a_row_dated_on_the_download_day_is_dropped(conn):
         conn, "AAPL", download=FakeYahoo([*AAPL, row("2020-09-03", 120.9)]), now=fixed_clock
     )
     assert raw_close(conn, "AAPL", date(2020, 9, 3)).date == date(2020, 9, 2)
+
+
+def test_queries_read_the_latest_fetch_unless_one_is_pinned(conn):
+    fake = FakeYahoo(AAPL)
+    first = load_prices(conn, "AAPL", download=fake, now=fixed_clock)
+    # a revised download: every close 1% higher
+    fake.rows = [
+        {**r, "close": r["close"] * 1.01, "adj_close": r["adj_close"] * 1.01} for r in AAPL
+    ]
+    second = load_prices(conn, "AAPL", refresh=True, download=fake, now=fixed_clock)
+    day = date(2020, 9, 1)
+    assert raw_close(conn, "AAPL", day).close == pytest.approx(134.2 * 1.01)
+    assert raw_close(conn, "AAPL", day).fetch_id == second
+    with pin_fetches({("yahoo", "AAPL"): first}):
+        assert raw_close(conn, "AAPL", day).close == pytest.approx(134.2)
+        assert selected_fetch(conn, "yahoo", "AAPL")["fetch_id"] == first
+        assert split_factor(conn, "AAPL", date(2020, 7, 17), day) == 4.0
+    assert selected_fetch(conn, "yahoo", "AAPL")["fetch_id"] == second  # the pin is gone
+
+
+def test_a_fetch_is_found_by_its_content_hash(conn):
+    first = load_prices(conn, "AAPL", download=FakeYahoo(AAPL), now=fixed_clock)
+    sha = selected_fetch(conn, "yahoo", "AAPL")["content_sha256"]
+    load_prices(conn, "AAPL", refresh=True, download=FakeYahoo(AAPL[:-1]), now=fixed_clock)
+    assert fetch_with_hash(conn, "yahoo", "AAPL", sha)["fetch_id"] == first
+    with pytest.raises(MarketDataError, match="No kept"):
+        fetch_with_hash(conn, "yahoo", "AAPL", "0" * 64)
+
+
+def test_a_pin_must_name_a_download_of_that_symbol(conn):
+    first = load_prices(conn, "AAPL", download=FakeYahoo(AAPL), now=fixed_clock)
+    load_prices(conn, "MSFT", download=FakeYahoo(AAPL), now=fixed_clock)
+    with pin_fetches({("yahoo", "MSFT"): first}), pytest.raises(MarketDataError, match="Pinned"):
+        raw_close(conn, "MSFT", date(2020, 9, 1))

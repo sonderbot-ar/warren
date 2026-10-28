@@ -3,7 +3,7 @@ from datetime import date
 import pytest
 
 from domains.market import yields
-from domains.market.store import MarketDataError
+from domains.market.store import MarketDataError, pin_fetches
 from domains.market.yields import fred_download, load_yields, risk_free_rate
 from tests.market.conftest import fixed_clock
 
@@ -39,7 +39,11 @@ def test_load_is_cached_until_refresh(conn):
     assert load(conn) == first
     second = load_yields(conn, refresh=True, download=lambda s: OBSERVATIONS[:2], now=fixed_clock)
     assert second != first
-    assert conn.execute("SELECT COUNT(*) FROM yields").fetchone()[0] == 2
+    # both downloads are kept; queries read the latest unless a fetch is pinned
+    assert conn.execute("SELECT COUNT(*) FROM yields").fetchone()[0] == 6
+    assert risk_free_rate(conn, date(2020, 9, 1)).date == date(2020, 8, 28)
+    with pin_fetches({("fred", "DGS10"): first}):
+        assert risk_free_rate(conn, date(2020, 9, 1)).date == date(2020, 8, 31)
 
 
 class FakeResponse:
