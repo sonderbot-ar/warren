@@ -38,7 +38,7 @@ Durations are indicative, assuming part-time work (roughly 8–12 hours a week).
 | M1 | Fundamentals data layer (EDGAR, point-in-time) | 2 | oct.26 – nov.08 | M0 | **Done** (oct.14.2026) |
 | M1.1 | Fundamentals hardening (review of M1) | 0.5 | oct.26 – oct.29 | M1 | **Done** (oct.26.2026) |
 | M2 | Deterministic forecast and DCF engine | 2 | nov.09 – nov.22 | M1.1 | **Done** (oct.26.2026; PRs #5 and #6) |
-| M2.1 | DCF hardening (review of M2) | 0.5 | oct.28 – oct.30 | M2 | In progress (oct.28.2026) |
+| M2.1 | DCF hardening (review of M2) | 0.5 | oct.28 – oct.30 | M2 | Exit criterion met, PR open (oct.28.2026) |
 | M3 | Evaluation harness v1 (baseline only) | 1.5 | nov.23 – dec.03 | M2.1 | Not started |
 | M4 | Shock model and Monte Carlo (manual shocks) | 1.5 | dec.04 – dec.13 | M2.1 | Not started |
 | M5 | News ingestion (GDELT) and event clustering | 2.5 | dec.14 – jan.03 | M1 | Not started |
@@ -217,7 +217,7 @@ assumptions(run_id TEXT REFERENCES runs, name TEXT, period TEXT, value REAL,
 - **Concept map.** New items `marketable_securities_current` (4 tags), `marketable_securities_noncurrent` (2), `other_short_term_investments` (KO), and fallbacks `depreciation`, `amortization_intangibles`, `pretax_income_domestic`, `pretax_income_foreign`, `net_income_including_nci` (`ProfitLoss`; PG FY2020–21 tag neither pretax nor its split) and `interest_paid`. A `gate` column marks them `optional`: the quality report checks required items only (D11), so no known-gap rows were added.
 - **Tag-change audit, now standing.** The quality report's "Newest filing disagrees with the selected value" section lists periods the newest filing reports only under a lower-ranked tag with a different value. On the refreshed data: 70 periods, all cash including restricted cash (cash-flow statement) and one XOM debt figure including leases; no restatement missed.
 - **`financial_math.py`.** Plain arithmetic (works on floats or numpy arrays), end-of-period discounting with a rate per period, terminal value from an annual cash flow, errors instead of NaN.
-- **Market data (migration `0004`).** `prices` (split-adjusted close, total-return close, split ratio), `yields`, and `market_fetches` (download time and content hash; a refresh replaces a symbol's rows). Queries refuse as-of dates after the download, and a row dated on the download day is dropped because it may be mid-session. Splits seen: AAPL 2014 (7:1) and 2020 (4:1), KO 2012 (2:1), WMT 2024 (3:1).
+- **Market data (migration `0004`).** `prices` (split-adjusted close, total-return close, split ratio), `yields`, and `market_fetches` (download time and content hash; a refresh replaced a symbol's rows until M2.1, which keeps every download). Queries refuse as-of dates after the download, and a row dated on the download day is dropped because it may be mid-session. Splits seen: AAPL 2014 (7:1) and 2020 (4:1), KO 2012 (2:1), WMT 2024 (3:1).
 - **Equity risk premium (D7).** `^SP500TR` loaded from 1988; `domains/market/erp.py` computes the premium from year-end values (each year must have an observation in its last week; a year counts from 7 days after it ends). Live values, geometric (arithmetic, standard error): as of 2019-06-30 3.80% (4.91%, 3.83); 2020-12-31 4.33% (5.46%, 3.75); 2022-06-30 5.26% (6.35%, 3.61); 2024-03-31 5.52% (6.62%, 3.44); 2026-09-30 6.19% (7.25%, 3.30). Terminal growth (= R_f) on the same dates: 2.00%, 0.93%, 3.10%, 4.20%, 5.26%.
 
 **Implementation notes, PR B (oct.26.2026)**
@@ -256,6 +256,15 @@ assumptions(run_id TEXT REFERENCES runs, name TEXT, period TEXT, value REAL,
 - Step 5: re-run the 40-run grid; rebuild, reproduce and count warnings.
 
 **Exit criterion:** every stored run rebuilds from data to identical rows and reproduces to the cent; the margin check runs on any row set; each warning fires on a stated minority of the 40 runs; the docs are current.
+
+**Implementation notes (oct.28.2026)**
+
+- **Market history (migration `0006`).** `prices` and `yields` are keyed by `(symbol, fetch_id, date)`; a refresh adds a fetch. Queries read the latest fetch unless `pin_fetches()` pins one (`domains/market/store.py`); `fetch_with_hash()` finds a run's own download by its stored content hash.
+- **Rebuild.** `runs.rebuild()` builds a run's rows again with its downloads pinned and compares name, period, value, source and method of every row. Facts need no pin (point-in-time queries, ingests only add facts); a changed concept map is refused. The owner's choices come from today's `user_assumptions.csv`, so editing it shows up as a difference. A run made by older code may differ in method text only; `reproduce --rebuild` lists that apart from value differences.
+- **Checks.** `post_checks(rows, outputs)` reads only the run: the margin-range check (forecast margins against the mean ± 2 SD of the reported quarterly margins in the `history:` rows) and the spread warning (WACC − terminal growth < 3 points). A data warning raised by each facts query (XOM coverage) is noted once per run.
+- **Report.** When ERP − 1 SE gives no value, the summary says the value has no useful precision.
+
+**Result.** 195 tests. The 40-run grid (8 companies × 2019-06-30, 2020-12-31, 2022-06-30, 2024-03-31, 2026-09-30) gives the same values as M2, to the cent. All 160 stored runs reproduce to the cent; 120 rebuild to identical rows; the 40 made before the M2 share-split fix rebuild to identical values with older method text. Warnings on the 40 new runs: spread below 3 points 11 (WMT, KO, PG 2019; WMT, PG, JNJ 2020; JNJ 2024; KO, PG, JNJ, XOM 2026); margin range 0 (baseline margins are averages of the history, so it is for shocked rows); stale fundamentals 2 (KO, XOM 2026); XOM coverage 1 (2026-09-30). ERP − 1 SE has no value for 6 runs (AAPL, CAT, JNJ, KO, MSFT, PG 2019), whose reports now say so.
 
 **Carried to the M3 plan** (review of M2): same EBIT definition for forecast and actual (JNJ, XOM); case library from 2019-03-01 and no 2026 KO or XOM cases until their data catch up; XOM coverage as a hard error in eval runs; `restated` never counted as "the company restated"; log the growth basis per case to measure cycles carried forward. **Before M4:** the terminal rule (B), including reinvestment tied to growth.
 
