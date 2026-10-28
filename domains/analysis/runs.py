@@ -201,7 +201,7 @@ def run_baseline(
     """Build, value and store a baseline DCF; returns the run id."""
     result = build_inputs(conn, ticker, as_of, choices=choices, today=today)
     outputs = dcf.run_outputs(result.assumptions)
-    notes = result.warnings + post_checks(outputs[("terminal_share", "-")])
+    notes = result.warnings + post_checks(result.assumptions, outputs)
     for name in ("erp_minus_1se", "erp_plus_1se"):
         if (f"value_per_share_{name}", "-") not in outputs:
             notes.append(f"No value per share at {name.replace('_', ' ')}: WACC ≤ terminal growth")

@@ -8,6 +8,7 @@ from domains.analysis.math_engine import (
     build_inputs,
     fallback_backtest,
     load_user_assumptions,
+    post_checks,
 )
 from domains.market.erp import equity_risk_premium
 from tests.analysis.conftest import AS_OF, CHOICES, revenue
@@ -210,3 +211,42 @@ def test_shares_are_adjusted_only_for_splits_after_their_basis(company):
     result = build(company)
     assert by_key(result)[("shares", "-")].value == 100
     assert not any("differ from diluted" in w for w in result.warnings)
+
+
+def wobbled(rows):
+    """Test Corp's rows with reported quarterly margins of 19% and 21% in turn (sd about 1%)."""
+    out, n = [], 0
+    for a in rows:
+        if a.name == "history:ebit" and "Q" in a.period:
+            n += 1
+            revenue_row = next(
+                r for r in rows if (r.name, r.period) == ("history:revenue", a.period)
+            )
+            a = a.model_copy(update={"value": revenue_row.value * (0.19 if n % 2 else 0.21)})
+        out.append(a)
+    return out
+
+
+def test_margin_check_reads_the_rows_so_shocked_drivers_pass_through_it(company):
+    rows = wobbled(build(company).assumptions)
+    assert not [w for w in post_checks(rows, dcf.run_outputs(rows)) if "margin" in w]
+    # a shock that lifts one forecast quarter's margin to 30%, far outside 20% ± 2 × 1%
+    period = sorted(a.period for a in rows if a.name == "operating_margin")[0]
+    shocked = [
+        a.model_copy(update={"value": 0.30})
+        if (a.name, a.period) == ("operating_margin", period)
+        else a
+        for a in rows
+    ]
+    warnings = [w for w in post_checks(shocked, dcf.run_outputs(shocked)) if "margin" in w]
+    assert len(warnings) == 1 and f"30.0% in {period}" in warnings[0]
+
+
+def test_spread_warning_fires_below_three_points(company):
+    rows = build(company).assumptions
+    wacc = dcf.run_outputs(rows)[("wacc", "-")]
+    for spread, fires in ((0.031, False), (0.029, True)):
+        shifted = dcf.with_value(rows, "terminal_growth", wacc - spread)
+        warnings = [w for w in post_checks(shifted, dcf.run_outputs(shifted)) if "WACC" in w]
+        assert bool(warnings) is fires
+    assert "2.90 points" in warnings[0] and "of enterprise value" in warnings[0]
