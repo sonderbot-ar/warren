@@ -1,7 +1,7 @@
 ---
 title: "PROJECT WARREN — Phase 1 Build Plan"
 version: "1.1"
-updated: "oct.26.2026"
+updated: "oct.28.2026"
 companion: "structure-guide.md (design decisions; wins on any conflict about decisions)"
 status: "Approved and in progress. No code is written until the owner commands each step (\"go M<n>\")."
 ---
@@ -37,9 +37,10 @@ Durations are indicative, assuming part-time work (roughly 8–12 hours a week).
 | M0 | Foundations and documentation | 1 | oct.19 – oct.25 | — | **Done** (oct.14.2026) |
 | M1 | Fundamentals data layer (EDGAR, point-in-time) | 2 | oct.26 – nov.08 | M0 | **Done** (oct.14.2026) |
 | M1.1 | Fundamentals hardening (review of M1) | 0.5 | oct.26 – oct.29 | M1 | **Done** (oct.26.2026) |
-| M2 | Deterministic forecast and DCF engine | 2 | nov.09 – nov.22 | M1.1 | Exit criterion met, PR open (oct.26.2026): PR A merged; PR B (engine) open |
-| M3 | Evaluation harness v1 (baseline only) | 1.5 | nov.23 – dec.03 | M2 | Not started |
-| M4 | Shock model and Monte Carlo (manual shocks) | 1.5 | dec.04 – dec.13 | M2 | Not started |
+| M2 | Deterministic forecast and DCF engine | 2 | nov.09 – nov.22 | M1.1 | **Done** (oct.26.2026; PRs #5 and #6) |
+| M2.1 | DCF hardening (review of M2) | 0.5 | oct.28 – oct.30 | M2 | In progress (oct.28.2026) |
+| M3 | Evaluation harness v1 (baseline only) | 1.5 | nov.23 – dec.03 | M2.1 | Not started |
+| M4 | Shock model and Monte Carlo (manual shocks) | 1.5 | dec.04 – dec.13 | M2.1 | Not started |
 | M5 | News ingestion (GDELT) and event clustering | 2.5 | dec.14 – jan.03 | M1 | Not started |
 | M6 | LLM steps: event extraction and shock proposal | 2 | jan.04 – jan.17 | M4, M5 | Not started |
 | M7 | LangGraph orchestration and telemetry | 1.5 | jan.18 – jan.27 | M6 | Not started |
@@ -60,7 +61,7 @@ M0 ─ M1 ─┬─ M2 ─┬─ M3 ──────────────�
 | 1 Model allocation and API keys (under review) | Decided before M6; implemented in M6 |
 | 2 State management: typed facts, point-in-time, WAL, small state | M0 (WAL, migrations), M1 (facts), M7 (graph state, checkpointer) |
 | 3 SQLite only, FTS5 for text | M5 |
-| 4 Deterministic math engine | M2, M4 |
+| 4 Deterministic math engine | M2, M2.1, M4 |
 | 5 Telemetry | M0 (bug fix), M7 (full emitter) |
 | 6 Shock model | M4 (deterministic), M6 (LLM proposal) |
 | 7 Evaluation harness | M3 (baseline), M8 (with shocks) |
@@ -187,14 +188,14 @@ assumptions(run_id TEXT REFERENCES runs, name TEXT, period TEXT, value REAL,
 ```
 
 - **`financial_math.py` (pure functions, no I/O):** project revenue and operating income from drivers; unlevered free cash flow = EBIT × (1 − tax) + D&A − capex − ΔNWC; discount factors for a time-varying discount rate; Gordon-growth terminal value; enterprise value to equity value (minus net debt) to value per share (shares per D4); CAPM cost of equity; WACC.
-- **Cost of capital:** beta estimated from Yahoo Finance returns of the stock against a broad index over a documented window; risk-free rate from a Treasury yield series; equity risk premium is a `user` assumption (never defaulted silently); cost of debt from interest expense over average debt; weights from market value of equity and book debt. Price data is cached in a `prices` table and used for nothing else.
+- **Cost of capital:** beta estimated from Yahoo Finance returns of the stock against a broad index over a documented window; risk-free rate from a Treasury yield series; equity risk premium computed from market data by an owner-set method (D7, revised; never defaulted silently); cost of debt from interest expense over average debt; weights from market value of equity and book debt. Price data is cached in a `prices` table and used for nothing else.
 - **Existing work on the `finance` branch (decided oct.14.2026, narrowed oct.26.2026):** the branch stays unmerged. Only the formulas the DCF needs move into `domains/analysis/financial_math.py`, rewritten to raise errors instead of returning NaN; the other ratio functions stay on `finance` until a milestone uses them (owner decision D9). Its EAV-based `math_engine.py` is discarded and rewritten against `financial_facts`.
 - **`math_engine.py`:** pulls point-in-time facts (M1) and prices, pivots them into DataFrames, computes baseline drivers and calls `financial_math.py`.
 - **Sanity checks (raise errors):** terminal growth ≥ discount rate; non-positive shares; missing required inputs. **Warnings:** terminal value above a set share of enterprise value; margins outside the company's historical range by a wide margin.
 
 **Tests:** every formula against hand-computed examples (a spreadsheet you build yourself is a great fixture); property tests (higher discount rate never raises value; zero growth and zero reinvestment reduce to a perpetuity); sanity checks fire when they should.
 
-**Exit criterion:** a baseline DCF for every Phase 1 company as of any date, reproducible to the cent from the stored assumptions.
+**Exit criterion:** a baseline DCF for every Phase 1 company as of any date from 2019-03-01 (three fiscal years of the FY2016+ history behind it), reproducible to the cent from the stored assumptions.
 
 **Owner decisions (oct.26.2026)**, settled before any M2 code, from the M2 plan and the review of M1.1:
 
@@ -231,6 +232,32 @@ assumptions(run_id TEXT REFERENCES runs, name TEXT, period TEXT, value REAL,
 - **Values are not tuned.** The baseline values span 0.35× (KO 2020) to 4.7× (XOM 2024) the share price. The spread between WACC and terminal growth dominates: with g = R_f it is about β × ERP, so low-beta companies (JNJ, PG, KO, XOM in 2026) get 1.5-3 points, terminal values of 85-92% of enterprise value and values well above the price, while 2026's high rates and ERP give AAPL, MSFT and CAT values well below it. Growth extrapolated from three years carries cycles forward (XOM as of 2024-03-31: +28.5% from the 2021-2023 oil prices). These are consequences of D2 and D7 and are left for the owner and M3 to judge.
 
 **Learning notes:** a DCF is usually dominated by the terminal value, which is why the warning exists and why small changes to terminal growth or WACC move the result so much. Seeing that in your own numbers is one of the best lessons the engine will give you.
+
+### M2.1 — DCF Hardening (review of M2)
+
+**Goal:** fix what the review of M2 found before M3 depends on the engine: runs that can be rebuilt from data, checks that run where M4's shocked drivers will flow, and warnings that fire on a minority of runs.
+
+**Implements:** Decision 4.
+
+**Owner decisions (oct.28.2026)**, from the review of M2 and the M2.1 plan:
+
+- **A.** A separate hardening milestone (as M1.1), so the M3 PR stays small.
+- **B. Terminal growth = R_f stays for M3.** M3 compares revenue and operating income over 1-4 quarters; forecast year 1 grows at the 3-year average, so those errors don't depend on terminal growth, the ERP or WACC, and M3 cannot test the rule. The terminal rule (a cap on g, a floor on the spread, reinvestment tied to growth) is decided before M4, where value per share is first reported as a distribution.
+- **C. Terminal warning on the spread.** Warn when WACC − terminal growth is below 3 points, instead of when terminal value is above 75% of enterprise value (that fired on 38 of the 40 M2 runs).
+- **D. Keep every market download.** A refresh adds a fetch instead of replacing the symbol's rows, so a run can be rebuilt from the exact data it used.
+
+**Steps**
+
+- Step 0: docs (M2 Done, this section, stale ERP line, exit-criterion wording).
+- Step 1: XOM coverage boundary to 2026-08-03, the filing date of its Q2 2026 10-Q on the new holding company's CIK.
+- Step 2: rebuildable runs: prices and yields keyed by fetch (migration `0006`), queries pinned to a run's fetches, `reproduce --rebuild`.
+- Step 3: the margin-range check reads a run's rows (so shocked rows pass through it); the spread warning replaces the terminal-share warning.
+- Step 4: the report says in words when ERP − 1 SE has no value.
+- Step 5: re-run the 40-run grid; rebuild, reproduce and count warnings.
+
+**Exit criterion:** every stored run rebuilds from data to identical rows and reproduces to the cent; the margin check runs on any row set; each warning fires on a stated minority of the 40 runs; the docs are current.
+
+**Carried to the M3 plan** (review of M2): same EBIT definition for forecast and actual (JNJ, XOM); case library from 2019-03-01 and no 2026 KO or XOM cases until their data catch up; XOM coverage as a hard error in eval runs; `restated` never counted as "the company restated"; log the growth basis per case to measure cycles carried forward. **Before M4:** the terminal rule (B), including reinvestment tied to growth.
 
 ### M3 — Evaluation Harness v1 (baseline only)
 
