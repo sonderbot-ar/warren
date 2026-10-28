@@ -65,6 +65,7 @@ def render(conn: sqlite3.Connection, run_id: str) -> str:
         f"- **Value per share: {o('value_per_share'):,.2f}** "
         f"(share price {price.value:,.2f}, {price.method.split(' (')[0]}, for comparison only)",
         f"- At ERP ± 1 standard error: {_sensitivity(out)}",
+        *_precision(out),
         f"- Enterprise value {_m(o('enterprise_value_as_of'))}M · equity value "
         f"{_m(o('equity_value'))}M (USD millions)",
         f"- WACC {_pct(o('wacc'))} · terminal growth {_pct(a('terminal_growth'))} · terminal "
@@ -198,6 +199,17 @@ def _sensitivity(out: dict) -> str:
             f"{label} {value:,.2f}" if value is not None else f"{label} no value (WACC ≤ growth)"
         )
     return " · ".join(parts)
+
+
+def _precision(out: dict) -> list[str]:
+    """A sentence when ERP − 1 SE leaves no value: the ERP's error alone swamps the result."""
+    if ("value_per_share_erp_minus_1se", SINGLE) in out:
+        return []
+    return [
+        "- **No useful precision.** One standard error below the estimated ERP, WACC falls to "
+        "terminal growth or below and the DCF has no value, so the ERP's uncertainty alone "
+        "leaves the value per share without a lower bound. Read it as an order of magnitude."
+    ]
 
 
 def write_report(conn: sqlite3.Connection, run_id: str, reports_dir: Path = REPORTS_DIR) -> Path:
