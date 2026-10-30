@@ -317,7 +317,7 @@ Shock
   low, base, high : magnitude, read as p10 / p50 / p90
                     (percentage points for growth, margin and capex; basis points for risk premium)
   start_period  : first affected period
-  horizon       : number of periods the shock can last
+  horizon       : number of quarters the shock can last (M4 design)
   decay         : 0 < decay ≤ 1, share of the effect remaining each period (1.0 = permanent within horizon)
   source        : user | llm_proposed
   rationale     : text, with evidence references
