@@ -11,6 +11,7 @@ import json
 import re
 import sqlite3
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from urllib.parse import parse_qsl, urlencode, urlsplit
@@ -99,6 +100,9 @@ def store_records(conn: sqlite3.Connection, records: list[ArticleRecord], aliase
     return kept
 
 
+DOWNLOAD_WORKERS = 8  # GDELT files are fetched in parallel; a case window is ~670 files
+
+
 def ingest_file(
     conn: sqlite3.Connection,
     entry: MasterEntry,
@@ -107,10 +111,8 @@ def ingest_file(
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> FileResult:
     """Read one file unless it was read under this alias set already. One transaction."""
-    row = conn.execute(
-        "SELECT status, aliases_sha256 FROM news_files WHERE file_url = ?", (entry.url,)
-    ).fetchone()
-    if row is not None and row["status"] == "ok" and row["aliases_sha256"] == aliases.sha256:
+    row = _file_row(conn, entry.url)
+    if not _needs_read(row, aliases):
         return FileResult(entry.url, "skipped")
     try:
         content = (download or gdelt.http_download)(entry.url)
@@ -141,6 +143,16 @@ def ingest_file(
     return FileResult(entry.url, "ok", len(records), kept, bad)
 
 
+def _file_row(conn: sqlite3.Connection, url: str) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT status, aliases_sha256 FROM news_files WHERE file_url = ?", (url,)
+    ).fetchone()
+
+
+def _needs_read(row: sqlite3.Row | None, aliases: AliasSet) -> bool:
+    return row is None or row["status"] != "ok" or row["aliases_sha256"] != aliases.sha256
+
+
 def record_missing_slot(
     conn: sqlite3.Connection, ts: datetime, aliases: AliasSet, now: datetime
 ) -> FileResult:
@@ -159,9 +171,25 @@ def ingest_window(
     aliases: AliasSet,
     download: gdelt.Downloader | None = None,
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
+    workers: int = DOWNLOAD_WORKERS,
 ) -> list[FileResult]:
+    """Files are downloaded `workers` at a time; the database is written here, in file order.
+
+    Downloads run a chunk at a time so at most `workers` files sit in memory, and a file
+    already read under this alias set is never downloaded again (a stopped run resumes).
+    """
     found, missing = gdelt.window_files(master, start, end)
-    results = [ingest_file(conn, e, aliases, download, now) for e in found]
+    fetch = download or gdelt.http_download
+    results = []
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for i in range(0, len(found), workers):
+            chunk = found[i : i + workers]
+            futures = {e.url: pool.submit(fetch, e.url) for e in chunk
+                       if _needs_read(_file_row(conn, e.url), aliases)}  # fmt: skip
+            for e in chunk:
+                future = futures.get(e.url)
+                got = (lambda _, f=future: f.result()) if future else fetch
+                results.append(ingest_file(conn, e, aliases, got, now))
     return results + [record_missing_slot(conn, ts, aliases, now()) for ts in missing]
 
 
