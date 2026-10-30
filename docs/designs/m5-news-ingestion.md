@@ -157,7 +157,7 @@ Read on real GKG files from 2019-04-23 to 2025-09-19 before any case window was 
   |---|---|---|---|---|---|---|---|---|
   | Precision | 0.28 | 0.16 | 0.40 | 0.06 | 0.18 | 0.08 | 0.10 | 0.20 |
 
-  Pooled, 73 of 400 `org_exact` rows are `about`. `title_alias` passes only for JNJ (0.92) and PG (0.80 on 5 rows). `org_subsidiary` has no `about` row.
+  Pooled, 73 of 400 `org_exact` rows are `about`. `title_alias` passes only for JNJ (0.92); PG reads 0.80 on 5 rows but depends on the labeller (see below). `org_subsidiary` has no `about` row.
 - **The labellers agree on what matters.** Over the 245 shared rows kappa is 0.69 on the three labels and 0.90 on `about` against the rest. Most disagreements are `not` against `related` (34 rows), which doesn't change precision. Some cells are below the 0.6 floor (AAPL, KO, MSFT and WMT, and PG `title_alias` at 0.0 on 2 rows). They were not sent to the owner: the `org_exact` gate fails under either labeller's labels, so reading it doesn't depend on who is right. The one pass that does depend on it is PG `title_alias`: 0.80 with the steward's labels, 0.60 with the analyst's where they differ, so it is not counted as a pass.
 - **Why it fails.** GDELT's organisation tags catch passing mentions, not stories about the company:
   - "Microsoft" is tagged on 129,379 of the 392,117 sightings: Windows and Teams in sidebars, market-research spam, and so on.
