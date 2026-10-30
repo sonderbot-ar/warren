@@ -276,12 +276,40 @@ AAPL is high because many `title_alias` matches contain "apple", the fruit inclu
 - **Product brands as names.** Deferred: they let in product chatter (above). If they come back, brand-only passes are reported as their own row.
 - **Dropping `org_exact` and keeping only `title_alias`.** Rejected: `title_alias` matches apple the fruit and Colin the Caterpillar. The org tag plus the headline is stricter than either alone.
 
+## Draw 2 with the headline rule (oct.30.2026, Step 6c)
+
+- **Run.** Events were re-run for all 26 cases with the rule, which took 4 minutes. `rebuild-events` gave the same events on all 26 runs. Draw 20261031 used a new seed, was taken after the lists were frozen (commit 19a9589), and left out every article from draw 20261030. It has 733 rows, 160 of them in the recall check. The labellers saw neither the method nor whether a row passed the rule. The steward labelled all of them, and the analyst labelled 293 blind.
+- **Precision rose, but the gate still fails for six companies.** `org_exact` precision (share `about`, steward's labels), with draw 1 for comparison:
+
+  | Company | AAPL | CAT | JNJ | KO | MSFT | PG | WMT | XOM |
+  |---|---|---|---|---|---|---|---|---|
+  | Draw 2 | 0.72 | 0.76 | 0.74 | 0.52 | **0.90** | 0.58 | 0.58 | **0.88** |
+  | Draw 1 | 0.28 | 0.16 | 0.40 | 0.06 | 0.18 | 0.08 | 0.10 | 0.20 |
+
+  Pooled, 270 of 373 rows are `about` (0.72; it was 0.18). KO has 23 rows, because only 23 passing articles exist in its windows. `title_alias` passes for JNJ and KO (both 0.80).
+- **Recall check.** Among `org_exact` articles the rule drops, the share `about` is 0.00–0.05 for seven companies, and 0.20 (4 of 20) for AAPL. The rule throws away few real stories.
+- **Agreement.** Kappa on `about` against the rest is 0.80 over the 293 shared rows. The three-label kappa is 0.69.
+  - Three `org_exact` cells fall below the 0.6 floor: JNJ (0.50), PG (0.20) and XOM (0.46).
+  - With the analyst's labels where they exist, JNJ and CAT reach 0.80. PG still fails at 0.74, and XOM still passes at 0.92.
+  - The labellers split on local "clinic pauses J&J vaccine" stories and on PG holdings notices: the analyst calls some of them `about`.
+- **What's left in the 103 rows that aren't `about`:**
+  - holdings notices that the frozen phrases miss ("Purchases 68 Shares of", "Position Trimmed by");
+  - market wraps that open with a company ("Wall St eyes subdued open as Caterpillar ...");
+  - supplier and competitor stories ("Apple supplier Foxconn ...");
+  - Coca-Cola bottlers and ads;
+  - Walmart shopping lists and crimes at its stores;
+  - Imperial Oil, which is a consolidated subsidiary in `aliases.csv` but `related` to the labellers.
+- **The allowed revision was tried on paper first.** Eight phrases each explain at least two failing rows and no `about` row in either draw: "purchases # shares", "sells # shares", "million stake", "bottling", "police", "thief", "supplier", "challenge" (`#` stands for a number). Even on this draw, which they were written from, they lift only AAPL over the gate, to 0.82. CAT stays at 0.76, JNJ 0.74, KO 0.67, PG 0.71 and WMT 0.62. A fresh draw would likely read no higher, since dev-set numbers are optimistic. So the revision and the third draw were not run. As Step 6 says for a failed final draw, the result goes to the owner as a decision card.
+- **Why word lists stop here.** For a consumer brand, much of what a headline naming it says is about something else: a crime at a Walmart, a Coca-Cola ad, a fund buying P&G shares. Telling "about the company" from "names the company" needs reading the headline, which is what M6's LLM step does anyway.
+
 ## Where the work stopped (oct.30.2026)
 
-- Done: Steps 0–5 up to the first draw, merged in PRs #41, #43, #48, #51 and #65. The draw and its labels are in `domains/news/match_sample.csv`. The gate fails, so M5 is not Done.
-- Next, Step 6 (the amendment above). The first sketch was: a matched article feeds events only if:
-  - the company's name, a possessive or short form, or one of a short list of its brands appears in the headline (or the URL words when there is no title);
-  - and the headline is not a holdings notice or market wrap.
+- **Done:**
+  - Steps 0–5, merged in PRs #41, #43, #48, #51, #65 and #66;
+  - Step 6a–6b (the headline rule) and Step 6c, draw 2, in this branch's PR.
 
-  All matches stay stored. Then draw again with a new seed and label it. The idea for per-cell kappa to use `about` against the rest (what precision reads) goes to the same review.
+  Both draws and their labels are in `domains/news/match_sample.csv`. The gate fails for six of eight companies, so M5 is not Done.
+- **Waiting on the owner:**
+  - whether the gate reads only articles that pass the headline rule;
+  - what to do now that the rule reaches 0.72 pooled but not 0.80 per company: accept the measured precision and let M6's LLM step check each headline; add an LLM check now (it costs money); or keep tuning the word lists.
 - The real database is local to the run that made it (`data/` is git-ignored). A fresh run needs about 2.5 hours to download it again.
