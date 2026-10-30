@@ -3,7 +3,7 @@ title: "PROJECT WARREN — Phase 1 Build Plan"
 version: "1.1"
 updated: "oct.28.2026"
 companion: "structure-guide.md (design decisions; wins on any conflict about decisions)"
-status: "Approved and in progress. No code is written until the owner commands each step (\"go M<n>\")."
+status: "Approved and in progress. Since oct.30.2026 agent teams pick, build, review and merge milestones on their own (Structure Guide Decision 10)."
 ---
 
 # PROJECT WARREN — Phase 1 Build Plan
@@ -11,7 +11,7 @@ status: "Approved and in progress. No code is written until the owner commands e
 **Version 1.1 · oct.2026**\
 Collaborators: Andrés Rodarte — sonderbot-ar
 
-> **How to use this document (humans and LLMs).** This plan turns the decisions in `structure-guide.md` into an ordered sequence of milestones. Each milestone lists its goal, the decisions it implements, the tasks, what gets tested, and an exit criterion that must be met before the next milestone starts. Work happens one milestone at a time and only on the owner's command. When a milestone finishes, its status in Section 2 is updated and any decision that changed is recorded in the Structure Guide's decision log.
+> **How to use this document (humans and LLMs).** This plan turns the decisions in `structure-guide.md` into an ordered sequence of milestones. Each milestone lists its goal, the decisions it implements, the tasks, what gets tested, and an exit criterion that must be met before the next milestone starts. Agent teams take milestones in this order once their dependencies are Done, and may run independent milestones in parallel (Structure Guide Decision 10). When a milestone finishes, its status in Section 2 is updated and any decision that changed is recorded in the Structure Guide's decision log.
 
 ## 1. Phase 1 Goal
 
@@ -38,7 +38,7 @@ Durations are indicative, assuming part-time work (roughly 8–12 hours a week).
 | M1 | Fundamentals data layer (EDGAR, point-in-time) | 2 | oct.26 – nov.08 | M0 | **Done** (oct.14.2026) |
 | M1.1 | Fundamentals hardening (review of M1) | 0.5 | oct.26 – oct.29 | M1 | **Done** (oct.26.2026) |
 | M2 | Deterministic forecast and DCF engine | 2 | nov.09 – nov.22 | M1.1 | **Done** (oct.26.2026; PRs #5 and #6) |
-| M2.1 | DCF hardening (review of M2) | 0.5 | oct.28 – oct.30 | M2 | Exit criterion met, PR open (oct.28.2026) |
+| M2.1 | DCF hardening (review of M2) | 0.5 | oct.28 – oct.30 | M2 | **Done** (oct.30.2026; PR #7, merged by the agent team after a gatekeeper GO; tagged `warren-v0.2`) |
 | M3 | Evaluation harness v1 (baseline only) | 1.5 | nov.23 – dec.03 | M2.1 | Not started |
 | M4 | Shock model and Monte Carlo (manual shocks) | 1.5 | dec.04 – dec.13 | M2.1 | Not started |
 | M5 | News ingestion (GDELT) and event clustering | 2.5 | dec.14 – jan.03 | M1 | Not started |

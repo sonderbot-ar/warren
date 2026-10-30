@@ -57,6 +57,7 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 | 7 | Evaluation harness on point-in-time data | **Accepted** | oct.14.2026 |
 | 8 | Data sources: SEC EDGAR, Yahoo Finance, FRED, GDELT | **Accepted** (EDGAR coverage limits noted, M1; FRED added for the risk-free rate, M2) | oct.26.2026 |
 | 9 | LLM usage limited to judgment-over-text steps | **Accepted** | oct.14.2026 |
+| 10 | Development workflow: Claude agent teams plan, review, merge and report; owner sets goals | **Accepted** (replaces owner-approved plans and owner merges) | oct.30.2026 |
 | — | Entity-Attribute-Value (EAV) metrics table | Superseded by 2 | sep.24.2026 |
 | — | Passing only database IDs between graph nodes | Superseded by 2 | sep.24.2026 |
 | — | ChromaDB vector store for documents | Superseded by 3 | sep.24.2026 |
@@ -141,6 +142,14 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 
 - **Decision:** In Phase 1, LLMs are used for exactly two tasks: event extraction and classification, and shock proposal. A third, optional task is writing the final plain-language explanation of a run. Fetching data, cleaning, pivoting, calculating and evaluating are deterministic graph nodes without an LLM.
 - **Reasoning:** fewer LLM steps make Warren cheaper, faster and testable. New LLM steps may be added as the project grows; each one will be recorded here.
+
+### Decision 10 — Development Workflow: Agent Teams · *Accepted (oct.30.2026)*
+
+- **Decision:** Warren is built by Claude agent teams. An *Elephant* thread per track writes a design doc, the code and the tests, and merges. *Goldfish* reviewers (explainer, analyst, professor, gatekeeper) start with fresh context and review the design and the PR. Reporters write a desk entry and a one-page lesson per merged version. The owner sets goals, answers decision cards and reads reports; the owner no longer approves plans or merges PRs. The full loop is in `CLAUDE.md`.
+- **What still goes to the owner:** changes to the Phase 1 goal, universe or scope; changing, dropping or adding a design decision; anything that costs money; anything irreversible (rewriting or force-pushing `main`, deleting branches with unmerged work, making the repository public).
+- **Safety net:** CI (ruff and pytest) on every PR, required before merge; invariants as tests (reproduce to the cent, point-in-time, property tests on `financial_math.py`); a version tag on every merge; bad merges undone by a revert PR.
+- **Reasoning:** the owner had become the bottleneck for both building and learning. Independent fresh-context review, automated tests and cheap rollback replace line-by-line human review. Free tools only by default; Elephant-Goldfish is adopted as a method, not as a plugin.
+- **Replaces:** the M0–M2.1 workflow (owner-approved plan, "go M<n>" trigger, owner reviews and merges every PR).
 
 ## 4. Project Structure
 
