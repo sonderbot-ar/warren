@@ -140,5 +140,5 @@ Changed: `docs/build-plan.md` (status, M5 source note, results), `README.md` (co
 
 ## Where the work stopped (oct.30.2026)
 
-- Done on the branch: Steps 0–4 (adapter, migration 0009, aliases and matching, sightings and manifest, clustering and event runs, as-of search, sample draws, precision with Wilson intervals, kappa, coverage, CLI). Engine-only PR to `main`.
+- Done on the branch: Steps 0–4 (adapter, migration 0009, aliases and matching, sightings and manifest, clustering and event runs, as-of search, sample draws, precision with Wilson intervals, kappa, coverage, CLI). Engine merged in PR #41.
 - Next: Step 5, the real run. Blocked on oct.30.2026: the cloud environment refuses `data.gdeltproject.org` (403). Needs the host allowed in the environment's network settings, or a run from the owner's machine. Then check the three field claims on a real 2019 file before trusting the fixtures.
