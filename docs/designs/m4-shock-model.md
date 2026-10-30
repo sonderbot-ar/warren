@@ -63,9 +63,13 @@ simulation_outputs(sim_id TEXT, name TEXT, period TEXT, baseline REAL,
   A simulation points at its baseline run (whose rows already reproduce to the cent) and at its shocks; `reproduce-sim` re-runs it from those rows and the seed and checks every percentile to the cent. `shocks_sha256` hashes the shocks' fields in order, so an edited shock can't pass as the one simulated. The `runs.seed` column (0005) stays NULL: a baseline run has no seed; the simulation has it.
 - **Comparison output.** The CLI `python -m domains.analysis simulate RUN_ID --shocks FILE [--n] [--seed]` stores the simulation and writes a Markdown report: per period, baseline vs p10/p50/p90 for revenue, EBIT and FCF, plus the shocked-minus-baseline p50 as a share of baseline, so the reader sees *when* the effect appears and *how fast it fades*; and value per share as a range. The report names each shock, its source and its rationale.
 
-## The terminal value (waiting on the owner)
+## The terminal value (owner decision, oct.30.2026)
 
-Value per share as a range is new in M4, and the Build Plan (M2.1 B) says the terminal rule is decided before M4 reports it. A decision card is with the owner, recommending the value-driver form with new investment earning its cost of capital (TV = NOPAT_Y5 × (1 + g) / WACC; Koller, Goedhart & Wessels, *Valuation*, ch. 10), which ties reinvestment to growth and removes the near-zero spread for low-beta companies. Until the owner answers, Steps 1–4 use the current rule (g = R_f, Gordon on FCFF) and every report says so. The revenue, EBIT and FCF ranges, which the harness scores, don't depend on the terminal rule. Step 5 implements the owner's choice as a method row (`terminal_method`), so runs stored under the old rule still reproduce.
+Value per share as a range is new in M4, and the Build Plan (M2.1 B) said the terminal rule is decided before M4 reports it. The owner chose the **value-driver form with new investment earning its cost of capital** (Koller, Goedhart & Wessels, *Valuation*, 7th ed., ch. 10): TV = NOPAT₆ × (1 − g / RONIC) / (WACC − g), with RONIC = WACC, which reduces to TV = NOPAT_Y5 × (1 + g) / WACC. Reinvestment is tied to growth (g / RONIC of NOPAT is reinvested), growth past Y5 adds no value, and the near-zero spread for low-beta companies (Build Plan risks: 85-92% terminal shares for JNJ, PG, KO, XOM) no longer drives the value. g stays = R_f (Decision 4, D7); it only scales next year's NOPAT. The discount rate is Y5's, as before.
+
+- It is a method row, `terminal_method` (`value_driver_ronic_wacc` for new runs). A run stored without it is valued with the old Gordon rule on Y5's FCFF, so every stored run still reproduces to the cent.
+- New baseline runs change value per share (not revenue, EBIT or FCF), so the M3 errors are unchanged.
+- Step 5 implements it; until then Steps 1–4 use the old rule.
 
 ## Shocks for the exit criterion: where the numbers come from
 
@@ -93,7 +97,7 @@ This measures plumbing, not skill: three cases can't show shocks help. M8 owns t
 - **Step 2.** `dcf` split into the row index and an array-ready valuation; `Shock` schema and validation; driver paths with shocks (`apply_shocks`). Tests: every existing dcf and reproduce test still passes unchanged; a zero-magnitude shock reproduces the baseline to the cent; a revenue growth shock is a lasting level shift; a year takes the mean of its quarters; risk premium moves only the discount rate; invalid shocks refused.
 - **Step 3.** `montecarlo.simulate`, migration 0008, storage, `reproduce-sim`, the CLI and report. Tests: same seed gives identical outputs; sampled p10/p50/p90 of a single shock's magnitude match low/base/high within 1% at N = 10,000; an invalid sample stops the run; the migration applies to an existing database; reproduce-sim checks to the cent; the CLI end to end on Test Corp.
 - **Step 4.** `shocks.csv` (transcribed guidance, with sources), the conversion rule, `guard_shock_dates`, the `with_shocks` variant and report row. Tests on Test Corp: a shock dated after the case date fails the case; with_shocks rows carry p10/p50/p90 and seed; no shocks, no rows.
-- **Step 5.** The terminal rule the owner picks, as a `terminal_method` row (old runs reproduce unchanged). Waits on the card.
+- **Step 5.** The value-driver terminal value (owner decision), as a `terminal_method` row. Tests: TV = NOPAT × (1 + g) / WACC by hand; a run without the row reproduces under Gordon; the spread warning is not raised under the new rule; the Structure Guide records the decision.
 - **Step 6.** Real run on the three cases (SEC EDGAR, Yahoo Finance, FRED), results in the build plan, M4 Done on merge.
 
 Steps 1–4 change no existing number and can merge as an engine-only PR, as M3 did.
