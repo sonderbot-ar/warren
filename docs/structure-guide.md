@@ -49,7 +49,7 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 
 | # | Decision | Status | Date |
 |---|---|---|---|
-| 1 | Model allocation and API keys | Under review | sep.24.2026 |
+| 1 | Model allocation and API keys | **Accepted** (revised: keys loaded once, one node-to-model map; owner decision) | oct.30.2026 |
 | 2 | State management: SQLite, typed fact table, small data in graph state | **Accepted** (replaces EAV; version-selection rule revised and provenance added in M1.1) | oct.26.2026 |
 | 3 | Data processing: SQLite only, no vector database | **Accepted** (replaces ChromaDB) | oct.14.2026 |
 | 4 | Deterministic math engine with explicit, sourced assumptions | **Accepted** (strengthened; equity risk premium and terminal growth computed from market data, M2; terminal value with new investment earning WACC, owner decision before M4) | oct.30.2026 |
@@ -66,12 +66,16 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 | — | ChromaDB vector store for documents | Superseded by 3 | sep.24.2026 |
 | — | Point-in-time selection "newest filing first, then tag" | Superseded by 2 (M1.1) | oct.26.2026 |
 | — | Gordon terminal value on Y5 free cash flow (M2) | Superseded by 4 (M4) | oct.30.2026 |
+| — | API keys and models declared per module in each domain's `tools.py` | Superseded by 1 | oct.30.2026 |
 
-### Decision 1 — Model Allocation and API Keys · *Under review*
+### Decision 1 — Model Allocation and API Keys · *Accepted (oct.30.2026)*
 
-- **Current decision (sep.2026):** API keys and model initialisations are declared locally within each domain's `tools.py`, rather than globally.
-- **Goal it serves (kept):** different nodes can use different models (a fast, cheap model for extraction, a stronger model for reasoning), and token use and failures are attributable to a specific node.
-- **Proposed revision (to be decided after the Phase 1 roadmap is settled):** load API keys once from `.env`; keep one configuration that maps each node to its model. This keeps per-node models and per-node token tracking while avoiding duplicated key handling across files.
+- **Decision (owner, oct.30.2026):**
+  - API keys are loaded once, from `.env` for local runs and from the environment for cloud runs.
+  - One configuration maps each node to its model, in `shared_kernel/config.py`.
+  - Token use is tracked per node, so cost is attributable to each step.
+- **Goal it serves:** different nodes can use different models (a fast, cheap model for extraction, a stronger model for reasoning), without duplicated key handling across files.
+- **Superseded (sep.2026):** API keys and model initialisations declared locally in each domain's `tools.py`.
 
 ### Decision 2 — State Management · *Accepted (replaces EAV and ID-only state)*
 
@@ -193,7 +197,7 @@ warren/
 │   ├── structure-guide.md    # this document (source of truth for decisions)
 │   └── build-plan.md         # Phase 1 timeline and implementation plan
 ├── shared_kernel/
-│   ├── config.py             # settings, node-to-model map (pending Decision 1)
+│   ├── config.py             # settings, node-to-model map (Decision 1)
 │   ├── database.py           # connection, WAL mode, migrations
 │   ├── schemas.py            # Pydantic models shared across domains
 │   └── telemetry.py          # JSON-lines emitter
