@@ -67,7 +67,7 @@ GDELT lists one URL many times, sometimes with a different title. The store keep
 ## Storage (migration `0009_news.sql`)
 
 ```sql
-news_files(file_url TEXT PRIMARY KEY, file_ts TEXT, md5 TEXT, status TEXT,   -- ok | missing | bad_md5
+news_files(file_url TEXT PRIMARY KEY, file_ts TEXT, md5 TEXT, status TEXT,   -- ok | missing | bad_md5 | fetch_error
            rows_total INTEGER, rows_kept INTEGER, aliases_sha256 TEXT, fetched_at TEXT)
 articles(article_id TEXT PRIMARY KEY, url TEXT, source TEXT)
 article_sightings(article_id TEXT REFERENCES articles, file_url TEXT REFERENCES news_files,
@@ -115,6 +115,10 @@ Steps 0–4 merge as an engine-only PR, as M3 and M4 did; M5 stays In progress u
 ## Exit criterion (Build Plan)
 
 For every eval case date, the events around it are ingested, matched and clustered, with a hand-checked sample showing acceptable precision: `org_exact` at least 0.80 per company, labeller agreement kappa at least 0.6 (or the owner's labels), coverage reported per window.
+
+**As decided by the owner (oct.30.2026):**
+- Acceptable precision is the precision measured on articles that pass the headline rule (Step 6): 0.72 pooled for `org_exact` on draw 20261031, reported per company with both labellers' figures. The 0.80 per-company bar is not met, and that is accepted.
+- M6 adds an "about the company" check to its headline reading. It is scored against draws 20261030 and 20261031.
 
 ## Alternatives considered
 
@@ -302,14 +306,14 @@ AAPL is high because many `title_alias` matches contain "apple", the fruit inclu
 - **The allowed revision was tried on paper first.** Eight phrases each explain at least two failing rows and no `about` row in either draw: "purchases # shares", "sells # shares", "million stake", "bottling", "police", "thief", "supplier", "challenge" (`#` stands for a number). Even on this draw, which they were written from, they lift only AAPL over the gate, to 0.82. CAT stays at 0.76, JNJ 0.74, KO 0.67, PG 0.71 and WMT 0.62. A fresh draw would likely read no higher, since dev-set numbers are optimistic. So the revision and the third draw were not run. As Step 6 says for a failed final draw, the result goes to the owner as a decision card.
 - **Why word lists stop here.** For a consumer brand, much of what a headline naming it says is about something else: a crime at a Walmart, a Coca-Cola ad, a fund buying P&G shares. Telling "about the company" from "names the company" needs reading the headline, which is what M6's LLM step does anyway.
 
-## Where the work stopped (oct.30.2026)
+## Owner decision and close (oct.30.2026)
 
-- **Done:**
-  - Steps 0–5, merged in PRs #41, #43, #48, #51, #65 and #66;
-  - Step 6a–6b (the headline rule) and Step 6c, draw 2, in this branch's PR.
-
-  Both draws and their labels are in `domains/news/match_sample.csv`. The gate fails for six of eight companies, so M5 is not Done.
-- **Waiting on the owner:**
-  - whether the gate reads only articles that pass the headline rule;
-  - what to do now that the rule reaches 0.72 pooled but not 0.80 per company: accept the measured precision and let M6's LLM step check each headline; add an LLM check now (it costs money); or keep tuning the word lists.
-- The real database is local to the run that made it (`data/` is git-ignored). A fresh run needs about 2.5 hours to download it again.
+- **The owner's choice.** The owner chose to accept the measured precision and close M5. The other options were an LLM check now (a cost) and more word-list tuning.
+- **What M5 delivers.** Events are built from articles whose headline names the company. Their `org_exact` precision is 0.72 pooled, and per company:
+  - 0.90 for MSFT and 0.88 for XOM;
+  - 0.72–0.76 for AAPL, CAT and JNJ;
+  - 0.52–0.58 for KO, PG and WMT.
+- **What it drops.** The rule loses few real stories: 0–5% of the dropped articles are `about`, except AAPL at 20%.
+- **Agreement.** Three cells are below the 0.6 kappa floor (JNJ, PG, XOM). Both labellers' figures are reported. The owner's decision reads the measured precision as it stands.
+- **Carried to M6** (added to its design in the Build Plan). The LLM that reads each event's headlines also says whether each headline is about the company. That check is scored against both labelled draws, so any gain over the word rule is measured, not assumed.
+- **Rebuilding the data.** The real database is local to the run that made it (`data/` is git-ignored). A fresh run downloads it again in about 2.5 hours. Then `events --all-cases` rebuilds the events with the rule in about 4 minutes.
