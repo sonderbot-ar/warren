@@ -25,7 +25,7 @@ def wire(monkeypatch, company, tmp_path):
     monkeypatch.setattr(
         cli,
         "run_batch",
-        lambda conn, cs, sha: harness.run_batch(conn, cs, sha, CHOICES, TODAY, TODAY),
+        lambda conn, cs, sha, **kw: harness.run_batch(conn, cs, sha, CHOICES, TODAY, TODAY, **kw),
     )
     monkeypatch.setattr(cli, "write_report", lambda conn, b: report.write_report(conn, b, tmp_path))
 

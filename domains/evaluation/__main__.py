@@ -1,11 +1,14 @@
 """Command line for the evaluation harness.
 
     python -m domains.evaluation run [--case AAPL_2020-02-17 ...] [--cases-file PATH]
+        [--guidance PATH]
     python -m domains.evaluation report --batch eval_2026-10-30_1
 
 `run` scores every case in the case file (or the ones named) and writes
 data/reports/eval/<batch_id>.md. Cases that can't be scored are listed with their reason; it exits
-1 only when no case could be scored. `report` writes a stored batch's report again.
+1 only when no case could be scored. With `--guidance`, the cases it covers are also simulated
+under the shocks their company guidance implies and scored as `with_shocks` (M4). `report`
+writes a stored batch's report again.
 """
 
 import argparse
@@ -13,6 +16,7 @@ import sys
 from pathlib import Path
 
 from domains.evaluation.cases import CASES_PATH, cases_sha256, load_cases
+from domains.evaluation.guidance import guidance_sha256, load_guides
 from domains.evaluation.harness import run_batch
 from domains.evaluation.report import load_rows, summary, write_report
 from shared_kernel.config import PROJECT_ROOT
@@ -34,7 +38,10 @@ def cmd_run(args: argparse.Namespace) -> int:
         cases = [c for c in cases if c.case_id in args.case]
     with get_db_connection() as conn:
         apply_migrations(conn)
-        batch_id = run_batch(conn, cases, cases_sha256(path))
+        guides = sha = None
+        if args.guidance:
+            guides, sha = load_guides(Path(args.guidance)), guidance_sha256(Path(args.guidance))
+        batch_id = run_batch(conn, cases, cases_sha256(path), guides=guides, guidance_sha256=sha)
         report = write_report(conn, batch_id)
         failed = conn.execute(
             "SELECT case_id, reason FROM eval_failures WHERE batch_id = ?", (batch_id,)
@@ -66,6 +73,7 @@ def main(argv: list[str] | None = None) -> int:
     run = commands.add_parser("run", help="score the baseline on the case library")
     run.add_argument("--case", action="append", help="a case id (repeatable); default: all")
     run.add_argument("--cases-file", default=str(CASES_PATH))
+    run.add_argument("--guidance", help="transcribed company guidance (M4); default: none")
     run.set_defaults(func=cmd_run)
     rep = commands.add_parser("report", help="write a stored batch's report again")
     rep.add_argument("--batch", required=True)

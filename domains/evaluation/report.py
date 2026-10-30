@@ -186,6 +186,7 @@ def render(conn: sqlite3.Connection, batch_id: str) -> str:
             f"{_err(b['item'], b['error'])} | {_err(b['item'], n['error'])} | {flags} |"
         )
     out += ["", "Amounts in millions.", ""]
+    out += _with_shocks(rows)
     if incomplete:
         out += ["## Incomplete cases", "", *[f"- {c}" for c in incomplete], ""]
     out += ["## Failed cases", ""]
@@ -214,6 +215,40 @@ def render(conn: sqlite3.Connection, batch_id: str) -> str:
         "business to the actuals. Both are shown apart above.",
     ]
     return "\n".join(out) + "\n"
+
+
+def _with_shocks(rows: list[dict]) -> list[str]:
+    """Cases simulated under shocks from company guidance (M4): p50 scored next to the baseline."""
+    shocked = {
+        (r["case_id"], r["item"], r["period"]): r for r in rows if r["variant"] == "with_shocks"
+    }
+    if not shocked:
+        return []
+    base = {(r["case_id"], r["item"], r["period"]): r for r in rows if r["variant"] == "baseline"}
+    out = [
+        "## With shocks from company guidance",
+        "",
+        "The baseline run again under shocks converted by code from the company's own revised "
+        "guidance. The p10–p90 band covers only the uncertainty in the shocks' size, so it is "
+        "narrower than the true uncertainty; a guided range's ends are read as p10 and p90, an "
+        "assumption checked later. Three cases show the plumbing works, not that shocks help.",
+        "",
+        "| Case | Quarter | Item | Baseline | With shocks p10 / p50 / p90 | Actual | "
+        "Baseline error | With shocks error |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    for key in sorted(shocked):
+        r, b = shocked[key], base.get(key)
+        scored = r["status"] == "ok"
+        out.append(
+            f"| {r['case_id']} | {r['period']} | {r['item']} | "
+            f"{_m(b['forecast']) if b else 'n/a'} | "
+            f"{_m(r['p10'])} / {_m(r['p50'])} / {_m(r['p90'])} | "
+            f"{_m(r['actual']) if scored else 'not yet reported'} | "
+            f"{_err(r['item'], b['error']) if b and scored else 'n/a'} | "
+            f"{_err(r['item'], r['error']) if scored else 'n/a'} |"
+        )
+    return [*out, ""]
 
 
 def write_report(conn: sqlite3.Connection, batch_id: str, directory: Path = REPORTS_DIR) -> Path:
