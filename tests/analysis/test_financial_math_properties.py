@@ -26,8 +26,9 @@ def test_higher_discount_rate_never_raises_value(flows, low, step, g):
     assert high_value <= low_value
 
 
-@given(cash_flows, rate, growth, st.floats(min_value=0.0005, max_value=0.005))
+@given(cash_flows, rate, growth, st.floats(min_value=0.0005, max_value=0.004))
 def test_higher_terminal_growth_never_lowers_value(flows, r, g, step):
+    # growth tops out at 0.015 and the step at 0.004, so g + step stays below the lowest rate
     years = [1.0] * len(flows)
     rates = [r] * len(flows)
     low = fm.enterprise_value(flows, rates, years, g).enterprise_value

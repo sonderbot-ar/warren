@@ -2,6 +2,8 @@
 
 One row per merged version, newest first. A version is a milestone (minor number) or a backlog item (patch number). To restore a version, revert the merges after its commit with a revert PR; never rewrite `main`.
 
+The owner's desk, with an entry and a lesson for each version: https://claude.ai/artifact/5BGLYAQEjkqQHugGWpzKut
+
 | Version | Date | What it is | Merge commit | PRs |
 |---|---|---|---|---|
 | v0.2 | oct.30.2026 | DCF engine (M2) and its hardening (M2.1): a baseline DCF for every Phase 1 company on any date, reproducible to the cent and rebuildable from the data it used | `2c9e6b3` | #5, #6, #7 |
