@@ -4,6 +4,12 @@ Precision comes from a labelled sample, never from a number written in code. Eac
 sample keeps its seed, and every draw is reported, so fixing aliases and drawing again can't hide
 an earlier failure. Two labellers label part of the sample independently; their agreement is
 Cohen's kappa (Cohen 1960). Intervals are Wilson's (Wilson 1927; Brown, Cai & DasGupta 2001).
+
+With the headline rule (Step 6), draws take only articles whose headline passes it, since those
+feed events, plus a recall check: `org_exact` articles that fail it, labelled to estimate the
+stories the rule throws away. Agreement is read on `about` against the rest, the split precision
+reads (Artstein & Poesio 2008), with raw agreement beside it, since one dominant label can sink
+kappa when labellers mostly agree (Feinstein & Cicchetti 1990).
 """
 
 import csv
@@ -11,10 +17,11 @@ import math
 import random
 import sqlite3
 from collections import Counter, defaultdict
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from domains.news.gdelt import CASE_TZ, window_bounds
+from domains.news.matching import HeadlineRule, about_headline
 from domains.news.store import iso
 
 SAMPLE_PATH = Path(__file__).parent / "match_sample.csv"
@@ -22,10 +29,12 @@ SAMPLE_FIELDS = (
     "draw ticker method article_id seen_at url title label reason second_label second_reason"
 ).split()
 LABELS = ("about", "related", "not")
-PER_METHOD = {"org_exact": 50, "org_subsidiary": 25, "title_alias": 25}
+DROPPED = "org_exact_dropped"  # recall check: org_exact articles the headline rule drops
+PER_METHOD = {"org_exact": 50, "org_subsidiary": 25, "title_alias": 25, DROPPED: 20}
 SECOND_SHARE = 0.4  # share of each draw the second labeller labels
 GATE = 0.80
 KAPPA_FLOOR = 0.6  # below it the sample goes to the owner before the gate is read
+KAPPA_MIN_ROWS = 10  # fewer shared rows in a cell: raw agreement only
 Z95 = 1.959963984540054
 
 
@@ -73,8 +82,15 @@ def coverage(conn: sqlite3.Connection, case_date: date, days: int = 7) -> dict:
             "sightings": sightings, "url_titles": url_titles}  # fmt: skip
 
 
-def candidates(conn: sqlite3.Connection, windows: list[tuple[str, date]]) -> list[dict]:
-    """Matched sightings inside the case windows: (ticker, case date) pairs."""
+def candidates(
+    conn: sqlite3.Connection,
+    windows: list[tuple[str, date]],
+    rule: HeadlineRule | None = None,
+    skip: frozenset[str] = frozenset(),
+) -> list[dict]:
+    """Matched sightings inside the case windows: (ticker, case date) pairs. With a rule, only
+    articles whose headline passes it, and `org_exact` ones that fail it as `DROPPED`. Articles
+    in `skip` (earlier draws) are left out."""
     out = []
     for ticker, case_date in windows:
         start, end = window_bounds(case_date)
@@ -82,7 +98,8 @@ def candidates(conn: sqlite3.Connection, windows: list[tuple[str, date]]) -> lis
             dict(r)
             for r in conn.execute(
                 """
-                SELECT co.ticker, c.method, s.article_id, s.seen_at, a.url, s.title
+                SELECT co.ticker, c.cik, c.method, s.article_id, s.seen_at, a.url, s.title,
+                       s.title_from_url
                 FROM article_companies c
                 JOIN companies co ON co.cik = c.cik
                 JOIN article_sightings s ON s.article_id = c.article_id AND s.file_url = c.file_url
@@ -94,12 +111,37 @@ def candidates(conn: sqlite3.Connection, windows: list[tuple[str, date]]) -> lis
             )
         ]
     seen, unique = set(), []
-    for r in out:  # an article once per company and method
+    for r in out:  # an article once per company and method, as its earliest sighting
         key = (r["ticker"], r["method"], r["article_id"])
-        if key not in seen:
-            seen.add(key)
-            unique.append(r)
+        if key in seen or r["article_id"] in skip:
+            continue
+        seen.add(key)
+        if rule is not None:
+            seen_on = datetime.fromisoformat(r["seen_at"]).astimezone(CASE_TZ).date()
+            if not about_headline(rule, r["cik"], r["title"], seen_on):
+                if r["method"] != "org_exact":
+                    continue
+                r["method"] = DROPPED
+        unique.append(r)
     return unique
+
+
+def headline_pass(
+    conn: sqlite3.Connection, ticker: str, case_date: date, rule: HeadlineRule
+) -> dict:
+    """For a case's company and window: matched articles, how many pass the rule, and how
+    many of them have only URL words for a headline."""
+    rows = candidates(conn, [(ticker, case_date)])
+    first: dict[str, dict] = {}
+    for r in rows:
+        first.setdefault(r["article_id"], r)
+    passed = sum(
+        about_headline(rule, r["cik"], r["title"],
+                       datetime.fromisoformat(r["seen_at"]).astimezone(CASE_TZ).date())
+        for r in first.values()
+    )  # fmt: skip
+    url_words = sum(r["title_from_url"] for r in first.values())
+    return {"matched": len(first), "passed": passed, "url_words": url_words}
 
 
 def draw(pool: list[dict], seed: int) -> list[dict]:
@@ -145,7 +187,7 @@ def read_sample(path: Path | None = None) -> list[dict]:
 
 
 def precision(rows: list[dict]) -> list[dict]:
-    """Per draw, company and method: share labelled `about`, its interval, and kappa."""
+    """Per draw, company and method: share labelled `about`, its interval, and agreement."""
     groups: dict[tuple, list[dict]] = defaultdict(list)
     for r in rows:
         if r["label"] not in LABELS:
@@ -155,19 +197,32 @@ def precision(rows: list[dict]) -> list[dict]:
     for (d, ticker, method), group in sorted(groups.items()):
         k, n = sum(r["label"] == "about" for r in group), len(group)
         both = [r for r in group if r["second_label"] in LABELS]
-        kappa = (
-            cohen_kappa([r["label"] for r in both], [r["second_label"] for r in both])
+        first = [r["label"] for r in both]
+        second = [r["second_label"] for r in both]
+        about_first = [x == "about" for x in first]
+        about_second = [x == "about" for x in second]
+        agree = (
+            sum(a == b for a, b in zip(about_first, about_second, strict=True)) / len(both)
             if both
             else None
         )
         low, high = wilson(k, n)
         out.append({"draw": d, "ticker": ticker, "method": method, "n": n, "about": k,
-                    "precision": k / n, "low": low, "high": high, "kappa": kappa,
+                    "precision": k / n, "low": low, "high": high,
+                    "kappa": cohen_kappa(first, second) if both else None,
+                    "shared": len(both), "agree": agree,
+                    "kappa_about": (cohen_kappa(about_first, about_second)
+                                    if len(both) >= KAPPA_MIN_ROWS else None),
                     "passes": k / n >= GATE})  # fmt: skip
     return out
 
 
-def write_report(conn: sqlite3.Connection, windows: list[tuple[str, date]], out: Path) -> Path:
+def write_report(
+    conn: sqlite3.Connection,
+    windows: list[tuple[str, date]],
+    out: Path,
+    rule: HeadlineRule | None = None,
+) -> Path:
     lines = ["# News data report (M5)", "", "## Coverage per case window", "",
              "| Case | Expected files | Read | Missing | Fetch errors | Bad MD5 | Share "
              "| Sightings | URL words |",
@@ -181,7 +236,20 @@ def write_report(conn: sqlite3.Connection, windows: list[tuple[str, date]], out:
     lines += ["", "Missing: GDELT has no file for the slot, or no longer serves it. Fetch errors: "
               "we failed to download it; `ingest` again reads them. Either lowers the share, and "
               "a window under 98% is flagged ⚠.",
-              "", "## Events per case (latest event run)", "",
+              ""]  # fmt: skip
+    if rule is not None:
+        lines += ["## Headline rule per case window", "",
+                  "| Case | Matched articles | Pass | Share | URL-word headlines |",
+                  "|---|---|---|---|---|"]  # fmt: skip
+        for ticker, case_date in windows:
+            h = headline_pass(conn, ticker, case_date, rule)
+            share = h["passed"] / h["matched"] if h["matched"] else 0.0
+            mark = " (URL words)" if h["url_words"] * 2 > h["matched"] else ""
+            lines.append(f"| {ticker}_{case_date} | {h['matched']} | {h['passed']} | "
+                         f"{share:.0%} | {h['url_words']}{mark} |")  # fmt: skip
+        lines += ["", "Only articles that pass feed events. Windows marked (URL words) are "
+                  "mostly before GDELT kept page titles; they pass less often.", ""]  # fmt: skip
+    lines += ["## Events per case (latest event run)", "",
               "| Case | Event runs | Events | Articles | Largest event |",
               "|---|---|---|---|---|"]  # fmt: skip
     for ticker, case_date in windows:
@@ -201,23 +269,33 @@ def write_report(conn: sqlite3.Connection, windows: list[tuple[str, date]], out:
         ).fetchone()
         lines.append(f"| {ticker}_{case_date} | {run['runs']} | {n} | {total or 0} | {top or 0} |")
     lines += ["", "## Match precision (every draw)", "",
-              "| Draw | Company | Method | n | Precision | 95% interval | Kappa | Gate 0.80 |",
-              "|---|---|---|---|---|---|---|---|"]  # fmt: skip
+              "| Draw | Company | Method | n | Precision | 95% interval | Shared rows "
+              "| Agreement on about | Kappa on about | Kappa, 3 labels | Gate 0.80 |",
+              "|---|---|---|---|---|---|---|---|---|---|---|"]  # fmt: skip
     sample = read_sample()
     draws = sorted({r["draw"] for r in sample}, key=int)
     pending = [d for d in draws if any(r["label"] not in LABELS for r in sample if r["draw"] == d)]
     for p in precision([r for r in sample if r["draw"] not in pending]):
-        kappa = "" if p["kappa"] is None else f"{p['kappa']:.2f}"
-        if p["kappa"] is not None and p["kappa"] < KAPPA_FLOOR:
+
+        def fmt(x):
+            return "" if x is None else f"{x:.2f}"
+
+        kappa = fmt(p["kappa_about"])
+        if p["kappa_about"] is not None and p["kappa_about"] < KAPPA_FLOOR:
             kappa += " (below 0.6: the owner labels this sample)"
+        gate = "recall check" if p["method"] == DROPPED else "pass" if p["passes"] else "FAIL"
         lines.append(f"| {p['draw']} | {p['ticker']} | {p['method']} | {p['n']} | "
-                     f"{p['precision']:.2f} | {p['low']:.2f}–{p['high']:.2f} | {kappa} | "
-                     f"{'pass' if p['passes'] else 'FAIL'} |")  # fmt: skip
+                     f"{p['precision']:.2f} | {p['low']:.2f}–{p['high']:.2f} | {p['shared']} | "
+                     f"{fmt(p['agree'])} | {kappa} | {fmt(p['kappa'])} | {gate} |")  # fmt: skip
     for d in pending:
         rows = [r for r in sample if r["draw"] == d]
         done = sum(r["label"] in LABELS for r in rows)
         lines.append(f"\nDraw {d} is not fully labelled yet ({done} of {len(rows)} rows).")
-    lines += ["", "Recall is not measured: it needs every relevant article, which nobody has.",
+    lines += ["", f"Kappa on `about` is read on cells with {KAPPA_MIN_ROWS} or more shared rows. "
+              f"`{DROPPED}` rows are articles the headline rule drops: their precision is the "
+              "share of real stories lost, not a gate.",
+              "Recall of matching itself is not measured: it needs every relevant article, which "
+              "nobody has.",
               f"Case calendar: {CASE_TZ}. Only GDELT's English stream is read."]  # fmt: skip
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines) + "\n")

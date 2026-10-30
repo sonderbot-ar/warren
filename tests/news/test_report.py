@@ -100,11 +100,14 @@ def test_cli_end_to_end_on_fixtures(tmp_path, monkeypatch, db_path):
     assert cli.main(["rebuild-events", run]) == 0
     assert cli.main(["sample", "--seed", "7"]) == 0
     assert len(report.read_sample()) == 3
+    assert cli.main(["sample", "--seed", "8"]) == 0  # a new draw never repeats an article
+    assert len(report.read_sample()) == 3
     assert cli.main(["report", "--case", "MSFT_2022-06-02"]) == 0
     text = (tmp_path / "reports" / "news" / "news_report.md").read_text()
     assert "| MSFT_2022-06-02 | 1 | 1 | 3 | 3 |" in text
     assert "| 3 | 0 |" in text  # sightings and how many headlines came from URL words
     assert "Draw 7 is not fully labelled yet (0 of 3 rows)." in text
+    assert "| MSFT_2022-06-02 | 3 | 3 | 100% | 0 |" in text  # the headline rule per window
 
 
 def test_coverage_counts_a_fetch_error_apart_from_a_missing_slot(db_path, tmp_path):

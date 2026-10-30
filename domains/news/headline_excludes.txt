@@ -1,0 +1,63 @@
+# Headline phrases that mark boilerplate (M5 Step 6). A matched article whose headline contains
+# one of them, as a whole phrase after normalisation, doesn't feed events. Written from draw
+# 20261030 and the design review; changed only as the design doc's Step 6 allows.
+
+# holdings notices
+shares sold by
+shares bought by
+shares acquired by
+shares purchased by
+position in
+holdings in
+stock position
+sells shares of
+buys shares of
+acquires shares of
+purchases shares of
+new shares in
+buys new
+new stake
+stake trimmed
+stake raised
+stake lowered
+stock holdings
+holdings trimmed
+holdings lowered
+holdings raised
+stock price
+stock rating
+price target
+
+# market wraps
+stocks to watch
+stock market today
+top stocks
+best stocks
+stocks to buy
+biggest movers
+biggest moves
+movers
+top gainers
+premarket
+midday movers
+stock news
+dow jones
+things to know
+five at five
+
+# shopping (only the shopping forms of "deals": a bare "deal" or "deals" is news)
+black friday deals
+cyber monday deals
+prime day deals
+best deals
+early deals
+deals on
+deals for
+
+# market-research listings
+market insights
+market report
+market size
+key players
+key operators
+key companies

@@ -9,7 +9,9 @@
 
 `ingest` reads every GDELT file in each case window (the 7 New York days ending on the case
 date), matching every Phase 1 company. `rematch` reads again the files matched under an older
-alias set. `rebuild-events` exits 1 on any difference. The report goes to data/reports/news/.
+alias set. `events`, `sample` and `report` apply the headline rule (only articles whose headline
+names the company feed events); `sample` leaves out articles drawn before. `rebuild-events` exits
+1 on any difference. The report goes to data/reports/news/.
 """
 
 import argparse
@@ -18,7 +20,7 @@ from datetime import date
 
 from domains.evaluation.cases import CASES_PATH, load_cases
 from domains.news import cluster, gdelt, report, store
-from domains.news.matching import load_aliases
+from domains.news.matching import load_aliases, load_headline_rule
 from shared_kernel.config import REPORTS_DIR
 from shared_kernel.database import apply_migrations, get_db_connection
 
@@ -69,11 +71,12 @@ def cmd_events(args) -> int:
     with get_db_connection() as conn:
         apply_migrations(conn)
         aliases = load_aliases(conn)
+        rule = load_headline_rule(conn, aliases)
         for ticker, case_date in _cases(args):
             cik = conn.execute("SELECT cik FROM companies WHERE ticker = ?", (ticker,)).fetchone()[
                 0
             ]
-            run = cluster.run_events(conn, cik, case_date, aliases)
+            run = cluster.run_events(conn, cik, case_date, aliases, rule=rule)
             print(f"{ticker}_{case_date}  event run {run}")
             for e in cluster.stored_events(conn, run):
                 print(f"  {e['first_seen']}  {e['article_count']:4} articles  "
@@ -84,7 +87,10 @@ def cmd_events(args) -> int:
 def cmd_rebuild(args) -> int:
     with get_db_connection() as conn:
         apply_migrations(conn)
-        problems = cluster.rebuild(conn, args.event_run_id, load_aliases(conn))
+        aliases = load_aliases(conn)
+        problems = cluster.rebuild(
+            conn, args.event_run_id, aliases, load_headline_rule(conn, aliases)
+        )
     for p in problems:
         print(p)
     print("rebuilt: same events" if not problems else f"{len(problems)} differences")
@@ -94,7 +100,9 @@ def cmd_rebuild(args) -> int:
 def cmd_sample(args) -> int:
     with get_db_connection() as conn:
         apply_migrations(conn)
-        rows = report.draw(report.candidates(conn, _cases(args)), args.seed)
+        rule = load_headline_rule(conn, load_aliases(conn))
+        drawn = frozenset(r["article_id"] for r in report.read_sample())
+        rows = report.draw(report.candidates(conn, _cases(args), rule, skip=drawn), args.seed)
     report.append_draw(rows)
     print(f"draw {args.seed}: {len(rows)} rows added to {report.SAMPLE_PATH.name}")
     return 0
@@ -103,7 +111,10 @@ def cmd_sample(args) -> int:
 def cmd_report(args) -> int:
     with get_db_connection() as conn:
         apply_migrations(conn)
-        path = report.write_report(conn, _cases(args), REPORTS_DIR / "news" / "news_report.md")
+        rule = load_headline_rule(conn, load_aliases(conn))
+        path = report.write_report(
+            conn, _cases(args), REPORTS_DIR / "news" / "news_report.md", rule
+        )
     print(path)
     return 0
 

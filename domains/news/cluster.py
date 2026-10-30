@@ -4,7 +4,8 @@ Single-pass clustering from Topic Detection and Tracking (Allan, Papka & Lavrenk
 are read in the order GDELT saw them, and each joins the open event it is most similar to, or
 starts a new one. Similarity is Jaccard on title words; shared themes help only alongside some
 title overlap, so a busy week can't chain into one event. Only sightings known by the as-of date
-are read, and an article is its earliest such sighting, with that sighting's own title.
+are read, and an article is its earliest such sighting, with that sighting's own title. With a
+headline rule, only articles whose headline passes it feed events (Step 6).
 
 An event run stores its parameters and a hash of the sightings it read, so `rebuild` can cluster
 the same stored sightings again and check every event, the news analogue of reproducing a run
@@ -24,7 +25,7 @@ from zoneinfo import ZoneInfo
 
 from domains.analysis.runs import code_version
 from domains.news.gdelt import CASE_TZ, known_by
-from domains.news.matching import AliasSet
+from domains.news.matching import AliasSet, HeadlineRule, about_headline
 from domains.news.store import iso
 
 STOPWORDS = frozenset(
@@ -83,9 +84,14 @@ def company_words(aliases: AliasSet, cik: str) -> frozenset[str]:
 
 
 def items_as_of(
-    conn: sqlite3.Connection, cik: str, as_of: date, tz: ZoneInfo = CASE_TZ
+    conn: sqlite3.Connection,
+    cik: str,
+    as_of: date,
+    tz: ZoneInfo = CASE_TZ,
+    rule: HeadlineRule | None = None,
 ) -> list[Item]:
-    """Each article matched to the company, as its earliest sighting known by `as_of`."""
+    """Each article matched to the company, as its earliest sighting known by `as_of`; with a
+    rule, only those whose headline passes it."""
     rows = conn.execute(
         """
         SELECT s.article_id, s.file_url, a.source, s.seen_at, s.title, s.tone, s.themes_json
@@ -105,7 +111,13 @@ def items_as_of(
                 datetime.fromisoformat(r["seen_at"]), r["title"], r["tone"],
                 specific_themes(json.loads(r["themes_json"])),
             )  # fmt: skip
-    return sorted(earliest.values(), key=lambda i: (i.seen_at, i.article_id))
+    items = earliest.values()
+    if rule is not None:
+        items = [
+            i for i in items
+            if about_headline(rule, cik, i.title, i.seen_at.astimezone(CASE_TZ).date())
+        ]  # fmt: skip
+    return sorted(items, key=lambda i: (i.seen_at, i.article_id))
 
 
 def cluster(items: list[Item], words: frozenset[str], params: dict = PARAMS) -> list[Event]:
@@ -183,12 +195,17 @@ def run_events(
     aliases: AliasSet,
     tz: ZoneInfo = CASE_TZ,
     params: dict = PARAMS,
+    rule: HeadlineRule | None = None,
 ) -> str:
     """Cluster as of a date and store the run; the same input returns the stored run."""
-    items = items_as_of(conn, cik, as_of, tz)
+    items = items_as_of(conn, cik, as_of, tz, rule)
     digest = input_sha256(items)
-    # the alias set decides which words are dropped from titles, so it is part of the run
-    params_json = json.dumps(params | {"aliases_sha256": aliases.sha256}, sort_keys=True)
+    # the alias set decides which words are dropped from titles, and the headline rule which
+    # articles are read, so both are part of the run
+    stored = params | {"aliases_sha256": aliases.sha256}
+    if rule is not None:
+        stored["headlines_sha256"] = rule.sha256
+    params_json = json.dumps(stored, sort_keys=True)
     run_id = _sha(cik, as_of.isoformat(), str(tz), params_json, digest)
     if conn.execute("SELECT 1 FROM event_runs WHERE event_run_id = ?", (run_id,)).fetchone():
         return run_id
@@ -231,18 +248,22 @@ def stored_events(conn: sqlite3.Connection, run_id: str) -> list[dict]:
     return out
 
 
-def rebuild(conn: sqlite3.Connection, run_id: str, aliases: AliasSet) -> list[str]:
+def rebuild(
+    conn: sqlite3.Connection, run_id: str, aliases: AliasSet, rule: HeadlineRule | None = None
+) -> list[str]:
     """Differences between a stored run and clustering its sightings again; empty means equal."""
     run = conn.execute("SELECT * FROM event_runs WHERE event_run_id = ?", (run_id,)).fetchone()
     if run is None:
         return [f"no event run {run_id}"]
     as_of, tz = date.fromisoformat(run["as_of"]), ZoneInfo(run["tz"])
-    items = items_as_of(conn, run["cik"], as_of, tz)
-    if input_sha256(items) != run["input_sha256"]:
-        return ["input changed: the stored sightings known by the as-of date are not the same"]
     params = json.loads(run["params_json"])
     if params.get("aliases_sha256") != aliases.sha256:
         return ["aliases changed: the run used another alias set"]
+    if params.get("headlines_sha256") != (rule.sha256 if rule else None):
+        return ["headline rule changed: the run used another rule, or none"]
+    items = items_as_of(conn, run["cik"], as_of, tz, rule)
+    if input_sha256(items) != run["input_sha256"]:
+        return ["input changed: the stored sightings known by the as-of date are not the same"]
     fresh = [
         describe(e, run["cik"], as_of)
         for e in cluster(items, company_words(aliases, run["cik"]), params)
