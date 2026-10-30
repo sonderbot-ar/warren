@@ -177,7 +177,8 @@ def run_events(
     """Cluster as of a date and store the run; the same input returns the stored run."""
     items = items_as_of(conn, cik, as_of, tz)
     digest = input_sha256(items)
-    params_json = json.dumps(params, sort_keys=True)
+    # the alias set decides which words are dropped from titles, so it is part of the run
+    params_json = json.dumps(params | {"aliases_sha256": aliases.sha256}, sort_keys=True)
     run_id = _sha(cik, as_of.isoformat(), str(tz), params_json, digest)
     if conn.execute("SELECT 1 FROM event_runs WHERE event_run_id = ?", (run_id,)).fetchone():
         return run_id
@@ -230,6 +231,8 @@ def rebuild(conn: sqlite3.Connection, run_id: str, aliases: AliasSet) -> list[st
     if input_sha256(items) != run["input_sha256"]:
         return ["input changed: the stored sightings known by the as-of date are not the same"]
     params = json.loads(run["params_json"])
+    if params.get("aliases_sha256") != aliases.sha256:
+        return ["aliases changed: the run used another alias set"]
     fresh = [
         describe(e, run["cik"], as_of)
         for e in cluster(items, company_words(aliases, run["cik"]), params)
@@ -251,10 +254,10 @@ def rebuild(conn: sqlite3.Connection, run_id: str, aliases: AliasSet) -> list[st
 def search(
     conn: sqlite3.Connection, query: str, as_of: date, cik: str | None = None, tz=CASE_TZ
 ) -> list[sqlite3.Row]:
-    """Full-text search over titles, limited to sightings known by `as_of`."""
+    """Full-text search over titles known by `as_of`: one row per article, its earliest match."""
     sql = (
-        "SELECT s.article_id, s.seen_at, s.title FROM sightings_fts f "
-        "JOIN article_sightings s ON s.rowid = f.rowid "
+        "SELECT s.article_id, MIN(s.seen_at) AS seen_at, s.title FROM sightings_fts f "
+        "JOIN article_sightings s ON s.sighting_id = f.rowid "
         "WHERE sightings_fts MATCH ? AND s.seen_at < ?"
     )
     args: list = [query, iso(known_by(as_of, tz))]
@@ -264,4 +267,6 @@ def search(
             "AND c.file_url = s.file_url AND c.cik = ?)"
         )
         args.append(cik)
-    return conn.execute(sql + " ORDER BY s.seen_at, s.article_id", args).fetchall()
+    return conn.execute(
+        sql + " GROUP BY s.article_id ORDER BY seen_at, s.article_id", args
+    ).fetchall()

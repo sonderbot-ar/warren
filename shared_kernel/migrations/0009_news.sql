@@ -9,6 +9,7 @@ CREATE TABLE news_files (
     status          TEXT NOT NULL CHECK (status IN ('ok', 'missing', 'bad_md5')),
     rows_total      INTEGER,
     rows_kept       INTEGER,
+    rows_bad        INTEGER,                           -- rows that couldn't be parsed, skipped
     aliases_sha256  TEXT NOT NULL,                     -- the alias set the rows were matched with
     fetched_at      TEXT NOT NULL
 );
@@ -20,6 +21,7 @@ CREATE TABLE articles (
 );
 
 CREATE TABLE article_sightings (
+    sighting_id  INTEGER PRIMARY KEY,                  -- explicit, so VACUUM can't renumber it
     article_id   TEXT NOT NULL REFERENCES articles (article_id),
     file_url     TEXT NOT NULL REFERENCES news_files (file_url),
     seen_at      TEXT NOT NULL,                        -- when GDELT processed it
@@ -27,7 +29,7 @@ CREATE TABLE article_sightings (
     tone         REAL,
     themes_json  TEXT NOT NULL,
     orgs_json    TEXT NOT NULL,
-    PRIMARY KEY (article_id, file_url)
+    UNIQUE (article_id, file_url)
 );
 CREATE INDEX article_sightings_seen ON article_sightings (seen_at);
 
@@ -73,10 +75,12 @@ CREATE TABLE event_articles (
 );
 
 -- keyword search over titles; queries join back to article_sightings to apply as_of
-CREATE VIRTUAL TABLE sightings_fts USING fts5 (title, content = 'article_sightings');
+CREATE VIRTUAL TABLE sightings_fts USING fts5 (
+    title, content = 'article_sightings', content_rowid = 'sighting_id'
+);
 CREATE TRIGGER sightings_fts_insert AFTER INSERT ON article_sightings BEGIN
-    INSERT INTO sightings_fts (rowid, title) VALUES (new.rowid, new.title);
+    INSERT INTO sightings_fts (rowid, title) VALUES (new.sighting_id, new.title);
 END;
 CREATE TRIGGER sightings_fts_delete AFTER DELETE ON article_sightings BEGIN
-    INSERT INTO sightings_fts (sightings_fts, rowid, title) VALUES ('delete', old.rowid, old.title);
+    INSERT INTO sightings_fts (sightings_fts, rowid, title) VALUES ('delete', old.sighting_id, old.title);
 END;

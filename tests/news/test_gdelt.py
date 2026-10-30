@@ -57,11 +57,19 @@ def test_a_row_without_a_url_is_skipped_and_a_short_row_refused():
 
 def test_a_file_is_read_only_when_its_md5_matches():
     content = zipped(GKG.read_text())
-    records = list(gdelt.read_file(content, entry_for(content)))
-    assert [r.source for r in records] == ["reuters.com", "example.com"]
+    records, bad = gdelt.read_file(content, entry_for(content))
+    assert [r.source for r in records] == ["reuters.com", "example.com"] and bad == 0
     wrong = MasterEntry(FILE_URL, len(content), "0" * 32)
     with pytest.raises(GdeltError, match="MD5"):
-        list(gdelt.read_file(content, wrong))
+        gdelt.read_file(content, wrong)
+
+
+def test_a_bad_row_is_counted_and_the_rest_of_the_file_kept():
+    lines = GKG.read_text().splitlines()
+    broken = lines[0].replace("\t20220602150000\t", "\t2022-06-02\t", 1)  # bad DATE
+    content = zipped("\n".join([broken, "short\trow", lines[1]]) + "\n")
+    records, bad = gdelt.read_file(content, entry_for(content))
+    assert [r.source for r in records] == ["example.com"] and bad == 2
 
 
 def test_the_master_list_keeps_english_gkg_files_only():

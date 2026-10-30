@@ -49,6 +49,7 @@ The owner's choices (equity risk premium and terminal growth methods) are in `do
 
 ```bash
 python -m domains.news ingest --all-cases          # GDELT files for each case window (7 New York days to the case date), every company matched
+python -m domains.news rematch                     # read again the files matched under an older aliases.csv
 python -m domains.news events --all-cases          # cluster each company's articles into events as of its case dates
 python -m domains.news rebuild-events RUN_ID       # cluster the stored articles again; exits 1 on any difference
 python -m domains.news sample --seed 7             # draw a precision sample into domains/news/match_sample.csv for labelling

@@ -18,7 +18,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit
 import requests
 
 from domains.news import gdelt
-from domains.news.gdelt import ArticleRecord, GdeltError, MasterEntry
+from domains.news.gdelt import CASE_TZ, ArticleRecord, GdeltError, MasterEntry
 from domains.news.matching import AliasSet, match
 
 FILE_URL = "http://data.gdeltproject.org/gdeltv2/{ts:%Y%m%d%H%M%S}.gkg.csv.zip"
@@ -47,6 +47,7 @@ class FileResult:
     status: str  # ok | missing | bad_md5 | skipped (already read under this alias set)
     rows_total: int = 0
     rows_kept: int = 0
+    rows_bad: int = 0
 
 
 def _record_file(conn, url, ts, md5, status, total, kept, aliases: AliasSet, now) -> None:
@@ -69,7 +70,8 @@ def store_records(conn: sqlite3.Connection, records: list[ArticleRecord], aliase
     """Sightings of the records that match a company, with their matches; returns rows kept."""
     kept = 0
     for r in records:
-        found = match(r.organisations, r.title, r.seen_at.date(), aliases)
+        # a subsidiary's start date is read in the case calendar, like every as-of date
+        found = match(r.organisations, r.title, r.seen_at.astimezone(CASE_TZ).date(), aliases)
         if not found:
             continue
         aid = article_id(r.url)
@@ -110,8 +112,11 @@ def ingest_file(
         return FileResult(entry.url, "skipped")
     try:
         content = (download or gdelt.http_download)(entry.url)
-    except requests.HTTPError:
+    except requests.RequestException:
         content = None
+    if content is None and row is not None and row["status"] == "ok":
+        # read fine before, unreachable now: keep its rows; it stays stale for the next rematch
+        return FileResult(entry.url, "missing")
     with conn:
         _clear_file(conn, entry.url)
         if content is None:
@@ -119,7 +124,7 @@ def ingest_file(
                          aliases, now())  # fmt: skip
             return FileResult(entry.url, "missing")
         try:
-            records = list(gdelt.read_file(content, entry))
+            records, bad = gdelt.read_file(content, entry)
         except GdeltError:
             _record_file(conn, entry.url, entry.file_ts, entry.md5, "bad_md5", None, None,
                          aliases, now())  # fmt: skip
@@ -127,8 +132,11 @@ def ingest_file(
         _record_file(conn, entry.url, entry.file_ts, entry.md5, "ok", len(records), 0,
                      aliases, now())  # fmt: skip
         kept = store_records(conn, records, aliases)
-        conn.execute("UPDATE news_files SET rows_kept = ? WHERE file_url = ?", (kept, entry.url))
-    return FileResult(entry.url, "ok", len(records), kept)
+        conn.execute(
+            "UPDATE news_files SET rows_kept = ?, rows_bad = ? WHERE file_url = ?",
+            (kept, bad, entry.url),
+        )
+    return FileResult(entry.url, "ok", len(records), kept, bad)
 
 
 def record_missing_slot(

@@ -118,5 +118,23 @@ def test_an_event_run_rebuilds_and_detects_a_changed_input(conn):  # noqa: F811
     run = cluster.run_events(conn, MSFT, date(2022, 6, 2), aliases)
     assert cluster.run_events(conn, MSFT, date(2022, 6, 2), aliases) == run  # same input, same run
     assert cluster.rebuild(conn, run, aliases) == []
+    other = matching.AliasSet(aliases.aliases, "another alias set")
+    assert cluster.rebuild(conn, run, other)[0].startswith("aliases changed")
+    assert cluster.run_events(conn, MSFT, date(2022, 6, 2), other) != run
     add(conn, "https://d.com/4", "Microsoft forecast", T0 - timedelta(hours=1), "f0", aliases)
     assert cluster.rebuild(conn, run, aliases)[0].startswith("input changed")
+
+
+def test_search_returns_each_article_once_with_its_earliest_sighting(conn):  # noqa: F811
+    aliases = matching.load_aliases(conn)
+    add(conn, "https://a.com/1", "Microsoft forecast cut", T0, "f1", aliases)
+    add(
+        conn,
+        "https://a.com/1",
+        "Microsoft forecast cut, updated",
+        T0 + timedelta(hours=2),
+        "f2",
+        aliases,
+    )  # noqa: E501
+    [hit] = cluster.search(conn, "forecast", date(2022, 6, 2), MSFT)
+    assert hit["title"] == "Microsoft forecast cut"

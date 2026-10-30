@@ -147,17 +147,27 @@ def parse_row(line: str, file_url: str) -> ArticleRecord | None:
     )
 
 
-def read_file(content: bytes, entry: MasterEntry) -> Iterator[ArticleRecord]:
-    """Every article in a zipped GKG file, after its MD5 is checked."""
+def read_file(content: bytes, entry: MasterEntry) -> tuple[list[ArticleRecord], int]:
+    """(every article in a zipped GKG file, rows that couldn't be parsed), after the MD5 check.
+
+    A bad row is counted and skipped, never allowed to drop the rest of the file.
+    """
     check_md5(content, entry)
     with zipfile.ZipFile(io.BytesIO(content)) as archive:
         [name] = archive.namelist()
         text = archive.read(name).decode("utf-8", errors="replace")
+    records, bad = [], 0
     for line in text.splitlines():
-        if line.strip():
+        if not line.strip():
+            continue
+        try:
             record = parse_row(line, entry.url)
-            if record is not None:
-                yield record
+        except (GdeltError, ValueError):
+            bad += 1
+            continue
+        if record is not None:
+            records.append(record)
+    return records, bad
 
 
 def http_download(url: str) -> bytes:

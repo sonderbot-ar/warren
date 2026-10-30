@@ -99,3 +99,7 @@ def test_cli_end_to_end_on_fixtures(tmp_path, monkeypatch, db_path):
     assert cli.main(["rebuild-events", run]) == 0
     assert cli.main(["sample", "--seed", "7"]) == 0
     assert len(report.read_sample()) == 3
+    assert cli.main(["report", "--case", "MSFT_2022-06-02"]) == 0
+    text = (tmp_path / "reports" / "news" / "news_report.md").read_text()
+    assert "| MSFT_2022-06-02 | 1 | 1 | 3 | 3 |" in text
+    assert "Draw 7 is not fully labelled yet (0 of 3 rows)." in text

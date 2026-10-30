@@ -217,3 +217,20 @@ def test_search_index_follows_sightings(conn, aliases):
     store.ingest_file(conn, entry, aliases, lambda _: content, lambda: NOW)
     hits = conn.execute("SELECT title FROM sightings_fts WHERE sightings_fts MATCH 'currency'")
     assert [r[0] for r in hits] == ["Currency hit"]
+
+
+def test_a_file_read_before_keeps_its_rows_when_it_cant_be_fetched_again(conn, aliases, tmp_path):
+    import requests
+
+    entry, content = gkg_file(URL1, [gkg_line("https://a.com/1", ["microsoft"], "t")])
+    store.ingest_file(conn, entry, aliases, lambda _: content, lambda: NOW)
+    extra = tmp_path / "aliases.csv"
+    extra.write_text(matching.ALIASES_PATH.read_text() + "MSFT,contoso,subsidiary,,made up\n")
+    wider = matching.load_aliases(conn, extra)
+
+    def down(_):
+        raise requests.ConnectionError("offline")
+
+    assert store.ingest_file(conn, entry, wider, down, lambda: NOW).status == "missing"
+    assert conn.execute("SELECT COUNT(*) FROM article_sightings").fetchone()[0] == 1
+    assert store.stale_files(conn, wider) == [URL1]  # still to be read again

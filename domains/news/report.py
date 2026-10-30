@@ -25,6 +25,7 @@ LABELS = ("about", "related", "not")
 PER_METHOD = {"org_exact": 50, "org_subsidiary": 25, "title_alias": 25}
 SECOND_SHARE = 0.4  # share of each draw the second labeller labels
 GATE = 0.80
+KAPPA_FLOOR = 0.6  # below it the sample goes to the owner before the gate is read
 Z95 = 1.959963984540054
 
 
@@ -168,14 +169,42 @@ def write_report(conn: sqlite3.Connection, windows: list[tuple[str, date]], out:
         flag = "" if c["share"] >= 0.98 else " ⚠"
         lines.append(f"| {ticker}_{case_date} | {c['expected']} | {c['ok']} | {c['missing']} | "
                      f"{c['bad_md5']} | {c['share']:.1%}{flag} |")  # fmt: skip
+    lines += ["", "## Events per case (latest event run)", "",
+              "| Case | Event runs | Events | Articles | Largest event |",
+              "|---|---|---|---|---|"]  # fmt: skip
+    for ticker, case_date in windows:
+        run = conn.execute(
+            "SELECT r.event_run_id, COUNT(*) OVER () AS runs FROM event_runs r "
+            "JOIN companies c ON c.cik = r.cik WHERE c.ticker = ? AND r.as_of = ? "
+            "ORDER BY r.created_at DESC, r.event_run_id LIMIT 1",
+            (ticker, case_date.isoformat()),
+        ).fetchone()
+        if run is None:
+            lines.append(f"| {ticker}_{case_date} | 0 | | | |")
+            continue
+        n, total, top = conn.execute(
+            "SELECT COUNT(*), SUM(article_count), MAX(article_count) FROM events "
+            "WHERE event_run_id = ?",
+            (run["event_run_id"],),
+        ).fetchone()
+        lines.append(f"| {ticker}_{case_date} | {run['runs']} | {n} | {total or 0} | {top or 0} |")
     lines += ["", "## Match precision (every draw)", "",
               "| Draw | Company | Method | n | Precision | 95% interval | Kappa | Gate 0.80 |",
               "|---|---|---|---|---|---|---|---|"]  # fmt: skip
-    for p in precision(read_sample()):
+    sample = read_sample()
+    draws = sorted({r["draw"] for r in sample}, key=int)
+    pending = [d for d in draws if any(r["label"] not in LABELS for r in sample if r["draw"] == d)]
+    for p in precision([r for r in sample if r["draw"] not in pending]):
         kappa = "" if p["kappa"] is None else f"{p['kappa']:.2f}"
+        if p["kappa"] is not None and p["kappa"] < KAPPA_FLOOR:
+            kappa += " (below 0.6: the owner labels this sample)"
         lines.append(f"| {p['draw']} | {p['ticker']} | {p['method']} | {p['n']} | "
                      f"{p['precision']:.2f} | {p['low']:.2f}–{p['high']:.2f} | {kappa} | "
                      f"{'pass' if p['passes'] else 'FAIL'} |")  # fmt: skip
+    for d in pending:
+        rows = [r for r in sample if r["draw"] == d]
+        done = sum(r["label"] in LABELS for r in rows)
+        lines.append(f"\nDraw {d} is not fully labelled yet ({done} of {len(rows)} rows).")
     lines += ["", "Recall is not measured: it needs every relevant article, which nobody has.",
               f"Case calendar: {CASE_TZ}. Only GDELT's English stream is read."]  # fmt: skip
     out.parent.mkdir(parents=True, exist_ok=True)
