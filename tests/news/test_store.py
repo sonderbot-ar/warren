@@ -324,3 +324,37 @@ def test_migration_0011_keeps_news_rows_and_accepts_fetch_error(tmp_path, db_pat
         conn.execute("UPDATE news_files SET status = 'fetch_error' WHERE file_url = ?", (URL1,))
         with pytest.raises(sqlite3.IntegrityError):
             conn.execute("UPDATE news_files SET status = 'lost' WHERE file_url = ?", (URL1,))
+
+
+def test_a_slow_file_doesnt_stop_the_next_downloads_from_starting(conn, aliases):
+    import threading
+
+    entries, contents = {}, {}
+    for i in range(8):
+        ts = T0 + i * URL_STEP
+        url = f"http://data.gdeltproject.org/gdeltv2/{ts:%Y%m%d%H%M%S}.gkg.csv.zip"
+        entry, content = gkg_file(url, [gkg_line(f"https://a.com/{i}", ["microsoft"], f"t{i}")])
+        entries[ts], contents[url] = entry, content
+    urls = [entries[ts].url for ts in sorted(entries)]
+    slow, fourth = urls[1], urls[3]
+    release, lock = threading.Event(), threading.Lock()
+    active, peak = [0], [0]
+
+    def download(url):
+        with lock:
+            active[0] += 1
+            peak[0] = max(peak[0], active[0])
+        if url == fourth:  # starts only once the first file is stored, while the second is slow
+            release.set()
+        if url == slow:
+            assert release.wait(5), "the window waited for its slowest file"
+        with lock:
+            active[0] -= 1
+        return contents[url]
+
+    # with three workers, chunked downloads would start the fourth file only after the slow one
+    results = store.ingest_window(conn, entries, T0, T0 + 8 * URL_STEP, aliases, download,
+                                  lambda: NOW, 3)  # fmt: skip
+    assert [r.status for r in results] == ["ok"] * 8
+    assert [r.file_url for r in results] == urls
+    assert peak[0] <= 3  # never more than `workers` downloads at once
