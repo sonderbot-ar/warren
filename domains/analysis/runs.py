@@ -8,7 +8,13 @@ from datetime import date
 from pathlib import Path
 
 from domains.analysis import dcf
-from domains.analysis.math_engine import EngineResult, UserChoice, build_inputs, post_checks
+from domains.analysis.math_engine import (
+    EngineResult,
+    UserChoice,
+    build_inputs,
+    load_user_assumptions,
+    post_checks,
+)
 from domains.analysis.schemas import Assumption
 from domains.fundamentals.concepts import concept_map_sha256
 from domains.market.prices import MARKET_INDEX
@@ -173,11 +179,16 @@ def rebuild(
             ("fred", RISK_FREE_SERIES, "yield_fetch_sha256"),
         )
     }
+    stored_rows = load_assumptions(conn, run_id)
+    choices = load_user_assumptions() if choices is None else choices
+    if not any(a.name == "terminal_method" for a in stored_rows):
+        # made before the owner set terminal_method (M4): rebuild it under the rule it used
+        choices = {k: v for k, v in choices.items() if k != "terminal_method"}
     with pin_fetches(pins):
         result = build_inputs(
             conn, run["ticker"], date.fromisoformat(run["as_of"]), choices=choices, today=today
         )
-    stored = {(a.name, a.period): a for a in load_assumptions(conn, run_id)}
+    stored = {(a.name, a.period): a for a in stored_rows}
     built = {(a.name, a.period): a for a in result.assumptions}
     mismatches = []
     for key in sorted(stored.keys() | built.keys()):

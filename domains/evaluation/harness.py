@@ -10,6 +10,7 @@ Errors: revenue as absolute percentage error; EBIT in margin points (error ÷ ac
 because EBIT can be near zero or negative and a percentage error then explodes.
 """
 
+import hashlib
 import re
 import sqlite3
 import warnings
@@ -18,8 +19,15 @@ from datetime import date, timedelta
 
 from domains.analysis.dcf import YEARS
 from domains.analysis.math_engine import CHAINS, EngineError, UserChoice, step_quarter, trace
+from domains.analysis.montecarlo import (
+    DEFAULT_SAMPLES,
+    SimulationError,
+    load_bands,
+    save_simulation,
+)
 from domains.analysis.runs import code_version, load_assumptions, load_outputs, run_baseline
 from domains.evaluation.cases import CONTROL_OFFSET_DAYS, Case, store_cases
+from domains.evaluation.guidance import GuidanceError, Guide, guard_source_dates, to_shocks
 from domains.fundamentals.facts import get_facts
 from domains.fundamentals.schemas import Fact
 from domains.fundamentals.universe import get_universe_company
@@ -30,7 +38,7 @@ ACCESSION = re.compile(r"\b\d{10}-\d{2}-\d{6}\b")
 QUARTER_DAYS = 92
 FILING_LAG_DAYS = 45  # a quarter's 10-Q comes about this long after it ends
 ITEMS = sorted({"revenue", *(item for alt in CHAINS["ebit"] for item in alt)})
-VARIANTS = ("baseline", "naive_srw")
+VARIANTS = ("baseline", "naive_srw", "with_shocks")  # with_shocks only where guidance exists
 
 
 class EvaluationError(ValueError):
@@ -236,8 +244,13 @@ def evaluate_case(
     choices: dict[str, UserChoice] | None = None,
     actuals_as_of: date | None = None,
     today: date | None = None,
+    guides: list[Guide] | None = None,
+    n_samples: int = DEFAULT_SAMPLES,
 ) -> tuple[str, list[dict]]:
-    """Run the baseline as of the case date and score it and the naive forecast; (run_id, rows)."""
+    """Run the baseline as of the case date and score it and the naive forecast; (run_id, rows).
+
+    With guidance for the case, the run is also simulated under the shocks it implies (M4) and
+    the p50 is scored as `with_shocks`, with its p10/p50/p90 and seed."""
     guard_coverage(case)
     cik = conn.execute("SELECT cik FROM companies WHERE ticker = ?", (case.ticker,)).fetchone()
     if cik is None:
@@ -249,6 +262,13 @@ def evaluate_case(
 
     outputs = load_outputs(conn, run_id)
     rows_used = load_assumptions(conn, run_id)
+    bands, seed = {}, None
+    if guides:
+        guard_source_dates(guides, case.event_date)
+        shocks = to_shocks(guides, rows_used)
+        seed = case_seed(case.case_id)
+        sim_id = save_simulation(conn, run_id, shocks, n_samples, seed)
+        bands = load_bands(conn, sim_id)
     history = {(a.name, a.period): a for a in rows_used if a.name.startswith("history:")}
     quarters = sorted(p for (n, p) in outputs if n == "revenue" and p not in YEARS)
     actuals = _quarterly(conn, cik, actuals_as_of or date.today(), "first_reported")
@@ -272,6 +292,8 @@ def evaluate_case(
 
         for item, known in (("revenue", known_revenue.value), ("ebit", known_ebit.value)):
             forecasts = {"baseline": outputs[(item, period)], "naive_srw": known}
+            if bands:
+                forecasts["with_shocks"] = bands[(item, period)].p50
             for variant, forecast in forecasts.items():
                 row = {
                     "case_id": case.case_id,
@@ -286,6 +308,9 @@ def evaluate_case(
                     "derived": 0,
                     "status": "missing",
                 }
+                if variant == "with_shocks":
+                    b = bands[(item, period)]
+                    row |= {"p10": b.p10, "p50": b.p50, "p90": b.p90, "seed": seed}
                 if actual is not None:
                     value = actual.revenue.value if item == "revenue" else actual.ebit
                     error, signed, pct = score(item, forecast, value, actual.revenue.value)
@@ -316,8 +341,13 @@ def evaluate_case(
 COLUMNS = (
     "case_id run_id variant item period horizon period_end days forecast actual actual_revenue "
     "comparative prior_year_known error signed_error pct_error direction_forecast "
-    "direction_actual derived actual_method status"
+    "direction_actual derived actual_method status p10 p50 p90 seed"
 ).split()
+
+
+def case_seed(case_id: str) -> int:
+    """A fixed seed per case, so a batch draws the same samples every time it runs."""
+    return int(hashlib.sha256(case_id.encode()).hexdigest()[:15], 16)
 
 
 def run_batch(
@@ -327,6 +357,9 @@ def run_batch(
     choices: dict[str, UserChoice] | None = None,
     actuals_as_of: date | None = None,
     today: date | None = None,
+    guides: list[Guide] | None = None,
+    guidance_sha256: str | None = None,
+    n_samples: int = DEFAULT_SAMPLES,
 ) -> str:
     """Score every case; returns the batch id. A case that can't be scored is recorded, with
     its reason, in eval_failures and never silently dropped."""
@@ -338,13 +371,29 @@ def run_batch(
     batch_id = f"{prefix}{count + 1}"
     with conn:
         conn.execute(
-            "INSERT INTO eval_batches (batch_id, code_version, cases_sha256) VALUES (?, ?, ?)",
-            (batch_id, code_version(), cases_sha256),
+            "INSERT INTO eval_batches (batch_id, code_version, cases_sha256, notes) "
+            "VALUES (?, ?, ?, ?)",
+            (
+                batch_id,
+                code_version(),
+                cases_sha256,
+                f"guidance_sha256={guidance_sha256}" if guides else None,
+            ),
         )
     for case in cases:
         try:
-            _, rows = evaluate_case(conn, case, choices, actuals_as_of, today)
-        except (EvaluationError, EngineError, MarketDataError, ValueError) as e:
+            case_guides = [g for g in guides or [] if g.case_id == case.case_id]
+            _, rows = evaluate_case(
+                conn, case, choices, actuals_as_of, today, case_guides, n_samples
+            )
+        except (
+            EvaluationError,
+            EngineError,
+            MarketDataError,
+            GuidanceError,
+            SimulationError,
+            ValueError,
+        ) as e:
             with conn:
                 conn.execute(
                     "INSERT INTO eval_failures (batch_id, case_id, reason) VALUES (?, ?, ?)",

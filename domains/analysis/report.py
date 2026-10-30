@@ -29,6 +29,12 @@ LINE_LABELS = {
 }
 
 
+TERMINAL_RULES = {
+    dcf.VALUE_DRIVER: "Y5 after-tax operating profit × (1 + g) / WACC: new investment earns WACC",
+    dcf.GORDON: "Y5 free cash flow × (1 + g) / (WACC − g)",
+}
+
+
 def _m(value: float) -> str:
     return f"{value / 1e6:,.0f}"
 
@@ -138,7 +144,8 @@ def render(conn: sqlite3.Connection, run_id: str) -> str:
         "| | |",
         "|---|---|",
         f"| Present value of forecast cash flows | {_m(o('pv_explicit'))} |",
-        f"| Present value of terminal value ({_m(o('terminal_value'))} at the end of Y5) | "
+        f"| Present value of terminal value ({_m(o('terminal_value'))} at the end of Y5; "
+        f"{TERMINAL_RULES[dcf.terminal_method(rows)]}) | "
         f"{_m(o('pv_terminal'))} |",
         f"| Enterprise value at the last quarter end | {_m(o('enterprise_value'))} |",
         f"| Carried to the as-of date ({a('roll_years'):.3f} years at WACC) | "

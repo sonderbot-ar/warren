@@ -11,6 +11,7 @@ the seed is the last 4 actual quarters. Cash flows are discounted from the end o
 quarter (the base date), and the enterprise value is carried forward from there to the as-of date.
 """
 
+import dataclasses
 from collections.abc import Iterable
 from dataclasses import dataclass
 
@@ -35,6 +36,10 @@ SINGLE_VALUES = (
     "terminal_growth",
     "roll_years",
 )
+# terminal_method (a user row; its choice is in the method text). A run stored without the row
+# predates it and keeps the Gordon rule on Y5's free cash flow, so it still reproduces.
+VALUE_DRIVER = "value_driver_ronic_wacc"
+GORDON = "gordon_fcff"
 LINES = ("revenue", "ebit", "nopat", "d_and_a", "capex", "delta_nwc", "fcff", "discount_factor")
 
 
@@ -99,17 +104,55 @@ def forecast_periods(rows: dict[str, dict[str, float]]) -> tuple[list[str], list
     return sorted(rows[SEED]), periods
 
 
-def value(assumptions: Iterable[Assumption]) -> Valuation:
+@dataclass(frozen=True)
+class Inputs:
+    """A run's rows as the valuation reads them. Driver values may be floats or, for the Monte
+    Carlo (M4), numpy arrays with one value per sample: the arithmetic is the same."""
+
+    seed: list[float]
+    periods: list[str]
+    driver: dict[str, list]  # one value per forecast period, for each of DRIVERS
+    one: dict[str, float]  # each of SINGLE_VALUES
+    cost_of_equity_shift: list | None = None  # added to the cost of equity per period (M4)
+    terminal_method: str = GORDON
+
+    def replace(self, **changes) -> "Inputs":
+        return dataclasses.replace(self, **changes)
+
+
+def terminal_method(assumptions: Iterable[Assumption]) -> str:
+    for a in assumptions:
+        if a.name == "terminal_method":
+            choice = a.method.split(":")[0].strip()
+            if choice not in (VALUE_DRIVER, GORDON):
+                raise DCFInputError(f"unknown terminal_method {choice}")
+            return choice
+    return GORDON
+
+
+def inputs(assumptions: Iterable[Assumption]) -> Inputs:
+    assumptions = list(assumptions)
     rows = _index(assumptions)
     seed_periods, periods = forecast_periods(rows)
     missing = [n for n in DRIVERS if set(rows.get(n, {})) != set(periods)]
     missing += [n for n in SINGLE_VALUES if SINGLE not in rows.get(n, {})]
     if missing:
         raise DCFInputError(f"missing or incomplete assumptions: {missing}")
-    driver = {name: [rows[name][p] for p in periods] for name in DRIVERS}
-    one = {name: rows[name][SINGLE] for name in SINGLE_VALUES}
+    return Inputs(
+        seed=[rows[SEED][p] for p in seed_periods],
+        periods=periods,
+        driver={name: [rows[name][p] for p in periods] for name in DRIVERS},
+        one={name: rows[name][SINGLE] for name in SINGLE_VALUES},
+        terminal_method=terminal_method(assumptions),
+    )
 
-    seed = [rows[SEED][p] for p in seed_periods]
+
+def value(assumptions: Iterable[Assumption]) -> Valuation:
+    return compute(inputs(assumptions))
+
+
+def compute(inp: Inputs) -> Valuation:
+    periods, driver, one, seed = inp.periods, inp.driver, inp.one, inp.seed
     quarters = fm.compound(seed, driver["revenue_growth"][:QUARTERS], lag=4)
     revenue = list(quarters)
     year = sum(quarters[-4:])
@@ -133,17 +176,29 @@ def value(assumptions: Iterable[Assumption]) -> Valuation:
     ]
     nopat = [e * (1 - t) for e, t in zip(ebit, driver["tax_rate"], strict=True)]
 
+    def wacc_at(cost_of_equity):
+        return fm.wacc(
+            one["equity_market_value"],
+            one["debt"],
+            cost_of_equity,
+            one["cost_of_debt"],
+            one["debt_tax_rate"],
+        )
+
     cost_of_equity = fm.capm_cost_of_equity(one["risk_free"], one["beta"], one["erp"])
-    wacc = fm.wacc(
-        one["equity_market_value"],
-        one["debt"],
-        cost_of_equity,
-        one["cost_of_debt"],
-        one["debt_tax_rate"],
-    )
-    rates = [wacc] * len(periods)
+    wacc = wacc_at(cost_of_equity)
+    if inp.cost_of_equity_shift is None:
+        rates = [wacc] * len(periods)
+    else:
+        rates = [wacc_at(cost_of_equity + shift) for shift in inp.cost_of_equity_shift]
     year_fractions = [0.25] * QUARTERS + [1.0] * len(YEARS)
-    dcf = fm.enterprise_value(fcff, rates, year_fractions, one["terminal_growth"])
+    dcf = fm.enterprise_value(
+        fcff,
+        rates,
+        year_fractions,
+        one["terminal_growth"],
+        final_annual_nopat=nopat[-1] if inp.terminal_method == VALUE_DRIVER else None,
+    )
     ev_as_of = fm.roll_forward(dcf.enterprise_value, wacc, one["roll_years"])
     net_debt = one["debt"] - one["cash_and_investments"]
     equity = fm.equity_value(ev_as_of, net_debt, one["minority_interest"])

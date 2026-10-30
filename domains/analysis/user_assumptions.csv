@@ -2,3 +2,4 @@ name,value,set_by,set_on,note
 erp_method,historical_geometric,owner (sonderbot-ar),2026-10-26,"Realized geometric premium of the S&P 500 Total Return over a 10-year Treasury bond's total return (D7)."
 erp_first_year,1989,owner (sonderbot-ar),2026-10-26,"First full calendar year of ^SP500TR on Yahoo; the window expands from here to the last year ended before the as-of date."
 terminal_growth_method,risk_free,owner (sonderbot-ar),2026-10-26,"Terminal growth equals the risk-free rate (DGS10) at the as-of date (D7)."
+terminal_method,value_driver_ronic_wacc,owner (sonderbot-ar),2026-10-30,"Terminal value with new investment earning its cost of capital: NOPAT_Y5 × (1 + g) / WACC (Koller et al., Valuation, ch. 14). Chosen on the M4 decision card."

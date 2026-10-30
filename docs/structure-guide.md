@@ -52,7 +52,7 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 | 1 | Model allocation and API keys | Under review | sep.24.2026 |
 | 2 | State management: SQLite, typed fact table, small data in graph state | **Accepted** (replaces EAV; version-selection rule revised and provenance added in M1.1) | oct.26.2026 |
 | 3 | Data processing: SQLite only, no vector database | **Accepted** (replaces ChromaDB) | oct.14.2026 |
-| 4 | Deterministic math engine with explicit, sourced assumptions | **Accepted** (strengthened; equity risk premium and terminal growth computed from market data, M2; terminal rule under review before M4, M2.1) | oct.28.2026 |
+| 4 | Deterministic math engine with explicit, sourced assumptions | **Accepted** (strengthened; equity risk premium and terminal growth computed from market data, M2; terminal value with new investment earning WACC, owner decision before M4) | oct.30.2026 |
 | 5 | Telemetry: local JSON log file | Accepted (details under review; timestamp bug fixed) | oct.14.2026 |
 | 6 | Shock model: event taxonomy, time-shaped and probabilistic shocks | **Accepted** | oct.14.2026 |
 | 7 | Evaluation harness on point-in-time data | **Accepted** | oct.14.2026 |
@@ -64,6 +64,7 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 | — | Passing only database IDs between graph nodes | Superseded by 2 | sep.24.2026 |
 | — | ChromaDB vector store for documents | Superseded by 3 | sep.24.2026 |
 | — | Point-in-time selection "newest filing first, then tag" | Superseded by 2 (M1.1) | oct.26.2026 |
+| — | Gordon terminal value on Y5 free cash flow (M2) | Superseded by 4 (M4) | oct.30.2026 |
 
 ### Decision 1 — Model Allocation and API Keys · *Under review*
 
@@ -102,6 +103,7 @@ These goals shape the design so the Phase 1 build does not block them, but none 
   - **Cost-of-capital inputs are computed (oct.26.2026, M2).** The equity risk premium is the realized geometric premium of the S&P 500 Total Return over a 10-year Treasury bond's total return (built from DGS10, the same rate CAPM uses), over full years from 1989 to the last year ended before the as-of date. Terminal growth equals the risk-free rate at the as-of date. The owner sets the methods, not the numbers; each run stores the computed values with their years, standard error and data hashes. Limits (noise, procyclicality, window dependence) are listed in the build plan's risks.
   - **Runs are reproducible from their rows (oct.26.2026, M2).** Every input of a DCF run, including the base values taken from filings and the reported history behind each driver, is an assumption row with its rule, tag and filing; the valuation is a pure function of those rows, and each run records the code version and the hashes of the data it was built from. Every market download is kept (M2.1, oct.28.2026), so a run's rows can also be rebuilt from the data it used: `reproduce --rebuild` pins the run's downloads by hash and compares every row. Driver, net-debt and share-count rules are in the build plan (M2, owner decisions and implementation notes).
   - **Terminal growth stays = R_f through M3 (oct.28.2026, M2.1).** M3's 1-4 quarter forecasts don't depend on it, so M3 can't test it; the terminal rule (cap on growth, floor on the WACC − growth spread, reinvestment tied to growth) is decided before M4.
+  - **Terminal value: new investment earns its cost of capital (oct.30.2026, M4; owner decision).** TV = NOPAT_Y5 × (1 + g) / WACC, the value-driver formula with RONIC = WACC (Koller, Goedhart & Wessels, *Valuation*, 7th ed., ch. 14): reinvestment is tied to growth and growth after Y5 adds no value, so a small WACC − g spread no longer drives the value. g stays = R_f. Recorded per run as `terminal_method`; runs stored before it keep the Gordon rule on FCFF and still reproduce. Supersedes Gordon on FCFF (M2).
   - **Checks are universal (oct.26.2026, M2).** Data-quality and sanity checks apply the same rules to every company; there is no per-company review list. Optional concept-map items are not part of the quality report; they are traced through the assumption rows of the runs that use them.
   - **Monte Carlo.** The DCF runs over sampled driver distributions with a fixed random seed for reproducibility, producing percentiles (p10/p50/p90) instead of a single value.
 

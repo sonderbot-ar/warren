@@ -40,7 +40,7 @@ Durations are indicative, assuming part-time work (roughly 8–12 hours a week).
 | M2 | Deterministic forecast and DCF engine | 2 | nov.09 – nov.22 | M1.1 | **Done** (oct.26.2026; PRs #5 and #6) |
 | M2.1 | DCF hardening (review of M2) | 0.5 | oct.28 – oct.30 | M2 | **Done** (oct.30.2026; PR #7, merged by the agent team after a gatekeeper GO; recorded as v0.2 in `docs/versions.md`) |
 | M3 | Evaluation harness v1 (baseline only) | 1.5 | nov.23 – dec.03 | M2.1 | Done (oct.30.2026, v0.3; design in `docs/designs/m3-evaluation-harness.md`) |
-| M4 | Shock model and Monte Carlo (manual shocks) | 1.5 | dec.04 – dec.13 | M2.1 | Not started |
+| M4 | Shock model and Monte Carlo (manual shocks) | 1.5 | dec.04 – dec.13 | M2.1 | In progress (oct.30.2026; design in `docs/designs/m4-shock-model.md`; engine PR open; guidance transcription and the real run next) |
 | M5 | News ingestion (GDELT) and event clustering | 2.5 | dec.14 – jan.03 | M1 | Not started |
 | M6 | LLM steps: event extraction and shock proposal | 2 | jan.04 – jan.17 | M4, M5 | Not started |
 | M7 | LangGraph orchestration and telemetry | 1.5 | jan.18 – jan.27 | M6 | Not started |
@@ -317,9 +317,9 @@ Shock
   low, base, high : magnitude, read as p10 / p50 / p90
                     (percentage points for growth, margin and capex; basis points for risk premium)
   start_period  : first affected period
-  horizon       : number of periods the shock can last
+  horizon       : number of quarters the shock can last (M4 design)
   decay         : 0 < decay ≤ 1, share of the effect remaining each period (1.0 = permanent within horizon)
-  source        : user | llm_proposed
+  source        : user | computed | llm_proposed  (computed = converted by code from company guidance, M4)
   rationale     : text, with evidence references
 ```
 

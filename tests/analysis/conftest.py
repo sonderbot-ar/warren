@@ -39,6 +39,7 @@ CHOICES = {
         ("erp_method", "historical_geometric"),
         ("erp_first_year", "1989"),
         ("terminal_growth_method", "risk_free"),
+        ("terminal_method", "value_driver_ronic_wacc"),
     )
 }
 
