@@ -121,6 +121,37 @@ def test_operating_income_in_another_unit_than_revenue_is_refused(company):
         guidance.to_shocks([guide(), income], run_rows(company))
 
 
+def _write(path, **fields):
+    row = guide(**fields).model_dump()
+    cols = guidance.FIELDS + list(guidance.OPTIONAL)
+    values = ",".join(f'"{"" if row[f] is None else row[f]}"' for f in cols)
+    path.write_text(",".join(cols) + "\n" + values + "\n")
+
+
+def test_an_old_guide_from_an_earlier_release_is_read_in_its_own_quote(tmp_path):
+    path = tmp_path / "guidance.csv"
+    old = "0000000123-19-000001"
+    _write(path, quote="now $90 to $100 million", old_accession=old,
+           old_quote="revenue of $100 to $110 million")  # fmt: skip
+    [loaded] = guidance.load_guides(path)
+    assert loaded.old_accession == old
+    _write(path, quote="now $90 to $100 million, was $100 to $110", old_accession=old,
+           old_quote="revenue of $100 to $111 million")  # fmt: skip
+    with pytest.raises(GuidanceError, match="old_high"):
+        guidance.load_guides(path)
+
+
+def test_old_quote_needs_its_accession():
+    with pytest.raises(ValueError, match="go together"):
+        guide(old_quote="revenue of $100 to $110 million")
+
+
+def test_a_dash_percentage_reads_as_zero_but_a_negative_does_not():
+    assert guidance._numbers("FY 2019 (Estimate) -% to +1%") >= {0, 1}
+    assert guidance._numbers("(-1)% to 1%") == {-1, 1}
+    assert 0 not in guidance._numbers("(-1)% to 1%")
+
+
 def test_the_checked_in_guidance_parses():
     guides = guidance.load_guides()
     assert guides and all(g.source_date <= date.fromisoformat(g.case_id[-10:]) for g in guides)
