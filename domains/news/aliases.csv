@@ -1,0 +1,39 @@
+ticker,alias,kind,from,note
+AAPL,apple,include,,
+AAPL,apple computer,include,,
+AAPL,apple daily,exclude,,Hong Kong newspaper
+AAPL,apple records,exclude,,The Beatles' label
+AAPL,apple bank,exclude,,Apple Bank for Savings
+AAPL,big apple,exclude,,New York City
+MSFT,microsoft,include,,
+MSFT,activision blizzard,subsidiary,2023-10-13,acquisition closed
+WMT,walmart,include,,
+WMT,wal mart,include,,
+WMT,walmart stores,include,,
+WMT,walmex,subsidiary,,"Walmart de Mexico, majority-owned and consolidated"
+WMT,walmart de mexico,subsidiary,,
+WMT,flipkart,subsidiary,2018-08-18,acquisition closed
+KO,coca cola,include,,
+KO,coca cola femsa,exclude,,a separately listed bottler
+KO,coca cola europacific partners,exclude,,a separately listed bottler
+KO,coca cola european partners,exclude,,former name of Coca-Cola Europacific Partners
+KO,coca cola consolidated,exclude,,a separately listed bottler
+KO,coca cola hbc,exclude,,a separately listed bottler
+KO,coca cola amatil,exclude,,a separately listed bottler
+KO,coca cola icecek,exclude,,a separately listed bottler
+KO,bodyarmor,subsidiary,2021-11-01,remaining stake acquired
+PG,procter gamble,include,,
+PG,procter and gamble,include,,
+PG,p and g,include,,
+JNJ,johnson and johnson,include,,
+JNJ,johnson johnson,include,,
+JNJ,j and j,include,,
+JNJ,janssen,subsidiary,,pharmaceutical segment
+JNJ,ltl management,subsidiary,2021-10-12,talc liabilities subsidiary
+CAT,caterpillar,include,,
+CAT,caterpillar fungus,exclude,,
+XOM,exxon mobil,include,,
+XOM,exxonmobil,include,,
+XOM,exxon,include,,
+XOM,imperial oil,subsidiary,,"about 70% owned and consolidated, listed on its own"
+XOM,pioneer natural resources,subsidiary,2024-05-03,acquisition closed
