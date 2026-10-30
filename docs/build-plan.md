@@ -1,7 +1,7 @@
 ---
 title: "PROJECT WARREN — Phase 1 Build Plan"
 version: "1.1"
-updated: "oct.26.2026"
+updated: "oct.28.2026"
 companion: "structure-guide.md (design decisions; wins on any conflict about decisions)"
 status: "Approved and in progress. No code is written until the owner commands each step (\"go M<n>\")."
 ---
@@ -37,9 +37,10 @@ Durations are indicative, assuming part-time work (roughly 8–12 hours a week).
 | M0 | Foundations and documentation | 1 | oct.19 – oct.25 | — | **Done** (oct.14.2026) |
 | M1 | Fundamentals data layer (EDGAR, point-in-time) | 2 | oct.26 – nov.08 | M0 | **Done** (oct.14.2026) |
 | M1.1 | Fundamentals hardening (review of M1) | 0.5 | oct.26 – oct.29 | M1 | **Done** (oct.26.2026) |
-| M2 | Deterministic forecast and DCF engine | 2 | nov.09 – nov.22 | M1.1 | Exit criterion met, PR open (oct.26.2026): PR A merged; PR B (engine) open |
-| M3 | Evaluation harness v1 (baseline only) | 1.5 | nov.23 – dec.03 | M2 | Not started |
-| M4 | Shock model and Monte Carlo (manual shocks) | 1.5 | dec.04 – dec.13 | M2 | Not started |
+| M2 | Deterministic forecast and DCF engine | 2 | nov.09 – nov.22 | M1.1 | **Done** (oct.26.2026; PRs #5 and #6) |
+| M2.1 | DCF hardening (review of M2) | 0.5 | oct.28 – oct.30 | M2 | Exit criterion met, PR open (oct.28.2026) |
+| M3 | Evaluation harness v1 (baseline only) | 1.5 | nov.23 – dec.03 | M2.1 | Not started |
+| M4 | Shock model and Monte Carlo (manual shocks) | 1.5 | dec.04 – dec.13 | M2.1 | Not started |
 | M5 | News ingestion (GDELT) and event clustering | 2.5 | dec.14 – jan.03 | M1 | Not started |
 | M6 | LLM steps: event extraction and shock proposal | 2 | jan.04 – jan.17 | M4, M5 | Not started |
 | M7 | LangGraph orchestration and telemetry | 1.5 | jan.18 – jan.27 | M6 | Not started |
@@ -60,7 +61,7 @@ M0 ─ M1 ─┬─ M2 ─┬─ M3 ──────────────�
 | 1 Model allocation and API keys (under review) | Decided before M6; implemented in M6 |
 | 2 State management: typed facts, point-in-time, WAL, small state | M0 (WAL, migrations), M1 (facts), M7 (graph state, checkpointer) |
 | 3 SQLite only, FTS5 for text | M5 |
-| 4 Deterministic math engine | M2, M4 |
+| 4 Deterministic math engine | M2, M2.1, M4 |
 | 5 Telemetry | M0 (bug fix), M7 (full emitter) |
 | 6 Shock model | M4 (deterministic), M6 (LLM proposal) |
 | 7 Evaluation harness | M3 (baseline), M8 (with shocks) |
@@ -160,7 +161,7 @@ financial_facts(
 - **Quarters vs full year.** The quality report lists flows whose Q1–Q4 differ from the fiscal year by more than 0.5% (13 item-years), with which periods are restated: mixed restatement vintages (e.g. JNJ FY2022 after the Kenvue separation). Informational; M2 decides the basis for growth rates (owner decision).
 - **Provenance.** `ingest_runs` records, per ingest, the company-facts content hash, when it was fetched (a `.meta.json` sidecar next to each cached download; `NULL` for files cached before M1.1), the concept-map hash and fact counts. The quality report names its data snapshot, warns when `concept_map.csv` changed since the last ingest, and links each `[inferred]` gap to the EDGAR filing to check.
 - **New canonical items** (owner decision): `operating_lease_liabilities`, `finance_lease_liabilities` (totals, from ASC 842 adoption), `minority_interest`, and `shares_outstanding` (cover-page `dei:EntityCommonStockSharesOutstanding`, labelled with its filing's own fiscal period because its date falls after the period end). Quarterly and annual views keep one value per period when two dates share a label. Marketable securities are not mapped (owner decision).
-- **XOM guard** (owner decision): `get_facts` raises a `CoverageWarning` for XOM as of 2026-11-01 or later, when its new filings move to the holding company's CIK.
+- **XOM guard** (owner decision): `get_facts` raises a `CoverageWarning` for XOM as of 2026-11-01 or later, when its new filings move to the holding company's CIK (moved to 2026-08-03 in M2.1).
 
 **Result.** 26,340 facts; 0 unexplained gaps for all 8 companies with the new items; tag-change audit shows only genuine restatements or moves to the preferred definition; 106 tests.
 
@@ -187,14 +188,14 @@ assumptions(run_id TEXT REFERENCES runs, name TEXT, period TEXT, value REAL,
 ```
 
 - **`financial_math.py` (pure functions, no I/O):** project revenue and operating income from drivers; unlevered free cash flow = EBIT × (1 − tax) + D&A − capex − ΔNWC; discount factors for a time-varying discount rate; Gordon-growth terminal value; enterprise value to equity value (minus net debt) to value per share (shares per D4); CAPM cost of equity; WACC.
-- **Cost of capital:** beta estimated from Yahoo Finance returns of the stock against a broad index over a documented window; risk-free rate from a Treasury yield series; equity risk premium is a `user` assumption (never defaulted silently); cost of debt from interest expense over average debt; weights from market value of equity and book debt. Price data is cached in a `prices` table and used for nothing else.
+- **Cost of capital:** beta estimated from Yahoo Finance returns of the stock against a broad index over a documented window; risk-free rate from a Treasury yield series; equity risk premium computed from market data by an owner-set method (D7, revised; never defaulted silently); cost of debt from interest expense over average debt; weights from market value of equity and book debt. Price data is cached in a `prices` table and used for nothing else.
 - **Existing work on the `finance` branch (decided oct.14.2026, narrowed oct.26.2026):** the branch stays unmerged. Only the formulas the DCF needs move into `domains/analysis/financial_math.py`, rewritten to raise errors instead of returning NaN; the other ratio functions stay on `finance` until a milestone uses them (owner decision D9). Its EAV-based `math_engine.py` is discarded and rewritten against `financial_facts`.
 - **`math_engine.py`:** pulls point-in-time facts (M1) and prices, pivots them into DataFrames, computes baseline drivers and calls `financial_math.py`.
 - **Sanity checks (raise errors):** terminal growth ≥ discount rate; non-positive shares; missing required inputs. **Warnings:** terminal value above a set share of enterprise value; margins outside the company's historical range by a wide margin.
 
 **Tests:** every formula against hand-computed examples (a spreadsheet you build yourself is a great fixture); property tests (higher discount rate never raises value; zero growth and zero reinvestment reduce to a perpetuity); sanity checks fire when they should.
 
-**Exit criterion:** a baseline DCF for every Phase 1 company as of any date, reproducible to the cent from the stored assumptions.
+**Exit criterion:** a baseline DCF for every Phase 1 company as of any date from 2019-03-01 (three fiscal years of the FY2016+ history behind it), reproducible to the cent from the stored assumptions.
 
 **Owner decisions (oct.26.2026)**, settled before any M2 code, from the M2 plan and the review of M1.1:
 
@@ -216,7 +217,7 @@ assumptions(run_id TEXT REFERENCES runs, name TEXT, period TEXT, value REAL,
 - **Concept map.** New items `marketable_securities_current` (4 tags), `marketable_securities_noncurrent` (2), `other_short_term_investments` (KO), and fallbacks `depreciation`, `amortization_intangibles`, `pretax_income_domestic`, `pretax_income_foreign`, `net_income_including_nci` (`ProfitLoss`; PG FY2020–21 tag neither pretax nor its split) and `interest_paid`. A `gate` column marks them `optional`: the quality report checks required items only (D11), so no known-gap rows were added.
 - **Tag-change audit, now standing.** The quality report's "Newest filing disagrees with the selected value" section lists periods the newest filing reports only under a lower-ranked tag with a different value. On the refreshed data: 70 periods, all cash including restricted cash (cash-flow statement) and one XOM debt figure including leases; no restatement missed.
 - **`financial_math.py`.** Plain arithmetic (works on floats or numpy arrays), end-of-period discounting with a rate per period, terminal value from an annual cash flow, errors instead of NaN.
-- **Market data (migration `0004`).** `prices` (split-adjusted close, total-return close, split ratio), `yields`, and `market_fetches` (download time and content hash; a refresh replaces a symbol's rows). Queries refuse as-of dates after the download, and a row dated on the download day is dropped because it may be mid-session. Splits seen: AAPL 2014 (7:1) and 2020 (4:1), KO 2012 (2:1), WMT 2024 (3:1).
+- **Market data (migration `0004`).** `prices` (split-adjusted close, total-return close, split ratio), `yields`, and `market_fetches` (download time and content hash; a refresh replaced a symbol's rows until M2.1, which keeps every download). Queries refuse as-of dates after the download, and a row dated on the download day is dropped because it may be mid-session. Splits seen: AAPL 2014 (7:1) and 2020 (4:1), KO 2012 (2:1), WMT 2024 (3:1).
 - **Equity risk premium (D7).** `^SP500TR` loaded from 1988; `domains/market/erp.py` computes the premium from year-end values (each year must have an observation in its last week; a year counts from 7 days after it ends). Live values, geometric (arithmetic, standard error): as of 2019-06-30 3.80% (4.91%, 3.83); 2020-12-31 4.33% (5.46%, 3.75); 2022-06-30 5.26% (6.35%, 3.61); 2024-03-31 5.52% (6.62%, 3.44); 2026-09-30 6.19% (7.25%, 3.30). Terminal growth (= R_f) on the same dates: 2.00%, 0.93%, 3.10%, 4.20%, 5.26%.
 
 **Implementation notes, PR B (oct.26.2026)**
@@ -231,6 +232,41 @@ assumptions(run_id TEXT REFERENCES runs, name TEXT, period TEXT, value REAL,
 - **Values are not tuned.** The baseline values span 0.35× (KO 2020) to 4.7× (XOM 2024) the share price. The spread between WACC and terminal growth dominates: with g = R_f it is about β × ERP, so low-beta companies (JNJ, PG, KO, XOM in 2026) get 1.5-3 points, terminal values of 85-92% of enterprise value and values well above the price, while 2026's high rates and ERP give AAPL, MSFT and CAT values well below it. Growth extrapolated from three years carries cycles forward (XOM as of 2024-03-31: +28.5% from the 2021-2023 oil prices). These are consequences of D2 and D7 and are left for the owner and M3 to judge.
 
 **Learning notes:** a DCF is usually dominated by the terminal value, which is why the warning exists and why small changes to terminal growth or WACC move the result so much. Seeing that in your own numbers is one of the best lessons the engine will give you.
+
+### M2.1 — DCF Hardening (review of M2)
+
+**Goal:** fix what the review of M2 found before M3 depends on the engine: runs that can be rebuilt from data, checks that run where M4's shocked drivers will flow, and warnings that fire on a minority of runs.
+
+**Implements:** Decision 4.
+
+**Owner decisions (oct.28.2026)**, from the review of M2 and the M2.1 plan:
+
+- **A.** A separate hardening milestone (as M1.1), so the M3 PR stays small.
+- **B. Terminal growth = R_f stays for M3.** M3 compares revenue and operating income over 1-4 quarters; forecast year 1 grows at the 3-year average, so those errors don't depend on terminal growth, the ERP or WACC, and M3 cannot test the rule. The terminal rule (a cap on g, a floor on the spread, reinvestment tied to growth) is decided before M4, where value per share is first reported as a distribution.
+- **C. Terminal warning on the spread.** Warn when WACC − terminal growth is below 3 points, instead of when terminal value is above 75% of enterprise value (that fired on 38 of the 40 M2 runs).
+- **D. Keep every market download.** A refresh adds a fetch instead of replacing the symbol's rows, so a run can be rebuilt from the exact data it used.
+
+**Steps**
+
+- Step 0: docs (M2 Done, this section, stale ERP line, exit-criterion wording).
+- Step 1: XOM coverage boundary to 2026-08-03, the filing date of its Q2 2026 10-Q on the new holding company's CIK.
+- Step 2: rebuildable runs: prices and yields keyed by fetch (migration `0006`), queries pinned to a run's fetches, `reproduce --rebuild`.
+- Step 3: the margin-range check reads a run's rows (so shocked rows pass through it); the spread warning replaces the terminal-share warning.
+- Step 4: the report says in words when ERP − 1 SE has no value.
+- Step 5: re-run the 40-run grid; rebuild, reproduce and count warnings.
+
+**Exit criterion:** every stored run rebuilds from data to identical rows and reproduces to the cent; the margin check runs on any row set; each warning fires on a stated minority of the 40 runs; the docs are current.
+
+**Implementation notes (oct.28.2026)**
+
+- **Market history (migration `0006`).** `prices` and `yields` are keyed by `(symbol, fetch_id, date)`; a refresh adds a fetch. Queries read the latest fetch unless `pin_fetches()` pins one (`domains/market/store.py`); `fetch_with_hash()` finds a run's own download by its stored content hash.
+- **Rebuild.** `runs.rebuild()` builds a run's rows again with its downloads pinned and compares name, period, value, source and method of every row. Facts need no pin (point-in-time queries, ingests only add facts); a changed concept map is refused. The owner's choices come from today's `user_assumptions.csv`, so editing it shows up as a difference. A run made by older code may differ in method text only; `reproduce --rebuild` lists that apart from value differences.
+- **Checks.** `post_checks(rows, outputs)` reads only the run: the margin-range check (forecast margins against the mean ± 2 SD of the reported quarterly margins in the `history:` rows) and the spread warning (WACC − terminal growth < 3 points). A data warning raised by each facts query (XOM coverage) is noted once per run.
+- **Report.** When ERP − 1 SE gives no value, the summary says the value has no useful precision.
+
+**Result.** 195 tests. The 40-run grid (8 companies × 2019-06-30, 2020-12-31, 2022-06-30, 2024-03-31, 2026-09-30) gives the same values as M2, to the cent. All 160 stored runs reproduce to the cent; 120 rebuild to identical rows; the 40 made before the M2 share-split fix rebuild to identical values with older method text. Warnings on the 40 new runs: spread below 3 points 11 (WMT, KO, PG 2019; WMT, PG, JNJ 2020; JNJ 2024; KO, PG, JNJ, XOM 2026); margin range 0 (baseline margins are averages of the history, so it is for shocked rows); stale fundamentals 2 (KO, XOM 2026); XOM coverage 1 (2026-09-30). ERP − 1 SE has no value for 6 runs (AAPL, CAT, JNJ, KO, MSFT, PG 2019), whose reports now say so.
+
+**Carried to the M3 plan** (review of M2): same EBIT definition for forecast and actual (JNJ, XOM); case library from 2019-03-01 and no 2026 KO or XOM cases until their data catch up; XOM coverage as a hard error in eval runs; `restated` never counted as "the company restated"; log the growth basis per case to measure cycles carried forward. **Before M4:** the terminal rule (B), including reinvestment tied to growth.
 
 ### M3 — Evaluation Harness v1 (baseline only)
 
@@ -398,18 +434,18 @@ load_fundamentals → build_baseline → fetch_news → cluster_events
 | SEC companyfacts omits company-specific (extension) and dimensional tags: no cash-flow D&A for MSFT, no interest expense for CAT, no quarterly pretax income for PG (M1) | Documented as known gaps; M2 decides whether to parse full XBRL filings or use fallbacks |
 | JNJ and XOM present no operating income line (M1) | M2 derives EBIT from other lines, as a documented `computed` assumption |
 | Debt components absent for some periods (M1) | M2 treats a missing component as zero, with a warning |
-| XOM history sits on the predecessor CIK; filings from Q3 2026 are on the new holding company (M1) | `CoverageWarning` from 2026-11-01 (M1.1); link predecessor and successor before analysing later XOM dates |
+| XOM history sits on the predecessor CIK; filings from Q3 2026 are on the new holding company (M1) | `CoverageWarning` from 2026-08-03 (M1.1, moved in M2.1); link predecessor and successor before analysing later XOM dates |
 | Marketable securities: mapped in M2 (D1); balance-sheet tagging varies (KO uses `MarketableSecurities` plus a separate short-term investments line) | Optional items in the concept map; run invariants (securities ≤ current assets) catch a tag that picks up the wrong measure, for any company (D11) |
 | Historical ERP is noisy: standard error 3.3–3.8 points with 30–37 years (D7) | Report shows the standard error and value per share at ERP ± 1 SE; M4 samples the ERP from it; a longer history (Shiller, from 1871) is a candidate for a later milestone |
 | Historical ERP is procyclical: it rose from 3.8% to 6.2% (2019 to 2026) with a long bull market and moving bond returns | Only a forward-looking (implied) ERP fixes it; candidate for a later milestone, from Shiller's earnings and dividends, first as a cross-check |
 | Historical ERP depends on the first year (from 2006 instead: 8.2% for 2025) | Fixed expanding window from 1989, owner-signed, never tuned per run; alternative windows shown in the report for information |
 | Terminal growth = R_f moves with rates (0.93% at end-2020, 5.26% in Sept 2026) | Intended: g and the discount rate move together; the report shows g and the terminal value's share of EV |
-| WACC − terminal growth is small for low-beta companies under g = R_f (1.5-3 points), so terminal values reach 85-92% of enterprise value (M2 run) | Reported per run, with ERP ± 1 SE values; candidates for M3/M4: a cap on g, a floor on the spread, or sampling g and the ERP |
+| WACC − terminal growth is small for low-beta companies under g = R_f (1.5-3 points), so terminal values reach 85-92% of enterprise value (M2 run) | Reported per run, with ERP ± 1 SE values; warned when the spread is below 3 points (M2.1); the terminal rule (a cap on g, a floor on the spread, or sampling g and the ERP) is decided before M4 |
 | Baseline growth extrapolates the last three 10-Ks, cycles included (XOM 2024: +28.5%) | Fades to terminal growth by year 5; M3 measures the error; a longer or cycle-adjusted base is a candidate rule |
 | EBIT fallback (pretax + interest) runs a median 5.5% above operating income where both exist; it includes other non-operating income (JNJ, XOM) | Back-test in every M2 PR; a fallback adding back other income is a candidate |
 | Interest paid differs from interest expense by a median 15% (CAT's cost of debt) | Flagged by the back-test; CAT's cost of debt is approximate |
 | CAT's current portion of long-term debt is not in companyfacts (dimensional); counted as zero, so CAT's debt is understated | Warned in each run; CAT already carries the captive-finance caveat |
-| KO's and XOM's Q2 2026 10-Qs (filed 2026-07-29 and 2026-08-03) are not in SEC companyfacts as fetched 2026-10-26; XOM's was filed jointly with the new holding company (CIK 0002115436) | Runs warn when the last quarter is over 135 days old; XOM's `history_ends` (2026-11-01) should move to 2026-08-03, and both need a data-layer follow-up |
+| KO's and XOM's Q2 2026 10-Qs (filed 2026-07-29 and 2026-08-03) are not in SEC companyfacts as fetched 2026-10-26; XOM's was filed jointly with the new holding company (CIK 0002115436) | Runs warn when the last quarter is over 135 days old; XOM's `history_ends` moved to 2026-08-03 (M2.1); both need a data-layer follow-up |
 | KO's 2019 diluted shares are tagged in millions (4,306 under a shares unit) | Caught by the shares invariant (warning); cover-page shares are used |
 | Known gaps are listed row by row per company (review point 11) | Under the universal-checks principle (D11), pattern rules are the next step; deferred until the universe grows |
 | CAT's consolidated debt includes its captive finance arm (Cat Financial), which a free-cash-flow DCF does not model | Phase 1 accepts it and the DCF report says so; companyfacts has no non-dimensional split |

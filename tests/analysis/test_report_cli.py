@@ -2,7 +2,7 @@ from contextlib import contextmanager
 
 from domains.analysis import __main__ as cli
 from domains.analysis import report
-from domains.analysis.runs import load_outputs, run_baseline
+from domains.analysis.runs import load_outputs, rebuild, run_baseline
 from tests.analysis.conftest import AS_OF, CHOICES
 
 
@@ -29,6 +29,18 @@ def test_report_shows_the_valuation_and_its_sources(company, tmp_path):
     assert "0000000123-20-000016" in text
     path = report.write_report(company, run_id, tmp_path)
     assert path.name == "TST_2020-06-30.md"
+    assert "No useful precision" not in text
+
+
+def test_report_says_when_erp_minus_one_se_leaves_no_value(company):
+    run_id = run(company)
+    company.execute(
+        "DELETE FROM run_outputs WHERE run_id = ? AND name = 'value_per_share_erp_minus_1se'",
+        (run_id,),
+    )
+    text = report.render(company, run_id)
+    assert "−1 SE no value (WACC ≤ growth)" in text
+    assert "**No useful precision.**" in text
 
 
 def test_cli_runs_reproduces_and_reports(company, tmp_path, monkeypatch, capsys):
@@ -44,3 +56,8 @@ def test_cli_runs_reproduces_and_reports(company, tmp_path, monkeypatch, capsys)
     assert cli.main(["reproduce", "--all"]) == 0
     out = capsys.readouterr().out
     assert "value per share" in out and "1 of 1 runs reproduced to the cent" in out
+    monkeypatch.setattr(
+        cli, "rebuild", lambda conn, r: rebuild(conn, r, choices=CHOICES, today=AS_OF)
+    )
+    assert cli.main(["reproduce", "--all", "--rebuild"]) == 0
+    assert "1 of 1 runs rebuilt to identical rows" in capsys.readouterr().out

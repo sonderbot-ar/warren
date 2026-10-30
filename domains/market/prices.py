@@ -18,8 +18,10 @@ import pandas as pd
 
 from domains.market.store import (
     MarketDataError,
+    latest_fetch,
     record_fetch,
     require_coverage,
+    selected_fetch,
     utc_now,
     year_end_values,
 )
@@ -60,13 +62,14 @@ def load_prices(
     now: Callable[[], datetime] = utc_now,
     start: date = HISTORY_START,
 ) -> int:
-    """Download a ticker's history unless it is stored already; returns the fetch id in use."""
+    """Download a ticker's history unless it is stored already; returns the fetch id in use.
+
+    A refresh adds a fetch and keeps the earlier ones, so runs built from them can be rebuilt.
+    """
     if not refresh:
-        row = conn.execute(
-            "SELECT fetch_id FROM prices WHERE ticker = ? LIMIT 1", (ticker,)
-        ).fetchone()
-        if row is not None:
-            return row["fetch_id"]
+        fetch = latest_fetch(conn, "yahoo", ticker)
+        if fetch is not None:
+            return fetch["fetch_id"]
     fetched_at = now()
     # a row dated on the download day may be a mid-session price, not a close: keep earlier days
     today = fetched_at.date().isoformat()
@@ -75,7 +78,6 @@ def load_prices(
         raise MarketDataError(f"No prices downloaded for {ticker}")
     with conn:
         fetch_id = record_fetch(conn, "yahoo", ticker, rows, fetched_at)
-        conn.execute("DELETE FROM prices WHERE ticker = ?", (ticker,))
         conn.executemany(
             "INSERT INTO prices (ticker, date, close, adj_close, volume, split_ratio, fetch_id) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -109,11 +111,14 @@ def split_factor(conn: sqlite3.Connection, ticker: str, after: date, through: da
     A share count dated `after` times this factor is on the basis of `through` (e.g. ×4 across
     AAPL's 2020-08-31 split).
     """
+    fetch = selected_fetch(conn, "yahoo", ticker)
+    if fetch is None:
+        raise MarketDataError(f"No yahoo data for {ticker}: load it first")
     factor = 1.0
     for (ratio,) in conn.execute(
-        "SELECT split_ratio FROM prices WHERE ticker = ? AND split_ratio IS NOT NULL "
-        "AND date > ? AND date <= ?",
-        (ticker, after.isoformat(), through.isoformat()),
+        "SELECT split_ratio FROM prices WHERE ticker = ? AND fetch_id = ? "
+        "AND split_ratio IS NOT NULL AND date > ? AND date <= ?",
+        (ticker, fetch["fetch_id"], after.isoformat(), through.isoformat()),
     ):
         factor *= ratio
     return factor
@@ -123,8 +128,9 @@ def raw_close(conn: sqlite3.Connection, ticker: str, as_of: date) -> PricePoint:
     """The last close on or before as_of, on that day's share basis (as it traded)."""
     fetch = require_coverage(conn, "yahoo", ticker, as_of)
     row = conn.execute(
-        "SELECT date, close FROM prices WHERE ticker = ? AND date <= ? ORDER BY date DESC LIMIT 1",
-        (ticker, as_of.isoformat()),
+        "SELECT date, close FROM prices WHERE ticker = ? AND fetch_id = ? AND date <= ? "
+        "ORDER BY date DESC LIMIT 1",
+        (ticker, fetch["fetch_id"], as_of.isoformat()),
     ).fetchone()
     if row is None:
         raise MarketDataError(f"No price for {ticker} on or before {as_of}")
@@ -136,12 +142,12 @@ def raw_close(conn: sqlite3.Connection, ticker: str, as_of: date) -> PricePoint:
 
 def weekly_returns(conn: sqlite3.Connection, ticker: str, as_of: date, weeks: int) -> pd.Series:
     """The last `weeks` weekly total returns up to as_of, indexed by week (ending Friday)."""
-    require_coverage(conn, "yahoo", ticker, as_of)
+    fetch = require_coverage(conn, "yahoo", ticker, as_of)
     start = as_of - timedelta(weeks=weeks + 2)
     rows = conn.execute(
-        "SELECT date, adj_close FROM prices WHERE ticker = ? AND date > ? AND date <= ? "
-        "ORDER BY date",
-        (ticker, start.isoformat(), as_of.isoformat()),
+        "SELECT date, adj_close FROM prices WHERE ticker = ? AND fetch_id = ? AND date > ? "
+        "AND date <= ? ORDER BY date",
+        (ticker, fetch["fetch_id"], start.isoformat(), as_of.isoformat()),
     ).fetchall()
     closes = pd.Series(
         [r["adj_close"] for r in rows], index=pd.to_datetime([r["date"] for r in rows])
@@ -187,12 +193,12 @@ def annual_total_returns(
     conn: sqlite3.Connection, ticker: str, first_year: int, last_year: int
 ) -> dict[int, float]:
     """Calendar-year total returns (from adj_close, year-end to year-end) for each year."""
-    require_coverage(conn, "yahoo", ticker, date(last_year, 12, 31))
+    fetch = require_coverage(conn, "yahoo", ticker, date(last_year, 12, 31))
     closes = year_end_values(
         conn,
-        "SELECT date, adj_close FROM prices WHERE ticker = ? AND date >= ? AND date <= ? "
-        "ORDER BY date",
-        ticker,
+        "SELECT date, adj_close FROM prices WHERE ticker = ? AND fetch_id = ? AND date >= ? "
+        "AND date <= ? ORDER BY date",
+        (ticker, fetch["fetch_id"]),
         first_year - 1,
         last_year,
         ticker,

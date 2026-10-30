@@ -15,7 +15,7 @@ from datetime import date, timedelta
 
 from domains.analysis.financial_math import RiskPremium, historical_premium
 from domains.market.prices import MARKET_INDEX, annual_total_returns
-from domains.market.store import MarketDataError, latest_fetch
+from domains.market.store import MarketDataError, selected_fetch
 from domains.market.yields import RISK_FREE_SERIES, annual_bond_returns
 
 MIN_YEARS = 10
@@ -52,6 +52,6 @@ def equity_risk_premium(conn: sqlite3.Connection, as_of: date, first_year: int) 
         premium=historical_premium([equity[y] for y in years], [bonds[y] for y in years]),
         first_year=first_year,
         last_year=last_year,
-        price_fetch_sha256=latest_fetch(conn, "yahoo", MARKET_INDEX)["content_sha256"],
-        yield_fetch_sha256=latest_fetch(conn, "fred", RISK_FREE_SERIES)["content_sha256"],
+        price_fetch_sha256=selected_fetch(conn, "yahoo", MARKET_INDEX)["content_sha256"],
+        yield_fetch_sha256=selected_fetch(conn, "fred", RISK_FREE_SERIES)["content_sha256"],
     )

@@ -3,11 +3,13 @@
     python -m domains.analysis dcf --ticker AAPL --as-of 2024-03-31 [--as-of 2026-09-30 ...]
     python -m domains.analysis dcf --all --as-of 2024-03-31
     python -m domains.analysis reproduce --run-id AAPL_2024-03-31_1
-    python -m domains.analysis reproduce --all
+    python -m domains.analysis reproduce --all [--rebuild]
     python -m domains.analysis fallbacks [--as-of 2026-10-26]
 
 `dcf` stores each run and writes data/reports/dcf/<TICKER>_<as_of>.md; it exits 1 if any run
-fails. `reproduce` values stored runs again from their assumptions and exits 1 on any mismatch.
+fails. `reproduce` values stored runs again from their assumptions and exits 1 on any mismatch; with
+`--rebuild` it also builds each run's assumptions again from the data it used and compares them
+(a run made by older code may differ in method text only; that is listed apart).
 `fallbacks` compares every fallback with its primary item across the universe.
 """
 
@@ -17,7 +19,7 @@ from datetime import date
 
 from domains.analysis.math_engine import EngineError, fallback_backtest
 from domains.analysis.report import write_report
-from domains.analysis.runs import reproduce, run_baseline
+from domains.analysis.runs import rebuild, reproduce, run_baseline
 from domains.fundamentals.universe import PHASE1_UNIVERSE, get_universe_company
 from domains.market.store import MarketDataError
 from shared_kernel.config import PROJECT_ROOT
@@ -64,7 +66,7 @@ def cmd_reproduce(args: argparse.Namespace) -> int:
             if args.all
             else [args.run_id]
         )
-        bad = 0
+        bad = unbuilt = text_only = 0
         for run_id in run_ids:
             result = reproduce(conn, run_id)
             status = "OK      " if result.ok else "MISMATCH"
@@ -74,8 +76,32 @@ def cmd_reproduce(args: argparse.Namespace) -> int:
             if result.stored_code_version != result.current_code_version:
                 print(f"         code {result.stored_code_version} → {result.current_code_version}")
             bad += not result.ok
+            if args.rebuild:
+                try:
+                    rebuilt = rebuild(conn, run_id)
+                except (EngineError, MarketDataError, ValueError) as e:
+                    print(f"         rebuild FAILED: {e}")
+                    unbuilt += 1
+                    continue
+                if rebuilt.ok:
+                    status = "OK"
+                elif rebuilt.values_ok:
+                    status = f"values OK, method text differs in {len(rebuilt.mismatches)} rows"
+                else:
+                    status = "MISMATCH"
+                print(f"         rebuild {status}, {rebuilt.rows_checked} rows")
+                if not rebuilt.values_ok:
+                    for name, period, what in rebuilt.mismatches:
+                        print(f"         {name} {period}: {what} differs")
+                unbuilt += not rebuilt.ok
+                text_only += rebuilt.values_ok and not rebuilt.ok
     print(f"{len(run_ids) - bad} of {len(run_ids)} runs reproduced to the cent")
-    return 1 if bad else 0
+    if args.rebuild:
+        print(
+            f"{len(run_ids) - unbuilt} of {len(run_ids)} runs rebuilt to identical rows; "
+            f"{text_only} more with identical values (method text from older code)"
+        )
+    return 1 if bad or unbuilt else 0
 
 
 def cmd_fallbacks(args: argparse.Namespace) -> int:
@@ -111,6 +137,9 @@ def main(argv: list[str] | None = None) -> int:
     which = rep.add_mutually_exclusive_group(required=True)
     which.add_argument("--run-id")
     which.add_argument("--all", action="store_true", help="every stored run")
+    rep.add_argument(
+        "--rebuild", action="store_true", help="also rebuild the assumptions from data and compare"
+    )
     rep.set_defaults(func=cmd_reproduce)
 
     fb = commands.add_parser("fallbacks", help="compare each fallback with its primary item")

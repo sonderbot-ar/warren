@@ -17,7 +17,7 @@ import math
 import sqlite3
 import warnings
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
@@ -33,7 +33,7 @@ from domains.fundamentals.universe import FISCAL_YEARS
 from domains.market.erp import equity_risk_premium
 from domains.market.prices import MARKET_INDEX, PricePoint, aligned_weekly_returns, raw_close
 from domains.market.prices import split_factor as price_split_factor
-from domains.market.store import latest_fetch
+from domains.market.store import selected_fetch
 from domains.market.yields import RISK_FREE_SERIES, risk_free_rate
 
 USER_ASSUMPTIONS_PATH = Path(__file__).parent / "user_assumptions.csv"
@@ -53,7 +53,7 @@ STALE_AFTER = timedelta(days=135)  # last reported quarter this long before as_o
 TAX_RATE_BOUNDS = (0.0, 0.5)
 COST_OF_DEBT_BOUNDS = (0.0, 0.15)
 SHARES_TOLERANCE = 0.10  # cover-page vs diluted shares
-TERMINAL_SHARE_WARNING = 0.75
+TERMINAL_SPREAD_WARNING = 0.03  # WACC − terminal growth below this: the terminal value dominates
 MARGIN_SIGMAS = 2
 ERP_INFO_FIRST_YEARS = (1999, 2009)  # alternative windows, shown for information only
 
@@ -270,7 +270,7 @@ def build_inputs(
         warnings.simplefilter("always")
         history = load_history(conn, company["cik"], as_of)
         comparisons = same_filing_annual_comparisons(conn, company["cik"], "revenue", as_of)
-    result.warnings += [str(w.message) for w in caught]
+    result.warnings += list(dict.fromkeys(str(w.message) for w in caught))  # one per query
 
     last_year, last_quarter, base_date = _last_actual_quarter(history, result)
     fiscal_years = _history_years(history, last_year, result)
@@ -695,9 +695,6 @@ def _drivers(
         result.add("history:ebit", ebit.value, ebit.method, quarter_label(year, quarter))
         result.add("history:revenue", revenue.value, trace(revenue), quarter_label(year, quarter))
     annual_margin = _sum(result, "ebit", fiscal_years) / _sum(result, "revenue", fiscal_years)
-    all_margins = [m for ms in margins.values() for m in ms]
-    mean = sum(all_margins) / len(all_margins)
-    sd = math.sqrt(sum((m - mean) ** 2 for m in all_margins) / max(len(all_margins) - 1, 1))
     for period in periods:
         if period in YEARS:
             margin = annual_margin
@@ -711,11 +708,6 @@ def _drivers(
                 )
             margin = sum(margins[quarter]) / len(margins[quarter])
             method = f"average Q{quarter} EBIT / revenue of the last {HISTORY_QUARTERS} quarters"
-        if abs(margin - mean) > MARGIN_SIGMAS * sd and sd > 0:
-            result.warnings.append(
-                f"Operating margin {margin:.1%} in {period} is outside the historical range "
-                f"({mean:.1%} ± {MARGIN_SIGMAS} × {sd:.1%})"
-            )
         result.add(
             "operating_margin",
             margin,
@@ -764,18 +756,48 @@ def _snapshot(conn: sqlite3.Connection, cik: str, ticker: str, price: PricePoint
         "ingest_run_id": ingest["run_id"],
         "concept_map_sha256": concept_map_sha256(),
         "ingest_concept_map_sha256": ingest["concept_map_sha256"],
-        "price_fetch_sha256": latest_fetch(conn, "yahoo", ticker)["content_sha256"],
+        "price_fetch_sha256": selected_fetch(conn, "yahoo", ticker)["content_sha256"],
     }
 
 
-def post_checks(terminal_share: float) -> list[str]:
-    """Warnings about a finished valuation."""
-    if terminal_share > TERMINAL_SHARE_WARNING:
-        return [
-            f"Terminal value is {terminal_share:.0%} of enterprise value (above "
-            f"{TERMINAL_SHARE_WARNING:.0%}): the result depends mostly on terminal growth and WACC"
-        ]
-    return []
+def post_checks(
+    assumptions: Iterable[Assumption], outputs: dict[tuple[str, str], float]
+) -> list[str]:
+    """Warnings about a valuation, from its rows and outputs alone.
+
+    They read nothing but the run, so they apply to any row set: a baseline, or (M4) one whose
+    drivers were shocked.
+    """
+    rows: dict[str, dict[str, float]] = defaultdict(dict)
+    for a in assumptions:
+        rows[a.name][a.period] = a.value
+    out = []
+
+    # forecast margins far outside the reported quarterly margins behind them
+    history = [
+        rows["history:ebit"][p] / rows["history:revenue"][p]
+        for p in rows.get("history:ebit", {})
+        if "Q" in p and rows["history:revenue"].get(p)
+    ]
+    if len(history) > 1:
+        mean = sum(history) / len(history)
+        sd = math.sqrt(sum((m - mean) ** 2 for m in history) / (len(history) - 1))
+        for period, margin in sorted(rows.get("operating_margin", {}).items()):
+            if sd > 0 and abs(margin - mean) > MARGIN_SIGMAS * sd:
+                out.append(
+                    f"Operating margin {margin:.1%} in {period} is outside the historical range "
+                    f"({mean:.1%} ± {MARGIN_SIGMAS} × {sd:.1%}, {len(history)} quarters)"
+                )
+
+    spread = outputs[("wacc", SINGLE)] - rows["terminal_growth"][SINGLE]
+    if spread < TERMINAL_SPREAD_WARNING:
+        out.append(
+            f"WACC − terminal growth is {spread * 100:.2f} points (below "
+            f"{TERMINAL_SPREAD_WARNING * 100:.0f}): terminal value is "
+            f"{outputs[('terminal_share', SINGLE)]:.0%} of enterprise value, so the result depends "
+            "mostly on terminal growth and WACC"
+        )
+    return out
 
 
 # -- fallback back-test (D11) ------------------------------------------------------------------

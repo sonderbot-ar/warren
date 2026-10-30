@@ -1,4 +1,5 @@
-"""Storing DCF runs and reproducing them from their stored assumptions (exit criterion of M2)."""
+"""Storing DCF runs, reproducing them from their stored assumptions (exit criterion of M2) and
+rebuilding their assumptions from the data they were built from (M2.1)."""
 
 import sqlite3
 import subprocess
@@ -9,6 +10,10 @@ from pathlib import Path
 from domains.analysis import dcf
 from domains.analysis.math_engine import EngineResult, UserChoice, build_inputs, post_checks
 from domains.analysis.schemas import Assumption
+from domains.fundamentals.concepts import concept_map_sha256
+from domains.market.prices import MARKET_INDEX
+from domains.market.store import fetch_with_hash, pin_fetches
+from domains.market.yields import RISK_FREE_SERIES
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CENT = 0.005  # money outputs must agree to the cent
@@ -127,6 +132,65 @@ def reproduce(conn: sqlite3.Connection, run_id: str) -> Reproduction:
     return Reproduction(run_id, len(stored), mismatches, run["code_version"], code_version())
 
 
+@dataclass(frozen=True)
+class Rebuild:
+    run_id: str
+    rows_checked: int
+    mismatches: list[tuple[str, str, str]]  # name, period, what differs
+
+    @property
+    def ok(self) -> bool:
+        return not self.mismatches
+
+    @property
+    def values_ok(self) -> bool:
+        """Only method text differs: expected when the code that writes it changed since."""
+        return all(what == "method" for _name, _period, what in self.mismatches)
+
+
+def rebuild(
+    conn: sqlite3.Connection,
+    run_id: str,
+    choices: dict[str, UserChoice] | None = None,
+    today: date | None = None,
+) -> Rebuild:
+    """Build a stored run's assumption rows again from data and compare them row by row.
+
+    Market queries are pinned to the downloads the run used (by content hash). Facts need no pin:
+    the point-in-time query only sees filings public on the as-of date, and ingests only add
+    facts. A different concept map can change which tag is selected, so it is refused.
+    """
+    run = conn.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+    if run is None:
+        raise ValueError(f"No run {run_id}")
+    if run["concept_map_sha256"] != concept_map_sha256():
+        raise ValueError(f"{run_id}: concept_map.csv changed since the run, it can't be rebuilt")
+    pins = {
+        (source, symbol): fetch_with_hash(conn, source, symbol, run[column])["fetch_id"]
+        for source, symbol, column in (
+            ("yahoo", run["ticker"], "price_fetch_sha256"),
+            ("yahoo", MARKET_INDEX, "index_fetch_sha256"),
+            ("fred", RISK_FREE_SERIES, "yield_fetch_sha256"),
+        )
+    }
+    with pin_fetches(pins):
+        result = build_inputs(
+            conn, run["ticker"], date.fromisoformat(run["as_of"]), choices=choices, today=today
+        )
+    stored = {(a.name, a.period): a for a in load_assumptions(conn, run_id)}
+    built = {(a.name, a.period): a for a in result.assumptions}
+    mismatches = []
+    for key in sorted(stored.keys() | built.keys()):
+        before, after = stored.get(key), built.get(key)
+        if before is None or after is None:
+            mismatches.append((*key, "only in the stored run" if after is None else "only rebuilt"))
+            continue
+        for field in ("value", "source", "method"):
+            if getattr(before, field) != getattr(after, field):
+                mismatches.append((*key, field))
+    return Rebuild(run_id, len(stored), mismatches)
+
+
 def run_baseline(
     conn: sqlite3.Connection,
     ticker: str,
@@ -137,7 +201,7 @@ def run_baseline(
     """Build, value and store a baseline DCF; returns the run id."""
     result = build_inputs(conn, ticker, as_of, choices=choices, today=today)
     outputs = dcf.run_outputs(result.assumptions)
-    notes = result.warnings + post_checks(outputs[("terminal_share", "-")])
+    notes = result.warnings + post_checks(result.assumptions, outputs)
     for name in ("erp_minus_1se", "erp_plus_1se"):
         if (f"value_per_share_{name}", "-") not in outputs:
             notes.append(f"No value per share at {name.replace('_', ' ')}: WACC ≤ terminal growth")
