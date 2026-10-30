@@ -40,7 +40,7 @@ Durations are indicative, assuming part-time work (roughly 8–12 hours a week).
 | M2 | Deterministic forecast and DCF engine | 2 | nov.09 – nov.22 | M1.1 | **Done** (oct.26.2026; PRs #5 and #6) |
 | M2.1 | DCF hardening (review of M2) | 0.5 | oct.28 – oct.30 | M2 | **Done** (oct.30.2026; PR #7, merged by the agent team after a gatekeeper GO; recorded as v0.2 in `docs/versions.md`) |
 | M3 | Evaluation harness v1 (baseline only) | 1.5 | nov.23 – dec.03 | M2.1 | Done (oct.30.2026, v0.3; design in `docs/designs/m3-evaluation-harness.md`) |
-| M4 | Shock model and Monte Carlo (manual shocks) | 1.5 | dec.04 – dec.13 | M2.1 | In progress (oct.30.2026; design in `docs/designs/m4-shock-model.md`; engine merged in PR #30; guidance for three cases transcribed; the real run waits on Yahoo Finance access) |
+| M4 | Shock model and Monte Carlo (manual shocks) | 1.5 | dec.04 – dec.13 | M2.1 | **Done** (oct.30.2026, v0.4; PRs #30 and #39; design in `docs/designs/m4-shock-model.md`) |
 | M5 | News ingestion (GDELT) and event clustering | 2.5 | dec.14 – jan.03 | M1 | In progress (oct.30.2026; design in `docs/designs/m5-news-ingestion.md`; engine merged in PR #41; the real run waits on access to GDELT) |
 | M6 | LLM steps: event extraction and shock proposal | 2 | jan.04 – jan.17 | M4, M5 | Not started |
 | M7 | LangGraph orchestration and telemetry | 1.5 | jan.18 – jan.27 | M6 | Not started |
@@ -331,6 +331,18 @@ Shock
 **Tests:** zero-magnitude shock reproduces the baseline exactly; decay = 1 holds constant over the horizon; same seed gives identical results; sampled percentiles match low/base/high within tolerance.
 
 **Exit criterion:** for three eval cases, hand-entered shocks run end to end and appear in the harness as a `with_shocks` variant.
+
+**Result (batch `eval_2026-10-30_1`, code `7f9ce5c`, case file `0cfe9ab36773`, data refreshed oct.30.2026).** Exit criterion met: three cases (MSFT_2022-06-02, PG_2019-04-23, KO_2019-07-23) run under shocks converted by code from the companies' own revised guidance and appear as `with_shocks`; 26 of 26 cases scored; all 26 runs and the three simulations (10,000 samples each) reproduce to the cent. Shocks move only the guided quarters:
+
+| Case, guided quarter | Revenue error, baseline → with shocks | EBIT error (margin points), baseline → with shocks |
+|---|---|---|
+| MSFT, fiscal Q4 2022 | 2.4% → 1.5% | 0.88 → 1.43 |
+| PG, fiscal Q4 2019 | 5.2% → 3.2% | 46.21 → 46.53 (an $8B Gillette impairment) |
+| KO, Q2–Q4 2019 | 19.9–30.2% → 20.4–30.6% | 6.39–10.85 → 6.51–10.92 |
+
+- Three cases test the plumbing, not whether shocks help; M8 decides that. Microsoft's actual revenue ($51.87B) fell below its revised low, so the guided band was too narrow, as noted in the design.
+- Coca-Cola's baseline misses 2019 revenue by 20–30%: one growth rate per run carries 2018's refranchising decline into a year that grew. The shock (a 0.5-point cut) is small next to that baseline error.
+- With 26 cases the headline medians are revenue 6.1% (naive 7.2%) and EBIT 3.33 points (naive 4.06); M3's were 5.6% and 3.17 on 24. The two new cases explain the change; no forecast rule changed.
 
 ### M5 — News Ingestion (GDELT) and Event Clustering
 
