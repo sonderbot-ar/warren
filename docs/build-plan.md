@@ -40,7 +40,7 @@ Durations are indicative, assuming part-time work (roughly 8–12 hours a week).
 | M2 | Deterministic forecast and DCF engine | 2 | nov.09 – nov.22 | M1.1 | **Done** (oct.26.2026; PRs #5 and #6) |
 | M2.1 | DCF hardening (review of M2) | 0.5 | oct.28 – oct.30 | M2 | **Done** (oct.30.2026; PR #7, merged by the agent team after a gatekeeper GO; recorded as v0.2 in `docs/versions.md`) |
 | M3 | Evaluation harness v1 (baseline only) | 1.5 | nov.23 – dec.03 | M2.1 | Done (oct.30.2026, v0.3; design in `docs/designs/m3-evaluation-harness.md`) |
-| M4 | Shock model and Monte Carlo (manual shocks) | 1.5 | dec.04 – dec.13 | M2.1 | In progress (oct.30.2026; design in `docs/designs/m4-shock-model.md`; engine PR open; guidance transcription and the real run next) |
+| M4 | Shock model and Monte Carlo (manual shocks) | 1.5 | dec.04 – dec.13 | M2.1 | In progress (oct.30.2026; design in `docs/designs/m4-shock-model.md`; engine merged in PR #30; guidance for three cases transcribed; the real run waits on Yahoo Finance access) |
 | M5 | News ingestion (GDELT) and event clustering | 2.5 | dec.14 – jan.03 | M1 | Not started |
 | M6 | LLM steps: event extraction and shock proposal | 2 | jan.04 – jan.17 | M4, M5 | Not started |
 | M7 | LangGraph orchestration and telemetry | 1.5 | jan.18 – jan.27 | M6 | Not started |
