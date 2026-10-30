@@ -1,0 +1,3 @@
+ticker,name,note
+PG,pg,"short form; confirms an article already matched to PG, never matches one"
+JNJ,jnj,"short form; confirms an article already matched to JNJ, never matches one"
