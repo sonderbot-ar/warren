@@ -58,7 +58,7 @@ M0 ─ M1 ─┬─ M2 ─┬─ M3 ──────────────�
 
 | Structure Guide decision | Implemented in |
 |---|---|
-| 1 Model allocation and API keys (under review) | Decided before M6; implemented in M6 |
+| 1 Model allocation and API keys (accepted oct.30.2026) | Implemented in M6 |
 | 2 State management: typed facts, point-in-time, WAL, small state | M0 (WAL, migrations), M1 (facts), M7 (graph state, checkpointer) |
 | 3 SQLite only, FTS5 for text | M5 |
 | 4 Deterministic math engine | M2, M2.1, M4 |
@@ -381,7 +381,7 @@ event_articles(event_id TEXT, article_id TEXT)
 
 **Implements:** Decisions 1, 6 and 9.
 
-**Before starting:** settle Decision 1 (how models and keys are configured).
+**Before starting:** `ANTHROPIC_API_KEY` in the environment (Section 6). Decision 1 was settled on oct.30.2026: keys loaded once, one node-to-model map.
 
 **Design**
 
@@ -448,7 +448,7 @@ When the milestone before the one that needs an item merges, email the owner (CL
 | What | Why | Needed from | Cost | Status |
 |---|---|---|---|---|
 | `SEC_USER_AGENT` (a name and contact email) | SEC EDGAR requires it | M1 | Free | In place |
-| `ANTHROPIC_API_KEY` | The LLM steps: event extraction and shock proposal | M6, after Decision 1 is settled | Paid per token | Not yet requested |
+| `ANTHROPIC_API_KEY` | The LLM steps: event extraction and shock proposal | M6 | Paid per token | Requested from the owner oct.30.2026, with setup steps |
 | Google Cloud project with BigQuery (a service-account key) | Fetch a company's GDELT news for any date in seconds, instead of downloading every 15-minute file (about 670 files for one week). The pipeline's `fetch_news` step needs it to run for any company and date. | M7 | About 0.33 GB read per day of news (measured oct.30.2026 on 2020 and 2022 files). Our 26 case weeks come to about 60 GB, inside BigQuery's free 1 TB a month. Beyond that, about $6.25 per TB. A billing account with a card is required even for the free tier. | Owner approved the cost on oct.30.2026. Before use: a dry run to confirm bytes, a daily cap on bytes read, and an update to Decision 8 (data sources) |
 
 ## 7. Risks and Open Questions
@@ -461,7 +461,7 @@ When the milestone before the one that needs an item merges, email the owner (CL
 | LLM knows the outcome of historical events | Post-cutoff cases, name masking, report both (M6) |
 | Too few eval cases to draw conclusions | Grow the library over time; report uncertainty, not just averages (M8) |
 | Yahoo Finance interface changes or breaks | Small adapter plus local cache; only used for beta and comparison (M2) |
-| Decision 1 (models and keys) still open | Decide before M6 |
+| Decision 1 (models and keys) | Settled oct.30.2026 |
 | Telemetry details still open | Decide during M7 |
 | SEC companyfacts omits company-specific (extension) and dimensional tags: no cash-flow D&A for MSFT, no interest expense for CAT, no quarterly pretax income for PG (M1) | Documented as known gaps; M2 decides whether to parse full XBRL filings or use fallbacks |
 | JNJ and XOM present no operating income line (M1) | M2 derives EBIT from other lines, as a documented `computed` assumption |
