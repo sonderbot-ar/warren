@@ -2,7 +2,8 @@
 
 A file is read once per alias set. Every Phase 1 company is matched on every pass, whatever case
 asked for the file, so overlapping windows share files without losing rows. A file missing from
-the master list, gone from the server, or failing its MD5 is recorded with that status, never
+the master list or gone from the server is `missing` (GDELT's gap); one we failed to download is
+`fetch_error` (ours, read again on the next run); one failing its MD5 is `bad_md5`. None is
 skipped in silence. A file matched under an older alias set is read again and its rows replaced.
 """
 
@@ -11,7 +12,7 @@ import json
 import re
 import sqlite3
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from urllib.parse import parse_qsl, urlencode, urlsplit
@@ -19,7 +20,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit
 import requests
 
 from domains.news import gdelt
-from domains.news.gdelt import CASE_TZ, ArticleRecord, GdeltError, MasterEntry
+from domains.news.gdelt import CASE_TZ, ArticleRecord, FileGone, GdeltError, MasterEntry
 from domains.news.matching import AliasSet, match
 
 FILE_URL = "http://data.gdeltproject.org/gdeltv2/{ts:%Y%m%d%H%M%S}.gkg.csv.zip"
@@ -45,7 +46,7 @@ def article_id(url: str) -> str:
 @dataclass(frozen=True)
 class FileResult:
     file_url: str
-    status: str  # ok | missing | bad_md5 | skipped (already read under this alias set)
+    status: str  # ok | missing | fetch_error | bad_md5 | skipped (read under this alias set)
     rows_total: int = 0
     rows_kept: int = 0
     rows_bad: int = 0
@@ -114,19 +115,22 @@ def ingest_file(
     row = _file_row(conn, entry.url)
     if not _needs_read(row, aliases):
         return FileResult(entry.url, "skipped")
+    content, failed = None, None
     try:
         content = (download or gdelt.http_download)(entry.url)
+    except FileGone:
+        failed = "missing"
     except requests.RequestException:
-        content = None
-    if content is None and row is not None and row["status"] == "ok":
+        failed = "fetch_error"
+    if failed and row is not None and row["status"] == "ok":
         # read fine before, unreachable now: keep its rows; it stays stale for the next rematch
-        return FileResult(entry.url, "missing")
+        return FileResult(entry.url, failed)
     with conn:
         _clear_file(conn, entry.url)
-        if content is None:
-            _record_file(conn, entry.url, entry.file_ts, entry.md5, "missing", None, None,
+        if failed:
+            _record_file(conn, entry.url, entry.file_ts, entry.md5, failed, None, None,
                          aliases, now())  # fmt: skip
-            return FileResult(entry.url, "missing")
+            return FileResult(entry.url, failed)
         try:
             records, bad = gdelt.read_file(content, entry)
         except GdeltError:
@@ -173,23 +177,31 @@ def ingest_window(
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
     workers: int = DOWNLOAD_WORKERS,
 ) -> list[FileResult]:
-    """Files are downloaded `workers` at a time; the database is written here, in file order.
+    """Up to `workers` downloads in flight; the database is written here, in file order.
 
-    Downloads run a chunk at a time so at most `workers` files sit in memory, and a file
-    already read under this alias set is never downloaded again (a stopped run resumes).
+    A sliding window: when the oldest download has been stored, the next file's download starts,
+    so one slow file doesn't idle the others. At most `workers` files are downloaded and not yet
+    stored. A file already read under this alias set takes no slot and is never downloaded again
+    (a stopped run resumes).
     """
     found, missing = gdelt.window_files(master, start, end)
     fetch = download or gdelt.http_download
+    to_read = [e for e in found if _needs_read(_file_row(conn, e.url), aliases)]
+    queue = iter(to_read)
     results = []
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        for i in range(0, len(found), workers):
-            chunk = found[i : i + workers]
-            futures = {e.url: pool.submit(fetch, e.url) for e in chunk
-                       if _needs_read(_file_row(conn, e.url), aliases)}  # fmt: skip
-            for e in chunk:
-                future = futures.get(e.url)
-                got = (lambda _, f=future: f.result()) if future else fetch
-                results.append(ingest_file(conn, e, aliases, got, now))
+        in_flight: dict[str, Future] = {}
+
+        def top_up() -> None:
+            while len(in_flight) < workers and (e := next(queue, None)) is not None:
+                in_flight[e.url] = pool.submit(fetch, e.url)
+
+        top_up()
+        for e in found:
+            future = in_flight.pop(e.url, None)
+            got = (lambda _, f=future: f.result()) if future else fetch
+            results.append(ingest_file(conn, e, aliases, got, now))
+            top_up()
     return results + [record_missing_slot(conn, ts, aliases, now()) for ts in missing]
 
 

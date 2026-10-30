@@ -10,6 +10,10 @@ MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 # migration files are named NNNN_description.sql, e.g. 0001_init.sql
 MIGRATION_PATTERN = re.compile(r"^(\d{4})_[a-z0-9_]+\.sql$")
+# a migration that rebuilds a table other tables reference starts with this line; it runs with
+# foreign keys off and commits only if PRAGMA foreign_key_check finds nothing (SQLite's
+# documented procedure for changing a table's schema, "Making Other Kinds Of Table Schema Changes")
+FOREIGN_KEYS_OFF = "-- foreign_keys: off"
 
 
 @contextmanager
@@ -70,18 +74,26 @@ def apply_migrations(conn: sqlite3.Connection, migrations_dir: Path = MIGRATIONS
         if version <= current:
             continue
         sql = path.read_text()
-        # executescript() commits any open transaction before running, so BEGIN/COMMIT live
-        # inside the script. path.stem is safe to inline: MIGRATION_PATTERN allows [a-z0-9_].
+        keys_off = sql.startswith(FOREIGN_KEYS_OFF)
+        # executescript() commits any open transaction before running, so BEGIN lives inside
+        # the script. path.stem is safe to inline: MIGRATION_PATTERN allows [a-z0-9_].
         script = (
             f"BEGIN;\n{sql}\n;"
             f"INSERT INTO schema_version (version, name) VALUES ({version}, '{path.stem}');\n"
-            "COMMIT;"
         )
+        if keys_off:
+            conn.execute("PRAGMA foreign_keys=OFF;")  # a no-op inside a transaction, so first
         try:
             conn.executescript(script)
+            if keys_off and conn.execute("PRAGMA foreign_key_check").fetchone() is not None:
+                raise sqlite3.IntegrityError(f"{path.name} leaves rows with broken foreign keys")
+            conn.commit()
         except Exception:
             if conn.in_transaction:
                 conn.rollback()
             raise
+        finally:
+            if keys_off:
+                conn.execute("PRAGMA foreign_keys=ON;")
         applied.append(version)
     return applied

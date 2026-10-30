@@ -46,7 +46,7 @@ def cmd_ingest(args) -> int:
         for ticker, case_date in windows:
             start, end = gdelt.window_bounds(case_date, args.days)
             results = store.ingest_window(conn, master, start, end, aliases)
-            statuses = ("ok", "skipped", "missing", "bad_md5")
+            statuses = ("ok", "skipped", "missing", "fetch_error", "bad_md5")
             by = {s: sum(r.status == s for r in results) for s in statuses}
             kept = sum(r.rows_kept for r in results)
             print(f"{ticker}_{case_date}  files {by}  articles kept {kept}", flush=True)

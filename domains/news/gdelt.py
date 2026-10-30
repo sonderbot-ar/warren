@@ -14,6 +14,7 @@ import hashlib
 import html
 import io
 import re
+import time as clock
 import zipfile
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
@@ -26,6 +27,10 @@ MASTER_LIST_URL = "http://data.gdeltproject.org/gdeltv2/masterfilelist.txt"
 CASE_TZ = ZoneInfo("America/New_York")  # the case calendar, a named setting (guardrail 3)
 STEP = timedelta(minutes=15)
 TIMEOUT_SECONDS = 60
+ATTEMPTS = 3  # in all, for a transient failure; the next run reads a failed file again anyway
+MAX_WAIT_SECONDS = 60  # cap on the pause between attempts, whatever Retry-After asks
+TRANSIENT_STATUS = frozenset({429, 500, 502, 503, 504})
+GONE_STATUS = frozenset({404, 410})
 GKG_COLUMNS = 27
 # column positions in a GKG 2.1 row
 DATE, SOURCE, URL, V2THEMES, V2ORGS, V2TONE, EXTRAS = 1, 3, 4, 8, 14, 15, 26
@@ -35,6 +40,10 @@ Downloader = Callable[[str], bytes]
 
 class GdeltError(RuntimeError):
     """A GDELT file or row can't be used as it is."""
+
+
+class FileGone(RuntimeError):
+    """The server says the file isn't there (HTTP 404 or 410): GDELT's gap, not a fetch error."""
 
 
 @dataclass(frozen=True)
@@ -191,7 +200,33 @@ def fetch_url(url: str) -> str:
     return "https://" + url.removeprefix("http://") if url.startswith("http://") else url
 
 
-def http_download(url: str) -> bytes:
-    response = requests.get(fetch_url(url), timeout=TIMEOUT_SECONDS)
-    response.raise_for_status()
-    return response.content
+def _wait_seconds(response: requests.Response | None, attempt: int) -> float:
+    """2 s after the first attempt, 4 s after the second, or the server's Retry-After, capped."""
+    retry_after = response.headers.get("Retry-After", "") if response is not None else ""
+    wait = float(retry_after) if retry_after.strip().isdigit() else 2.0**attempt
+    return min(wait, MAX_WAIT_SECONDS)
+
+
+def http_download(
+    url: str,
+    get: Callable[..., requests.Response] = requests.get,
+    sleep: Callable[[float], None] = clock.sleep,
+) -> bytes:
+    """A file's bytes. Raises `FileGone` for 404 or 410 at once; a connection error, a timeout or
+    HTTP 429, 500, 502, 503 or 504 is tried `ATTEMPTS` times before its error is raised."""
+    for attempt in range(1, ATTEMPTS + 1):
+        try:
+            response = get(fetch_url(url), timeout=TIMEOUT_SECONDS)
+        except (requests.ConnectionError, requests.Timeout):
+            if attempt == ATTEMPTS:
+                raise
+            sleep(_wait_seconds(None, attempt))
+            continue
+        if response.status_code in GONE_STATUS:
+            raise FileGone(f"{url}: HTTP {response.status_code}")
+        if response.status_code in TRANSIENT_STATUS and attempt < ATTEMPTS:
+            sleep(_wait_seconds(response, attempt))
+            continue
+        response.raise_for_status()
+        return response.content
+    raise AssertionError("unreachable")  # pragma: no cover

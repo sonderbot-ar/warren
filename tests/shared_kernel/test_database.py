@@ -63,3 +63,50 @@ def test_badly_named_migration_is_rejected(tmp_path):
     (tmp_path / "init.sql").write_text("SELECT 1;")
     with pytest.raises(ValueError):
         list_migrations(tmp_path)
+
+
+def _parent_child(migrations):
+    migrations.mkdir()
+    (migrations / "0001_init.sql").write_text(
+        "CREATE TABLE schema_version (version INTEGER PRIMARY KEY, name TEXT NOT NULL);\n"
+        "CREATE TABLE parent (id INTEGER PRIMARY KEY, kind TEXT CHECK (kind IN ('a')));\n"
+        "CREATE TABLE child (parent_id INTEGER REFERENCES parent (id));\n"
+    )
+
+
+def test_a_foreign_keys_off_migration_rebuilds_a_referenced_table(db_path, tmp_path):
+    migrations = tmp_path / "migrations"
+    _parent_child(migrations)
+    (migrations / "0002_rebuild.sql").write_text(
+        "-- foreign_keys: off\n"
+        "CREATE TABLE parent_new (id INTEGER PRIMARY KEY, kind TEXT CHECK (kind IN ('a', 'b')));\n"
+        "INSERT INTO parent_new SELECT * FROM parent;\n"
+        "DROP TABLE parent;\nALTER TABLE parent_new RENAME TO parent;\n"
+    )
+    (migrations / "0002_rebuild.sql").rename(tmp_path / "0002_rebuild.sql")  # held back
+    with get_db_connection(db_path) as conn:
+        apply_migrations(conn, migrations)
+        conn.execute("INSERT INTO parent VALUES (1, 'a')")
+        conn.execute("INSERT INTO child VALUES (1)")
+        conn.commit()
+        (tmp_path / "0002_rebuild.sql").rename(migrations / "0002_rebuild.sql")
+        assert apply_migrations(conn, migrations) == [2]
+        conn.execute("INSERT INTO parent VALUES (2, 'b')")
+        assert conn.execute("SELECT COUNT(*) FROM child").fetchone()[0] == 1
+        assert conn.execute("PRAGMA foreign_keys;").fetchone()[0] == 1
+
+
+def test_a_foreign_keys_off_migration_that_breaks_a_key_rolls_back(db_path, tmp_path):
+    migrations = tmp_path / "migrations"
+    _parent_child(migrations)
+    with get_db_connection(db_path) as conn:
+        apply_migrations(conn, migrations)
+        conn.execute("INSERT INTO parent VALUES (1, 'a')")
+        conn.execute("INSERT INTO child VALUES (1)")
+        conn.commit()
+        (migrations / "0002_lossy.sql").write_text("-- foreign_keys: off\nDELETE FROM parent;\n")
+        with pytest.raises(sqlite3.IntegrityError, match="0002_lossy.sql"):
+            apply_migrations(conn, migrations)
+        assert current_schema_version(conn) == 1
+        assert conn.execute("SELECT COUNT(*) FROM parent").fetchone()[0] == 1
+        assert conn.execute("PRAGMA foreign_keys;").fetchone()[0] == 1
