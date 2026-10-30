@@ -14,7 +14,7 @@ from pathlib import Path
 
 from domains.evaluation.cases import CASES_PATH, cases_sha256, load_cases
 from domains.evaluation.harness import run_batch
-from domains.evaluation.report import summary, write_report
+from domains.evaluation.report import load_rows, summary, write_report
 from shared_kernel.config import PROJECT_ROOT
 from shared_kernel.database import apply_migrations, get_db_connection
 
@@ -39,8 +39,6 @@ def cmd_run(args: argparse.Namespace) -> int:
         failed = conn.execute(
             "SELECT case_id, reason FROM eval_failures WHERE batch_id = ?", (batch_id,)
         ).fetchall()
-        from domains.evaluation.report import load_rows
-
         stats = summary(load_rows(conn, batch_id))
     for f in failed:
         print(f"{f['case_id']:18} FAILED: {f['reason']}")
