@@ -27,7 +27,7 @@ Warren is built by Claude agent teams that plan, review, merge and report on the
 4. **Escalate only on a trigger** (below). Otherwise continue without waiting.
 5. **Build.** One focused commit per step, tests with every step. Open a PR to `main`.
 6. **PR review.** CI must be green. The gatekeeper gives go or no-go; a no-go goes back to step 5. New ideas become GitHub issues labelled `backlog`, not additions to the PR.
-7. **Merge, tag, report.** Merge to `main` with a merge commit (so each step's commit stays visible), tag `warren-v0.<n>` (one minor version per milestone, patch versions for backlog items), update the Build Plan status, and post the desk entry and the lesson.
+7. **Merge, record, report.** Merge to `main` with a merge commit (so each step's commit stays visible), add the version to `docs/versions.md` (one minor version per milestone, patch versions for backlog items, each with its merge commit), update the Build Plan status, and post the desk entry and the lesson.
 
 **What goes to the owner (decision card with a recommendation)**
 

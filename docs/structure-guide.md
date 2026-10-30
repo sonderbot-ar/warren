@@ -147,7 +147,7 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 
 - **Decision:** Warren is built by Claude agent teams. An *Elephant* thread per track writes a design doc, the code and the tests, and merges. *Goldfish* reviewers (explainer, analyst, professor, gatekeeper) start with fresh context and review the design and the PR. Reporters write a desk entry and a one-page lesson per merged version. The owner sets goals, answers decision cards and reads reports; the owner no longer approves plans or merges PRs. The full loop is in `CLAUDE.md`.
 - **What still goes to the owner:** changes to the Phase 1 goal, universe or scope; changing, dropping or adding a design decision; anything that costs money; anything irreversible (rewriting or force-pushing `main`, deleting branches with unmerged work, making the repository public).
-- **Safety net:** CI (ruff and pytest) on every PR, required before merge; invariants as tests (reproduce to the cent, point-in-time, property tests on `financial_math.py`); a version tag on every merge; bad merges undone by a revert PR.
+- **Safety net:** CI (ruff and pytest) on every PR, required before merge; invariants as tests (reproduce to the cent, point-in-time, property tests on `financial_math.py`); every merged version recorded with its merge commit in `docs/versions.md`; bad merges undone by a revert PR.
 - **Reasoning:** the owner had become the bottleneck for both building and learning. Independent fresh-context review, automated tests and cheap rollback replace line-by-line human review. Free tools only by default; Elephant-Goldfish is adopted as a method, not as a plugin.
 - **Replaces:** the M0–M2.1 workflow (owner-approved plan, "go M<n>" trigger, owner reviews and merges every PR).
 
