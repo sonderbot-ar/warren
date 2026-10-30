@@ -3,7 +3,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
-/* Layout: a course workspace. Thin top bar, a five-step journey rail, one working screen, and a "source" drawer that slides in when any number is clicked. */
+/* Layout: a course workspace. Thin top bar, a five-step journey rail, one working screen, and an "explain" panel that slides in when any number is clicked. */
 :root {
   --paper: #F3F6F5;
   --surface: #FFFFFF;
@@ -13,9 +13,11 @@
   --accent: #0E6E5C;
   --accent-soft: #DCEEE9;
   --mark: rgba(242, 208, 60, .55);
+  --ripple: rgba(242, 208, 60, .28);
   --warn: #A9502A;
   --warn-soft: #F7E6DD;
   --good: #2F7D4A;
+  --bad: #B3402A;
   --bar: #13212B;
   --bar-ink: #E9F1EF;
   --f-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", sans-serif;
@@ -25,15 +27,15 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --paper: #0E161B; --surface: #152129; --ink: #E4ECEE; --muted: #93A4AB; --line: #263741;
-    --accent: #45B89B; --accent-soft: #173A33; --mark: rgba(242, 208, 60, .28);
-    --warn: #E39068; --warn-soft: #3A2419; --good: #6CC48A; --bar: #08100F; --bar-ink: #E4ECEE;
+    --accent: #45B89B; --accent-soft: #173A33; --mark: rgba(242, 208, 60, .30); --ripple: rgba(242, 208, 60, .16);
+    --warn: #E39068; --warn-soft: #3A2419; --good: #6CC48A; --bad: #EE8B74; --bar: #08100F; --bar-ink: #E4ECEE;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --paper: #0E161B; --surface: #152129; --ink: #E4ECEE; --muted: #93A4AB; --line: #263741;
-  --accent: #45B89B; --accent-soft: #173A33; --mark: rgba(242, 208, 60, .28);
-  --warn: #E39068; --warn-soft: #3A2419; --good: #6CC48A; --bar: #08100F; --bar-ink: #E4ECEE;
+  --accent: #45B89B; --accent-soft: #173A33; --mark: rgba(242, 208, 60, .30); --ripple: rgba(242, 208, 60, .16);
+  --warn: #E39068; --warn-soft: #3A2419; --good: #6CC48A; --bad: #EE8B74; --bar: #08100F; --bar-ink: #E4ECEE;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -47,12 +49,13 @@ h3 { font-size: 15px; font-weight: 700; font-family: var(--f-body); }
 p { margin: 0; }
 .num, td.n, .mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
 .eyebrow { font-size: 11.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
-button { font: inherit; color: inherit; cursor: pointer; }
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* top bar */
 .top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--bar); color: var(--bar-ink); }
-.top .wrap { display: flex; align-items: center; gap: 14px; padding-block: 10px; flex-wrap: wrap; }
+.top .wrap { display: flex; align-items: center; gap: 12px; padding-block: 10px; flex-wrap: wrap; }
 .logo { font-family: var(--f-display); font-weight: 700; font-size: 20px; letter-spacing: -.02em; display: flex; align-items: center; gap: 8px; }
 .logo svg { display: block; }
 .course { font-size: 13px; opacity: .75; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -62,8 +65,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 /* journey rail */
 .rail { border-bottom: 1px solid var(--line); background: var(--surface); }
-.rail .wrap { display: flex; gap: 4px; overflow-x: auto; padding-block: 0; scrollbar-width: none; }
-.rail a { display: flex; align-items: center; gap: 8px; padding: 12px 12px; text-decoration: none; color: var(--muted); font-size: 13.5px; white-space: nowrap; border-bottom: 2px solid transparent; }
+.rail .wrap { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+.rail a { display: flex; align-items: center; gap: 8px; padding: 12px; text-decoration: none; color: var(--muted); font-size: 13.5px; white-space: nowrap; border-bottom: 2px solid transparent; }
 .rail a .k { font-family: var(--f-mono); font-size: 11px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--line); }
 .rail a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
 .rail a[aria-current="page"] .k { background: var(--accent); border-color: var(--accent); color: var(--surface); }
@@ -71,7 +74,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 main { padding-block: 28px 40px; }
 .view { display: grid; gap: 22px; }
-.head { display: grid; gap: 8px; max-width: 760px; }
+.head { display: grid; gap: 8px; max-width: 780px; }
 .head p { color: var(--muted); font-size: 16px; }
 
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; display: grid; gap: 12px; min-width: 0; }
@@ -79,62 +82,101 @@ main { padding-block: 28px 40px; }
 .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
 @media (max-width: 820px) { .grid2, .grid3 { grid-template-columns: minmax(0, 1fr); } }
 
-/* the "why not Excel" strip on every screen */
 .why { display: flex; gap: 12px; align-items: flex-start; border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 12px 14px; border-radius: 0 8px 8px 0; font-size: 14px; }
 .why b { font-family: var(--f-display); white-space: nowrap; }
+@media (max-width: 520px) { .why { flex-direction: column; gap: 4px; } }
 
 .btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--accent); background: var(--accent); color: var(--surface); padding: 9px 16px; border-radius: 8px; font-weight: 600; font-size: 14px; text-decoration: none; }
 .btn.ghost { background: transparent; color: var(--accent); }
+.btn.small { padding: 5px 11px; font-size: 13px; }
 .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.spread { justify-content: space-between; }
 
-/* assignment */
-.memo { display: grid; gap: 14px; }
 .memo .from { display: flex; gap: 12px; align-items: center; }
 .avatar { width: 38px; height: 38px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; font-weight: 700; font-family: var(--f-display); flex: none; }
 .task { display: grid; gap: 10px; counter-reset: t; padding: 0; margin: 0; list-style: none; }
 .task li { display: grid; grid-template-columns: 26px 1fr; gap: 8px; }
 .task li::before { counter-increment: t; content: counter(t); font-family: var(--f-mono); font-size: 12px; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line); display: grid; place-items: center; color: var(--muted); }
-.kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 14px; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 14px; margin: 0; }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; font-weight: 500; }
 .chip { display: inline-block; font-size: 12px; padding: 2px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .chip.warn { background: var(--warn-soft); color: var(--warn); }
+.panelmap { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.panelmap div { border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: grid; gap: 2px; font-size: 13px; }
+.panelmap b { font-size: 13.5px; }
+.panelmap span { color: var(--muted); }
+@media (max-width: 820px) { .panelmap { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
 
 /* statements */
 .asof { display: grid; gap: 8px; }
-.asof-top { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: baseline; }
 .asof-date { font-family: var(--f-mono); font-size: 22px; font-weight: 500; }
 input[type="range"] { width: 100%; accent-color: var(--accent); }
 .ticks { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--muted); font-family: var(--f-mono); }
 .tablebox { overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; font-size: 14px; }
-th, td { padding: 7px 10px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th, td { padding: 6px 10px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
 th:first-child, td:first-child { text-align: left; }
 thead th { font-size: 12px; color: var(--muted); font-weight: 600; }
+td.lab { text-align: left; }
+td.ref { font-family: var(--f-mono); font-size: 11px; color: var(--muted); width: 28px; padding-right: 0; text-align: left; }
 tr.sub td { color: var(--muted); font-size: 13px; }
 tr.sec td { padding-top: 14px; font-weight: 600; font-size: 12px; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; border-bottom: 0; }
 td.n button { background: none; border: 0; padding: 1px 4px; margin: -1px -4px; border-radius: 3px; font: inherit; color: var(--ink); text-decoration: underline dotted var(--muted); text-underline-offset: 3px; }
 td.n button:hover, td.n button.on { background: var(--mark); text-decoration: none; }
+td.n.rip { background: var(--ripple); }
+td.n.rip button { font-weight: 600; }
+td.n .was { display: block; font-size: 11px; color: var(--muted); text-decoration: line-through; }
 td.locked { color: var(--warn); font-family: var(--f-body); font-size: 12px; background: repeating-linear-gradient(135deg, transparent 0 6px, var(--warn-soft) 6px 8px); }
 th.locked { color: var(--warn); }
-.hint { font-size: 13px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+.hint { font-size: 13px; color: var(--muted); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .hint i { display: inline-block; width: 26px; height: 12px; background: var(--mark); border-radius: 2px; }
+.banner { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: var(--ripple); border: 1px solid var(--mark); border-radius: 8px; padding: 8px 12px; font-size: 13.5px; }
 
-/* drawer */
-.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(420px, 100%); background: var(--surface); border-left: 1px solid var(--line); z-index: 40; transform: translateX(105%); transition: transform .22s ease; display: flex; flex-direction: column; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); padding-right: env(safe-area-inset-right, 0px); box-shadow: -12px 0 30px rgba(0,0,0,.12); }
+/* explain panel */
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(460px, 100%); background: var(--surface); border-left: 1px solid var(--line); z-index: 40; transform: translateX(105%); transition: transform .22s ease; display: flex; flex-direction: column; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); padding-right: env(safe-area-inset-right, 0px); box-shadow: -12px 0 30px rgba(0,0,0,.12); }
 .drawer.open { transform: none; }
-.drawer header { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--line); }
-.drawer .x { background: none; border: 1px solid var(--line); border-radius: 6px; width: 30px; height: 30px; }
-.drawer .body { padding: 18px; overflow-y: auto; display: grid; gap: 16px; align-content: start; }
-.big { font-family: var(--f-mono); font-size: 30px; font-weight: 500; background: var(--mark); display: inline-block; padding: 0 6px; border-radius: 3px; }
-.chain { display: grid; gap: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.drawer header { display: grid; gap: 8px; padding: 14px 18px 0; border-bottom: 1px solid var(--line); }
+.dr-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.drawer .x { background: none; border: 1px solid var(--line); border-radius: 6px; width: 30px; height: 30px; flex: none; }
+.big { font-family: var(--f-mono); font-size: 28px; font-weight: 500; background: var(--mark); display: inline-block; padding: 0 6px; border-radius: 3px; }
+.tabs { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; margin: 0 -4px; }
+.tabs button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 8px; font-size: 13px; color: var(--muted); white-space: nowrap; }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+.drawer .body { padding: 18px; overflow-y: auto; display: grid; gap: 14px; align-content: start; flex: 1; }
+.chain { display: grid; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .chain > div { padding: 10px 12px; display: grid; gap: 2px; font-size: 13.5px; }
 .chain > div + div { border-top: 1px dashed var(--line); }
-.chain .lbl { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
-.chain code { font-family: var(--f-mono); font-size: 13px; word-break: break-all; }
+.lbl { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+code { font-family: var(--f-mono); font-size: 13px; word-break: break-word; }
 .excel { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 13px; color: var(--muted); display: grid; gap: 6px; }
 .excel .cell { font-family: var(--f-mono); background: var(--paper); border: 1px solid var(--line); padding: 4px 8px; color: var(--ink); }
+.steps { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: 14px; }
+.steps code { background: var(--paper); padding: 0 4px; border-radius: 3px; }
+.concept p + p { margin-top: 8px; }
+.concept .ex { border-left: 3px solid var(--line); padding-left: 10px; color: var(--muted); font-size: 14px; }
+.edit { display: grid; gap: 8px; }
+.edit-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.edit input[type="number"] { width: 150px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); font-family: var(--f-mono); }
+.radios { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13.5px; }
+.ripples { display: grid; gap: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.ripples > div { padding: 9px 12px; display: grid; gap: 2px; font-size: 13.5px; }
+.ripples > div + div { border-top: 1px solid var(--line); }
+.rp-top { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-weight: 600; }
+.rp-top .mono { font-weight: 500; }
+.up { color: var(--good); } .down { color: var(--bad); }
+.rp-why { color: var(--muted); font-size: 13px; }
+.news { display: grid; gap: 10px; }
+.news article { display: grid; gap: 2px; border-bottom: 1px solid var(--line); padding-bottom: 10px; }
+.news .d { font-family: var(--f-mono); font-size: 11.5px; color: var(--muted); }
+.news .rel { font-size: 12.5px; color: var(--accent); }
+.tickers { display: grid; gap: 8px; }
+.tk { display: grid; grid-template-columns: 74px 1fr; gap: 10px; font-size: 13.5px; align-items: baseline; }
+.tk b { font-family: var(--f-mono); font-weight: 500; }
+.tk span small { color: var(--accent); font-weight: 600; }
+.note { font-size: 13px; color: var(--muted); }
 .scrim { position: fixed; inset: 0; background: rgba(10, 20, 25, .35); z-index: 35; }
+@media (min-width: 900px) { .scrim { display: none; } main .wrap { transition: padding .22s ease; } body.panel-open main .wrap { padding-right: 476px; max-width: none; } }
 
 /* valuation */
 .sliders { display: grid; gap: 16px; }
@@ -151,7 +193,6 @@ th.locked { color: var(--warn); }
 .range .v { font-family: var(--f-mono); font-size: 22px; font-weight: 500; }
 .range .l { font-size: 11.5px; color: var(--muted); }
 svg text { fill: var(--muted); font-family: var(--f-mono); font-size: 11px; }
-.note { font-size: 13px; color: var(--muted); }
 .submitted { display: flex; gap: 10px; align-items: center; color: var(--good); font-weight: 600; font-size: 14px; }
 
 /* reality */
@@ -168,10 +209,7 @@ svg text { fill: var(--muted); font-family: var(--f-mono); font-size: 11px; }
 .stat .v { font-family: var(--f-display); font-size: 30px; font-weight: 700; }
 .stat .d { font-size: 13px; color: var(--muted); }
 .quote { font-size: 15px; border-left: 3px solid var(--line); padding-left: 12px; }
-
-/* professor */
 .roster td:nth-child(2), .roster th:nth-child(2) { text-align: left; }
-.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .teaser { border: 1px dashed var(--accent); background: transparent; }
 .flag { font-size: 12px; color: var(--good); font-weight: 600; }
 
@@ -187,6 +225,10 @@ footer .wrap { display: grid; gap: 4px; }
       Warren
     </div>
     <div class="course" id="course"></div>
+    <div class="seg" role="group" aria-label="Role">
+      <button id="role-student" data-role="student"></button>
+      <button id="role-prof" data-role="professor"></button>
+    </div>
     <div class="seg" role="group" aria-label="Language">
       <button id="lang-en" data-lang="en">EN</button>
       <button id="lang-es" data-lang="es">ES</button>
@@ -199,8 +241,12 @@ footer .wrap { display: grid; gap: 4px; }
 
 <div class="scrim" id="scrim" hidden></div>
 <aside class="drawer" id="drawer" aria-hidden="true" aria-labelledby="dr-title">
-  <header><h2 id="dr-title"></h2><button class="x" id="dr-close" aria-label="Close">✕</button></header>
-  <div class="body" id="dr-body"></div>
+  <header>
+    <div class="dr-top"><div><span class="eyebrow" id="dr-sub"></span><h2 id="dr-title"></h2></div><button class="x" id="dr-close" aria-label="Close">✕</button></div>
+    <div id="dr-big"></div>
+    <div class="tabs" role="tablist" id="dr-tabs"></div>
+  </header>
+  <div class="body" id="dr-body" role="tabpanel"></div>
 </aside>
 
 <script>
@@ -208,55 +254,184 @@ footer .wrap { display: grid; gap: 4px; }
 let lang = 'en';
 try { lang = localStorage.getItem('warren-demo-lang') || 'en'; } catch (e) {}
 const L = (en, es) => lang === 'es' ? es : en;
-
-// ---------- real data: The Coca-Cola Company (CIK 0000021344), US$ millions ----------
-// Pulled with Warren's own point-in-time data layer (SEC EDGAR company facts).
-const F22 = { form: '10-K', fy: 'FY2022', filed: '2023-02-21', acc: '0000021344-23-000011' };
-const F23 = { form: '10-K', fy: 'FY2023', filed: '2024-02-20', acc: '0000021344-24-000009' };
-const F24 = { form: '10-K', fy: 'FY2024', filed: '2025-02-20', acc: '0000021344-25-000011' };
-const YEARS = [2020, 2021, 2022, 2023];
-const ITEMS = [
-  { sec: ['Income statement', 'Estado de resultados'] },
-  { k: 'revenue', n: ['Revenue', 'Ingresos'], tag: 'us-gaap:Revenues', v: [33014, 38655, 43004, 45754] },
-  { k: 'cogs', n: ['Cost of goods sold', 'Costo de ventas'], tag: 'us-gaap:CostOfGoodsAndServicesSold', v: [13433, 15357, 18000, 18520] },
-  { k: 'ebit', n: ['Operating income', 'Utilidad de operación'], tag: 'us-gaap:OperatingIncomeLoss', v: [8997, 10308, 10909, 11311] },
-  { k: 'margin', derived: true, n: ['Operating margin', 'Margen operativo'] },
-  { k: 'ni', n: ['Net income', 'Utilidad neta'], tag: 'us-gaap:ProfitLoss', v: [7768, 9804, 9571, 10703] },
-  { sec: ['Cash flow', 'Flujo de efectivo'] },
-  { k: 'da', n: ['Depreciation & amortization', 'Depreciación y amortización'], tag: 'us-gaap:DepreciationDepletionAndAmortization', v: [1536, 1452, 1260, 1128] },
-  { k: 'capex', n: ['Capital expenditure', 'Inversión en activo fijo (capex)'], tag: 'us-gaap:PaymentsToAcquirePropertyPlantAndEquipment', v: [1177, 1367, 1484, 1852] },
-  { sec: ['Balance sheet', 'Balance general'] },
-  { k: 'cash', n: ['Cash', 'Efectivo'], tag: 'us-gaap:CashAndCashEquivalentsAtCarryingValue', v: [6795, 9684, 9519, 9366] },
-  { k: 'ltd', n: ['Long-term debt', 'Deuda de largo plazo'], tag: 'us-gaap:LongTermDebtNoncurrent', v: [40125, 38116, 36377, 35547] },
-  { k: 'shares', n: ['Diluted shares (millions)', 'Acciones diluidas (millones)'], tag: 'us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding', v: [4323, 4340, 4350, 4339] },
-];
-// Which annual report a figure comes from, as Warren would pick it on a given date:
-// the newest filing already public. FY2020 stays on the FY2022 10-K; long-term debt FY2020 on the FY2021 10-K.
-function sourceFor(item, year, asOf) {
-  if (item.k === 'ltd' && year === 2020) return { form: '10-K', fy: 'FY2021', filed: '2022-02-22', acc: '0000021344-22-000009' };
-  if (year === 2023) return F23;
-  if (year === 2020) return F22;
-  if (item.k === 'ltd' && year === 2021) return F22;
-  return asOf >= F23.filed ? F23 : F22;
-}
-const publicOn = y => y === 2023 ? F23.filed : F22.filed;
-const edgar = acc => `https://www.sec.gov/Archives/edgar/data/21344/${acc.replace(/-/g, '')}/`;
-const fmt = (x, d = 0) => x.toLocaleString(lang === 'es' ? 'es-MX' : 'en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+const fmt = (x, d = 0) => (+x).toLocaleString(lang === 'es' ? 'es-MX' : 'en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
 const pct = (x, d = 1) => fmt(x * 100, d) + '%';
 const fdate = s => new Date(s + 'T12:00:00Z').toLocaleDateString(lang === 'es' ? 'es-MX' : 'en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+const sgn = (x, d = 0) => (x > 0 ? '+' : x < 0 ? '−' : '') + fmt(Math.abs(x), d);
+
+// ---------- real data: Apple Inc. (CIK 0000320193), US$ millions ----------
+// Pulled with Warren's point-in-time data layer (SEC EDGAR). Receivables, inventory, payables and
+// cash from operations were read from the same filings; they are not yet in Warren's Phase 1 data set.
+const FIL = {
+  k22: { form: '10-K', name: ['Annual report FY2022', 'Informe anual FY2022'], filed: '2022-10-28', acc: '0000320193-22-000108' },
+  k23: { form: '10-K', name: ['Annual report FY2023', 'Informe anual FY2023'], filed: '2023-11-03', acc: '0000320193-23-000106' },
+  q24: { form: '10-Q', name: ['Quarterly report, Dec 2023', 'Informe trimestral, dic 2023'], filed: '2024-02-02', acc: '0000320193-24-000006' },
+  k24: { form: '10-K', name: ['Annual report FY2024', 'Informe anual FY2024'], filed: '2024-11-01', acc: '0000320193-24-000123' },
+};
+const YEARS = [2023, 2022, 2021]; // newest first, as in a 10-K
+const PERIOD = { 2023: ['2022-09-25', '2023-09-30'], 2022: ['2021-09-26', '2022-09-24'], 2021: ['2020-09-27', '2021-09-25'] };
+const COLS = { 2023: 'B', 2022: 'C', 2021: 'D' };
+// kind: f = flow (income/cash flow), s = stock (balance sheet), d = derived by Warren. w = in Warren's Phase 1 data set.
+const ITEMS = [
+  { sec: ['Income statement', 'Estado de resultados'] },
+  { k: 'rev', kind: 'f', w: 1, n: ['Revenue', 'Ingresos'], tag: 'us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax', v: { 2023: 383285, 2022: 394328, 2021: 365817 } },
+  { k: 'cogs', kind: 'f', w: 1, n: ['Cost of sales', 'Costo de ventas'], tag: 'us-gaap:CostOfGoodsAndServicesSold', v: { 2023: 214137, 2022: 223546, 2021: 212981 } },
+  { k: 'gp', kind: 'd', n: ['Gross profit', 'Utilidad bruta'], f: '{rev}-{cogs}' },
+  { k: 'opex', kind: 'f', w: 1, n: ['Operating expenses', 'Gastos de operación'], tag: 'us-gaap:OperatingExpenses', v: { 2023: 54847, 2022: 51345, 2021: 43887 } },
+  { k: 'oi', kind: 'd', n: ['Operating income', 'Utilidad de operación'], f: '{gp}-{opex}', check: 'us-gaap:OperatingIncomeLoss' },
+  { k: 'margin', kind: 'd', pct: 1, sub: 1, n: ['Operating margin', 'Margen operativo'], f: '{oi}/{rev}' },
+  { k: 'other', kind: 'd', sub: 1, n: ['Other income (expense)', 'Otros ingresos (gastos)'], f: '{pretax}-{oi}' },
+  { k: 'pretax', kind: 'f', w: 1, n: ['Pre-tax income', 'Utilidad antes de impuestos'], tag: 'us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxes…', v: { 2023: 113736, 2022: 119103, 2021: 109207 } },
+  { k: 'tax', kind: 'f', w: 1, n: ['Income tax', 'Impuesto a la utilidad'], tag: 'us-gaap:IncomeTaxExpenseBenefit', v: { 2023: 16741, 2022: 19300, 2021: 14527 } },
+  { k: 'ni', kind: 'd', n: ['Net income', 'Utilidad neta'], f: '{pretax}-{tax}', check: 'us-gaap:NetIncomeLoss' },
+  { k: 'shares', kind: 'f', w: 1, sub: 1, dec: 0, n: ['Diluted shares (millions)', 'Acciones diluidas (millones)'], tag: 'us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding', v: { 2023: 15812.547, 2022: 16325.819, 2021: 16864.919 } },
+  { k: 'eps', kind: 'd', sub: 1, dec: 2, n: ['Earnings per share ($)', 'Utilidad por acción ($)'], f: '{ni}/{shares}' },
+  { sec: ['Cash flow', 'Flujo de efectivo'] },
+  { k: 'cfo', kind: 'f', w: 0, n: ['Cash from operations', 'Flujo de operación'], tag: 'us-gaap:NetCashProvidedByUsedInOperatingActivities', v: { 2023: 110543, 2022: 122151, 2021: 104038 } },
+  { k: 'da', kind: 'f', w: 1, n: ['Depreciation & amortization', 'Depreciación y amortización'], tag: 'us-gaap:DepreciationDepletionAndAmortization', v: { 2023: 11519, 2022: 11104, 2021: 11284 } },
+  { k: 'capex', kind: 'f', w: 1, n: ['Capital expenditure', 'Inversión en activo fijo (capex)'], tag: 'us-gaap:PaymentsToAcquirePropertyPlantAndEquipment', v: { 2023: 10959, 2022: 10708, 2021: 11085 } },
+  { k: 'fcf', kind: 'd', n: ['Free cash flow', 'Flujo de caja libre'], f: '{cfo}-{capex}' },
+  { sec: ['Balance sheet', 'Balance general'] },
+  { k: 'cash', kind: 's', w: 1, n: ['Cash', 'Efectivo'], tag: 'us-gaap:CashAndCashEquivalentsAtCarryingValue', v: { 2023: 29965, 2022: 23646, 2021: 34940 } },
+  { k: 'ms', kind: 's', w: 1, n: ['Marketable securities', 'Valores negociables'], tag: 'us-gaap:MarketableSecuritiesCurrent + …Noncurrent', v: { 2023: 132134, 2022: 145463, 2021: 155576 } },
+  { k: 'ar', kind: 's', w: 0, n: ['Accounts receivable', 'Cuentas por cobrar'], tag: 'us-gaap:AccountsReceivableNetCurrent', v: { 2023: 29508, 2022: 28184, 2021: 26278 } },
+  { k: 'inv', kind: 's', w: 0, n: ['Inventory', 'Inventario'], tag: 'us-gaap:InventoryNet', v: { 2023: 6331, 2022: 4946, 2021: 6580 } },
+  { k: 'ap', kind: 's', w: 0, n: ['Accounts payable', 'Cuentas por pagar'], tag: 'us-gaap:AccountsPayableCurrent', v: { 2023: 62611, 2022: 64115, 2021: 54763 } },
+  { k: 'debt', kind: 's', w: 1, n: ['Total debt', 'Deuda total'], tag: 'us-gaap:LongTermDebtNoncurrent + LongTermDebtCurrent + CommercialPaper', v: { 2023: 111088, 2022: 120069, 2021: 124719 } },
+  { k: 'netdebt', kind: 'd', n: ['Net debt', 'Deuda neta'], f: '{debt}-{cash}-{ms}' },
+];
+const IT = Object.fromEntries(ITEMS.filter(i => i.k).map(i => [i.k, i]));
+let r = 1; ITEMS.forEach(i => { r++; if (i.k) i.row = r; });
+const cellRef = (k, y) => COLS[y] + IT[k].row;
+function hist(k, y) {
+  const it = IT[k];
+  if (it.v) return it.v[y];
+  const g = x => hist(x, y);
+  return { gp: () => g('rev') - g('cogs'), oi: () => g('rev') - g('cogs') - g('opex'), margin: () => (g('rev') - g('cogs') - g('opex')) / g('rev'),
+    other: () => g('pretax') - (g('rev') - g('cogs') - g('opex')), ni: () => g('pretax') - g('tax'), eps: () => (g('pretax') - g('tax')) / g('shares'),
+    fcf: () => g('cfo') - g('capex'), netdebt: () => g('debt') - g('cash') - g('ms') }[k]();
+}
+function sourceFor(it, y, asOf) {
+  if (it.kind === 'f') return y === 2023 ? FIL.k23 : (asOf >= FIL.k23.filed ? FIL.k23 : FIL.k22);
+  if (y === 2023) return asOf >= FIL.q24.filed ? FIL.q24 : FIL.k23;
+  if (y === 2022) return asOf >= FIL.k23.filed ? FIL.k23 : FIL.k22;
+  return FIL.k22;
+}
+const publicOn = y => y === 2023 ? FIL.k23.filed : FIL.k22.filed;
+const edgar = acc => `https://www.sec.gov/Archives/edgar/data/320193/${acc.replace(/-/g, '')}/`;
+const show = (k, v) => IT[k].pct ? pct(v) : fmt(v, IT[k].dec ?? 0);
+
+// ---------- linked FY2023 model for "what if" ----------
+const B = { rev: 383285, cogs: 214137, opex: 54847, other: 113736 - 114301, rate: 16741 / 113736, da: 11519, capex: 10959,
+  inv0: 4946, ar0: 28184, ap0: 64115, ar: 29508, ap: 62611, shares: 15812.547, cash: 29965, ms: 132134, debt: 111088 };
+B.purch = B.cogs + 6331 - B.inv0;  // purchases are not reported; Warren backs them out of the inventory movement
+B.cfoOther = 110543 - ((B.rev - B.cogs - B.opex + B.other) * (1 - B.rate) + B.da - (B.ar - B.ar0) - (6331 - B.inv0) + (B.ap - B.ap0));
+function model(o) {
+  const x = { ...B, ...o };
+  if (o.credit && o.purch != null) x.ap = B.ap + (o.purch - B.purch);
+  const gp = x.rev - x.cogs, oi = gp - x.opex, pretax = oi + x.other, tax = pretax * x.rate, ni = pretax - tax;
+  const inv = x.inv0 + x.purch - x.cogs;
+  const cfo = ni + x.da - (x.ar - x.ar0) - (inv - x.inv0) + (x.ap - x.ap0) + x.cfoOther;
+  const fcf = cfo - x.capex;
+  const fcfBase = 110543 - B.capex;
+  const cash = B.cash + (fcf - fcfBase);
+  return { rev: x.rev, cogs: x.cogs, gp, opex: x.opex, oi, margin: oi / x.rev, other: x.other, pretax, tax, ni, shares: x.shares, eps: ni / x.shares,
+    cfo, da: x.da, capex: x.capex, fcf, cash, ms: x.ms, ar: x.ar, inv, ap: x.ap, debt: x.debt, netdebt: x.debt - cash - x.ms };
+}
+const BASEM = model({});
+// which inputs a student can change, and how they read in the panel
+const EDITABLE = { rev: 1, cogs: 1, opex: 1, da: 1, capex: 1, ar: 1, ap: 1, inv: 'purch', tax: 'rate' };
+const WHY = {
+  rev: () => L('The number you changed.', 'El número que cambiaste.'),
+  cogs: () => L('The number you changed.', 'El número que cambiaste.'),
+  gp: () => L('Gross profit = revenue − cost of sales.', 'Utilidad bruta = ingresos − costo de ventas.'),
+  opex: () => L('The number you changed.', 'El número que cambiaste.'),
+  oi: () => L('Operating income = gross profit − operating expenses.', 'Utilidad de operación = utilidad bruta − gastos de operación.'),
+  margin: () => L('Operating margin = operating income ÷ revenue.', 'Margen operativo = utilidad de operación ÷ ingresos.'),
+  pretax: () => L('Pre-tax income = operating income + other income. Other income stays as reported.', 'Utilidad antes de impuestos = utilidad de operación + otros ingresos. Otros ingresos se quedan como se reportaron.'),
+  tax: () => L('Tax = pre-tax income × the FY2023 effective rate (14.7%).', 'Impuesto = utilidad antes de impuestos × la tasa efectiva FY2023 (14.7%).'),
+  ni: () => L('Net income = pre-tax income − tax.', 'Utilidad neta = utilidad antes de impuestos − impuesto.'),
+  eps: () => L('Earnings per share = net income ÷ diluted shares.', 'Utilidad por acción = utilidad neta ÷ acciones diluidas.'),
+  inv: () => L('Inventory = opening inventory + purchases − cost of sales. Goods bought but not yet sold stay on the balance sheet.', 'Inventario = inventario inicial + compras − costo de ventas. Lo comprado y no vendido se queda en el balance.'),
+  ap: () => L('Bought on credit, so Apple owes its suppliers more at year end.', 'Se compró a crédito, así que Apple debe más a sus proveedores al cierre.'),
+  ar: () => L('The number you changed.', 'El número que cambiaste.'),
+  cfo: () => L('Cash from operations starts at net income, adds back depreciation, subtracts cash tied up in receivables and inventory, and adds cash still owed to suppliers.', 'El flujo de operación parte de la utilidad neta, suma la depreciación, resta el efectivo atrapado en cuentas por cobrar e inventario y suma lo que aún se debe a proveedores.'),
+  da: () => L('The number you changed. Depreciation is not cash, but it lowers profit and so lowers tax.', 'El número que cambiaste. La depreciación no es efectivo, pero baja la utilidad y por eso baja el impuesto.'),
+  capex: () => L('The number you changed.', 'El número que cambiaste.'),
+  fcf: () => L('Free cash flow = cash from operations − capital expenditure.', 'Flujo de caja libre = flujo de operación − capex.'),
+  cash: () => L('Any change in free cash flow ends up in the cash balance (financing stays as reported).', 'Todo cambio en el flujo de caja libre termina en el saldo de efectivo (el financiamiento se queda como se reportó).'),
+  netdebt: () => L('Net debt = debt − cash − marketable securities. Less cash means higher net debt.', 'Deuda neta = deuda − efectivo − valores negociables. Menos efectivo significa más deuda neta.'),
+};
+
+// ---------- concepts ----------
+const CONCEPT = {
+  rev: [['Revenue is what customers paid for goods and services in the year: iPhones, Macs, and services such as the App Store and iCloud.', 'Apple counts a sale when the customer gets the product, not when cash arrives.'],
+        ['Los ingresos son lo que los clientes pagaron por bienes y servicios en el año: iPhones, Macs y servicios como la App Store e iCloud.', 'Apple registra una venta cuando el cliente recibe el producto, no cuando llega el efectivo.'], ['If Apple sells an iPhone on 29 September and the carrier pays in October, the sale still counts in FY2023.', 'Si Apple vende un iPhone el 29 de septiembre y el operador paga en octubre, la venta cuenta en FY2023.']],
+  cogs: [['Cost of sales is what it cost to make or deliver what was sold: parts, assembly, shipping, and running the services.', 'Only goods that were actually sold count here. Goods still in the warehouse stay in inventory.'],
+         ['El costo de ventas es lo que costó producir o entregar lo vendido: piezas, ensamblaje, envío y operar los servicios.', 'Solo cuenta lo que realmente se vendió. Lo que sigue en bodega se queda en inventario.'], ['Buying 1,000 screens is a purchase. Only the screens inside phones that were sold become cost of sales.', 'Comprar 1,000 pantallas es una compra. Solo las pantallas de teléfonos vendidos se vuelven costo de ventas.']],
+  gp: [['Gross profit is what is left from sales after paying for the products themselves.', 'Gross margin (gross profit ÷ revenue) shows pricing power. Apple\'s is about 44%, high for a hardware maker, because services carry much higher margins than devices.'],
+       ['La utilidad bruta es lo que queda de las ventas después de pagar los productos en sí.', 'El margen bruto (utilidad bruta ÷ ingresos) muestra poder de precio. El de Apple ronda 44%, alto para un fabricante, porque los servicios tienen márgenes mucho mayores que los equipos.'], ['383,285 − 214,137 = 169,148, about 44% of revenue.', '383,285 − 214,137 = 169,148, cerca del 44% de los ingresos.']],
+  opex: [['Operating expenses are the costs of running the company that are not tied to a single product: research and development, marketing, salaries at headquarters.', 'Apple spent about 30 billion dollars on research in FY2023.'],
+         ['Los gastos de operación son los costos de operar la empresa que no se ligan a un producto: investigación y desarrollo, mercadotecnia, sueldos corporativos.', 'Apple gastó unos 30 mil millones de dólares en investigación en FY2023.'], ['These are cut or raised by management decisions, unlike cost of sales which moves with volume.', 'Estos los sube o baja la dirección, a diferencia del costo de ventas, que se mueve con el volumen.']],
+  oi: [['Operating income is the profit from the business itself, before interest, investment income and taxes.', 'It is the best single measure of how well the core business is doing, because financing choices do not affect it.'],
+       ['La utilidad de operación es la ganancia del negocio en sí, antes de intereses, ingresos financieros e impuestos.', 'Es la mejor medida del desempeño del negocio central, porque no depende de cómo se financia.'], ['Warren checks its own subtraction against the figure Apple reports: 114,301 both ways.', 'Warren compara su resta con la cifra que reporta Apple: 114,301 en ambos casos.']],
+  margin: [['Operating margin is operating income as a share of revenue: how many cents of profit each dollar of sales leaves.', 'In a valuation it is one of the two big assumptions, along with growth.'],
+           ['El margen operativo es la utilidad de operación como proporción de los ingresos: cuántos centavos de ganancia deja cada dólar de venta.', 'En una valuación es uno de los dos grandes supuestos, junto con el crecimiento.'], ['29.8% means 29.8 cents of operating profit per dollar of sales.', '29.8% significa 29.8 centavos de utilidad operativa por cada dólar vendido.']],
+  other: [['Other income is everything between operating income and pre-tax income: interest earned on Apple\'s securities, minus interest paid on its debt, plus gains and losses.', ''],
+          ['Otros ingresos es todo lo que hay entre la utilidad de operación y la utilidad antes de impuestos: intereses ganados por los valores de Apple, menos intereses de su deuda, más ganancias y pérdidas.', ''], ['Warren computes it as pre-tax income − operating income, so it always adds up.', 'Warren lo calcula como utilidad antes de impuestos − utilidad de operación, así siempre cuadra.']],
+  pretax: [['Pre-tax income is the profit before income tax.', ''], ['La utilidad antes de impuestos es la ganancia antes del impuesto a la utilidad.', ''], ['', '']],
+  tax: [['Income tax is what the company owes governments on its profit. The effective rate (tax ÷ pre-tax income) is often below the headline rate because profit is earned in many countries.', 'Apple\'s FY2023 effective rate was 14.7%.'],
+        ['El impuesto a la utilidad es lo que la empresa debe a los gobiernos por su ganancia. La tasa efectiva (impuesto ÷ utilidad antes de impuestos) suele ser menor a la tasa oficial porque la ganancia se genera en muchos países.', 'La tasa efectiva de Apple en FY2023 fue 14.7%.'], ['16,741 ÷ 113,736 = 14.7%.', '16,741 ÷ 113,736 = 14.7%.']],
+  ni: [['Net income is the profit that belongs to shareholders after every expense, interest and tax.', 'It is not cash. A company can show a profit and still run short of cash if customers pay late or inventory piles up.'],
+       ['La utilidad neta es la ganancia que pertenece a los accionistas después de todo gasto, interés e impuesto.', 'No es efectivo. Una empresa puede ganar y aun así quedarse sin efectivo si los clientes pagan tarde o se acumula inventario.'], ['Warren computes 113,736 − 16,741 = 96,995 and checks it against the reported figure.', 'Warren calcula 113,736 − 16,741 = 96,995 y lo compara con la cifra reportada.']],
+  shares: [['Diluted shares count every share that exists plus those that would exist if employees exercised their stock awards.', 'Apple buys back shares every year, so the count falls and each remaining share owns a bigger slice.'],
+           ['Las acciones diluidas cuentan todas las acciones más las que existirían si los empleados ejercieran sus opciones.', 'Apple recompra acciones cada año, así que el número baja y cada acción restante es dueña de una parte mayor.'], ['16,865 million in FY2021 to 15,813 million in FY2023: about 6% fewer.', 'De 16,865 millones en FY2021 a 15,813 millones en FY2023: cerca de 6% menos.']],
+  eps: [['Earnings per share is net income divided by shares: each share\'s slice of the profit.', 'Buybacks raise it even when profit does not grow.'], ['La utilidad por acción es la utilidad neta dividida entre las acciones: la parte de la ganancia de cada acción.', 'Las recompras la suben aunque la utilidad no crezca.'], ['', '']],
+  cfo: [['Cash from operations is the cash the business actually brought in during the year.', 'It starts from net income and corrects for things that are not cash: depreciation, and money tied up in or freed from working capital.'],
+        ['El flujo de operación es el efectivo que el negocio realmente generó en el año.', 'Parte de la utilidad neta y corrige lo que no es efectivo: la depreciación y el dinero que entra o sale del capital de trabajo.'], ['Apple\'s is higher than its net income: suppliers fund part of its inventory.', 'El de Apple es mayor que su utilidad neta: los proveedores financian parte de su inventario.']],
+  da: [['Depreciation spreads the cost of a long-lived asset, such as a factory machine or a data center, over the years it is used.', 'It lowers profit but no cash leaves that year, which is why cash flow adds it back.'],
+       ['La depreciación reparte el costo de un activo de larga vida, como una máquina o un centro de datos, entre los años en que se usa.', 'Baja la utilidad pero ese año no sale efectivo, por eso el flujo de efectivo la suma de vuelta.'], ['', '']],
+  capex: [['Capital expenditure is cash spent on long-lived assets: equipment, buildings, data centers.', 'It does not hit profit right away; it is depreciated over time.'],
+          ['El capex es el efectivo gastado en activos de larga vida: equipo, edificios, centros de datos.', 'No pega en la utilidad de inmediato; se deprecia con el tiempo.'], ['Apple spends about as much on new assets each year as it depreciates: about 11 billion.', 'Apple gasta en activos nuevos más o menos lo mismo que deprecia: unos 11 mil millones al año.']],
+  fcf: [['Free cash flow is the cash left after running the business and investing to keep it going. It is what could be paid to shareholders and lenders.', 'A DCF valuation is the value today of all future free cash flow.'],
+        ['El flujo de caja libre es el efectivo que queda después de operar el negocio e invertir para mantenerlo. Es lo que podría pagarse a accionistas y acreedores.', 'Una valuación DCF es el valor hoy de todo el flujo de caja libre futuro.'], ['110,543 − 10,959 = 99,584 in FY2023.', '110,543 − 10,959 = 99,584 en FY2023.']],
+  cash: [['Cash and cash equivalents: money in the bank and very short-term deposits.', ''], ['Efectivo y equivalentes: dinero en el banco y depósitos de muy corto plazo.', ''], ['', '']],
+  ms: [['Marketable securities are investments Apple can sell quickly, mostly bonds. Analysts usually treat them like cash.', ''], ['Los valores negociables son inversiones que Apple puede vender rápido, sobre todo bonos. Los analistas suelen tratarlos como efectivo.', ''], ['', '']],
+  ar: [['Accounts receivable is money customers owe for goods already delivered.', 'When receivables grow, profit is booked but the cash has not arrived yet, so cash flow is lower than profit.'],
+       ['Las cuentas por cobrar son dinero que los clientes deben por bienes ya entregados.', 'Cuando crecen, la utilidad ya se registró pero el efectivo no ha llegado, así que el flujo es menor que la utilidad.'], ['', '']],
+  inv: [['Inventory is goods bought or made but not yet sold.', 'Buying more than you sell grows inventory. It does not change profit, but it uses cash unless suppliers give you time to pay.'],
+        ['El inventario son bienes comprados o fabricados pero aún no vendidos.', 'Comprar más de lo que vendes hace crecer el inventario. No cambia la utilidad, pero consume efectivo salvo que los proveedores te den plazo.'], ['Apple keeps very little inventory for its size: under 2 days of sales.', 'Apple tiene muy poco inventario para su tamaño: menos de 2 días de ventas.']],
+  ap: [['Accounts payable is money the company owes suppliers for goods already received.', 'When payables grow, the company is using its suppliers\' money, which helps its cash.'],
+       ['Las cuentas por pagar son dinero que la empresa debe a proveedores por bienes ya recibidos.', 'Cuando crecen, la empresa usa el dinero de sus proveedores, lo que ayuda a su efectivo.'], ['Apple owes suppliers about ten times what it holds in inventory.', 'Apple debe a sus proveedores unas diez veces lo que tiene en inventario.']],
+  debt: [['Total debt is all borrowed money that pays interest: bonds and commercial paper.', ''], ['La deuda total es todo el dinero prestado que paga intereses: bonos y papel comercial.', ''], ['', '']],
+  netdebt: [['Net debt is debt minus the cash and liquid investments that could pay it off today.', 'A negative number means "net cash": the company could repay every lender and still have money left. In a valuation, net debt is subtracted from the value of the business to get the value for shareholders.'],
+            ['La deuda neta es la deuda menos el efectivo e inversiones líquidas que podrían pagarla hoy.', 'Un número negativo significa "caja neta": la empresa podría pagar a todos sus acreedores y aún le sobraría dinero. En una valuación, la deuda neta se resta al valor del negocio para llegar al valor de los accionistas.'], ['Apple FY2023: 111,088 − 29,965 − 132,134 = −51,011. Apple has 51 billion more cash than debt.', 'Apple FY2023: 111,088 − 29,965 − 132,134 = −51,011. Apple tiene 51 mil millones más de efectivo que de deuda.']],
+};
+
+// ---------- reading list: headlines public before 31 March 2024 ----------
+const NEWS = [
+  { d: '2024-03-21', t: ['US Justice Department sues Apple, accusing it of monopolising the smartphone market', 'El Departamento de Justicia de EE. UU. demanda a Apple por monopolizar el mercado de smartphones'], k: ['rev', 'margin', 'oi'], why: ['Could limit App Store and services pricing, the highest-margin revenue.', 'Podría limitar los precios de la App Store y servicios, los ingresos de mayor margen.'] },
+  { d: '2024-03-05', t: ['iPhone sales in China fall 24% in the first six weeks of 2024, research firm says', 'Las ventas de iPhone en China caen 24% en las primeras seis semanas de 2024, según una consultora'], k: ['rev', 'inv', 'cogs'], why: ['China is Apple\'s third-largest region. Slower sales can also pile up inventory.', 'China es la tercera región de Apple. Ventas más lentas también pueden acumular inventario.'] },
+  { d: '2024-03-04', t: ['EU fines Apple €1.8 billion over music streaming rules', 'La UE multa a Apple con 1,800 millones de euros por reglas de streaming musical'], k: ['opex', 'ni', 'other', 'tax', 'pretax'], why: ['A one-off charge: it lowers profit this year but says little about future years.', 'Un cargo único: baja la utilidad este año pero dice poco de los años siguientes.'] },
+  { d: '2024-02-27', t: ['Apple winds down its electric car project after a decade', 'Apple cancela su proyecto de auto eléctrico tras una década'], k: ['opex', 'capex', 'fcf', 'oi'], why: ['Research money may move to AI instead. Watch operating expenses.', 'El dinero de investigación podría ir a IA. Vigila los gastos de operación.'] },
+  { d: '2024-02-01', t: ['Apple reports record services revenue of $23.1 billion for the December quarter', 'Apple reporta ingresos récord por servicios de 23,100 millones de dólares en el trimestre de diciembre'], k: ['rev', 'margin', 'gp', 'cash', 'ms', 'ar', 'ap', 'debt', 'netdebt'], why: ['Services grow faster and earn more per dollar than devices.', 'Los servicios crecen más rápido y ganan más por dólar que los equipos.'] },
+  { d: '2024-02-02', t: ['Vision Pro headset goes on sale in the US', 'El visor Vision Pro sale a la venta en EE. UU.'], k: ['capex', 'inv', 'rev', 'da'], why: ['A new product line: new inventory, new equipment, uncertain demand.', 'Una nueva línea: nuevo inventario, nuevo equipo, demanda incierta.'] },
+];
+const TICKERS = [
+  { t: 'MSFT', n: ['Microsoft. Also in Warren: compare margins side by side.', 'Microsoft. También en Warren: compara márgenes lado a lado.'], w: 1 },
+  { t: 'GOOGL', n: ['Alphabet. Pays Apple to be Safari\'s default search engine, a large part of services revenue.', 'Alphabet. Paga a Apple por ser el buscador de Safari, una parte grande de los ingresos por servicios.'] },
+  { t: 'TSM', n: ['TSMC. Makes the chips inside iPhones and Macs.', 'TSMC. Fabrica los chips de iPhones y Macs.'] },
+  { t: 'QCOM', n: ['Qualcomm. Supplies iPhone modems.', 'Qualcomm. Provee los módems del iPhone.'] },
+  { t: '005930.KS', n: ['Samsung. Rival in phones and supplier of screens.', 'Samsung. Rival en teléfonos y proveedor de pantallas.'] },
+  { t: 'AMX', n: ['América Móvil. Latin America\'s largest carrier, sells iPhones across the region.', 'América Móvil. El mayor operador de América Latina, vende iPhones en la región.'] },
+];
 
 // ---------- state ----------
-const DEADLINE = '2024-03-31';
-const state = {
-  asOfIdx: 3,
-  a: { g: 5.0, m: 24.5, t: 18.0, r: 1.6, w: 7.0, tg: 2.5 },
-  submitted: false,
-};
-const ASOF = ['2023-01-15', '2023-02-21', '2023-09-30', '2024-02-19', '2024-02-20', '2024-03-31'];
-state.asOfIdx = ASOF.length - 1;
+const ASOF = ['2022-11-15', '2023-06-30', '2023-11-02', '2023-11-03', '2024-02-01', '2024-02-02', '2024-03-31'];
+const state = { asOfIdx: ASOF.length - 1, a: { g: 6.0, m: 29.8, t: 14.7, r: 0.5, w: 8.5, tg: 3.0 }, submitted: false, whatif: null };
 
 // ---------- valuation math (illustrative; Warren's real engine is deterministic Python) ----------
-const BASE = { rev: 45754, netDebt: 35547 + 1960 + 4209 - 9366, shares: 4339 };
+const BASE = { rev: 383285, netDebt: BASEM.netdebt, shares: 15812.547 };
 function dcf(a) {
   const g = a.g / 100, m = a.m / 100, t = a.t / 100, r = a.r / 100, w = a.w / 100, tg = a.tg / 100;
   const rows = []; let rev = BASE.rev, pv = 0;
@@ -265,9 +440,7 @@ function dcf(a) {
     const ebit = rev * m, nopat = ebit * (1 - t), reinv = rev * r, fcf = nopat - reinv, df = 1 / Math.pow(1 + w, i);
     pv += fcf * df; rows.push({ y: 2023 + i, prev, rev, ebit, nopat, reinv, fcf, df, pv: fcf * df });
   }
-  const last = rows[4];
-  const tv = last.fcf * (1 + tg) / (w - tg), pvtv = tv * last.df;
-  const ev = pv + pvtv, eq = ev - BASE.netDebt;
+  const last = rows[4], tv = last.fcf * (1 + tg) / (w - tg), pvtv = tv * last.df, ev = pv + pvtv, eq = ev - BASE.netDebt;
   return { rows, tv, pvtv, pvSum: pv, ev, eq, ps: eq / BASE.shares };
 }
 function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
@@ -275,153 +448,254 @@ function monteCarlo(a, n = 3000) {
   const R = rng(20240331), N = () => { let u = 0, v = 0; while (!u) u = R(); while (!v) v = R(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
   const out = [];
   for (let i = 0; i < n; i++) {
-    const s = { ...a, g: a.g + 1.5 * N(), m: a.m + 1.5 * N(), w: a.w + 0.5 * N(), tg: a.tg + 0.3 * N() };
-    if (s.tg > s.w - 1.5) s.tg = s.w - 1.5;
+    const s = { ...a, g: a.g + 2 * N(), m: a.m + 1.5 * N(), w: a.w + 0.5 * N(), tg: a.tg + 0.3 * N() };
+    if (s.tg > s.w - 2) s.tg = s.w - 2;
     out.push(dcf(s).ps);
   }
   out.sort((x, y) => x - y);
   const q = p => out[Math.floor(p * (n - 1))];
-  return { vals: out, p10: q(.1), p50: q(.5), p90: q(.9) };
+  return { vals: out, p10: q(.1), p50: q(.5), p90: q(.9), lo: q(.01), hi: q(.99) };
 }
 
 // ---------- routing ----------
 const VIEWS = ['assignment', 'company', 'valuation', 'reality', 'professor'];
 const NAMES = () => [L('Assignment', 'Tarea'), L('The company', 'La empresa'), L('Your valuation', 'Tu valuación'), L('What happened', 'Qué pasó'), L('Professor view', 'Vista del profesor')];
 function current() { const h = location.hash.slice(1); return VIEWS.includes(h) ? h : 'assignment'; }
-function go(v) { location.hash = v; }
 window.addEventListener('hashchange', () => { closeDrawer(); render(); window.scrollTo(0, 0); });
 
 function render() {
   document.documentElement.lang = lang;
+  const v = current();
   document.getElementById('lang-en').setAttribute('aria-pressed', lang === 'en');
   document.getElementById('lang-es').setAttribute('aria-pressed', lang === 'es');
+  const rs = document.getElementById('role-student'), rp = document.getElementById('role-prof');
+  rs.textContent = L('Student', 'Estudiante'); rp.textContent = L('Professor', 'Profesor');
+  rs.setAttribute('aria-pressed', v !== 'professor'); rp.setAttribute('aria-pressed', v === 'professor');
   document.getElementById('course').textContent = L('Corporate Finance II · Spring 2024 · Section B', 'Finanzas Corporativas II · Primavera 2024 · Grupo B');
-  const v = current(), names = NAMES();
+  const names = NAMES();
   document.getElementById('rail').innerHTML = VIEWS.map((id, i) =>
     `<a href="#${id}" ${id === v ? 'aria-current="page"' : ''}><span class="k">${i + 1}</span>${names[i]}</a>`).join('') +
     `<span class="who">${v === 'professor' ? L('Signed in as Prof. Ruiz', 'Sesión: Prof. Ruiz') : L('Signed in as Lucía, student', 'Sesión: Lucía, estudiante')}</span>`;
-  const app = document.getElementById('app');
-  app.innerHTML = ({ assignment: vAssignment, company: vCompany, valuation: vValuation, reality: vReality, professor: vProfessor })[v]();
+  document.getElementById('app').innerHTML = ({ assignment: vAssignment, company: vCompany, valuation: vValuation, reality: vReality, professor: vProfessor })[v]();
   after[v] && after[v]();
   document.getElementById('foot').innerHTML = `
-    <p>${L('Prototype for a pitch. Company figures are The Coca-Cola Company\'s real annual reports (SEC EDGAR), pulled with Warren\'s point-in-time data layer.', 'Prototipo para presentación. Las cifras de la empresa son los informes anuales reales de The Coca-Cola Company (SEC EDGAR), obtenidos con la capa de datos de Warren.')}</p>
+    <p>${L('Prototype for a pitch. Apple\'s figures are its real SEC filings, pulled with Warren\'s point-in-time data layer. Headlines are real events from before 31 March 2024, picked by hand; Warren will select them from news feeds later.', 'Prototipo para presentación. Las cifras de Apple son sus reportes reales ante la SEC, obtenidos con la capa de datos de Warren. Los titulares son hechos reales anteriores al 31 de marzo de 2024, elegidos a mano; más adelante Warren los tomará de fuentes de noticias.')}</p>
     <p>${L('The valuation math, the class, the students and the professor are examples. Warren analyses fundamentals and never predicts stock prices.', 'La matemática de valuación, el grupo, los estudiantes y el profesor son ejemplos. Warren analiza fundamentales y nunca predice precios de acciones.')}</p>`;
 }
-const why = (en, es) => `<div class="why"><b>${L('Why not Excel?', '¿Por qué no Excel?')}</b><span>${L(en, es)}</span></div>`;
+const why = (en, es) => `<div class="why"><b>${L('Instead of Excel', 'En lugar de Excel')}</b><span>${L(en, es)}</span></div>`;
 const nextBtn = (to, en, es) => `<div class="row"><a class="btn" href="#${to}">${L(en, es)} →</a></div>`;
 
 // ---------- 1. assignment ----------
 function vAssignment() {
+  const map = [[L('Source', 'Fuente'), L('Which filing, which line, which day', 'Qué reporte, qué línea, qué día')], [L('Formula', 'Fórmula'), L('The steps, and the same thing as a spreadsheet formula', 'Los pasos, y lo mismo como fórmula de hoja de cálculo')], [L('Concept', 'Concepto'), L('What it means, with an example', 'Qué significa, con un ejemplo')], [L('What if', '¿Y si…?'), L('Change it, watch every linked number move', 'Cámbialo y mira moverse cada número ligado')], [L('Read next', 'Para leer'), L('Headlines and related companies', 'Titulares y empresas relacionadas')]];
   return `<section class="view">
     <div class="head"><span class="eyebrow">${L('Step 1 · Your assignment', 'Paso 1 · Tu tarea')}</span>
-      <h1>${L('Value Coca-Cola as an analyst would have on 31 March 2024', 'Valora Coca-Cola como lo haría un analista el 31 de marzo de 2024')}</h1>
-      <p>${L('Lucía opens her course and finds this week\'s case. No spreadsheet to download. The company, its filings and the tools are already here.', 'Lucía abre su curso y encuentra el caso de la semana. No hay hoja de cálculo que descargar. La empresa, sus reportes y las herramientas ya están aquí.')}</p></div>
+      <h1>${L('Value Apple as an analyst would have on 31 March 2024', 'Valora Apple como lo haría un analista el 31 de marzo de 2024')}</h1>
+      <p>${L('Lucía opens her course and finds this week\'s case. No file to download. The company, its filings and the tools are already here, and every number on every screen can explain itself.', 'Lucía abre su curso y encuentra el caso de la semana. No hay archivo que descargar. La empresa, sus reportes y las herramientas ya están aquí, y cada número de cada pantalla se puede explicar a sí mismo.')}</p></div>
     <div class="grid2">
       <div class="card memo">
         <div class="from"><div class="avatar">R</div><div><h3>Prof. Ruiz</h3><span class="note">${L('Posted 18 March 2024', 'Publicado el 18 de marzo de 2024')}</span></div></div>
         <p>${L('You are an analyst on 31 March 2024. You know only what was public that day. Build a valuation and defend each assumption.', 'Eres analista el 31 de marzo de 2024. Solo sabes lo que era público ese día. Construye una valuación y defiende cada supuesto.')}</p>
         <ol class="task">
-          <li>${L('Read three years of results and find what drives the business.', 'Lee tres años de resultados y encuentra qué mueve el negocio.')}</li>
-          <li>${L('Forecast revenue and operating margin for the next five years.', 'Proyecta ingresos y margen operativo para los próximos cinco años.')}</li>
-          <li>${L('Choose a discount rate and long-term growth, with a reason for each.', 'Elige una tasa de descuento y un crecimiento de largo plazo, con una razón para cada uno.')}</li>
+          <li>${L('Read three years of results. Click the numbers you do not understand.', 'Lee tres años de resultados. Haz clic en los números que no entiendas.')}</li>
+          <li>${L('Use "What if" to test one idea: what happens if Apple buys more inventory than it sells?', 'Usa "¿Y si…?" para probar una idea: ¿qué pasa si Apple compra más inventario del que vende?')}</li>
+          <li>${L('Forecast revenue and operating margin for five years, and pick a discount rate.', 'Proyecta ingresos y margen operativo a cinco años y elige una tasa de descuento.')}</li>
           <li>${L('Hand in a value range per share, not a single number.', 'Entrega un rango de valor por acción, no un solo número.')}</li>
         </ol>
-        <p class="note">${L('In January, Warren will show you how your FY2024 forecast compared with what Coca-Cola actually reported.', 'En enero, Warren te mostrará cómo se compara tu proyección de 2024 con lo que Coca-Cola reportó de verdad.')}</p>
+        <p class="note">${L('In November, Warren will show you how your FY2024 forecast compared with what Apple actually reported.', 'En noviembre, Warren te mostrará cómo se compara tu proyección de 2024 con lo que Apple reportó de verdad.')}</p>
       </div>
       <div class="card">
         <span class="eyebrow">${L('Case file', 'Expediente')}</span>
         <dl class="kv">
-          <dt>${L('Company', 'Empresa')}</dt><dd>The Coca-Cola Company (KO)</dd>
+          <dt>${L('Company', 'Empresa')}</dt><dd>Apple Inc. (AAPL)</dd>
           <dt>${L('Analysis date', 'Fecha de análisis')}</dt><dd class="mono">31 Mar 2024</dd>
+          <dt>${L('Fiscal year ends', 'Cierre fiscal')}</dt><dd>${L('Last Saturday of September', 'Último sábado de septiembre')}</dd>
           <dt>${L('Accounting', 'Contabilidad')}</dt><dd>US GAAP · USD</dd>
-          <dt>${L('Data', 'Datos')}</dt><dd>${L('Annual reports filed with the SEC', 'Informes anuales presentados ante la SEC')}</dd>
           <dt>${L('Due', 'Entrega')}</dt><dd class="mono">5 Apr 2024</dd>
         </dl>
         <span class="chip">${L('24 students enrolled', '24 estudiantes inscritos')}</span>
       </div>
     </div>
-    ${why('In a spreadsheet the professor emails a file, numbers get pasted by hand, and nobody can tell if a figure came out after the analysis date. Here the case is the data, locked to the date.', 'Con una hoja de cálculo el profesor envía un archivo, los números se pegan a mano y nadie sabe si una cifra salió después de la fecha del análisis. Aquí el caso son los datos, fijados a la fecha.')}
+    <div class="card"><span class="eyebrow">${L('Click any number and a panel opens with five views', 'Haz clic en cualquier número y se abre un panel con cinco vistas')}</span>
+      <div class="panelmap">${map.map(([a, b]) => `<div><b>${a}</b><span>${b}</span></div>`).join('')}</div></div>
+    ${why('Excel stays, as an explanation. Every number shows its spreadsheet formula, the way a calculator still shows its working on paper. The calculating itself is done by tested code, so nobody loses an afternoon to a broken cell reference.', 'Excel se queda, como explicación. Cada número muestra su fórmula de hoja de cálculo, así como el papel muestra el procedimiento de la calculadora. El cálculo lo hace código probado, así nadie pierde una tarde por una referencia rota.')}
     ${nextBtn('company', 'Open the company', 'Abrir la empresa')}
   </section>`;
 }
 
 // ---------- 2. company ----------
 function vCompany() {
-  const asOf = ASOF[state.asOfIdx];
-  const head = YEARS.map(y => {
-    const ok = asOf >= publicOn(y);
-    return `<th class="${ok ? '' : 'locked'}">FY${y}</th>`;
-  }).join('');
-  const body = ITEMS.map(it => {
-    if (it.sec) return `<tr class="sec"><td colspan="5">${L(...it.sec)}</td></tr>`;
-    const cells = YEARS.map((y, i) => {
+  const asOf = ASOF[state.asOfIdx], wi = state.whatif, M = wi ? model(wi.o) : null;
+  const head = YEARS.map(y => `<th class="${asOf >= publicOn(y) ? '' : 'locked'}">FY${y}</th>`).join('');
+  let body = '';
+  ITEMS.forEach(it => {
+    if (it.sec) { body += `<tr class="sec"><td></td><td class="lab" colspan="4">${L(...it.sec)}</td></tr>`; return; }
+    const cells = YEARS.map(y => {
       if (asOf < publicOn(y)) return `<td class="locked">${L('not public yet', 'aún no público')}</td>`;
-      const val = it.derived ? pct(ITEMS.find(x => x.k === 'ebit').v[i] / ITEMS.find(x => x.k === 'revenue').v[i]) : fmt(it.v[i]);
-      return `<td class="n"><button data-trace="${it.k}|${y}">${val}</button></td>`;
+      const base = hist(it.k, y);
+      if (M && y === 2023 && Math.abs(M[it.k] - BASEM[it.k]) > (it.pct ? 1e-5 : .5))
+        return `<td class="n rip"><button data-cell="${it.k}|${y}">${show(it.k, M[it.k])}</button><span class="was">${show(it.k, base)}</span></td>`;
+      return `<td class="n"><button data-cell="${it.k}|${y}">${show(it.k, base)}</button></td>`;
     }).join('');
-    return `<tr class="${it.derived ? 'sub' : ''}"><td>${L(...it.n)}</td>${cells}</tr>`;
-  }).join('');
-  const lockedCount = YEARS.filter(y => asOf < publicOn(y)).length;
+    body += `<tr class="${it.sub ? 'sub' : ''}"><td class="ref">${it.row}</td><td class="lab">${L(...it.n)}</td>${cells}</tr>`;
+  });
+  const locked = YEARS.filter(y => asOf < publicOn(y));
   return `<section class="view">
     <div class="head"><span class="eyebrow">${L('Step 2 · The company', 'Paso 2 · La empresa')}</span>
-      <h1>${L('Every number knows where it came from', 'Cada número sabe de dónde viene')}</h1>
-      <p>${L('Click any figure to see the filing, the line and the day it became public. Move the date back and Warren hides what nobody knew yet.', 'Haz clic en cualquier cifra para ver el reporte, la línea y el día en que se hizo pública. Mueve la fecha hacia atrás y Warren oculta lo que nadie sabía todavía.')}</p></div>
+      <h1>${L('Every number can explain itself', 'Cada número se puede explicar a sí mismo')}</h1>
+      <p>${L('Click any figure. The panel shows where it came from, how it is computed, what it means, what happens if you change it, and what to read next. Move the date back and Warren hides what nobody knew yet.', 'Haz clic en cualquier cifra. El panel muestra de dónde viene, cómo se calcula, qué significa, qué pasa si la cambias y qué leer después. Mueve la fecha hacia atrás y Warren oculta lo que nadie sabía todavía.')}</p></div>
     <div class="card asof">
-      <div class="asof-top"><span class="eyebrow">${L('What was known on', 'Lo que se sabía el')}</span><span class="asof-date" id="asof-date">${fdate(asOf)}</span></div>
+      <div class="row spread"><span class="eyebrow">${L('What was known on', 'Lo que se sabía el')}</span><span class="asof-date">${fdate(asOf)}</span></div>
       <input type="range" id="asof" min="0" max="${ASOF.length - 1}" step="1" value="${state.asOfIdx}" aria-label="${L('Analysis date', 'Fecha de análisis')}">
       <div class="ticks"><span>${fdate(ASOF[0])}</span><span>${fdate(ASOF[ASOF.length - 1])}</span></div>
-      <p class="note">${lockedCount
-        ? `<span class="chip warn">${L(`${lockedCount} year${lockedCount > 1 ? 's' : ''} hidden`, `${lockedCount} año${lockedCount > 1 ? 's' : ''} oculto${lockedCount > 1 ? 's' : ''}`)}</span> ${L(`The FY${YEARS.find(y => asOf < publicOn(y))} annual report came out on ${fdate(publicOn(YEARS.find(y => asOf < publicOn(y))))}.`, `El informe anual FY${YEARS.find(y => asOf < publicOn(y))} se publicó el ${fdate(publicOn(YEARS.find(y => asOf < publicOn(y))))}.`)}`
+      <p class="note">${locked.length
+        ? `<span class="chip warn">${L(`FY${locked[0]} hidden`, `FY${locked[0]} oculto`)}</span> ${L(`Apple published its FY${locked[0]} annual report on ${fdate(publicOn(locked[0]))}.`, `Apple publicó su informe anual FY${locked[0]} el ${fdate(publicOn(locked[0]))}.`)}`
         : L('Everything below was public on this date. Your assignment date is 31 March 2024.', 'Todo lo de abajo era público en esta fecha. Tu tarea es al 31 de marzo de 2024.')}</p>
     </div>
+    ${wi ? `<div class="banner"><b>${L('What-if is on', '¿Y si…? activo')}:</b> <span>${wi.label}</span><span class="note">${L('Highlighted cells moved; the reported value is struck through below.', 'Las celdas resaltadas cambiaron; el valor reportado aparece tachado abajo.')}</span><button class="btn small ghost" id="wi-reset">${L('Back to reported numbers', 'Volver a lo reportado')}</button></div>` : ''}
     <div class="card">
-      <div class="row" style="justify-content:space-between"><h2>The Coca-Cola Company</h2><span class="note">${L('US$ millions', 'Millones de US$')}</span></div>
-      <div class="tablebox"><table><thead><tr><th></th>${head}</tr></thead><tbody>${body}</tbody></table></div>
-      <p class="hint"><i></i>${L('Dotted figures open their source.', 'Las cifras punteadas abren su fuente.')}</p>
+      <div class="row spread"><h2>Apple Inc.</h2><span class="note">${L('US$ millions · newest year first, as in the annual report', 'Millones de US$ · año más reciente primero, como en el informe anual')}</span></div>
+      <div class="tablebox"><table><thead><tr><th></th><th></th>${head}</tr><tr><th></th><th></th>${YEARS.map(y => `<th class="mono">${COLS[y]}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></div>
+      <p class="hint"><i></i>${L('Every dotted figure opens the explain panel. Row numbers and column letters match the spreadsheet formulas in the panel.', 'Cada cifra punteada abre el panel. Los números de fila y letras de columna coinciden con las fórmulas del panel.')}</p>
     </div>
-    ${why('A spreadsheet cell holds a number and forgets its history. Students copy figures from PDFs, make typos, and can accidentally use results published after the date they are pretending to be. Warren makes that impossible.', 'Una celda guarda un número y olvida su historia. Los estudiantes copian cifras de PDFs, cometen errores y pueden usar sin querer resultados publicados después de la fecha en que se supone que están. Warren lo hace imposible.')}
+    ${why('A spreadsheet cell holds a number and forgets its history. Students copy figures from PDFs, make typos, and can use results published after the date they are pretending to be. Here every cell remembers its filing and its date.', 'Una celda guarda un número y olvida su historia. Los estudiantes copian cifras de PDFs, cometen errores y pueden usar resultados publicados después de la fecha del caso. Aquí cada celda recuerda su reporte y su fecha.')}
     ${nextBtn('valuation', 'Build the valuation', 'Construir la valuación')}
   </section>`;
 }
-function traceFact(k, y) {
-  const asOf = ASOF[state.asOfIdx], i = YEARS.indexOf(y);
-  const it = ITEMS.find(x => x.k === k);
-  if (it.derived) {
-    const rev = ITEMS.find(x => x.k === 'revenue'), ebit = ITEMS.find(x => x.k === 'ebit');
-    const s = sourceFor(rev, y, asOf);
-    openDrawer(L('Operating margin', 'Margen operativo') + ` · FY${y}`, `
-      <div><span class="big">${pct(ebit.v[i] / rev.v[i])}</span></div>
-      <p>${L('A ratio Warren computes, not a reported figure. Both inputs trace to the filing.', 'Un cociente que calcula Warren, no una cifra reportada. Ambos insumos llevan al reporte.')}</p>
-      <div class="chain">
-        <div><span class="lbl">${L('Formula', 'Fórmula')}</span><code>${L('Operating income', 'Utilidad de operación')} ÷ ${L('Revenue', 'Ingresos')}</code></div>
-        <div><span class="lbl">${L('Inputs', 'Insumos')}</span><code>${fmt(ebit.v[i])} ÷ ${fmt(rev.v[i])} = ${pct(ebit.v[i] / rev.v[i], 2)}</code></div>
-        <div><span class="lbl">${L('Both from', 'Ambos de')}</span><span>${s.form} ${s.fy} · ${L('filed', 'presentado')} ${fdate(s.filed)}</span></div>
-      </div>`);
-    return;
+
+// explain panel for a statement cell
+function explainCell(k, y, tab) {
+  const it = IT[k], asOf = ASOF[state.asOfIdx], val = hist(k, y);
+  const tabs = [
+    { id: 'source', label: L('Source', 'Fuente'), html: () => sourceTab(it, y, asOf) },
+    { id: 'formula', label: L('Formula', 'Fórmula'), html: () => formulaTab(it, y) },
+    { id: 'concept', label: L('Concept', 'Concepto'), html: () => conceptTab(k) },
+    { id: 'whatif', label: L('What if', '¿Y si…?'), html: () => whatifTab(k, y), init: initWhatif },
+    { id: 'read', label: L('Read next', 'Para leer'), html: () => readTab(k) },
+  ];
+  openPanel({ sub: `Apple · FY${y}`, title: L(...it.n), big: show(k, val), unit: it.pct || it.k === 'eps' ? '' : k === 'shares' ? L('million shares', 'millones de acciones') : L('US$ millions', 'millones de US$'), tabs, tab });
+}
+function sourceTab(it, y, asOf) {
+  if (it.kind === 'd') {
+    const ins = it.f.match(/\{(\w+)\}/g).map(s => s.slice(1, -1));
+    return `<p>${L('Warren computes this number; Apple does not report it on its own line. Each input traces to a filing:', 'Warren calcula este número; Apple no lo reporta en una línea propia. Cada insumo lleva a un reporte:')}</p>
+      <div class="chain">${ins.map(k => { const s = IT[k].kind === 'd' ? null : sourceFor(IT[k], y, asOf);
+        return `<div><span class="lbl">${L(...IT[k].n)} · ${cellRef(k, y)}</span><span class="mono">${show(k, hist(k, y))}</span><span class="note">${s ? `${s.form} · ${L('public since', 'público desde')} ${fdate(s.filed)}` : L('Also computed by Warren', 'También calculado por Warren')}</span></div>`; }).join('')}</div>
+      ${it.check ? `<p class="note">${L(`Check: Apple reports this line as ${it.check}. Warren's result matches it exactly.`, `Verificación: Apple reporta esta línea como ${it.check}. El resultado de Warren coincide exactamente.`)}</p>` : ''}`;
   }
-  const s = sourceFor(it, y, asOf);
-  openDrawer(`${L(...it.n)} · FY${y}`, `
-    <div><span class="big">${fmt(it.v[i])}</span> <span class="note">${k === 'shares' ? L('million shares', 'millones de acciones') : L('US$ millions', 'millones de US$')}</span></div>
-    <div class="chain">
-      <div><span class="lbl">${L('Filing', 'Reporte')}</span><span>${L('Annual report', 'Informe anual')} (${s.form}) ${s.fy}</span></div>
+  const s = sourceFor(it, y, asOf), p = PERIOD[y];
+  return `<div class="chain">
+      <div><span class="lbl">${L('Filing', 'Reporte')}</span><span>${L(...s.name)} (${s.form})</span></div>
       <div><span class="lbl">${L('Public since', 'Público desde')}</span><span class="mono">${fdate(s.filed)}</span></div>
       <div><span class="lbl">${L('Line in the filing (XBRL tag)', 'Línea en el reporte (etiqueta XBRL)')}</span><code>${it.tag}</code></div>
-      <div><span class="lbl">${L('Period', 'Periodo')}</span><span class="mono">${fdate(y + '-01-01')} – ${fdate(y + '-12-31')}</span></div>
+      <div><span class="lbl">${it.kind === 's' ? L('Balance on', 'Saldo al') : L('Period', 'Periodo')}</span><span class="mono">${it.kind === 's' ? fdate(p[1]) : `${fdate(p[0])} – ${fdate(p[1])}`}</span></div>
       <div><span class="lbl">${L('Document number', 'Número de documento')}</span><code>${s.acc}</code></div>
     </div>
-    ${y < 2023 && s === F23 ? `<p class="note">${L(`This figure also appeared in the FY2022 report (${fdate(F22.filed)}). Warren uses the newest version public on your date, and keeps both.`, `Esta cifra también apareció en el informe FY2022 (${fdate(F22.filed)}). Warren usa la versión más reciente pública en tu fecha y guarda ambas.`)}</p>` : ''}
-    <div class="row"><a class="btn ghost" href="${edgar(s.acc)}" target="_blank" rel="noopener">${L('Open the filing at the SEC', 'Abrir el reporte en la SEC')} ↗</a></div>
-    <div class="excel"><span>${L('The same number in a spreadsheet:', 'El mismo número en una hoja de cálculo:')}</span><span class="cell">C${7 + i} = ${it.v[i]}</span><span>${L('No source, no date, no way to check it.', 'Sin fuente, sin fecha, sin forma de verificarlo.')}</span></div>`);
+    ${s === FIL.q24 ? `<p class="note">${L('Why a quarterly report? The December 2023 quarterly report repeats the September balance sheet. Warren always uses the newest filing public on your date, and keeps the older one too.', '¿Por qué un informe trimestral? El informe de diciembre de 2023 repite el balance de septiembre. Warren usa siempre el reporte más reciente público en tu fecha, y guarda también el anterior.')}</p>` : ''}
+    ${!it.w ? `<p class="note">${L('Read straight from the filing. This line is not yet in Warren\'s Phase 1 data set.', 'Leído directo del reporte. Esta línea aún no está en los datos de la Fase 1 de Warren.')}</p>` : ''}
+    <div class="row"><a class="btn ghost small" href="${edgar(s.acc)}" target="_blank" rel="noopener">${L('Open the filing at the SEC', 'Abrir el reporte en la SEC')} ↗</a></div>`;
+}
+function formulaTab(it, y) {
+  if (it.kind !== 'd') {
+    return `<p>${L('Reported by Apple, not computed. In a spreadsheet it is a typed-in constant:', 'Lo reporta Apple, no se calcula. En una hoja de cálculo es una constante escrita a mano:')}</p>
+      <div class="excel"><span>${L('Cell', 'Celda')} ${cellRef(it.k, y)}</span><span class="cell">${cellRef(it.k, y)} = ${hist(it.k, y)}</span><span>${L('In Warren the constant keeps its source, its date and its tag. In a spreadsheet it keeps none of them.', 'En Warren la constante conserva su fuente, su fecha y su etiqueta. En una hoja de cálculo no conserva ninguna.')}</span></div>
+      ${['oi', 'ni'].some(k => IT[k].f.includes('{' + it.k + '}')) || it.k === 'pretax' || it.k === 'rev' ? `<p class="note">${L('It feeds other numbers. Open "What if" to see which.', 'Alimenta otros números. Abre "¿Y si…?" para ver cuáles.')}</p>` : ''}`;
+  }
+  const ins = it.f.match(/\{(\w+)\}/g).map(s => s.slice(1, -1));
+  const words = it.f.replace(/\{(\w+)\}/g, (_, k) => L(...IT[k].n)).replace(/-/g, ' − ').replace(/\//g, ' ÷ ');
+  const nums = it.f.replace(/\{(\w+)\}/g, (_, k) => show(k, hist(k, y))).replace(/-/g, ' − ').replace(/\//g, ' ÷ ');
+  const xl = '=' + it.f.replace(/\{(\w+)\}/g, (_, k) => cellRef(k, y));
+  return `<ol class="steps">
+      ${ins.map(k => `<li>${L('Take', 'Toma')} ${L(...IT[k].n).toLowerCase()} <code>${show(k, hist(k, y))}</code></li>`).join('')}
+      <li>${words} = <code>${show(it.k, hist(it.k, y))}</code></li></ol>
+    <div class="chain"><div><span class="lbl">${L('With the numbers', 'Con los números')}</span><code>${nums} = ${show(it.k, hist(it.k, y))}</code></div></div>
+    <div class="excel"><span>${L('The same step as a spreadsheet formula', 'El mismo paso como fórmula de hoja de cálculo')}</span><span class="cell">${cellRef(it.k, y)} ${xl}</span><span>${L('Excel as the explanation, not the engine: the formula shows the idea, Warren\'s tested code does the arithmetic.', 'Excel como explicación, no como motor: la fórmula muestra la idea y el código probado de Warren hace la aritmética.')}</span></div>`;
+}
+function conceptTab(k) {
+  const c = CONCEPT[k]; if (!c) return '';
+  const [en, es, ex] = c, txt = lang === 'es' ? es : en, e = lang === 'es' ? ex[1] : ex[0];
+  return `<div class="concept">${txt.filter(Boolean).map(p => `<p>${p}</p>`).join('')}</div>${e ? `<p class="concept ex">${e}</p>` : ''}`;
+}
+function readTab(k) {
+  const hits = NEWS.filter(n => n.k.includes(k)), list = (hits.length ? hits : NEWS).slice(0, 4);
+  return `<span class="lbl">${L('Headlines public before 31 Mar 2024', 'Titulares públicos antes del 31 mar 2024')}</span>
+    <div class="news">${list.map(n => `<article><span class="d">${fdate(n.d)}</span><b>${L(...n.t)}</b><span class="rel">${L('Why it matters here', 'Por qué importa aquí')}: ${L(...n.why)}</span></article>`).join('')}</div>
+    <span class="lbl">${L('Related companies', 'Empresas relacionadas')}</span>
+    <div class="tickers">${TICKERS.map(t => `<div class="tk"><b>${t.t}</b><span>${L(...t.n)}${t.w ? ` <small>${L('in Warren', 'en Warren')}</small>` : ''}</span></div>`).join('')}</div>`;
+}
+
+// what-if tab
+function whatifTab(k, y) {
+  if (y !== 2023) return `<p>${L('Experiments run on the latest year, FY2023, where every statement is linked.', 'Los experimentos corren sobre el último año, FY2023, donde todos los estados están ligados.')}</p><button class="btn small" data-cell-go="${k}|2023">${L('Open FY2023', 'Abrir FY2023')}</button>`;
+  const ed = EDITABLE[k];
+  if (!ed) {
+    const leaves = x => IT[x].f ? IT[x].f.match(/\{(\w+)\}/g).map(t => t.slice(1, -1)).flatMap(leaves) : [x];
+    const drivers = [...new Set(leaves(k))].filter(e => EDITABLE[e]);
+    return `<p>${L('This number is computed from others, so you change it by changing its inputs. Try one of these:', 'Este número se calcula a partir de otros; se cambia cambiando sus insumos. Prueba uno de estos:')}</p>
+      <div class="row">${(drivers.length ? drivers : ['rev', 'inv', 'cogs']).map(d => `<button class="btn small ghost" data-cell-go="${d}|2023|whatif">${L(...IT[d].n)}</button>`).join('')}</div>`;
+  }
+  const field = ed === 1 ? k : ed;
+  const cur = state.whatif && state.whatif.field === field ? state.whatif.o[field] : B[field];
+  const label = field === 'purch' ? L('Purchases of goods this year', 'Compras de mercancía del año') : field === 'rate' ? L('Effective tax rate, %', 'Tasa efectiva de impuestos, %') : L(...IT[k].n);
+  const shown = field === 'rate' ? (cur * 100).toFixed(1) : Math.round(cur);
+  const base = field === 'rate' ? (B.rate * 100).toFixed(1) : Math.round(B[field]);
+  const credit = state.whatif ? !!state.whatif.o.credit : true;
+  return `<div class="edit">
+      ${field === 'purch' ? `<p>${L('Inventory moves when purchases and sales do not match. Apple does not report purchases; Warren backs them out: cost of sales + closing inventory − opening inventory.', 'El inventario se mueve cuando compras y ventas no coinciden. Apple no reporta compras; Warren las obtiene: costo de ventas + inventario final − inventario inicial.')}</p>` : ''}
+      <label class="lbl" for="wi-in">${label} · ${L('reported', 'reportado')} ${fmt(base, field === 'rate' ? 1 : 0)}</label>
+      <div class="edit-row"><input type="number" id="wi-in" value="${shown}" step="${field === 'rate' ? .5 : 1000}">
+        <button class="btn small" id="wi-plus">+10%</button><button class="btn small ghost" id="wi-reset2">${L('Reset', 'Restablecer')}</button></div>
+      ${field === 'purch' ? `<div class="radios" role="radiogroup"><label><input type="radio" name="wi-pay" value="credit" ${credit ? 'checked' : ''}> ${L('Bought on credit', 'Comprado a crédito')}</label><label><input type="radio" name="wi-pay" value="cash" ${credit ? '' : 'checked'}> ${L('Paid in cash', 'Pagado en efectivo')}</label></div>` : ''}
+    </div>
+    <div id="wi-out"></div>`;
+}
+function initWhatif(k, y) {
+  if (y !== 2023 || !EDITABLE[k]) return;
+  const field = EDITABLE[k] === 1 ? k : EDITABLE[k], inp = document.getElementById('wi-in');
+  const run = () => {
+    let v = +inp.value; if (!isFinite(v)) return;
+    if (field === 'rate') v = v / 100;
+    const credit = field === 'purch' ? document.querySelector('input[name="wi-pay"]:checked').value === 'credit' : false;
+    const same = Math.abs(v - B[field]) < (field === 'rate' ? 1e-6 : .5);
+    state.whatif = same ? null : { field, o: { [field]: v, credit }, label: `${field === 'purch' ? L('Purchases', 'Compras') : field === 'rate' ? L('Tax rate', 'Tasa de impuestos') : L(...IT[k].n)} ${field === 'rate' ? pct(B.rate) + ' → ' + pct(v) : fmt(B[field]) + ' → ' + fmt(v)}${field === 'purch' ? ` (${credit ? L('on credit', 'a crédito') : L('paid in cash', 'en efectivo')})` : ''}` };
+    drawRipples(k);
+    rerenderBehind();
+  };
+  inp.addEventListener('change', run); inp.addEventListener('input', run);
+  document.getElementById('wi-plus').addEventListener('click', () => { inp.value = field === 'rate' ? (+inp.value * 1.1).toFixed(1) : Math.round(+inp.value * 1.1); run(); });
+  document.getElementById('wi-reset2').addEventListener('click', () => { inp.value = field === 'rate' ? (B.rate * 100).toFixed(1) : Math.round(B[field]); run(); });
+  document.querySelectorAll('input[name="wi-pay"]').forEach(r => r.addEventListener('change', run));
+  drawRipples(k);
+}
+function drawRipples(k) {
+  const out = document.getElementById('wi-out'); if (!out) return;
+  if (!state.whatif) { out.innerHTML = `<p class="note">${L('Change the number above, or press +10%. Every linked cell in the statements updates, and this list explains why each one moved.', 'Cambia el número de arriba o presiona +10%. Cada celda ligada en los estados se actualiza y esta lista explica por qué se movió cada una.')}</p>`; return; }
+  const M = model(state.whatif.o), order = ['rev', 'cogs', 'gp', 'opex', 'oi', 'margin', 'pretax', 'tax', 'ni', 'eps', 'ar', 'inv', 'ap', 'cfo', 'da', 'capex', 'fcf', 'cash', 'netdebt'];
+  const moved = order.filter(x => Math.abs(M[x] - BASEM[x]) > (IT[x].pct ? 1e-5 : x === 'eps' ? .004 : .5));
+  const unchanged = ['ni', 'cfo', 'cash'].filter(x => !moved.includes(x));
+  const f = x => IT[x].pct ? `${fmt((M[x] - BASEM[x]) * 100, 2)} ${L('pts', 'pts')}` : sgn(M[x] - BASEM[x], x === 'eps' ? 2 : 0);
+  let lesson = '';
+  if (state.whatif.field === 'purch') lesson = state.whatif.o.credit
+    ? L('Lesson: buying more than you sell grows inventory but leaves profit untouched. On credit, suppliers fund it, so cash does not move either.', 'Lección: comprar más de lo que vendes hace crecer el inventario pero no toca la utilidad. A crédito, los proveedores lo financian, así que el efectivo tampoco se mueve.')
+    : L('Lesson: profit is unchanged, but paying cash for unsold goods drains cash. Profit and cash are different things.', 'Lección: la utilidad no cambia, pero pagar en efectivo por bienes no vendidos consume caja. Utilidad y efectivo son cosas distintas.');
+  out.innerHTML = `<span class="lbl">${L(`${moved.length} linked numbers moved`, `${moved.length} números ligados se movieron`)}</span>
+    <div class="ripples">${moved.map(x => `<div><div class="rp-top"><span>${L(...IT[x].n)} <span class="note mono">${cellRef(x, 2023)}</span></span><span class="mono">${show(x, BASEM[x])} → ${show(x, M[x])} <span class="${(M[x] - BASEM[x]) * (x === 'netdebt' || x === 'inv' || x === 'ar' || x === 'cogs' || x === 'opex' || x === 'tax' || x === 'capex' ? -1 : 1) >= 0 ? 'up' : 'down'}">(${f(x)})</span></span></div><span class="rp-why">${WHY[x] ? WHY[x]() : ''}</span></div>`).join('')}</div>
+    ${unchanged.length ? `<p class="note">${L('Did not move', 'No se movió')}: ${unchanged.map(x => L(...IT[x].n)).join(', ')}.</p>` : ''}
+    ${lesson ? `<p class="quote">${lesson}</p>` : ''}`;
+}
+function rerenderBehind() {
+  if (current() !== 'company') return;
+  const y = scrollY; document.getElementById('app').innerHTML = vCompany(); after.company(); scrollTo(0, y);
 }
 
 // ---------- 3. valuation ----------
 const SL = () => [
-  { k: 'g', n: L('Revenue growth, per year', 'Crecimiento de ingresos, anual'), min: 0, max: 12, step: .5, why: L('Last three years: <b>17.1%, 11.2%, 6.4%</b>. 2021 was the post-COVID rebound.', 'Últimos tres años: <b>17.1%, 11.2%, 6.4%</b>. 2021 fue el rebote post-COVID.') },
-  { k: 'm', n: L('Operating margin', 'Margen operativo'), min: 15, max: 32, step: .5, why: L('Last three years: <b>26.7%, 25.4%, 24.7%</b>. Falling slowly.', 'Últimos tres años: <b>26.7%, 25.4%, 24.7%</b>. Baja poco a poco.') },
-  { k: 't', n: L('Tax rate', 'Tasa de impuestos'), min: 10, max: 30, step: .5, why: L('FY2023 effective rate: <b>17.4%</b> (tax 2,249 ÷ pre-tax income 12,952).', 'Tasa efectiva FY2023: <b>17.4%</b> (impuesto 2,249 ÷ utilidad antes de impuestos 12,952).') },
-  { k: 'r', n: L('Net investment, % of revenue', 'Inversión neta, % de ingresos'), min: 0, max: 6, step: .1, why: L('FY2023: capex 1,852 minus depreciation 1,128 = <b>1.6%</b> of revenue.', 'FY2023: capex 1,852 menos depreciación 1,128 = <b>1.6%</b> de ingresos.') },
-  { k: 'w', n: L('Discount rate (WACC)', 'Tasa de descuento (WACC)'), min: 5, max: 11, step: .1, why: L('US 10-year Treasury on 28 Mar 2024 was about <b>4.2%</b>; add a risk premium.', 'El bono del Tesoro a 10 años el 28 mar 2024 rondaba <b>4.2%</b>; suma una prima de riesgo.') },
-  { k: 'tg', n: L('Long-term growth', 'Crecimiento de largo plazo'), min: 0, max: 4, step: .1, why: L('Should not beat the economy forever. Most classes use <b>2–3%</b>.', 'No debería superar a la economía para siempre. La mayoría usa <b>2–3%</b>.') },
+  { k: 'g', n: L('Revenue growth, per year', 'Crecimiento de ingresos, anual'), min: -2, max: 14, step: .5, why: L('Last two years: <b>+7.8%, −2.8%</b>. FY2021 was the pandemic boom (+33%).', 'Últimos dos años: <b>+7.8%, −2.8%</b>. FY2021 fue el auge de la pandemia (+33%).') },
+  { k: 'm', n: L('Operating margin', 'Margen operativo'), min: 22, max: 36, step: .5, why: L('Last three years: <b>29.8%, 30.3%, 29.8%</b>. Very stable.', 'Últimos tres años: <b>29.8%, 30.3%, 29.8%</b>. Muy estable.') },
+  { k: 't', n: L('Tax rate', 'Tasa de impuestos'), min: 10, max: 25, step: .5, why: L('FY2023 effective rate: <b>14.7%</b> (16,741 ÷ 113,736).', 'Tasa efectiva FY2023: <b>14.7%</b> (16,741 ÷ 113,736).') },
+  { k: 'r', n: L('Net investment, % of revenue', 'Inversión neta, % de ingresos'), min: -1, max: 4, step: .1, why: L('FY2023: capex 10,959 minus depreciation 11,519 = <b>−0.1%</b>. Apple needs little new capital.', 'FY2023: capex 10,959 menos depreciación 11,519 = <b>−0.1%</b>. Apple necesita poco capital nuevo.') },
+  { k: 'w', n: L('Discount rate (WACC)', 'Tasa de descuento (WACC)'), min: 6, max: 11, step: .1, why: L('US 10-year Treasury in late March 2024 was about <b>4.2%</b>; add a risk premium.', 'El bono del Tesoro a 10 años a fines de marzo de 2024 rondaba <b>4.2%</b>; suma una prima de riesgo.') },
+  { k: 'tg', n: L('Long-term growth', 'Crecimiento de largo plazo'), min: 0, max: 4.5, step: .1, why: L('Should not beat the economy forever. Most classes use <b>2–3%</b>.', 'No debería superar a la economía para siempre. La mayoría usa <b>2–3%</b>.') },
 ];
 function vValuation() {
   const sl = SL().map(s => `<div class="sl"><div class="sl-top"><label for="sl-${s.k}">${s.n}</label><output id="o-${s.k}">${fmt(state.a[s.k], 1)}%</output></div>
@@ -429,100 +703,104 @@ function vValuation() {
   return `<section class="view">
     <div class="head"><span class="eyebrow">${L('Step 3 · Your valuation', 'Paso 3 · Tu valuación')}</span>
       <h1>${L('Move the assumptions, watch the value range move', 'Mueve los supuestos y mira cómo se mueve el rango de valor')}</h1>
-      <p>${L('Each slider shows the history it should be anchored to. The answer is a range, because the future is uncertain. Click any projected figure to see how it was computed.', 'Cada control muestra la historia en la que debería apoyarse. La respuesta es un rango, porque el futuro es incierto. Haz clic en cualquier cifra proyectada para ver cómo se calculó.')}</p></div>
+      <p>${L('Each slider shows the history it should be anchored to. The answer is a range, because the future is uncertain. Every projected figure opens the same explain panel.', 'Cada control muestra la historia en la que debería apoyarse. La respuesta es un rango, porque el futuro es incierto. Cada cifra proyectada abre el mismo panel.')}</p></div>
     <div class="grid2">
       <div class="card result" id="result"></div>
       <div class="card"><span class="eyebrow">${L('Your assumptions', 'Tus supuestos')}</span><div class="sliders">${sl}</div></div>
     </div>
-    <div class="card"><div class="row" style="justify-content:space-between"><h2>${L('Your forecast', 'Tu proyección')}</h2><span class="note">${L('US$ millions', 'Millones de US$')}</span></div><div class="tablebox" id="fc"></div></div>
-    ${why('In Excel, a formula error three tabs away silently changes the answer, and a single number hides how unsure you are. Here the math is fixed and tested, the student only chooses the assumptions, and the result is a range.', 'En Excel, un error de fórmula tres pestañas atrás cambia la respuesta sin avisar, y un solo número oculta tu incertidumbre. Aquí la matemática está fija y probada, el estudiante solo elige los supuestos y el resultado es un rango.')}
-    ${nextBtn('reality', 'Jump ahead to January 2025', 'Saltar a enero de 2025')}
+    <div class="card"><div class="row spread"><h2>${L('Your forecast', 'Tu proyección')}</h2><span class="note">${L('US$ millions', 'Millones de US$')}</span></div><div class="tablebox" id="fc"></div></div>
+    ${why('In a spreadsheet, a broken reference three tabs away silently changes the answer, and a single number hides how unsure you are. Here the math is fixed and tested, the student chooses the assumptions, and the result is a range.', 'En una hoja de cálculo, una referencia rota tres pestañas atrás cambia la respuesta sin avisar, y un solo número oculta tu incertidumbre. Aquí la matemática está fija y probada, el estudiante elige los supuestos y el resultado es un rango.')}
+    ${nextBtn('reality', 'Jump ahead to November 2024', 'Saltar a noviembre de 2024')}
   </section>`;
 }
 function drawValuation() {
   const a = state.a, d = dcf(a), mc = monteCarlo(a);
-  const W = 520, H = 170, pad = 22, lo = 15, hi = 85, bins = 35, bw = (hi - lo) / bins;
+  const W = 520, H = 170, pad = 22, bins = 35;
+  const step = Math.max(10, Math.ceil((mc.hi - mc.lo) / 5 / 10) * 10), lo = Math.floor(mc.lo / step) * step, hi = Math.ceil(mc.hi / step) * step, bw = (hi - lo) / bins;
   const counts = new Array(bins).fill(0);
   mc.vals.forEach(v => { const b = Math.floor((v - lo) / bw); if (b >= 0 && b < bins) counts[b]++; });
   const max = Math.max(...counts), x = v => pad + (v - lo) / (hi - lo) * (W - 2 * pad), barW = (W - 2 * pad) / bins;
-  const bars = counts.map((c, i) => { const v = lo + i * bw + bw / 2, inMid = v >= mc.p10 && v <= mc.p90; const h = c / max * (H - 50);
+  const bars = counts.map((c, i) => { const v = lo + i * bw + bw / 2, inMid = v >= mc.p10 && v <= mc.p90, h = c / max * (H - 50);
     return `<rect x="${(pad + i * barW + 1).toFixed(1)}" y="${(H - 26 - h).toFixed(1)}" width="${(barW - 2).toFixed(1)}" height="${h.toFixed(1)}" rx="1.5" fill="var(${inMid ? '--accent' : '--line'})"/>`; }).join('');
-  const ticks = [20, 35, 50, 65, 80].map(t => `<text x="${x(t)}" y="${H - 8}" text-anchor="middle">$${t}</text>`).join('');
-  const p50x = Math.min(Math.max(x(mc.p50), pad), W - pad);
+  const ticks = []; for (let t = lo; t <= hi + 1e-9; t += step) ticks.push(`<text x="${x(t)}" y="${H - 8}" text-anchor="middle">$${t}</text>`);
   document.getElementById('result').innerHTML = `
     <span class="eyebrow">${L('Value per share, 31 March 2024', 'Valor por acción, 31 de marzo de 2024')}</span>
     <div class="range">
-      <div><span class="l">${L('Pessimistic (P10)', 'Pesimista (P10)')}</span><span class="v">$${fmt(mc.p10, 2)}</span></div>
-      <div class="mid"><span class="l">${L('Middle (P50)', 'Central (P50)')}</span><span class="v">$${fmt(mc.p50, 2)}</span></div>
-      <div><span class="l">${L('Optimistic (P90)', 'Optimista (P90)')}</span><span class="v">$${fmt(mc.p90, 2)}</span></div>
+      <div><span class="l">${L('Pessimistic (P10)', 'Pesimista (P10)')}</span><span class="v">$${fmt(mc.p10, 0)}</span></div>
+      <div class="mid"><span class="l">${L('Middle (P50)', 'Central (P50)')}</span><span class="v">$${fmt(mc.p50, 0)}</span></div>
+      <div><span class="l">${L('Optimistic (P90)', 'Optimista (P90)')}</span><span class="v">$${fmt(mc.p90, 0)}</span></div>
     </div>
     <svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${L('Distribution of 3,000 simulated values per share', 'Distribución de 3,000 valores simulados por acción')}">
-      <line x1="${pad}" x2="${W - pad}" y1="${H - 26}" y2="${H - 26}" stroke="var(--line)"/>
-      ${bars}
-      <line x1="${p50x}" x2="${p50x}" y1="10" y2="${H - 26}" stroke="var(--ink)" stroke-dasharray="3 3"/>
-      ${ticks}
+      <line x1="${pad}" x2="${W - pad}" y1="${H - 26}" y2="${H - 26}" stroke="var(--line)"/>${bars}
+      <line x1="${x(mc.p50)}" x2="${x(mc.p50)}" y1="10" y2="${H - 26}" stroke="var(--ink)" stroke-dasharray="3 3"/>${ticks.join('')}
     </svg>
     <p class="note">${L(`3,000 runs, each with slightly different growth, margin and discount rate around your choices. 80% of them land between $${fmt(mc.p10, 0)} and $${fmt(mc.p90, 0)}.`, `3,000 corridas, cada una con crecimiento, margen y tasa de descuento un poco distintos alrededor de tus supuestos. El 80% cae entre $${fmt(mc.p10, 0)} y $${fmt(mc.p90, 0)}.`)}</p>
     <div class="row">${state.submitted
-      ? `<span class="submitted">✓ ${L('Handed in. Your assumptions are frozen and will rebuild to the cent.', 'Entregado. Tus supuestos quedan guardados y se reconstruyen al centavo.')}</span>`
+      ? `<span class="submitted">✓ ${L('Handed in. Your assumptions are saved and rebuild to the cent.', 'Entregado. Tus supuestos quedan guardados y se reconstruyen al centavo.')}</span>`
       : `<button class="btn" id="submit">${L('Hand in my valuation', 'Entregar mi valuación')}</button>`}</div>`;
-  const rowsDef = [
-    ['rev', L('Revenue', 'Ingresos')], ['ebit', L('Operating income', 'Utilidad de operación')], ['nopat', L('After-tax operating income', 'Utilidad operativa después de impuestos')],
-    ['reinv', L('Net investment', 'Inversión neta')], ['fcf', L('Free cash flow', 'Flujo de caja libre')], ['pv', L('Value today', 'Valor hoy')],
-  ];
-  document.getElementById('fc').innerHTML = `<table><thead><tr><th></th><th>FY2023 ${L('actual', 'real')}</th>${d.rows.map(r => `<th>FY${r.y}</th>`).join('')}</tr></thead><tbody>
-    ${rowsDef.map(([k, n]) => `<tr><td>${n}</td><td class="n">${k === 'rev' ? `<button data-trace="revenue|2023">${fmt(BASE.rev)}</button>` : k === 'ebit' ? `<button data-trace="ebit|2023">${fmt(11311)}</button>` : ''}</td>${d.rows.map((r, i) => `<td class="n"><button data-calc="${k}|${i}">${fmt(r[k])}</button></td>`).join('')}</tr>`).join('')}
+  const rowsDef = [['rev', L('Revenue', 'Ingresos')], ['ebit', L('Operating income', 'Utilidad de operación')], ['nopat', L('After-tax operating income', 'Utilidad operativa después de impuestos')],
+    ['reinv', L('Net investment', 'Inversión neta')], ['fcf', L('Free cash flow', 'Flujo de caja libre')], ['pv', L('Value today', 'Valor hoy')]];
+  document.getElementById('fc').innerHTML = `<table><thead><tr><th></th><th>FY2023 ${L('actual', 'real')}</th>${d.rows.map(r => `<th>FY${r.y}E</th>`).join('')}</tr></thead><tbody>
+    ${rowsDef.map(([k, n]) => `<tr><td>${n}</td><td class="n">${k === 'rev' ? `<button data-cell="rev|2023">${fmt(BASE.rev)}</button>` : k === 'ebit' ? `<button data-cell="oi|2023">${fmt(114301)}</button>` : ''}</td>${d.rows.map((r, i) => `<td class="n"><button data-calc="${k}|${i}">${fmt(r[k])}</button></td>`).join('')}</tr>`).join('')}
     <tr class="sub"><td>${L('Enterprise value', 'Valor de la empresa')}</td><td colspan="6" class="n"><button data-calc="ev|0">${fmt(d.ev)}</button></td></tr>
   </tbody></table>`;
 }
-function traceCalc(k, i) {
+const CALC = {
+  rev: { a: 'g', n: ['Revenue', 'Ingresos'], c: 'rev', rule: () => L('Last year\'s revenue × (1 + growth)', 'Ingresos del año anterior × (1 + crecimiento)'), nums: (r, a) => `${fmt(r.prev)} × (1 + ${fmt(a.g, 1)}%)`, xl: (i) => `=${i ? 'prev' : 'B2'}*(1+growth)` },
+  ebit: { a: 'm', n: ['Operating income', 'Utilidad de operación'], c: 'oi', rule: () => L('Revenue × operating margin', 'Ingresos × margen operativo'), nums: (r, a) => `${fmt(r.rev)} × ${fmt(a.m, 1)}%`, xl: () => '=revenue*margin' },
+  nopat: { a: 't', n: ['After-tax operating income', 'Utilidad operativa después de impuestos'], c: 'tax', rule: () => L('Operating income × (1 − tax rate)', 'Utilidad de operación × (1 − tasa de impuestos)'), nums: (r, a) => `${fmt(r.ebit)} × (1 − ${fmt(a.t, 1)}%)`, xl: () => '=operating_income*(1-tax_rate)' },
+  reinv: { a: 'r', n: ['Net investment', 'Inversión neta'], c: 'capex', rule: () => L('Revenue × net investment rate', 'Ingresos × tasa de inversión neta'), nums: (r, a) => `${fmt(r.rev)} × ${fmt(a.r, 1)}%`, xl: () => '=revenue*net_investment' },
+  fcf: { a: null, n: ['Free cash flow', 'Flujo de caja libre'], c: 'fcf', rule: () => L('After-tax operating income − net investment', 'Utilidad operativa después de impuestos − inversión neta'), nums: r => `${fmt(r.nopat)} − ${fmt(r.reinv)}`, xl: () => '=nopat-net_investment' },
+  pv: { a: 'w', n: ['Value today', 'Valor hoy'], c: 'fcf', rule: () => L('Free cash flow ÷ (1 + WACC)^years', 'Flujo de caja libre ÷ (1 + WACC)^años'), nums: (r, a, i) => `${fmt(r.fcf)} ÷ (1 + ${fmt(a.w, 1)}%)^${i + 1}`, xl: i => `=fcf/(1+wacc)^${i + 1}` },
+};
+function explainCalc(k, i, tab) {
   const a = state.a, d = dcf(a);
   if (k === 'ev') {
-    openDrawer(L('Enterprise value', 'Valor de la empresa'), `
-      <div><span class="big">${fmt(d.ev)}</span></div>
-      <div class="chain">
+    openPanel({ sub: L('Your forecast', 'Tu proyección'), title: L('Enterprise value', 'Valor de la empresa'), big: fmt(d.ev), unit: L('US$ millions', 'millones de US$'), tab, tabs: [
+      { id: 'formula', label: L('Formula', 'Fórmula'), html: () => `<div class="chain">
         <div><span class="lbl">${L('Five years of cash flow, in today\'s money', 'Cinco años de flujo, en dinero de hoy')}</span><code>${fmt(d.pvSum)}</code></div>
-        <div><span class="lbl">${L('Everything after 2028, in today\'s money', 'Todo después de 2028, en dinero de hoy')}</span><code>${fmt(d.pvtv)}</code><span class="note">${L(`${pct(d.pvtv / d.ev, 0)} of the value. That is why long-term growth matters so much.`, `${pct(d.pvtv / d.ev, 0)} del valor. Por eso el crecimiento de largo plazo pesa tanto.`)}</span></div>
-        <div><span class="lbl">${L('Minus net debt (FY2023 filing)', 'Menos deuda neta (reporte FY2023)')}</span><code>− ${fmt(BASE.netDebt)}</code></div>
-        <div><span class="lbl">${L('÷ diluted shares', '÷ acciones diluidas')}</span><code>${fmt(d.eq)} ÷ ${fmt(BASE.shares)} = $${fmt(d.ps, 2)}</code></div>
-      </div>`);
+        <div><span class="lbl">${L('Everything after FY2028, in today\'s money', 'Todo después de FY2028, en dinero de hoy')}</span><code>${fmt(d.pvtv)}</code><span class="note">${L(`${pct(d.pvtv / d.ev, 0)} of the value. That is why long-term growth matters so much.`, `${pct(d.pvtv / d.ev, 0)} del valor. Por eso el crecimiento de largo plazo pesa tanto.`)}</span></div>
+        <div><span class="lbl">${L('Minus net debt (Apple has net cash, so this adds)', 'Menos deuda neta (Apple tiene caja neta, así que suma)')}</span><code>− (${fmt(BASE.netDebt)})</code></div>
+        <div><span class="lbl">${L('÷ diluted shares', '÷ acciones diluidas')}</span><code>${fmt(d.eq)} ÷ ${fmt(BASE.shares)} = $${fmt(d.ps, 2)}</code></div></div>` },
+      { id: 'concept', label: L('Concept', 'Concepto'), html: () => `<div class="concept"><p>${L('Enterprise value is what the whole business is worth to everyone who funds it, lenders and shareholders together.', 'El valor de la empresa es lo que vale todo el negocio para quienes lo financian, acreedores y accionistas juntos.')}</p><p>${L('To get the shareholders\' part, subtract net debt. Click Net debt on the company page for more.', 'Para llegar a la parte de los accionistas, resta la deuda neta. Haz clic en Deuda neta en la página de la empresa para saber más.')}</p></div>` },
+      { id: 'read', label: L('Read next', 'Para leer'), html: () => readTab('netdebt') }] });
     return;
   }
-  const r = d.rows[i], y = r.y;
-  const lines = {
-    rev: [L('Last year\'s revenue × (1 + growth)', 'Ingresos del año anterior × (1 + crecimiento)'), `${fmt(r.prev)} × (1 + ${fmt(a.g, 1)}%) = ${fmt(r.rev)}`, [['g', L('growth', 'crecimiento')]]],
-    ebit: [L('Revenue × operating margin', 'Ingresos × margen operativo'), `${fmt(r.rev)} × ${fmt(a.m, 1)}% = ${fmt(r.ebit)}`, [['m', L('margin', 'margen')]]],
-    nopat: [L('Operating income × (1 − tax rate)', 'Utilidad de operación × (1 − tasa de impuestos)'), `${fmt(r.ebit)} × (1 − ${fmt(a.t, 1)}%) = ${fmt(r.nopat)}`, [['t', L('tax rate', 'tasa')]]],
-    reinv: [L('Revenue × net investment rate', 'Ingresos × tasa de inversión neta'), `${fmt(r.rev)} × ${fmt(a.r, 1)}% = ${fmt(r.reinv)}`, [['r', L('net investment', 'inversión neta')]]],
-    fcf: [L('After-tax operating income − net investment', 'Utilidad operativa después de impuestos − inversión neta'), `${fmt(r.nopat)} − ${fmt(r.reinv)} = ${fmt(r.fcf)}`, []],
-    pv: [L('Free cash flow ÷ (1 + WACC)^years', 'Flujo de caja libre ÷ (1 + WACC)^años'), `${fmt(r.fcf)} ÷ (1 + ${fmt(a.w, 1)}%)^${i + 1} = ${fmt(r.pv)}`, [['w', 'WACC']]],
-  }[k];
-  openDrawer(`FY${y} · ${{ rev: L('Revenue', 'Ingresos'), ebit: L('Operating income', 'Utilidad de operación'), nopat: L('After-tax operating income', 'Utilidad operativa después de impuestos'), reinv: L('Net investment', 'Inversión neta'), fcf: L('Free cash flow', 'Flujo de caja libre'), pv: L('Value today', 'Valor hoy') }[k]}`, `
-    <div><span class="big">${fmt(r[k])}</span></div>
-    <div class="chain">
-      <div><span class="lbl">${L('Rule', 'Regla')}</span><span>${lines[0]}</span></div>
-      <div><span class="lbl">${L('With your numbers', 'Con tus números')}</span><code>${lines[1]}</code></div>
-      ${lines[2].map(([s, n]) => `<div><span class="lbl">${L('Your assumption', 'Tu supuesto')}: ${n}</span><span>${fmt(a[s], 1)}% · ${L('set by you, with the history shown beside the slider', 'lo elegiste tú, con la historia junto al control')}</span></div>`).join('')}
-      ${k === 'rev' && i === 0 ? `<div><span class="lbl">${L('Starting point', 'Punto de partida')}</span><span>${L('FY2023 revenue from the 10-K filed', 'Ingresos FY2023 del 10-K presentado el')} ${fdate(F23.filed)}</span></div>` : ''}
-    </div>
-    <p class="note">${L('The formula is the same for every student and is tested. Only the assumptions are yours, so two answers can be compared fairly.', 'La fórmula es igual para todos y está probada. Solo los supuestos son tuyos, así que dos respuestas se pueden comparar con justicia.')}</p>`);
+  const c = CALC[k], r = d.rows[i];
+  const tabs = [
+    { id: 'formula', label: L('Formula', 'Fórmula'), html: () => `<ol class="steps"><li>${c.rule()}</li><li><code>${c.nums(r, a, i)} = ${fmt(r[k])}</code></li>
+        ${k === 'rev' && i === 0 ? `<li>${L('Starting point: FY2023 revenue from the 10-K filed', 'Punto de partida: ingresos FY2023 del 10-K presentado el')} ${fdate(FIL.k23.filed)}</li>` : ''}</ol>
+      <div class="excel"><span>${L('As a spreadsheet formula', 'Como fórmula de hoja de cálculo')}</span><span class="cell">${c.xl(i)}</span><span>${L('The formula is the same for every student and is tested. Only the assumptions are yours, so two answers can be compared fairly.', 'La fórmula es igual para todos y está probada. Solo los supuestos son tuyos, así que dos respuestas se comparan con justicia.')}</span></div>` },
+    { id: 'concept', label: L('Concept', 'Concepto'), html: () => conceptTab(c.c) },
+    { id: 'whatif', label: L('What if', '¿Y si…?'), html: () => c.a ? `<label class="lbl" for="wi-a">${SL().find(s => s.k === c.a).n}</label>
+        <div class="edit-row"><input type="range" id="wi-a" min="${SL().find(s => s.k === c.a).min}" max="${SL().find(s => s.k === c.a).max}" step="${SL().find(s => s.k === c.a).step}" value="${a[c.a]}"><output class="mono" id="wi-ao">${fmt(a[c.a], 1)}%</output></div>
+        <div id="wi-aout"></div>` : `<p>${L('Free cash flow has no assumption of its own. Change growth, margin, tax or net investment instead.', 'El flujo de caja libre no tiene supuesto propio. Cambia crecimiento, margen, impuestos o inversión neta.')}</p>`,
+      init: () => { if (!c.a) return; const base = { cell: r[k], ps: d.ps, v: a[c.a] }, el = document.getElementById('wi-a');
+        const draw = () => { const nd = dcf(state.a); document.getElementById('wi-ao').textContent = fmt(state.a[c.a], 1) + '%';
+          document.getElementById('wi-aout').innerHTML = `<div class="ripples">
+            <div><div class="rp-top"><span>${L(...c.n)} FY${r.y}E</span><span class="mono">${fmt(base.cell)} → ${fmt(nd.rows[i][k])}</span></div></div>
+            <div><div class="rp-top"><span>${L('Free cash flow, all five years', 'Flujo de caja libre, los cinco años')}</span><span class="mono">${fmt(d.rows.reduce((s, x) => s + x.fcf, 0))} → ${fmt(nd.rows.reduce((s, x) => s + x.fcf, 0))}</span></div></div>
+            <div><div class="rp-top"><span>${L('Value per share (central case)', 'Valor por acción (caso central)')}</span><span class="mono">$${fmt(base.ps, 2)} → $${fmt(nd.ps, 2)}</span></div><span class="rp-why">${L('The range on the left moved too.', 'El rango de la izquierda también se movió.')}</span></div></div>`; };
+        el.addEventListener('input', () => { state.a[c.a] = +el.value; state.submitted = false; const s = document.getElementById('sl-' + c.a); if (s) { s.value = el.value; document.getElementById('o-' + c.a).textContent = fmt(+el.value, 1) + '%'; } drawValuation(); draw(); }); draw(); } },
+    { id: 'read', label: L('Read next', 'Para leer'), html: () => readTab(c.c === 'tax' ? 'tax' : c.c) },
+  ];
+  openPanel({ sub: `${L('Your forecast', 'Tu proyección')} · FY${r.y}E`, title: L(...c.n), big: fmt(r[k]), unit: L('US$ millions', 'millones de US$'), tabs, tab });
 }
 
 // ---------- 4. reality ----------
 function vReality() {
   const g = state.a.g, m = state.a.m;
-  const you = BASE.rev * (1 + g / 100), actual = 47061, naive = BASE.rev, warren = 47860;
-  const youM = m, actM = 9992 / 47061 * 100;
-  const max = 52000;
-  const bar = (cls, n, v, showErr) => `<div class="bar ${cls}"><span>${n}</span><div class="track"><div class="fill" style="width:${(v / max * 100).toFixed(1)}%"></div></div><span class="val">${fmt(v)}${showErr ? `<span class="err">${v >= actual ? '+' : ''}${pct((v - actual) / actual)}</span>` : ''}</span></div>`;
+  const you = BASE.rev * (1 + g / 100), actual = 391035, naive = BASE.rev, warren = 398700;
+  const actM = 123216 / 391035 * 100, max = 420000;
+  const bar = (cls, n, v, e) => `<div class="bar ${cls}"><span>${n}</span><div class="track"><div class="fill" style="width:${(v / max * 100).toFixed(1)}%"></div></div><span class="val">${fmt(v)}${e ? `<span class="err">${v >= actual ? '+' : ''}${pct((v - actual) / actual)}</span>` : ''}</span></div>`;
   return `<section class="view">
-    <div class="head"><span class="eyebrow">${L('Step 4 · January 2025: what really happened', 'Paso 4 · Enero de 2025: qué pasó de verdad')}</span>
+    <div class="head"><span class="eyebrow">${L('Step 4 · November 2024: what really happened', 'Paso 4 · Noviembre de 2024: qué pasó de verdad')}</span>
       <h1>${L('Your forecast meets the real annual report', 'Tu proyección frente al informe anual real')}</h1>
-      <p>${L('Coca-Cola filed its FY2024 annual report on 20 February 2025. Warren scored every student\'s forecast against it the same day.', 'Coca-Cola presentó su informe anual FY2024 el 20 de febrero de 2025. Warren calificó la proyección de cada estudiante ese mismo día.')}</p></div>
+      <p>${L('Apple filed its FY2024 annual report on 1 November 2024. Warren scored every student\'s forecast against it the same day.', 'Apple presentó su informe anual FY2024 el 1 de noviembre de 2024. Warren calificó la proyección de cada estudiante ese mismo día.')}</p></div>
     <div class="grid3">
-      <div class="card stat"><span class="eyebrow">${L('Your revenue error', 'Tu error en ingresos')}</span><span class="v">${you >= actual ? '+' : ''}${pct((you - actual) / actual)}</span><span class="d">${L('Class median', 'Mediana del grupo')}: 3.4%</span></div>
-      <div class="card stat"><span class="eyebrow">${L('Your margin error', 'Tu error en margen')}</span><span class="v">${youM >= actM ? '+' : ''}${fmt(youM - actM, 1)} ${L('pts', 'pts')}</span><span class="d">${L('You forecast', 'Proyectaste')} ${fmt(youM, 1)}% · ${L('actual', 'real')} ${fmt(actM, 1)}%</span></div>
-      <div class="card stat"><span class="eyebrow">${L('Rank in class', 'Lugar en el grupo')}</span><span class="v">7 / 24</span><span class="d">${L('By revenue error', 'Por error en ingresos')}</span></div>
+      <div class="card stat"><span class="eyebrow">${L('Your revenue error', 'Tu error en ingresos')}</span><span class="v">${you >= actual ? '+' : ''}${pct((you - actual) / actual)}</span><span class="d">${L('Class median', 'Mediana del grupo')}: 3.1%</span></div>
+      <div class="card stat"><span class="eyebrow">${L('Your margin error', 'Tu error en margen')}</span><span class="v">${m >= actM ? '+' : '−'}${fmt(Math.abs(m - actM), 1)} ${L('pts', 'pts')}</span><span class="d">${L('You forecast', 'Proyectaste')} ${fmt(m, 1)}% · ${L('actual', 'real')} ${fmt(actM, 1)}%</span></div>
+      <div class="card stat"><span class="eyebrow">${L('Rank in class', 'Lugar en el grupo')}</span><span class="v">9 / 24</span><span class="d">${L('By revenue error', 'Por error en ingresos')}</span></div>
     </div>
     <div class="card">
       <h2>${L('FY2024 revenue, US$ millions', 'Ingresos FY2024, millones de US$')}</h2>
@@ -532,13 +810,13 @@ function vReality() {
         ${bar('', L('Same as last year', 'Igual que el año pasado'), naive, true)}
         ${bar('actual', L('Actual', 'Real'), actual, false)}
       </div>
-      <p class="note">${L('Actual: The Coca-Cola Company 10-K for FY2024, filed 20 Feb 2025, document 0000021344-25-000011. Warren\'s baseline here is an example figure.', 'Real: 10-K de The Coca-Cola Company para FY2024, presentado el 20 feb 2025, documento 0000021344-25-000011. La línea base de Warren aquí es un ejemplo.')}</p>
+      <p class="note">${L('Actual: Apple 10-K for FY2024, filed 1 Nov 2024, document 0000320193-24-000123. Warren\'s baseline here is an example figure.', 'Real: 10-K de Apple para FY2024, presentado el 1 nov 2024, documento 0000320193-24-000123. La línea base de Warren aquí es un ejemplo.')}</p>
     </div>
     <div class="grid2">
       <div class="card">
-        <h2>${L('Why almost everyone missed the margin', 'Por qué casi todos fallaron el margen')}</h2>
-        <p>${L('Operating income fell from 11,311 to 9,992 even though sales grew. Most of the drop came from one-off charges, including a write-down of the BodyArmor sports drink brand that Coca-Cola bought in 2021. Nobody could have seen that in the March 2024 numbers.', 'La utilidad de operación bajó de 11,311 a 9,992 aunque las ventas crecieron. La mayor parte de la caída vino de cargos únicos, incluida la reducción de valor de la marca BodyArmor, que Coca-Cola compró en 2021. Nadie podía verlo en los números de marzo de 2024.')}</p>
-        <p class="quote">${L('Question for class: should a one-off charge change your valuation? Defend your answer.', 'Pregunta para la clase: ¿un cargo único debería cambiar tu valuación? Defiende tu respuesta.')}</p>
+        <h2>${L('The twist: profit up, net income down', 'El giro: la operación sube, la utilidad neta baja')}</h2>
+        <p>${L('Operating income rose from 114,301 to 123,216 as services grew. Yet net income fell from 96,995 to 93,736, because tax jumped from 16,741 to 29,749. Most of the jump was a one-time charge of about 10 billion dollars after the EU\'s top court ruled on Apple\'s past taxes in Ireland. Nobody could have seen that in March.', 'La utilidad de operación subió de 114,301 a 123,216 gracias a los servicios. Pero la utilidad neta bajó de 96,995 a 93,736, porque el impuesto saltó de 16,741 a 29,749. La mayor parte fue un cargo único de unos 10 mil millones de dólares tras el fallo del tribunal superior de la UE sobre impuestos pasados de Apple en Irlanda. Nadie podía verlo en marzo.')}</p>
+        <p class="quote">${L('Question for class: should a one-off tax charge change your valuation? Defend your answer.', 'Pregunta para la clase: ¿un cargo fiscal único debería cambiar tu valuación? Defiende tu respuesta.')}</p>
       </div>
       <div class="card">
         <span class="eyebrow">${L('Your submission', 'Tu entrega')}</span>
@@ -557,18 +835,13 @@ function vReality() {
 }
 
 // ---------- 5. professor ----------
-const CLASS = [
-  ['Lucía M.', null, null, null], ['Andrés P.', 3.0, 26.0, 7.5], ['Camila R.', 8.0, 25.0, 6.5], ['Mateo G.', 4.5, 24.0, 7.0], ['Valentina S.', 6.0, 27.0, 8.0],
-  ['Santiago L.', 2.5, 24.5, 7.2], ['Isabela F.', 5.5, 23.0, 6.8], ['Diego H.', 10.0, 26.5, 6.0], ['Mariana T.', 3.5, 22.0, 7.8], ['Joaquín V.', 4.0, 25.5, 9.0],
-  ['Sofía C.', 7.0, 24.0, 7.0], ['Tomás B.', 1.5, 23.5, 7.4],
-];
+const CLASS = [['Lucía M.'], ['Andrés P.', 4.0, 30.5, 8.0], ['Camila R.', 8.0, 31.0, 8.5], ['Mateo G.', 3.0, 29.0, 9.0], ['Valentina S.', 7.0, 32.0, 7.8],
+  ['Santiago L.', 2.0, 29.5, 8.7], ['Isabela F.', 5.0, 30.0, 9.5], ['Diego H.', 10.0, 33.0, 7.5], ['Mariana T.', 1.5, 28.5, 8.2], ['Joaquín V.', 4.5, 30.0, 10.0],
+  ['Sofía C.', 6.5, 31.5, 8.5], ['Tomás B.', -1.0, 28.0, 9.0]];
 function vProfessor() {
-  const actual = 47061;
-  const rows = CLASS.map(([n, g, m, w], i) => {
-    const a = i === 0 ? state.a : { ...state.a, g, m, w };
-    const rev = BASE.rev * (1 + a.g / 100), err = (rev - actual) / actual, ps = dcf(a).ps;
-    return { n, g: a.g, m: a.m, w: a.w, err, ps, me: i === 0 };
-  }).sort((x, y) => Math.abs(x.err) - Math.abs(y.err));
+  const actual = 391035;
+  const rows = CLASS.map(([n, g, m, w], i) => { const a = i === 0 ? state.a : { ...state.a, g, m, w }, rev = BASE.rev * (1 + a.g / 100);
+    return { n, g: a.g, m: a.m, w: a.w, err: (rev - actual) / actual, ps: dcf(a).ps, me: i === 0 }; }).sort((x, y) => Math.abs(x.err) - Math.abs(y.err));
   const W = 520, H = 70, pad = 24, x = e => pad + (e + .1) / .2 * (W - 2 * pad);
   const dots = rows.map((r, i) => `<circle cx="${x(Math.max(-.1, Math.min(.1, r.err))).toFixed(1)}" cy="${30 + (i % 3) * 8 - 8}" r="${r.me ? 6 : 4.5}" fill="var(${r.me ? '--accent' : '--muted'})" opacity="${r.me ? 1 : .6}"/>`).join('');
   return `<section class="view">
@@ -577,38 +850,63 @@ function vProfessor() {
       <p>${L('Prof. Ruiz sees every assumption and every error in one place, and picks which disagreements to discuss in class.', 'El Prof. Ruiz ve cada supuesto y cada error en un solo lugar, y elige qué desacuerdos discutir en clase.')}</p></div>
     <div class="grid3">
       <div class="card stat"><span class="eyebrow">${L('Handed in', 'Entregadas')}</span><span class="v">24 / 24</span><span class="d">${L('None used data after the case date', 'Ninguna usó datos posteriores a la fecha del caso')}</span></div>
-      <div class="card stat"><span class="eyebrow">${L('Revenue error, median', 'Error en ingresos, mediana')}</span><span class="v">3.4%</span><span class="d">${L('"Same as last year" scored 2.8%', '"Igual que el año pasado" obtuvo 2.8%')}</span></div>
-      <div class="card stat"><span class="eyebrow">${L('Widest disagreement', 'Mayor desacuerdo')}</span><span class="v">${L('Growth', 'Crecimiento')}</span><span class="d">${L('From 1.5% to 10% a year', 'De 1.5% a 10% anual')}</span></div>
+      <div class="card stat"><span class="eyebrow">${L('Most opened explanation', 'Explicación más abierta')}</span><span class="v">${L('Net debt', 'Deuda neta')}</span><span class="d">${L('19 of 24 students; 11 tried a what-if on inventory', '19 de 24 estudiantes; 11 probaron un ¿y si…? con inventario')}</span></div>
+      <div class="card stat"><span class="eyebrow">${L('Widest disagreement', 'Mayor desacuerdo')}</span><span class="v">${L('Growth', 'Crecimiento')}</span><span class="d">${L('From −1% to 10% a year', 'De −1% a 10% anual')}</span></div>
     </div>
     <div class="card">
       <h2>${L('Revenue error by student', 'Error en ingresos por estudiante')}</h2>
       <svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${L('Each dot is one student', 'Cada punto es un estudiante')}">
         <line x1="${x(0)}" x2="${x(0)}" y1="6" y2="${H - 20}" stroke="var(--ink)" stroke-dasharray="3 3"/>
-        <line x1="${pad}" x2="${W - pad}" y1="${H - 20}" y2="${H - 20}" stroke="var(--line)"/>
-        ${dots}
+        <line x1="${pad}" x2="${W - pad}" y1="${H - 20}" y2="${H - 20}" stroke="var(--line)"/>${dots}
         <text x="${x(-.1)}" y="${H - 5}" text-anchor="middle">−10%</text><text x="${x(0)}" y="${H - 5}" text-anchor="middle">${L('actual', 'real')}</text><text x="${x(.1)}" y="${H - 5}" text-anchor="middle">+10%</text>
       </svg>
-      <div class="tablebox"><table class="roster"><thead><tr><th>#</th><th>${L('Student', 'Estudiante')}</th><th>${L('Growth', 'Crec.')}</th><th>${L('Margin', 'Margen')}</th><th>WACC</th><th>${L('Value / share (P50)', 'Valor / acción (P50)')}</th><th>${L('Revenue error', 'Error ingresos')}</th></tr></thead><tbody>
-        ${rows.map((r, i) => `<tr${r.me ? ' style="background:var(--accent-soft)"' : ''}><td class="num">${i + 1}</td><td>${r.n}</td><td class="num">${fmt(r.g, 1)}%</td><td class="num">${fmt(r.m, 1)}%</td><td class="num">${fmt(r.w, 1)}%</td><td class="num">$${fmt(r.ps, 2)}</td><td class="num">${r.err >= 0 ? '+' : ''}${pct(r.err)}</td></tr>`).join('')}
+      <div class="tablebox"><table class="roster"><thead><tr><th>#</th><th>${L('Student', 'Estudiante')}</th><th>${L('Growth', 'Crec.')}</th><th>${L('Margin', 'Margen')}</th><th>WACC</th><th>${L('Value / share', 'Valor / acción')}</th><th>${L('Revenue error', 'Error ingresos')}</th></tr></thead><tbody>
+        ${rows.map((r, i) => `<tr${r.me ? ' style="background:var(--accent-soft)"' : ''}><td class="num">${i + 1}</td><td>${r.n}</td><td class="num">${fmt(r.g, 1)}%</td><td class="num">${fmt(r.m, 1)}%</td><td class="num">${fmt(r.w, 1)}%</td><td class="num">$${fmt(r.ps, 0)}</td><td class="num">${r.err >= 0 ? '+' : ''}${pct(r.err)}</td></tr>`).join('')}
       </tbody></table></div>
       <p class="note">${L('Showing 12 of 24. Names and choices are examples.', 'Se muestran 12 de 24. Nombres y supuestos son ejemplos.')}</p>
     </div>
     <div class="card teaser">
       <span class="eyebrow">${L('Next semester', 'Próximo semestre')}</span>
-      <h2>Coca-Cola FEMSA · ${L('IFRS · Mexican pesos', 'NIIF · pesos mexicanos')}</h2>
-      <p>${L('The same case, run on Latin America\'s largest Coca-Cola bottler: its IFRS annual report, in pesos, with the interface in Spanish or Portuguese. Students compare the brand owner with the bottler.', 'El mismo caso con el embotellador de Coca-Cola más grande de América Latina: su informe anual en NIIF, en pesos, con la interfaz en español o portugués. Los estudiantes comparan al dueño de la marca con el embotellador.')}</p>
+      <h2>América Móvil · ${L('IFRS · Mexican pesos', 'NIIF · pesos mexicanos')}</h2>
+      <p>${L('The same case on a Latin American company: Latin America\'s largest telecom group, from its IFRS annual report, in pesos, with the interface in Spanish or Portuguese. It sells iPhones, so students can link the two cases.', 'El mismo caso con una empresa latinoamericana: el mayor grupo de telecomunicaciones de América Latina, con su informe anual en NIIF, en pesos, y la interfaz en español o portugués. Vende iPhones, así que los estudiantes pueden ligar ambos casos.')}</p>
       <span class="chip">${L('Planned, not built yet', 'Planeado, aún no construido')}</span>
     </div>
-    ${why('Grading 24 spreadsheets means opening 24 files with 24 different layouts. Here every student used the same tested math, so the professor compares judgment, not formatting.', 'Calificar 24 hojas de cálculo es abrir 24 archivos con 24 formatos distintos. Aquí todos usan la misma matemática probada, así que el profesor compara criterio, no formato.')}
+    ${why('Grading 24 spreadsheets means opening 24 files with 24 different layouts. Here every student used the same tested math, so the professor compares judgment, not formatting, and can see which concepts the class had to look up.', 'Calificar 24 hojas de cálculo es abrir 24 archivos con 24 formatos distintos. Aquí todos usan la misma matemática probada, así que el profesor compara criterio, no formato, y ve qué conceptos tuvo que consultar el grupo.')}
     <div class="row"><a class="btn ghost" href="#assignment">← ${L('Start the tour again', 'Volver al inicio')}</a></div>
   </section>`;
 }
+
+// ---------- panel ----------
+const drawer = document.getElementById('drawer'), scrim = document.getElementById('scrim');
+let panel = null;
+function openPanel(p) {
+  panel = p;
+  document.getElementById('dr-sub').textContent = p.sub;
+  document.getElementById('dr-title').textContent = p.title;
+  document.getElementById('dr-big').innerHTML = `<span class="big">${p.big}</span> <span class="note">${p.unit || ''}</span>`;
+  showTab(p.tabs.find(t => t.id === p.tab) ? p.tab : p.tabs[0].id);
+  drawer.classList.add('open'); drawer.setAttribute('aria-hidden', 'false'); scrim.hidden = false; document.body.classList.add('panel-open');
+}
+function showTab(id) {
+  const t = panel.tabs.find(x => x.id === id); panel.tab = id;
+  document.getElementById('dr-tabs').innerHTML = panel.tabs.map(x => `<button role="tab" data-tab="${x.id}" aria-selected="${x.id === id}">${x.label}</button>`).join('');
+  document.getElementById('dr-body').innerHTML = t.html();
+  if (t.init) { const m = panel.key; t.init(m && m[0], m && m[1]); }
+}
+function closeDrawer() {
+  drawer.classList.remove('open'); drawer.setAttribute('aria-hidden', 'true'); scrim.hidden = true; panel = null; document.body.classList.remove('panel-open');
+  document.querySelectorAll('td.n button.on').forEach(b => b.classList.remove('on'));
+}
+function mark(el) { document.querySelectorAll('td.n button.on').forEach(b => b.classList.remove('on')); el && el.classList.add('on'); }
+function openCell(k, y, tab) { explainCell(k, y, tab); panel.key = [k, y]; showTab(panel.tab); }
 
 // ---------- wiring ----------
 const after = {
   company() {
     const s = document.getElementById('asof');
     s.addEventListener('input', () => { state.asOfIdx = +s.value; const y = scrollY; render(); scrollTo(0, y); document.getElementById('asof').focus(); });
+    const rb = document.getElementById('wi-reset');
+    if (rb) rb.addEventListener('click', () => { state.whatif = null; rerenderBehind(); if (panel && panel.tab === 'whatif') showTab('whatif'); });
   },
   valuation() {
     drawValuation();
@@ -620,25 +918,17 @@ const after = {
   },
 };
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-trace]'), c = e.target.closest('[data-calc]');
-  if (t) { mark(t); const [k, y] = t.dataset.trace.split('|'); traceFact(k, +y); }
-  if (c) { mark(c); const [k, i] = c.dataset.calc.split('|'); traceCalc(k, +i); }
+  const c = e.target.closest('[data-cell]'), q = e.target.closest('[data-calc]'), go = e.target.closest('[data-cell-go]'), tb = e.target.closest('[data-tab]');
+  if (c) { mark(c); const [k, y] = c.dataset.cell.split('|'); openCell(k, +y, panel ? panel.tab : 'source'); }
+  if (q) { mark(q); const [k, i] = q.dataset.calc.split('|'); explainCalc(k, +i, panel ? panel.tab : 'formula'); }
+  if (go) { const [k, y, t] = go.dataset.cellGo.split('|'); if (current() !== 'company') { location.hash = 'company'; } setTimeout(() => { mark(document.querySelector(`[data-cell="${k}|${y}"]`)); openCell(k, +y, t || 'whatif'); }, 60); }
+  if (tb) showTab(tb.dataset.tab);
   if (e.target.id === 'submit') { state.submitted = true; drawValuation(); }
   const lb = e.target.closest('[data-lang]');
   if (lb) { lang = lb.dataset.lang; try { localStorage.setItem('warren-demo-lang', lang); } catch (err) {} closeDrawer(); render(); }
+  const rl = e.target.closest('[data-role]');
+  if (rl) location.hash = rl.dataset.role === 'professor' ? 'professor' : (current() === 'professor' ? 'assignment' : current());
 });
-function mark(el) { document.querySelectorAll('td.n button.on').forEach(b => b.classList.remove('on')); el.classList.add('on'); }
-const drawer = document.getElementById('drawer'), scrim = document.getElementById('scrim');
-function openDrawer(title, html) {
-  document.getElementById('dr-title').textContent = title;
-  document.getElementById('dr-body').innerHTML = html;
-  drawer.classList.add('open'); drawer.setAttribute('aria-hidden', 'false'); scrim.hidden = false;
-  document.getElementById('dr-close').focus();
-}
-function closeDrawer() {
-  drawer.classList.remove('open'); drawer.setAttribute('aria-hidden', 'true'); scrim.hidden = true;
-  document.querySelectorAll('td.n button.on').forEach(b => b.classList.remove('on'));
-}
 document.getElementById('dr-close').addEventListener('click', closeDrawer);
 scrim.addEventListener('click', closeDrawer);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
