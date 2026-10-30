@@ -5,7 +5,7 @@ description: "Run Warren's fresh-context review panel (explainer, analyst, profe
 
 # Warren Goldfish review
 
-Goldfish reviewers start with no memory of how the change was designed, so they don't share the author's blind spots. Run them as subagents, each with only the design doc or the PR diff plus the repo docs. Never pass them the design discussion.
+Goldfish reviewers start with no memory of how the change was designed, so they don't share the author's blind spots. Run them as subagents, each with only the design doc or the PR diff plus the repo docs. Never pass them the design discussion. Where `.claude/agents/` is loaded, use the defined agents `explainer`, `analyst`, `professor` and `gatekeeper`, which carry each role's model and tools.
 
 ## When
 
