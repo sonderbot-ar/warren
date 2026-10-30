@@ -207,22 +207,32 @@ def _derive(minuend: Fact, subtrahends: list[Fact], fiscal_period: str) -> Fact:
     )
 
 
-def _quarters_for_flow(year: dict[str, Fact]) -> list[Fact]:
-    """Standalone Q1-Q4 for one fiscal year of a duration item, reported where possible."""
+def _quarters_for_flow(year: dict[str, Fact], earliest: bool = False) -> list[Fact]:
+    """Standalone Q1-Q4 for one fiscal year of a duration item, reported where possible.
+
+    With `earliest` (first_reported mode), a quarter reported on its own only in a later filing
+    (e.g. a Q4 recast in the next 10-K) gives way to its derivation if that was public first.
+    """
     q = {p: year[p] for p in ("Q1", "Q2", "Q3", "Q4") if p in year}
+
+    def place(period: str, minuend: str, subtrahends: list[Fact]) -> None:
+        derived = _derive(year[minuend], subtrahends, period)
+        if period not in q or (earliest and derived.filed_at < q[period].filed_at):
+            q[period] = derived
+
     if year and next(iter(year.values())).unit in DERIVABLE_UNITS:
-        if "Q2" not in q and {"H1", "Q1"} <= year.keys():
-            q["Q2"] = _derive(year["H1"], [q["Q1"]], "Q2")
-        if "Q3" not in q and "M9" in year:
+        if (earliest or "Q2" not in q) and {"H1", "Q1"} <= year.keys():
+            place("Q2", "H1", [q["Q1"]])
+        if (earliest or "Q3" not in q) and "M9" in year:
             if "H1" in year:
-                q["Q3"] = _derive(year["M9"], [year["H1"]], "Q3")
+                place("Q3", "M9", [year["H1"]])
             elif {"Q1", "Q2"} <= q.keys():
-                q["Q3"] = _derive(year["M9"], [q["Q1"], q["Q2"]], "Q3")
-        if "Q4" not in q and "FY" in year:
+                place("Q3", "M9", [q["Q1"], q["Q2"]])
+        if (earliest or "Q4" not in q) and "FY" in year:
             if "M9" in year:
-                q["Q4"] = _derive(year["FY"], [year["M9"]], "Q4")
+                place("Q4", "FY", [year["M9"]])
             elif {"Q1", "Q2", "Q3"} <= q.keys():
-                q["Q4"] = _derive(year["FY"], [q["Q1"], q["Q2"], q["Q3"]], "Q4")
+                place("Q4", "FY", [q["Q1"], q["Q2"], q["Q3"]])
     return [q[p] for p in ("Q1", "Q2", "Q3", "Q4") if p in q]
 
 
@@ -242,7 +252,7 @@ def _one_per_period(facts: list[Fact]) -> list[Fact]:
     return list(best.values())
 
 
-def _quarterly(facts: list[Fact]) -> list[Fact]:
+def _quarterly(facts: list[Fact], earliest: bool = False) -> list[Fact]:
     years: dict[tuple, dict[str, Fact]] = defaultdict(dict)
     quarters = []
     for fact in _one_per_period(facts):
@@ -253,7 +263,7 @@ def _quarterly(facts: list[Fact]) -> list[Fact]:
         else:
             years[(fact.canonical_name, fact.fiscal_year)][fact.fiscal_period] = fact
     for year in years.values():
-        quarters.extend(_quarters_for_flow(year))
+        quarters.extend(_quarters_for_flow(year, earliest))
     return sorted(quarters, key=lambda f: (f.canonical_name, f.period_end))
 
 
@@ -269,7 +279,8 @@ def get_facts(
 
     frequency="reported": every period as filed (Q1-Q4, H1, M9, FY).
     frequency="annual":   fiscal years only (FY durations and year-end balances).
-    frequency="quarterly": standalone quarters Q1-Q4, deriving the ones not reported.
+    frequency="quarterly": standalone quarters Q1-Q4, deriving the ones not reported. In
+                           first_reported mode each quarter is the version public first.
     """
     facts = get_reported_facts(conn, cik, canonical_names, as_of, mode)
     if frequency == "reported":
@@ -278,5 +289,5 @@ def get_facts(
         annual = _one_per_period([f for f in facts if f.fiscal_period == "FY"])
         return sorted(annual, key=lambda f: (f.canonical_name, f.period_end))
     if frequency == "quarterly":
-        return _quarterly(facts)
+        return _quarterly(facts, earliest=mode == "first_reported")
     raise ValueError(f"Unknown frequency: {frequency!r}")

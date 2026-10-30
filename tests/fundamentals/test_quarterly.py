@@ -51,6 +51,21 @@ def test_first_reported_q4_uses_first_reported_inputs(ingested):
     assert not q4.mixed_vintage
 
 
+def test_first_reported_q4_is_the_version_public_first(ingested):
+    conn, _ = ingested
+    # the next 10-K reports Q4 2024 on its own, recast (as JNJ's FY2023 10-K did after Kenvue)
+    conn.execute(
+        "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, fiscal_year, "
+        "fiscal_period, value, unit, form, accession_no, filed_at) VALUES (?, 'us-gaap:Revenues', "
+        "'2024-10-01', '2024-12-31', 2024, 'Q4', 99, 'USD', '10-K', '0000000123-26-000001', "
+        "'2026-02-15')",
+        (TEST_CIK,),
+    )
+    first = quarters(conn, "revenue", "2026-03-01", mode="first_reported")["Q4"]
+    assert (first.value, first.derived, first.filed_at) == (130, True, date(2025, 2, 15))
+    assert quarters(conn, "revenue", "2026-03-01")["Q4"].value == 99  # latest: the recast
+
+
 def test_q4_falls_back_to_fy_minus_three_quarters_without_nine_months(ingested):
     conn, _ = ingested
     conn.execute("DELETE FROM financial_facts WHERE fiscal_period = 'M9'")
