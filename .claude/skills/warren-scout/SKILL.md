@@ -78,4 +78,4 @@ Then:
 
 - Install, clone, fork or run a candidate during a scout run.
 - File more than 5 issues in one run, or refile a rejected candidate unless it has a new release that fixes the reason for the rejection.
-- Read or post anywhere outside `sonderbot-ar/warren`.
+- Post, comment or file issues anywhere outside `sonderbot-ar/warren`. Reading other repos and model pages is the job; writing to them is not.

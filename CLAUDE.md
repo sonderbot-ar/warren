@@ -62,7 +62,7 @@ The team's members are defined agents in `.claude/agents/`, each with its own mo
 | `analyst` | Opus | read, read-only DB, web | Goldfish: practitioner check on real companies |
 | `professor` | Opus | read, web | Goldfish: literature and teachability |
 | `explainer` | Haiku | read | Goldfish: restates the design, lists its gaps |
-| `gatekeeper` | Opus | read, shell, GitHub PR read | Goldfish: final GO or NO-GO |
+| `gatekeeper` | Opus | read, shell, web fetch, GitHub PR and release read | Goldfish: final GO or NO-GO |
 | `data-steward` | Sonnet | read, shell | Ingests and data quality reports |
 | `case-librarian` | Sonnet | read, edit, shell, web | Sources and rows for the M3 case library |
 | `reporter` | Sonnet | read, git, web | Desk entry, lesson, weekly digest |
