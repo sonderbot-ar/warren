@@ -99,7 +99,7 @@ def ingest_file(
     conn: sqlite3.Connection,
     entry: MasterEntry,
     aliases: AliasSet,
-    download: gdelt.Downloader = gdelt.http_download,
+    download: gdelt.Downloader | None = None,
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> FileResult:
     """Read one file unless it was read under this alias set already. One transaction."""
@@ -109,7 +109,7 @@ def ingest_file(
     if row is not None and row["status"] == "ok" and row["aliases_sha256"] == aliases.sha256:
         return FileResult(entry.url, "skipped")
     try:
-        content = download(entry.url)
+        content = (download or gdelt.http_download)(entry.url)
     except requests.HTTPError:
         content = None
     with conn:
@@ -147,7 +147,7 @@ def ingest_window(
     start: datetime,
     end: datetime,
     aliases: AliasSet,
-    download: gdelt.Downloader = gdelt.http_download,
+    download: gdelt.Downloader | None = None,
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> list[FileResult]:
     found, missing = gdelt.window_files(master, start, end)

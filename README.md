@@ -45,6 +45,16 @@ python -m domains.analysis fallbacks                      # compare each fallbac
 
 The owner's choices (equity risk premium and terminal growth methods) are in `domains/analysis/user_assumptions.csv`.
 
+## News and events (M5)
+
+```bash
+python -m domains.news ingest --all-cases          # GDELT files for each case window (7 New York days to the case date), every company matched
+python -m domains.news events --all-cases          # cluster each company's articles into events as of its case dates
+python -m domains.news rebuild-events RUN_ID       # cluster the stored articles again; exits 1 on any difference
+python -m domains.news sample --seed 7             # draw a precision sample into domains/news/match_sample.csv for labelling
+python -m domains.news report                      # coverage per window, precision with intervals, labeller agreement
+```
+
 Query point-in-time facts with `domains.fundamentals.facts.get_facts(conn, cik, ["revenue"], as_of="2024-06-30", frequency="quarterly")`.
 
 Local data (the SQLite database, logs, raw downloads and reports) lives in `data/`, which is git-ignored.

@@ -95,7 +95,7 @@ GDELT gives URLs, not text (Decision 8). Fetching publisher pages raises terms-o
 
 ## Commands
 
-- `python -m domains.news ingest --case MSFT_2022-06-02 [--days 7]`, or `--all-cases`.
+- `python -m domains.news ingest --case MSFT_2022-06-02 [--days 7]`, or `--all-cases` (also on `events`).
 - `python -m domains.news rematch` (re-fetch files ingested under an older alias set).
 - `python -m domains.news events --case MSFT_2022-06-02` (cluster as of the case date, store the run, print the events).
 - `python -m domains.news rebuild-events EVENT_RUN_ID`.
@@ -136,3 +136,8 @@ Changed: `docs/build-plan.md` (status, M5 source note, results), `README.md` (co
   - *Accepted:* the doc said "no LLM" yet an LLM labels the sample (now stated, with a second labeller and kappa); the UTC-day window missed the next UTC morning; first-sighting-wins made dates and titles depend on ingest order (now every sighting is kept, earliest before the cut-off chosen); rows lost for good when aliases change or another company's window fetched the file first (all companies matched every pass, alias hash in the manifest, `rematch`); missing or bad files not recorded (status and coverage); exclusions read as article-level would drop Walmex and bottler mentions (now per string, Walmex a subsidiary); `p&g` normalised to `pg` (now `p and g`, short aliases refused); themes alone could chain a week into one event (title similarity now always required); rebuild wasn't reproducible from stored state (input hash); FTS search had no as-of (now `search(query, as_of)`); fixed confidences looked like probabilities (removed); sample of 25 too small (50, with Wilson intervals, every draw reported); unspecified tokeniser, stop words and theme list (written down); Build Plan still recommended BigQuery (note added).
   - *Rejected:* "Decision 8 names GDELT Events, so not using it drops a decision" (explainer). Decision 8 names GDELT as the source; reading one of its tables is within it, and nothing is dropped. No Structure Guide change.
   - *To backlog:* normalise `source_count` by GDELT's daily volume before M6 uses it as materiality (GDELT coverage grows over 2019–2025); a "why this matched / why these merged" trace per event for teaching; fetching article text where allowed; ExxonMobil Holdings alias after the 2026 reorganisation; the translingual stream for LatAm sources.
+
+## Where the work stopped (oct.30.2026)
+
+- Done on the branch: Steps 0–4 (adapter, migration 0009, aliases and matching, sightings and manifest, clustering and event runs, as-of search, sample draws, precision with Wilson intervals, kappa, coverage, CLI). Engine-only PR to `main`.
+- Next: Step 5, the real run. Blocked on oct.30.2026: the cloud environment refuses `data.gdeltproject.org` (403). Needs the host allowed in the environment's network settings, or a run from the owner's machine. Then check the three field claims on a real 2019 file before trusting the fixtures.
