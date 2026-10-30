@@ -147,7 +147,30 @@ Read on real GKG files from 2019-04-23 to 2025-09-19 before any case window was 
 - **`V2Organizations`** is `Name,offset;Name,offset` with the publisher's capitals ("Microsoft,3701"); the normaliser lowercases, as designed. Every row has 27 columns.
 - **`PAGE_TITLE`** is missing from every row until about October 2019 (none on 2019-04-23, 2019-07-19, 2019-08-26 or 2019-09-20; every row on 2019-10-23 and in each later year checked). Six case windows fall before it. Without titles every article would be its own event, so a sighting with no page title takes its headline words from the URL's last path part (`/microsoft-cuts-revenue-forecast-123.html` → "microsoft cuts revenue forecast", when at least three words), flagged `title_from_url` (migration 0010). Those words cluster but never match a company on their own: `title_alias` reads page titles only. The coverage table in the report counts, per case window, the sightings and how many of them use URL words; a row with neither a page title nor three URL words keeps no title and no flag.
 
+## Real run and first draw (oct.30.2026, Step 5)
+
+- **Ingest.** All 26 case windows were read: 16,909 files and 392,117 matched sightings. Every window is at 99.9–100% except WMT_2022-11-15, at 87.6%. Its 83 files on 2022-11-10/11 are in the master list, but GDELT answers 404 for them, so they are a gap at the source and can't be fixed by retrying. Download speed: about 2 files a second with 8 parallel downloads (PR #51).
+- **Events.** Every case has an event run. Clustering compared each article with every event ever opened, which was 20 minutes for one MSFT window; a title-word index made it seconds with identical events (PR #65, checked with `rebuild-events` on the stored runs).
+- **Draw 20261030 failed the gate badly.** 612 rows were labelled. The data steward (Sonnet) labelled all of them and the analyst (Opus) labelled 245 blind. `org_exact` precision, the share `about`:
+
+  | Company | AAPL | CAT | JNJ | KO | MSFT | PG | WMT | XOM |
+  |---|---|---|---|---|---|---|---|---|
+  | Precision | 0.28 | 0.16 | 0.40 | 0.06 | 0.18 | 0.08 | 0.10 | 0.20 |
+
+  Pooled, 73 of 400 `org_exact` rows are `about`. `title_alias` passes only for JNJ (0.92); PG reads 0.80 on 5 rows but depends on the labeller (see below). `org_subsidiary` has no `about` row.
+- **The labellers agree on what matters.** Over the 245 shared rows kappa is 0.69 on the three labels and 0.90 on `about` against the rest. Most disagreements are `not` against `related` (34 rows), which doesn't change precision. Some cells are below the 0.6 floor (AAPL, KO, MSFT and WMT, and PG `title_alias` at 0.0 on 2 rows). They were not sent to the owner: the `org_exact` gate fails under either labeller's labels, so reading it doesn't depend on who is right. The one pass that does depend on it is PG `title_alias`: 0.80 with the steward's labels, 0.60 with the analyst's where they differ, so it is not counted as a pass.
+- **Why it fails.** GDELT's organisation tags catch passing mentions, not stories about the company:
+  - "Microsoft" is tagged on 129,379 of the 392,117 sightings: Windows and Teams in sidebars, market-research spam, and so on.
+  - The `related` rows are market wraps, "shares acquired by" holdings notices, shopping deals and industry lists.
+  - The `not` rows are mostly `title_alias` false friends: Colin the Caterpillar, Coca-Cola recipes and games, Walmart review spam, apple the fruit.
+- **Alias fixes can't cure this.** Most failures are the right company in the wrong role, not the wrong company. The design's remedy (alias fixes, `rematch`, a new draw) therefore isn't enough. A first check on this draw: requiring the company's name in the headline keeps 55 of the 73 `about` rows among 74 kept rows, a precision of about 0.74. The misses are possessives ("apples", "procter gambles"), short names ("pg"), products (iPhone, Xbox) and empty titles. The remaining noise is wraps and holdings notices.
+
 ## Where the work stopped (oct.30.2026)
 
-- Done on the branch: Steps 0–4 (adapter, migration 0009, aliases and matching, sightings and manifest, clustering and event runs, as-of search, sample draws, precision with Wilson intervals, kappa, coverage, CLI). Engine merged in PR #41.
-- Next: Step 5, the real run. The host is allowed since oct.30.2026 (over https); the field checks above are done.
+- Done: Steps 0–5 up to the first draw, merged in PRs #41, #43, #48, #51 and #65. The draw and its labels are in `domains/news/match_sample.csv`. The gate fails, so M5 is not Done.
+- Next, Step 6: a headline rule, as a design amendment with its own review. A matched article feeds events only if:
+  - the company's name, a possessive or short form, or one of a short list of its brands appears in the headline (or the URL words when there is no title);
+  - and the headline is not a holdings notice or market wrap.
+
+  All matches stay stored. Then draw again with a new seed and label it. The idea for per-cell kappa to use `about` against the rest (what precision reads) goes to the same review.
+- The real database is local to the run that made it (`data/` is git-ignored). A fresh run needs about 2.5 hours to download it again.
