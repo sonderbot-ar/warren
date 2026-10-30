@@ -105,6 +105,20 @@ def test_the_actual_direction_uses_the_comparative_from_the_actuals_filing(make_
     assert q3["direction_actual"] == -1 and q3["direction_forecast"] == 1
 
 
+def test_a_derived_comparative_on_mixed_bases_leaves_the_direction_unknown(make_company):
+    def recast_prior_year(tag, row):
+        # the FY2019 10-K recasts FY2018 revenue (as JNJ's FY2022 10-K did FY2021 after Kenvue);
+        # last year's nine months stay as first reported, so FY − M9 mixes two bases
+        if tag == "Revenues" and row["end"] == "2018-12-31" and row["fy"] == 2019:
+            row = row | {"val": row["val"] * 0.8}
+        return row
+
+    _, rows = evaluate(make_company(recast_prior_year))
+    (q4,) = [r for r in by(rows, "baseline", "revenue") if r["period"] == "FY2019Q4"]
+    assert q4["status"] == "ok" and q4["derived"] == 1
+    assert q4["comparative"] is None and q4["direction_actual"] is None
+
+
 def test_an_actual_on_another_ebit_definition_fails_the_case(make_company):
     def drop_q3_operating_income(tag, row):
         if tag == "OperatingIncomeLoss" and row["end"] == "2019-09-30" and row["fp"] == "Q3":

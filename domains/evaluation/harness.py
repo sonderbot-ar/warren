@@ -174,10 +174,20 @@ def first_reported(
 def comparative(
     facts: dict[tuple, Fact], fiscal_year: int, quarter: int, alternative: int
 ) -> tuple[float | None, float | None]:
-    """Revenue and EBIT of the same quarter a year earlier, from `facts` (one as-of date)."""
+    """Revenue and EBIT of the same quarter a year earlier, from `facts` (one as-of date).
+
+    A value derived from inputs on different bases (e.g. a recast prior year in the actual's
+    10-K minus last year's nine months as first reported) is not a same-filing comparative: it's
+    None, and so is the actual direction.
+    """
     year, q = step_quarter(fiscal_year, quarter, -4)
-    revenue = facts.get(("revenue", year, f"Q{q}"))
-    ebit = [facts.get((item, year, f"Q{q}")) for item in CHAINS["ebit"][alternative]]
+
+    def basis(item: str) -> Fact | None:
+        fact = facts.get((item, year, f"Q{q}"))
+        return None if fact is None or fact.mixed_vintage else fact
+
+    revenue = basis("revenue")
+    ebit = [basis(item) for item in CHAINS["ebit"][alternative]]
     return (
         revenue.value if revenue else None,
         sum(f.value for f in ebit) if all(ebit) else None,
