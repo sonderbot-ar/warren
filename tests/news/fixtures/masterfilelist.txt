@@ -1,0 +1,5 @@
+150383 297a16b493de7cf6ca809a7cc31d0b93 http://data.gdeltproject.org/gdeltv2/20220602150000.export.CSV.zip
+12000000 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa http://data.gdeltproject.org/gdeltv2/20220602150000.gkg.csv.zip
+9000 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb http://data.gdeltproject.org/gdeltv2/20220602150000.translation.gkg.csv.zip
+12000001 cccccccccccccccccccccccccccccccc http://data.gdeltproject.org/gdeltv2/20220602151500.gkg.csv.zip
+12000002 dddddddddddddddddddddddddddddddd http://data.gdeltproject.org/gdeltv2/20220602154500.gkg.csv.zip

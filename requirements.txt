@@ -16,6 +16,9 @@ yfinance==1.7.0
 pandas==3.0.6
 numpy==2.4.6
 
+# Time zones for the news cut-off (domains/news/gdelt.py); Windows has no system zone data
+tzdata==2025.2
+
 # Development: tests, lint and format
 pytest==9.1.1
 hypothesis==6.169.4
