@@ -39,7 +39,7 @@ Durations are indicative, assuming part-time work (roughly 8–12 hours a week).
 | M1.1 | Fundamentals hardening (review of M1) | 0.5 | oct.26 – oct.29 | M1 | **Done** (oct.26.2026) |
 | M2 | Deterministic forecast and DCF engine | 2 | nov.09 – nov.22 | M1.1 | **Done** (oct.26.2026; PRs #5 and #6) |
 | M2.1 | DCF hardening (review of M2) | 0.5 | oct.28 – oct.30 | M2 | **Done** (oct.30.2026; PR #7, merged by the agent team after a gatekeeper GO; recorded as v0.2 in `docs/versions.md`) |
-| M3 | Evaluation harness v1 (baseline only) | 1.5 | nov.23 – dec.03 | M2.1 | In progress (oct.30.2026; design in `docs/designs/m3-evaluation-harness.md`) |
+| M3 | Evaluation harness v1 (baseline only) | 1.5 | nov.23 – dec.03 | M2.1 | Done (oct.30.2026, v0.3; design in `docs/designs/m3-evaluation-harness.md`) |
 | M4 | Shock model and Monte Carlo (manual shocks) | 1.5 | dec.04 – dec.13 | M2.1 | Not started |
 | M5 | News ingestion (GDELT) and event clustering | 2.5 | dec.14 – jan.03 | M1 | Not started |
 | M6 | LLM steps: event extraction and shock proposal | 2 | jan.04 – jan.17 | M4, M5 | Not started |
@@ -274,26 +274,33 @@ assumptions(run_id TEXT REFERENCES runs, name TEXT, period TEXT, value REAL,
 
 **Implements:** Decision 7.
 
-**Design**
+**Design** (full version, with the review log: `docs/designs/m3-evaluation-harness.md`)
 
-```sql
-eval_cases(case_id TEXT PRIMARY KEY, cik TEXT, event_date DATE,
-           event_type TEXT, description TEXT, horizon_quarters INTEGER,
-           selected_because TEXT)
+- **Case library** (`domains/evaluation/cases.csv`): 16 events across the eight companies and seven event types, each with a dated source, plus 8 controls dated by rule (50 days after a fiscal Q2 end, years staggered by company, moved forward a quarter at a time when within 120 days of an acquisition, divestiture or guidance withdrawal). Every row records why it was chosen. Each batch stores the file's SHA-256.
+- **Procedure per case:** run the baseline as of the event date (point-in-time data only), take its revenue and operating income (EBIT) for the next 1–4 fiscal quarters, and compare with the **first-reported** actuals: each quarter as it was first made public, including Q4 as full year minus nine months when that came first. EBIT is on the same definition the run used.
+- **Naive benchmark:** a seasonal random walk (the same quarter a year earlier, as known on the case date) is scored next to the baseline. The baseline has to beat it.
+- **Metrics:** revenue as absolute percentage error; EBIT in margin points (error ÷ actual revenue), because EBIT can be near zero or negative; direction of change against the prior-year quarter from the same filing, shown with its base rate. The headline is the median by item and horizon. Later (M8): a paired per-case test of shocks against the baseline, and coverage of the p10–p90 band.
+- **Storage** (migration 0007): `eval_cases`, `eval_batches` (code version, case-file hash), `eval_results` (one row per case, variant, item and quarter, with the metrics as columns and nullable p10/p50/p90 for M8), `eval_failures`.
+- **Output:** `python -m domains.evaluation run` writes `data/reports/eval/<batch_id>.md`: the headline, segments, every case, failures, a glossary and the limitations.
 
-eval_results(case_id TEXT, run_id TEXT, variant TEXT,      -- 'baseline' or 'with_shocks'
-             metric TEXT, period TEXT, forecast REAL, actual REAL, value REAL,
-             PRIMARY KEY (case_id, run_id, variant, metric, period))
-```
+**Tests:** the harness fails a case if any filing its run cites has `filed_at` after the case date (look-ahead guard), if its horizon reaches past a company's history (coverage), if a control is off its rule date, or if the actual is only reported under another EBIT definition. A quarter not yet reported is `missing`, never an error of 0.
 
-- **Case library:** start with 15–25 historical events across the Phase 1 companies, covering several event types (guidance changes, recalls, litigation, regulation, M&A, supply-chain disruptions, macro). Record *why* each case was chosen so the library is not unconsciously cherry-picked; include "quiet" dates with no notable news as controls.
-- **Procedure per case:** run Warren as of the event date (point-in-time data only), forecast revenue and operating income for the next 1–4 quarters, then compare with the **first-reported** actuals from later filings.
-- **Metrics:** absolute percentage error per quarter; direction of change versus the prior year; later (M8) skill score = 1 − (error with shocks ÷ error of baseline) and coverage of the p10–p90 band.
-- **Output:** a per-case table and a summary report saved under `data/reports/`, with the code version and seeds used, so any result can be reproduced exactly.
+**Exit criterion:** baseline error and naive error for every case are computed and saved. The baseline's median errors by horizon are the numbers every later milestone must beat.
 
-**Tests:** the harness refuses to run if any input fact has `filed_at` after the case date (an automatic look-ahead guard).
+**Result (batch `eval_2026-10-30_1`, code `0b1008f`, case file `ba4352640115`, data refreshed oct.30.2026).** 24 of 24 cases scored, 0 failed, 0 incomplete; all 184 stored runs reproduce to the cent.
 
-**Exit criterion:** baseline error for every case is computed and saved. This is the number every later milestone must beat.
+| Median error | h1 | h2 | h3 | h4 | all |
+|---|---|---|---|---|---|
+| Revenue, baseline | 5.7% | 4.4% | 5.9% | 6.5% | 5.6% |
+| Revenue, naive | 7.7% | 6.7% | 6.9% | 9.3% | 7.5% |
+| EBIT, baseline (margin points) | 4.18 | 2.42 | 2.91 | 3.80 | 3.17 |
+| EBIT, naive (margin points) | 4.48 | 4.06 | 3.44 | 6.56 | 4.16 |
+
+- The baseline's median error is below naive's at every horizon, but it beats naive in only 42–58% of revenue quarters (75% for EBIT at h4). The medians are lower; the baseline is not reliably better case by case. "Beat" is decided in M8 with a paired test.
+- Direction hits on revenue (62–71%) sit below the base rate of rising quarters (71–79%): one growth rate per run nearly always says "up".
+- XOM in 2020 gives the largest errors (h2 FY2020Q2 at 121–129%, naive 107%): growth extrapolated from earlier years met the oil-price collapse. XOM_2023-10-11 (52.6% at h1, naive 23.5%) carries the 2021–2023 oil cycle forward. These are the growth rule's weaknesses (see the risk register), which M4's shocks are meant to address.
+- Controls (3.5% revenue, 2.34 pts EBIT) are easier than events (7.3%, 3.59 pts), as expected.
+- The PR review found and fixed a first-reported Q4 that used a recast filed a year late (JNJ FY2022 Q4: 19,939 → 23,706), a mixed-basis comparative, and three control dates off their rule. Open ideas: issues #20–#27.
 
 ### M4 — Shock Model and Monte Carlo (manual shocks)
 
