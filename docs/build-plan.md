@@ -341,7 +341,7 @@ Shock
 | KO, Q2–Q4 2019 | 19.9–30.2% → 20.4–30.6% | 6.39–10.85 → 6.51–10.92 |
 
 - Three cases test the plumbing, not whether shocks help; M8 decides that. Microsoft's actual revenue ($51.87B) fell below its revised low, so the guided band was too narrow, as noted in the design.
-- Coca-Cola's baseline misses 2019 revenue by 20–30%: one growth rate per run carries 2018's refranchising decline into a year that grew. The shock (a 0.5-point cut) is small next to that baseline error.
+- Coca-Cola's baseline misses 2019 revenue by 20–30%: all four year-1 quarters take one rate, the FY2016–FY2018 average decline (−10.3%, years of bottler refranchising), fading after that, in a year that grew. The shock (a 0.5-point cut) is small next to that baseline error, and its band has no width because the revised guide is a single figure (12%).
 - With 26 cases the headline medians are revenue 6.1% (naive 7.2%) and EBIT 3.33 points (naive 4.06); M3's were 5.6% and 3.17 on 24. The two new cases explain the change; no forecast rule changed.
 
 ### M5 — News Ingestion (GDELT) and Event Clustering
