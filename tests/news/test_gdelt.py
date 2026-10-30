@@ -133,3 +133,7 @@ def test_without_a_page_title_the_url_gives_the_headline_words():
     no_title = line.rsplit("\t", 1)[0] + "\t"
     record = gdelt.parse_row(no_title, FILE_URL)
     assert record.title == "microsoft cuts forecast" and record.title_from_url
+    cols = no_title.split("\t")
+    cols[gdelt.URL] = "https://x.com/story.php?id=7"
+    bare = gdelt.parse_row("\t".join(cols), FILE_URL)
+    assert bare.title is None and not bare.title_from_url  # flagged only when words were used

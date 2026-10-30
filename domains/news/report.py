@@ -62,8 +62,14 @@ def coverage(conn: sqlite3.Connection, case_date: date, days: int = 7) -> dict:
         ).fetchall()
     )
     ok = counts.get("ok", 0)
+    sightings, url_titles = conn.execute(
+        "SELECT COUNT(*), COALESCE(SUM(title_from_url), 0) FROM article_sightings "
+        "WHERE seen_at >= ? AND seen_at < ?",
+        (iso(start), iso(end)),
+    ).fetchone()
     return {"expected": expected, "ok": ok, "missing": counts.get("missing", 0),
-            "bad_md5": counts.get("bad_md5", 0), "share": ok / expected}  # fmt: skip
+            "bad_md5": counts.get("bad_md5", 0), "share": ok / expected,
+            "sightings": sightings, "url_titles": url_titles}  # fmt: skip
 
 
 def candidates(conn: sqlite3.Connection, windows: list[tuple[str, date]]) -> list[dict]:
@@ -162,13 +168,14 @@ def precision(rows: list[dict]) -> list[dict]:
 
 def write_report(conn: sqlite3.Connection, windows: list[tuple[str, date]], out: Path) -> Path:
     lines = ["# News data report (M5)", "", "## Coverage per case window", "",
-             "| Case | Expected files | Read | Missing | Bad MD5 | Share |",
-             "|---|---|---|---|---|---|"]  # fmt: skip
+             "| Case | Expected files | Read | Missing | Bad MD5 | Share | Sightings | URL words |",
+             "|---|---|---|---|---|---|---|---|"]  # fmt: skip
     for ticker, case_date in windows:
         c = coverage(conn, case_date)
         flag = "" if c["share"] >= 0.98 else " ⚠"
         lines.append(f"| {ticker}_{case_date} | {c['expected']} | {c['ok']} | {c['missing']} | "
-                     f"{c['bad_md5']} | {c['share']:.1%}{flag} |")  # fmt: skip
+                     f"{c['bad_md5']} | {c['share']:.1%}{flag} | {c['sightings']} | "
+                     f"{c['url_titles']} |")  # fmt: skip
     lines += ["", "## Events per case (latest event run)", "",
               "| Case | Event runs | Events | Articles | Largest event |",
               "|---|---|---|---|---|"]  # fmt: skip

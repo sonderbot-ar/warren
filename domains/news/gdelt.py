@@ -146,12 +146,13 @@ def parse_row(line: str, file_url: str) -> ArticleRecord | None:
         return None
     tone = cols[V2TONE].split(",")[0].strip()
     page_title = _title(cols[EXTRAS])
+    words = None if page_title else url_title(url)
     return ArticleRecord(
         url=url,
         source=cols[SOURCE].strip().lower(),
         seen_at=datetime.strptime(cols[DATE], "%Y%m%d%H%M%S").replace(tzinfo=UTC),
-        title=page_title or url_title(url),
-        title_from_url=page_title is None,
+        title=page_title or words,
+        title_from_url=words is not None,
         tone=float(tone) if tone else None,
         themes=_without_offsets(cols[V2THEMES]),
         organisations=_without_offsets(cols[V2ORGS]),
