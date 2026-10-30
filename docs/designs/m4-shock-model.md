@@ -141,6 +141,8 @@ Changed: `domains/analysis/{financial_math,dcf,__main__,report}.py`, `domains/ev
 - **Explainer** (5 gaps, all answered above): what decay = 1 means beyond the horizon (Permanent), how Y3–Y5 take a growth shock (Years), the risk premium's rates and weights, the terminal order (decided), and the guidance denominator and basis. Ideas taken: `computed` source, the exact generator call, the hash format, the invalid-sample case, tolerances, which run with_shocks uses, the EPS fallback, who enters the numbers, sign convention.
 - **Professor** (1 blocker, accepted): value per share as a range must not be reported before the terminal rule is decided (Build Plan M2.1 B). The owner decided it (oct.30.2026); Step 5 lands before the Monte Carlo report shows a value range. Suggestions taken: the corrected reason for rejecting Wallis's two-piece normal, the edition and chapter of Koller et al., guidance ends as an assumption, the band labelled shock-size only, percentiles don't add. Ideas left to the report: a worked growth-shock example.
 
-## Where the work stopped
+## Where the work stopped (oct.30.2026)
 
-(Updated at the end of each run.)
+- Done on the branch: Steps 0–5 as engine code with tests (shock math, shocked paths, Monte Carlo with storage, reproduce-sim, CLI and report, guidance conversion and the `with_shocks` variant, the value-driver terminal value). Engine-only PR to `main`.
+- Next: Step 4's data part and Step 6. The case librarian transcribes `domains/evaluation/guidance.csv` for MSFT_2022-06-02 and WMT_2022-07-25 from the releases on EDGAR (reachable), finds the third case by the rule in "Shocks for the exit criterion" and adds it to `cases.csv`; then the real batch with `--guidance`.
+- Blocked for the real batch on oct.30.2026: Yahoo Finance answered 429 (rate limit) from the cloud environment, and the batch needs prices for beta. Retry on the next run.
