@@ -22,7 +22,7 @@ Many open-source projects and open models could save Warren work or money (Struc
 
 ## The owner's machine
 
-Warren runs locally on an Apple M5 MacBook with 16 GB of unified memory. A model must run there with room left for Warren itself: about 8 billion parameters at most when quantized to 4 bits (about 5 GB of memory), smaller when it runs at full precision. Prefer models with a Metal or MLX build (`mlx-community` on Hugging Face, `llama.cpp` GGUF, or PyTorch with the `mps` backend). A model that needs an NVIDIA GPU (CUDA only) fails. Libraries must install on macOS with Apple Silicon (arm64).
+Warren runs locally on an Apple M5 MacBook with 16 GB of unified memory. A model must run there with room left for Warren itself: about 8 billion parameters at most when quantized to 4 bits (about 5 GB of memory), smaller when it runs at full precision. Prefer models with a Metal or MLX build (`mlx-community` on Hugging Face, or PyTorch with the `mps` backend). A model that needs an NVIDIA GPU (CUDA only) fails. Libraries must install on macOS with Apple Silicon (arm64).
 
 ## The run lead (the session running this skill)
 
@@ -43,12 +43,15 @@ Hard rules (fail one and the candidate is dropped):
 - **Runs on the owner's machine** (above): macOS arm64, and for models at most about 8B parameters at 4 bits with no CUDA-only code.
 - **Safe to run:** a pinned release exists. For models, weights in `safetensors` and no `trust_remote_code`.
 
-Recorded facts (cite a URL for each, or write "unknown"):
+Recorded facts (cite a URL for each, or write "unknown"). For Python packages, read versions, `requires_python`, wheel tags and `requires_dist` from the PyPI JSON (`https://pypi.org/pypi/<name>/json`), not from third-party listings:
 
 - **Upkeep:** date of the last release and the last commit, open issues, and roughly how many maintainers.
 - **Size:** install size, or model parameters with the memory it needs at the precision we'd use, and whether a Metal or MLX build exists.
 - **What it replaces:** the Warren file, step or milestone it would replace or speed up, and what we do today.
+- **Weight:** the number of hard dependencies, and any exact pin on a package Warren already uses or will choose (a provider SDK, numpy, pandas). Heavy or pinning candidates rarely pass review.
 - **Fit:** any conflict with a standing rule (point-in-time, no LLM numbers, sources behind adapters, everything in this repo).
+
+Prefer candidates that fill a gap Warren has not built yet (an upcoming milestone, a gap the docs record) over ones that replace working, tested code: replacing code that works risks the reproduce-to-the-cent invariant for little gain (lesson from the kickoff run, issues #55 to #58). A candidate that depends on an open decision (for example a local model under Decision 1) is filed only as an input to that decision.
 
 ## Report format (the issue body)
 
