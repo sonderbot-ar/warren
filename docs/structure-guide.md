@@ -32,6 +32,7 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 
 - **When does sentiment matter?** Trace *when* sentiment from a given source (outlet, region, topic) has historically preceded a material change in fundamentals, as opposed to noise.
 - **A learning environment for finance students.** An interactive tool that shows *when* and *why* a change in beta, capital structure or book value propagates to other lines of a company's financial statements and valuation, and that helps track and forecast performance as those inputs change.
+- **A teaching platform for finance schools in Latin America** that replaces spreadsheets in the classroom (Decision 11): IFRS companies, a web interface, Spanish and Portuguese.
 - **Broader driver coverage.** Modelling every link between capital structure, risk and the three statements, beyond the Phase 1 driver set.
 
 ## 2. Guiding Principles
@@ -58,6 +59,7 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 | 8 | Data sources: SEC EDGAR, Yahoo Finance, FRED, GDELT | **Accepted** (EDGAR coverage limits noted, M1; FRED added for the risk-free rate, M2) | oct.26.2026 |
 | 9 | LLM usage limited to judgment-over-text steps | **Accepted** | oct.14.2026 |
 | 10 | Development workflow: Claude agent teams plan, review, merge and report; owner sets goals | **Accepted** (replaces owner-approved plans and owner merges) | oct.30.2026 |
+| 11 | Product direction: teaching platform for LatAm finance schools; Phase 1 unchanged, scale guardrails for new code | **Accepted** | oct.30.2026 |
 | — | Entity-Attribute-Value (EAV) metrics table | Superseded by 2 | sep.24.2026 |
 | — | Passing only database IDs between graph nodes | Superseded by 2 | sep.24.2026 |
 | — | ChromaDB vector store for documents | Superseded by 3 | sep.24.2026 |
@@ -150,6 +152,20 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 - **Safety net:** CI (ruff and pytest) on every PR, required before merge; invariants as tests (reproduce to the cent, point-in-time, property tests on `financial_math.py`); every merged version recorded with its merge commit in `docs/versions.md`; bad merges undone by a revert PR.
 - **Reasoning:** the owner had become the bottleneck for both building and learning. Independent fresh-context review, automated tests and cheap rollback replace line-by-line human review. Free tools only by default; Elephant-Goldfish is adopted as a method, not as a plugin.
 - **Replaces:** the M0–M2.1 workflow (owner-approved plan, "go M<n>" trigger, owner reviews and merges every PR).
+
+### Decision 11 — Product Direction: A Teaching Platform for LatAm Finance Schools · *Accepted (oct.30.2026)*
+
+- **Decision:** Warren's long-term goal is deployable software that finance schools in Latin America use to teach and research corporate finance in place of spreadsheets. Phase 1 is unchanged: eight US companies, measured forecasts. It is what makes the platform credible to a school. The guardrails below keep Phase 1 from blocking the platform.
+- **Why it can replace Excel:** a spreadsheet hides where a number came from and whether it was known on that date. In Warren every number traces to its filing, tag and period, is point-in-time, and rebuilds to the cent (Principles 2, 5 and 6). A student can click any figure and see why it is what it is.
+- **Guardrails (apply to new code from now on):**
+  1. *Sources behind adapters.* Analysis code never calls a data source directly. A new source (IFRS filings, a local regulator, a licensed price feed) is a new adapter plus a concept map. Concepts stay taxonomy-qualified (`us-gaap:…`, later `ifrs-full:…`).
+  2. *Companies are data.* No new code hardcodes tickers. The Phase 1 list moves out of `universe.py` before Phase 2.
+  3. *Currency and calendars explicit.* New tables that hold money carry a currency; no new code assumes US dollars or a December year-end.
+  4. *Engine as a library.* Logic lives in the domain modules. The command line, and later a web app, only call it.
+  5. *Reader-facing text apart from logic,* so reports can later be translated into Spanish and Portuguese. Phase 1 stays in English.
+  6. *Licensed data before deployment.* Every source must allow use in a product before Warren is deployed to a school. Yahoo Finance is for research only; replacing it costs money and goes to the owner.
+- **Not in Phase 1:** IFRS data, a web interface, multiple users, translation, hosting. A likely Phase 2 starts with one LatAm company from its IFRS 20-F and a read-only web view of one valuation in Spanish.
+- **Reasoning:** keeping Phase 1 intact proves the engine is right, which a school will ask first. The guardrails cost little now; retrofitting a second accounting standard, a second currency or multiple users later costs much more.
 
 ## 4. Project Structure
 
