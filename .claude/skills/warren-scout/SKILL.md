@@ -41,14 +41,17 @@ Hard rules (fail one and the candidate is dropped):
 - **Licence** allows use in a paid product: MIT, BSD, Apache-2.0, ISC, MPL-2.0 or similar. GPL, AGPL, "non-commercial" (CC-BY-NC and the like) and no licence at all fail. A model's licence is the model card's, not the code's.
 - **Free:** no paid API, key or hosted service needed to use it.
 - **Runs on the owner's machine** (above): macOS arm64, and for models at most about 8B parameters at 4 bits with no CUDA-only code.
-- **Safe to run:** a pinned release exists. For models, weights in `safetensors` and no `trust_remote_code`.
+- **Safe to run:** a pinned release exists. For models, weights in `safetensors` or GGUF (formats that hold no executable code; never pickle `.bin`, `.pt` or `.pkl`) and no `trust_remote_code`.
 
-Recorded facts (cite a URL for each, or write "unknown"):
+Recorded facts (cite a URL for each, or write "unknown"). For Python packages, read versions, `requires_python`, wheel tags and `requires_dist` from the PyPI JSON (`https://pypi.org/pypi/<name>/json`), not from third-party listings:
 
 - **Upkeep:** date of the last release and the last commit, open issues, and roughly how many maintainers.
 - **Size:** install size, or model parameters with the memory it needs at the precision we'd use, and whether a Metal or MLX build exists.
 - **What it replaces:** the Warren file, step or milestone it would replace or speed up, and what we do today.
+- **Weight:** the number of hard dependencies, and any exact pin on a package Warren already uses or will choose (a provider SDK, numpy, pandas). Heavy or pinning candidates rarely pass review.
 - **Fit:** any conflict with a standing rule (point-in-time, no LLM numbers, sources behind adapters, everything in this repo).
+
+Prefer candidates that fill a gap Warren has not built yet (an upcoming milestone, a gap the docs record) over ones that replace working, tested code: replacing code that works risks the reproduce-to-the-cent invariant for little gain (lesson from the kickoff run, issues #55 to #58). A candidate that depends on an open decision (for example a local model under Decision 1) is filed only as an input to that decision.
 
 ## Report format (the issue body)
 
