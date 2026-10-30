@@ -13,11 +13,12 @@ Decision 11, guardrail 2: companies are data, not code. The Phase 1 list (`PHASE
 **Step 1. `universe.csv` and its loader.**
 - New `domains/fundamentals/universe.csv` with columns `ticker,cik,history_ends,note`, one row per company, the same eight companies in the same order, XOM keeping its pinned CIK, history end and note.
 - `load_universe(path)` in `universe.py` reads and validates it, reporting every problem at once (the `load_concept_map` idiom): exact columns; ticker non-empty, upper case, unique; `cik` empty or ten digits; `history_ends` empty or an ISO date; `history_ends` needs a `cik` (the pin is what the end date refers to); wrong field counts.
+- Details (from the explainer's review): the default path is `universe.csv` next to `universe.py`, not the working directory. Loading runs at import, so a malformed file stops every command at once with a `UniverseError` listing all problems. Line numbers count the header as line 1, so the first company is line 2. Columns must match in name and order. A lower-case ticker is rejected, not fixed, so the file stays the single truth. A note with commas is quoted, as in the other CSVs.
 - `PHASE1_UNIVERSE` stays as a module-level list, now `load_universe()`, so its importers (`fundamentals`, `analysis` and `market` command lines, evaluation cases) do not change. `get_universe_company` and `warn_if_beyond_history` are unchanged.
 - Tests: the CSV yields exactly the list the literal held (tickers, order, XOM fields); each validation rule fails with a message naming the line; a new company row needs no code (a temp CSV with a ninth row loads). The existing universe tests stay as they are.
-- Exit: `pytest`, `ruff check`, `ruff format --check` green; no ticker literal left in `universe.py`.
+- Exit: `pytest`, `ruff check`, `ruff format --check` green; no company data (tickers, CIKs, dates, notes) left in `universe.py`.
 
-**Step 2. Docs.** Build plan M1 universe line points at the CSV; Structure Guide Decision 11 guardrail 2 marked as done for the Phase 1 list; versions row after merge.
+**Step 2. Docs.** Build plan Section 4, M1 implementation notes, the line starting "**Universe**", points at the CSV; Structure Guide Decision 11, "Guardrails", item 2 marked as done for the Phase 1 list. After merge the Elephant adds v0.3.1 to `docs/versions.md` with the merge commit.
 
 ## Alternatives considered
 
@@ -30,4 +31,4 @@ Decision 11, guardrail 2: companies are data, not code. The Phase 1 list (`PHASE
 
 ## Where the work stopped
 
-- (filled in as steps land)
+- Step 0 and Step 1 done; explainer review folded in (gaps 1–9 answered above). Step 2 with the PR.
