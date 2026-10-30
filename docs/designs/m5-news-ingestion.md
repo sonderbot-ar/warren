@@ -132,6 +132,24 @@ Changed: `docs/build-plan.md` (status, M5 source note, results), `README.md` (co
 
 ## Review log
 
+- **Step 6 design review (oct.30.2026)**: the explainer, analyst and professor reviewed in parallel. All three said accept with changes.
+  - *Accepted:*
+    - Tylenol and most brands are out; the analyst found 3,163 MSFT passes only through "Xbox", and both brand rows kept in the draw were labelled `related`.
+    - Flipkart and the other acquisitions count only from their dates, as subsidiaries.
+    - "deals" is now matched only in shopping forms, and the bare "deal on" and "stake in" are gone; each had cut real news. "biggest moves" and "movers" were added.
+    - Real headlines from the review are now tests.
+    - Earlier draws are excluded from new ones.
+    - The coverage report marks URL-word windows.
+    - Normalisation, URL words, whole-phrase matching, and the gate as a point estimate are now spelled out.
+    - The revision rule is fixed before the draw, and a third failure goes to the owner.
+    - Draw 2 becomes a development set if it is used to revise.
+    - Literature added: salience, Tetlock et al., RavenPack, and GDELT's noise. Headline plus lead is listed as the alternative, unavailable without text.
+    - The Artstein & Poesio point is stated, with the prevalence caveat. Raw agreement is shown, and kappa is not read on fewer than 10 rows.
+    - A recall draw from failing articles was added.
+    - Missing tests were added.
+  - *Escalated:* reading the gate on articles that pass the rule. It drops most `org_exact` matches for some companies, so it goes to the owner as a decision card (the analyst's request).
+  - *Rejected:* "coke" for cocaine was not a problem to solve; `coke` was dropped anyway with the brands.
+
 - **PR review (oct.30.2026)**, gatekeeper NO-GO, then fixed: event runs didn't record the alias set (now in the params, rebuild names it); a parse error was recorded as a bad MD5 and one bad row dropped a file (now `rows_bad`, rows skipped); doc and README gaps (function names, legal words, events per case and the kappa floor in the report, `rematch`). Ideas taken: subsidiary dates in the case calendar, search one row per article, an explicit FTS key, a failed re-fetch keeps earlier rows, any request error recorded. To backlog: a migration test with rows in every older table.
 - **Design review (oct.30.2026)**, explainer, analyst, professor in parallel.
   - *Accepted:* the doc said "no LLM" yet an LLM labels the sample (now stated, with a second labeller and kappa); the UTC-day window missed the next UTC morning; first-sighting-wins made dates and titles depend on ingest order (now every sighting is kept, earliest before the cut-off chosen); rows lost for good when aliases change or another company's window fetched the file first (all companies matched every pass, alias hash in the manifest, `rematch`); missing or bad files not recorded (status and coverage); exclusions read as article-level would drop Walmex and bottler mentions (now per string, Walmex a subsidiary); `p&g` normalised to `pg` (now `p and g`, short aliases refused); themes alone could chain a week into one event (title similarity now always required); rebuild wasn't reproducible from stored state (input hash); FTS search had no as-of (now `search(query, as_of)`); fixed confidences looked like probabilities (removed); sample of 25 too small (50, with Wilson intervals, every draw reported); unspecified tokeniser, stop words and theme list (written down); Build Plan still recommended BigQuery (note added).
@@ -167,65 +185,96 @@ Read on real GKG files from 2019-04-23 to 2025-09-19 before any case window was 
 
 ## Step 6: the headline rule (design amendment, oct.30.2026)
 
-**Problem.** Draw 20261030 showed that a GDELT organisation tag means "the company is mentioned somewhere on the page", not "the page is about the company". Precision of `org_exact` was 0.06–0.40 against a 0.80 gate. Alias fixes can't cure it, because most failures are the right company in the wrong role.
+**Problem.** Draw 20261030 showed what a GDELT organisation tag really means: the company is mentioned somewhere on the page, not that the page is about the company. Precision of `org_exact` was 0.06–0.40 against a 0.80 gate. Alias fixes can't cure it, because most failures are the right company in the wrong role. Other studies have found GDELT noisy too (Hammond & Weidmann 2014, *Research & Politics*).
 
-**Rule.** A matched article *feeds events* (and is eligible for a precision draw) only if its headline names the company and is not boilerplate. The headline is the page title, or the URL words when there is none. Every match stays stored as it is; the rule is applied when articles are read, so nothing is downloaded again.
+**Idea.** This is *entity salience*: whether a document is about an entity, not just whether it mentions one. Appearing in the title is among the strongest signs of it (Dunietz & Gillick 2014, EACL). Finance research filters news the same way:
+- Tetlock, Saar-Tsechansky & Macskassy (2008, *Journal of Finance*) keep a story only if it names the firm in its headline or first 25 words.
+- Studies on RavenPack keep only stories with relevance 100, where the firm is central (Dang, Moshirian & Zhang 2015, *Journal of Financial Economics*).
 
-1. **Names the company.** The normalised headline contains, as a whole phrase, followed by an optional `s`, any of:
-   - the company's `include` aliases;
-   - its `subsidiary` aliases in force on the sighting's date;
-   - its rows in a new data file, `domains/news/headlines.csv` (`ticker, name, kind, note`):
-     - `short` forms that are too short or too common to match on their own (`pg`, `jnj`, `coke`);
-     - `brand` names that only ever mean the company (`iphone`, `xbox`, `gillette`, `tylenol`, `mobil`, `sams club`).
+Warren has headlines but not the lead paragraph, because it doesn't fetch article text (see Article text), so it uses the headline alone. That trades recall for precision, and the trade is measured below.
 
-   The optional `s` covers possessives once punctuation is gone (`apple s`) and URL words (`apples`, `procter gambles`). Brands that left a company (for example Kenvue's in 2023) are left out rather than dated. A short form may be 2 or 3 characters, because it only confirms an article already matched to the company; it never matches one.
-2. **Is not boilerplate.** The normalised headline contains none of the phrases in `domains/news/headline_excludes.txt`. Each phrase is listed under one of four headings:
-   - holdings notices ("shares acquired by", "position in", "stock holdings", "new stake");
-   - market wraps ("things to know", "stocks to watch", "biggest movers", "premarket");
-   - shopping deals ("deals");
-   - market-research listings ("key players", "market size").
+**Rule.** A matched article *feeds events*, and can be drawn for precision, only if its headline passes both tests below.
+- **The headline** is the stored title: the page title, or the URL words when there is no page title (`gdelt.url_title`: the last path part, split on `-`, `_` and `+`, alphabetic words only, at least three). An article with neither fails.
+- **Normalisation** is the same `normalise` as matching: lowercase; `&` becomes `and`; any other non-alphanumeric character becomes a space; legal suffixes come off.
+- **Matching** is on whole phrases only: a phrase must sit between word boundaries, so "position in" doesn't match "composition in".
+
+1. **Names the company.** The headline contains one of the company's names, optionally followed by `s`. Its names are:
+   - its `include` aliases;
+   - its `subsidiary` aliases in force on the sighting's date (Walmex, Walmart de Mexico, and Flipkart from 2018-08-18 for WMT; Activision Blizzard from 2023-10-13 for MSFT; Pioneer Natural Resources from 2024-05-03 for XOM; and the others in `aliases.csv`, with their dates);
+   - its rows in a new file, `domains/news/headlines.csv` (`ticker, name, note`). These are short forms that are too short to match on their own: `pg` for PG, `jnj` for JNJ. A short form may have 2 or 3 characters, because it only confirms an article already matched to that company; it never matches one.
+
+   The optional `s` covers possessives once punctuation is gone (`apple s`) and URL words (`apples`, `procter gambles`).
+
+   **No product brands.** In the review, brands mostly let in product chatter. In MSFT's matches that pass, 3,163 headlines get in only through "Xbox" and 1,048 only through "Windows 10/11". Tylenol has been Kenvue's since 2023 and includes the 1982 murders. Brands are an alternative for later, measured as their own row.
+2. **Is not boilerplate.** The headline contains no phrase from `domains/news/headline_excludes.txt`. Phrases are listed under four headings:
+   - **holdings notices:** "shares acquired by", "position in", "stock holdings", "new stake", "holdings trimmed";
+   - **market wraps:** "things to know", "stocks to watch", "biggest moves", "movers", "premarket";
+   - **shopping:** only the shopping forms of "deals", such as "black friday deals", "best deals" and "deals on". A bare "deals" or "deal" is not listed: "Microsoft deal on orders" and "US probe of small deals" are news;
+   - **market-research listings:** "key players", "market size".
+
+   A bare "stake in" isn't listed either ("Tim Cook reveals stake in cryptocurrencies").
 
 **Where it applies.**
 - `items_as_of` takes only articles that pass, so events are built from them.
-- `candidates` for `sample` takes only articles that pass.
-- `coverage` reports, per case window, the matched articles and how many pass. This is the cost of the rule in recall, shown rather than hidden.
-- The event run's params gain `headlines_sha256` (the two files and the rule's version). `rebuild-events` names a change to them, as it does for aliases.
+- `candidates` for `sample` takes only articles that pass, and leaves out every article already in an earlier draw.
+- `coverage` reports, per case window, the matched articles and how many pass. URL-word windows are marked, because they pass at about half the rate of titled ones (JNJ 0.14 against 0.26). That is the rule's cost in recall, shown rather than hidden.
+- The event run's params gain `headlines_sha256`: both files plus the rule's version. `rebuild-events` names a change to it, as it does for aliases.
 - The matching hash (`AliasSet.sha256`) doesn't change, so `rematch` doesn't re-read the 16,909 files.
+- Stored matches are never changed by the rule (test).
 
-**Gate.** The gate is unchanged: `org_exact` precision at least 0.80 per company, with Wilson intervals. It is now read on articles that pass the rule, which is what the events are built from. `title_alias` and `org_subsidiary` are still kept only at 0.80.
+**Gate.**
+- The point estimate of `org_exact` precision must be at least 0.80 per company, shown with its 95% Wilson interval. This is the same rule as before.
+- It is now read on articles that pass the headline rule, which is what the events are built from. This reading of the exit criterion goes to the owner as a decision card.
+- `title_alias` and `org_subsidiary` are still kept only at 0.80.
 
-**Dev and test.** The two lists were written while reading draw 20261030, so that draw is a development set and its numbers are optimistic. On it, `org_exact` keeps 67 of 73 `about` rows among 80 kept, a precision of 0.84. The gate is read only on a **new draw with a new seed**, made after the lists are frozen in a commit. If it fails:
-- the lists may be changed once more, from that draw's failures;
-- then a third draw with a third seed;
-- every draw is kept and reported.
+**Recall check.** Each draw also takes 20 `org_exact` articles per company that *fail* the rule. The steward labels them, and the share labelled `about` estimates the stories the rule throws away. It is reported with its Wilson interval. It is not a gate.
 
-**Agreement.** The 0.6 kappa floor is read per company and method on `about` against the rest, the split precision reads. On draw 20261030 the three-label kappa sank on `not` against `related` disagreements (34 rows) that cannot change precision; about-vs-rest is 0.90. The three-label kappa is still reported. Precision reads one binary decision, so agreement is read on that decision; Artstein & Poesio (2008) discuss how kappa depends on the category scheme it is computed over.
+**Dev and test.** The two lists were written while reading draw 20261030, so that draw is a development set and its numbers are optimistic. On it, `org_exact` keeps 62 of the 73 `about` rows among 67 kept, a precision of 0.93. Per company, it keeps 4 to 15 rows. The gate is read only on a **new draw with a new seed**, made after the lists are frozen in a commit.
+- **If it fails:** the lists may be changed once, and only by adding or removing phrases that explain at least two failing rows of that draw. That draw then becomes a development set too. A third draw with a third seed reads the gate.
+- **If the third draw also fails:** no more revisions. The result goes to the owner as a decision card.
+- Every draw is kept and reported.
+
+**Agreement.**
+- **Floor.** The 0.6 kappa floor is read per company and method on `about` against the rest, because that is the split precision reads. Kappa changes with the categories it is computed over, and Artstein & Poesio (2008, *Computational Linguistics*) recommend measuring agreement on the distinctions the use depends on. On draw 20261030 the three-label kappa was dragged down by 34 `not` against `related` disagreements that cannot change precision. About-vs-rest kappa was 0.90.
+- **Small or one-sided cells.** A cell with fewer than 10 shared rows reports raw agreement and its count, not kappa. When one label dominates, kappa can be low even when the labellers mostly agree (Feinstein & Cicchetti 1990; Byrt, Bishop & Carlin 1993, both *Journal of Clinical Epidemiology*). So raw agreement is always shown next to kappa.
+- **Below the floor.** A cell below 0.6 goes to the owner before the gate is read (as in Precision). The three-label kappa is still reported.
 
 **Volume.** Across all stored history, the share of matched articles that pass is about:
 
 | AAPL | CAT | JNJ | KO | MSFT | PG | WMT | XOM |
 |---|---|---|---|---|---|---|---|
-| 75% | 12% | 28% | 41% | 22% | 9% | 15% | 17% |
+| 75% | 12% | 28% | 41% | 18% | 10% | 16% | 17% |
 
-AAPL is high because many `title_alias` matches contain "apple" (the fruit included); that method's precision is measured on its own. The smallest count is PG at about 800 articles, so every case keeps events.
+AAPL is high because many `title_alias` matches contain "apple", the fruit included; that method's precision is measured on its own. The smallest count is PG, at about 870 articles.
 
 **Steps.**
-- **Step 6a.** This amendment and its review (explainer, analyst, professor).
-- **Step 6b.** `headlines.csv`, `headline_excludes.txt`, the rule in `matching.py` (`about_headline`), `items_as_of` and `candidates` filtered, params and `rebuild` extended, coverage column. Tests:
-  - possessive and URL plural pass;
-  - a brand passes;
-  - a short form passes only for its company;
-  - a holdings notice and a market wrap fail;
-  - a subsidiary before its `from` date doesn't count;
-  - adding a headline row doesn't change `AliasSet.sha256`;
-  - an event run records the headline hash, and `rebuild-events` reports a change to it;
-  - the CLI end to end on fixtures.
+- **Step 6a.** This amendment, its review (explainer, analyst, professor), and the decision card on the gate.
+- **Step 6b.** Build: `headlines.csv`, `headline_excludes.txt`, and the rule in `matching.py` (`about_headline`). Then filter `items_as_of` and `candidates`, extend the params and `rebuild`, add the coverage columns, and add the recall draw. Tests, using real headlines from the review:
+  - **Pass:** a possessive and a URL plural; "UK watchdog denies it blocked Microsoft deal on orders"; "Google, Apple among tech firms facing US probe of small deals".
+  - **Fail:** a holdings notice ("Caterpillar Inc. (NYSE:CAT) Stock Holdings Trimmed by ..."); a wrap ("Stocks Making the Biggest Moves Midday: Microsoft ..."); a shopping list ("Best Walmart Early Black Friday Deals"); a research listing.
+  - **Edge cases:**
+    - "composition in" isn't "position in";
+    - a short form passes only for its own company;
+    - a subsidiary before its `from` date doesn't count;
+    - an empty headline fails.
+  - **Plumbing:**
+    - `items_as_of` and `candidates` drop failing articles, and earlier-draw articles are excluded;
+    - stored matches are unchanged;
+    - adding a headline row doesn't change `AliasSet.sha256`;
+    - an event run records the headline hash, and `rebuild-events` reports a change to it;
+    - the coverage columns and the recall draw run end to end on fixtures.
 - **Step 6c.** Re-run events for all 26 cases. Draw with a new seed and label it: the steward labels everything, and the analyst labels 40% blind. Report, and M5 is Done only if the gate passes.
 
 **Alternatives considered.**
-- **An LLM judging "is this about the company".** Rejected for M5. It costs API money, it adds a model to every article, and the gate would then measure the model. M6 reads headlines with an LLM anyway, and could revisit this.
-- **The company in the first N words of the headline.** Rejected: "Judge rules against Johnson & Johnson" is about the company, with the name at the end.
-- **Counting GDELT mentions per page** (GKG character offsets). Rejected: a market wrap names a company several times too, and the offsets point into text that Warren doesn't fetch.
+- **An LLM judging "is this about the company".** Rejected for M5:
+  - it costs API money;
+  - it adds a model to every article;
+  - the gate would then measure the model.
+
+  M6 reads headlines with an LLM anyway, and could revisit this.
+- **Headline plus lead paragraph**, as Tetlock et al. do. Not possible without fetching text (deferred under Article text).
+- **The company in the first N words of the headline.** Rejected: "Judge rules against Johnson & Johnson" is about the company, with the name last.
+- **Product brands as names.** Deferred: they let in product chatter (above). If they come back, brand-only passes are reported as their own row.
 - **Dropping `org_exact` and keeping only `title_alias`.** Rejected: `title_alias` matches apple the fruit and Colin the Caterpillar. The org tag plus the headline is stricter than either alone.
 
 ## Where the work stopped (oct.30.2026)
