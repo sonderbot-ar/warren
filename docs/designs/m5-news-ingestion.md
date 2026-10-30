@@ -61,7 +61,7 @@ GDELT lists one URL many times, sometimes with a different title. The store keep
   - title Jaccard is at least **0.15** and it shares at least **3** non-generic themes with the event's themes.
   Otherwise it starts a new event. Themes alone never join an article, so a busy week doesn't chain into one event. The event's tokens and themes are the union over its first five articles, so a long story doesn't drift.
 - **An event records** `first_seen`, `last_seen`, `article_count`, `source_count` (distinct domains), its themes, median tone, and as label the title of the earliest article from the most-cited domain. `event_type` and `summary` stay NULL until M6.
-- **Deterministic:** any input order gives the same events and ids (`event_id` = SHA-256 of cik, as_of and the event's first `article_id`). Test with shuffled input.
+- **Deterministic:** any input order gives the same events and ids (`event_id` = SHA-256 of cik, as_of and the event's first `article_id`, followed by the first 12 characters of the run id, so two runs on the same date with other parameters don't collide). Test with shuffled input.
 - **Thresholds** (48 h, 0.30, 0.15, 3) are fixed before the real run. Step 5 reports from the hand-checked sample how many events are split or merged wrongly, and separately how many joins came from the theme branch. A change after that is a new version, with the reason written here. Literature: this is single-pass clustering from Topic Detection and Tracking (Allan, Papka & Lavrenko 1998; Yang, Pierce & Carbonell 1998), with Jaccard on word sets (Manning, Raghavan & Schütze 2008, ch. 19.6).
 
 ## Storage (migration `0009_news.sql`)
