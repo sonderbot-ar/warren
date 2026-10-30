@@ -18,6 +18,7 @@ Warren is built by Claude agent teams that plan, review, merge and report on the
 - **Elephant (developers).** One long-running thread per track (a milestone, or a backlog item). It writes the design doc, the code and the tests, opens the PR, fixes failing checks and merges.
 - **Goldfish (reviewers).** Subagents that start with no memory of the design discussion and see only the design doc or the PR. Roles: *explainer* (restates the design to prove it is clear), *analyst* (would a practitioner compute it this way, where does it break on real companies), *professor* (is the method defensible in the literature, can a student learn from it), *gatekeeper* (final go or no-go). Every objection cites a test, a file and line, a filing, a source or a doc section.
 - **Reporters.** Write the desk entry and the lesson for each merged version, on a lighter model.
+- **Scouts (research).** Search GitHub and Hugging Face for open-source repos and models that could help Warren (Structure Guide Decision 12): four in parallel at kickoff, then one every 3 days, at most 5 candidates per run, filed as issues labelled `scout`. The Goldfish `analyst` and `gatekeeper` judge each on paper; a GO from both adds the `backlog` label. Scouts never change code.
 
 **The loop, for each item**
 
@@ -50,7 +51,7 @@ Work on other tracks continues while a card waits.
 
 ## Skills and where the team runs
 
-The team's procedures are skills in `.claude/skills/`: `warren-run-track` (the Elephant loop), `warren-goldfish-review` (the reviewers) and `warren-desk-report` (desk entry, lesson, weekly digest). They load in Claude Code wherever the repo is open: cloud sessions, scheduled runs, or the owner's VS Code. Local runs read `SEC_USER_AGENT` from `.env`; cloud runs read it from the environment. It is never committed.
+The team's procedures are skills in `.claude/skills/`: `warren-run-track` (the Elephant loop), `warren-goldfish-review` (the reviewers), `warren-desk-report` (desk entry, lesson, weekly digest) and `warren-scout` (research scouts and their paper review). They load in Claude Code wherever the repo is open: cloud sessions, scheduled runs, or the owner's VS Code. Local runs read `SEC_USER_AGENT` from `.env`; cloud runs read it from the environment. It is never committed.
 
 The team's members are defined agents in `.claude/agents/`, each with its own model and only the tools its job needs:
 
@@ -61,11 +62,12 @@ The team's members are defined agents in `.claude/agents/`, each with its own mo
 | `analyst` | Opus | read, read-only DB, web | Goldfish: practitioner check on real companies |
 | `professor` | Opus | read, web | Goldfish: literature and teachability |
 | `explainer` | Haiku | read | Goldfish: restates the design, lists its gaps |
-| `gatekeeper` | Opus | read, shell, GitHub PR read | Goldfish: final GO or NO-GO |
+| `gatekeeper` | Opus | read, shell, web fetch, GitHub PR and release read | Goldfish: final GO or NO-GO |
 | `data-steward` | Sonnet | read, shell | Ingests and data quality reports |
 | `case-librarian` | Sonnet | read, edit, shell, web | Sources and rows for the M3 case library |
 | `reporter` | Sonnet | read, git, web | Desk entry, lesson, weekly digest |
 | `triager` | Haiku | GitHub issue tools | Turns review notes into `backlog` issues |
+| `scout` | Haiku | read, web, GitHub search | Research: finds open-source repos and models, checks licence and upkeep |
 
 Tools named `mcp__github__*` assume the GitHub MCP server is registered as `github`. Add an agent when a job recurs and needs different tools or a different model, not for each task.
 
