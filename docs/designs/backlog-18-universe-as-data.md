@@ -31,4 +31,4 @@ Decision 11, guardrail 2: companies are data, not code. The Phase 1 list (`PHASE
 
 ## Where the work stopped
 
-- Step 0 and Step 1 done; explainer review folded in (gaps 1–9 answered above). Step 2 with the PR.
+- Done. Steps 0–2 merged in #44 (`29dddd1`, v0.3.1) after green CI and a gatekeeper GO. The gatekeeper's non-blocking ideas are backlog #45.
