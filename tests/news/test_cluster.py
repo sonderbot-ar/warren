@@ -66,7 +66,7 @@ def add(conn, url, title, seen_at, file_url, aliases):  # noqa: F811
         "VALUES (?, ?, 'ok', ?, ?)",
         (file_url, store.iso(seen_at), aliases.sha256, store.iso(NOW)),
     )
-    record = ArticleRecord(url, "reuters.com", seen_at, title, -1.0, ("ECON_CURRENCY",),
+    record = ArticleRecord(url, "reuters.com", seen_at, title, False, -1.0, ("ECON_CURRENCY",),
                            ("microsoft",), file_url)  # fmt: skip
     store.store_records(conn, [record], aliases)
     conn.commit()

@@ -48,7 +48,7 @@ def aliases(conn):
 
 
 def record(url="https://www.reuters.com/a", orgs=("microsoft corp",), title="x", ts=T0, file="f1"):
-    return ArticleRecord(url, "reuters.com", ts, title, -1.0, ("ECON_CURRENCY",), orgs, file)
+    return ArticleRecord(url, "reuters.com", ts, title, False, -1.0, ("ECON_CURRENCY",), orgs, file)
 
 
 def gkg_line(url, orgs, title, ts="20220602150000") -> str:
@@ -81,7 +81,7 @@ def test_migration_0009_applies_to_an_existing_database(tmp_path, db_path):
         apply_migrations(conn, older)
         conn.execute("INSERT INTO companies (cik, ticker, name) VALUES ('0000000001', 'TST', 'T')")
         conn.commit()
-        assert apply_migrations(conn) == [9]
+        assert apply_migrations(conn) == [9, 10]
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert {"news_files", "articles", "article_sightings", "events", "sightings_fts"} <= tables
         assert conn.execute("SELECT ticker FROM companies").fetchone()[0] == "TST"
@@ -234,3 +234,14 @@ def test_a_file_read_before_keeps_its_rows_when_it_cant_be_fetched_again(conn, a
     assert store.ingest_file(conn, entry, wider, down, lambda: NOW).status == "missing"
     assert conn.execute("SELECT COUNT(*) FROM article_sightings").fetchone()[0] == 1
     assert store.stale_files(conn, wider) == [URL1]  # still to be read again
+
+
+def test_a_title_made_from_the_url_is_kept_but_doesnt_match_a_company(conn, aliases):
+    line = gkg_line("https://a.com/news/microsoft-cuts-revenue-forecast-12345.html", [], "")
+    line = line.rsplit("\t", 1)[0] + "\t"  # no PAGE_TITLE, as in GDELT files before oct.2019
+    matched = gkg_line("https://a.com/news/microsoft-opens-data-centre", ["microsoft"], "")
+    entry, content = gkg_file(URL1, [line, matched.rsplit("\t", 1)[0] + "\t"])
+    store.ingest_file(conn, entry, aliases, lambda _: content, lambda: NOW)
+    rows = conn.execute("SELECT title, title_from_url FROM article_sightings").fetchall()
+    # the first has Microsoft only in its URL words: not matched; the second by organisation
+    assert [tuple(r) for r in rows] == [("microsoft opens data centre", 1)]
