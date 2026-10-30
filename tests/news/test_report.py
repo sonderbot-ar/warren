@@ -1,12 +1,13 @@
 """Precision with intervals, labeller agreement, coverage and the CLI end to end (M5 Step 4)."""
 
 import json
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
 from domains.news import __main__ as cli
 from domains.news import gdelt, report
+from shared_kernel.database import apply_migrations, get_db_connection
 from tests.news.test_store import COMPANIES, gkg_file, gkg_line
 
 
@@ -67,7 +68,6 @@ def test_cli_end_to_end_on_fixtures(tmp_path, monkeypatch, db_path):
     monkeypatch.setattr("shared_kernel.database.DB_PATH", db_path)
     monkeypatch.setattr(report, "SAMPLE_PATH", tmp_path / "sample.csv")
     monkeypatch.setattr(cli, "REPORTS_DIR", tmp_path / "reports")
-    from shared_kernel.database import apply_migrations, get_db_connection
 
     with get_db_connection(db_path) as conn:
         apply_migrations(conn)
@@ -105,3 +105,36 @@ def test_cli_end_to_end_on_fixtures(tmp_path, monkeypatch, db_path):
     assert "| MSFT_2022-06-02 | 1 | 1 | 3 | 3 |" in text
     assert "| 3 | 0 |" in text  # sightings and how many headlines came from URL words
     assert "Draw 7 is not fully labelled yet (0 of 3 rows)." in text
+
+
+def test_coverage_counts_a_fetch_error_apart_from_a_missing_slot(db_path, tmp_path):
+    import requests
+
+    from domains.news import matching, store
+    from domains.news.gdelt import MasterEntry
+
+    with get_db_connection(db_path) as conn:
+        apply_migrations(conn)
+        conn.execute(
+            "INSERT INTO companies (cik, ticker, name, aliases_json) "
+            "VALUES ('0000789019', 'MSFT', 'MICROSOFT CORP', '[\"MICROSOFT CORP\"]')"
+        )
+        conn.commit()
+        empty = tmp_path / "aliases.csv"
+        empty.write_text("ticker,alias,kind,from,note\n")
+        aliases = matching.load_aliases(conn, empty)
+        slot = datetime(2022, 6, 2, 15, tzinfo=UTC)
+        url = f"http://data.gdeltproject.org/gdeltv2/{slot:%Y%m%d%H%M%S}.gkg.csv.zip"
+
+        def offline(_):
+            raise requests.ConnectionError("offline")
+
+        now = lambda: datetime(2026, 10, 30, tzinfo=UTC)  # noqa: E731
+        store.ingest_file(conn, MasterEntry(url, 1, "0" * 32), aliases, offline, now)
+        store.record_missing_slot(conn, slot + timedelta(minutes=15), aliases, now())
+        cov = report.coverage(conn, date(2022, 6, 2))
+        assert (cov["ok"], cov["missing"], cov["fetch_error"], cov["share"]) == (0, 1, 1, 0.0)
+        path = report.write_report(conn, [("MSFT", date(2022, 6, 2))], tmp_path / "r.md")
+    text = path.read_text()
+    assert "| Missing | Fetch errors | Bad MD5 |" in text
+    assert "| MSFT_2022-06-02 | 672 | 0 | 1 | 1 | 0 | 0.0% ⚠ |" in text

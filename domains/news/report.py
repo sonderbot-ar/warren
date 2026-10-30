@@ -68,6 +68,7 @@ def coverage(conn: sqlite3.Connection, case_date: date, days: int = 7) -> dict:
         (iso(start), iso(end)),
     ).fetchone()
     return {"expected": expected, "ok": ok, "missing": counts.get("missing", 0),
+            "fetch_error": counts.get("fetch_error", 0),
             "bad_md5": counts.get("bad_md5", 0), "share": ok / expected,
             "sightings": sightings, "url_titles": url_titles}  # fmt: skip
 
@@ -168,15 +169,19 @@ def precision(rows: list[dict]) -> list[dict]:
 
 def write_report(conn: sqlite3.Connection, windows: list[tuple[str, date]], out: Path) -> Path:
     lines = ["# News data report (M5)", "", "## Coverage per case window", "",
-             "| Case | Expected files | Read | Missing | Bad MD5 | Share | Sightings | URL words |",
-             "|---|---|---|---|---|---|---|---|"]  # fmt: skip
+             "| Case | Expected files | Read | Missing | Fetch errors | Bad MD5 | Share "
+             "| Sightings | URL words |",
+             "|---|---|---|---|---|---|---|---|---|"]  # fmt: skip
     for ticker, case_date in windows:
         c = coverage(conn, case_date)
         flag = "" if c["share"] >= 0.98 else " ⚠"
         lines.append(f"| {ticker}_{case_date} | {c['expected']} | {c['ok']} | {c['missing']} | "
-                     f"{c['bad_md5']} | {c['share']:.1%}{flag} | {c['sightings']} | "
-                     f"{c['url_titles']} |")  # fmt: skip
-    lines += ["", "## Events per case (latest event run)", "",
+                     f"{c['fetch_error']} | {c['bad_md5']} | {c['share']:.1%}{flag} | "
+                     f"{c['sightings']} | {c['url_titles']} |")  # fmt: skip
+    lines += ["", "Missing: GDELT has no file for the slot, or no longer serves it. Fetch errors: "
+              "we failed to download it; `ingest` again reads them. Either lowers the share, and "
+              "a window under 98% is flagged ⚠.",
+              "", "## Events per case (latest event run)", "",
               "| Case | Event runs | Events | Articles | Largest event |",
               "|---|---|---|---|---|"]  # fmt: skip
     for ticker, case_date in windows:
