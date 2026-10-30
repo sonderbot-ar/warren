@@ -58,4 +58,4 @@ M5's real run is going on in another thread on `m5-news-ingestion`. This branch 
 
 ## Where the work stopped
 
-- Steps 0–3 committed on the branch; PR next.
+- Done. Steps 0–4 merged in #62 (`8fa9256`, v0.4.1) after green CI and a gatekeeper GO. The review's ideas are backlog #63.
