@@ -138,3 +138,24 @@ def test_a_sensitivity_without_a_value_is_left_out():
     out = dcf.run_outputs(rows(terminal_growth=0.04) + [row("erp_std_error", 0.06)])
     assert ("value_per_share_erp_minus_1se", SINGLE) not in out
     assert ("value_per_share_erp_plus_1se", SINGLE) in out
+
+
+def test_value_driver_terminal_value_by_hand():
+    # NOPAT in Y5 = 100 × 4 × 20% × (1 − 25%) = 60; g = 2%, WACC 10%: TV = 60 × 1.02 / 0.10 = 612
+    method = Assumption(
+        name="terminal_method",
+        period=SINGLE,
+        value=None,
+        source="user",
+        method="value_driver_ronic_wacc: set by test",
+    )
+    valuation = dcf.value(rows(terminal_growth=0.02) + [method])
+    assert valuation.dcf.terminal_value == pytest.approx(612)
+    # without the row (a run stored before M4), Gordon on FCFF: 60 × 1.02 / 0.08
+    assert dcf.value(rows(terminal_growth=0.02)).dcf.terminal_value == pytest.approx(765)
+
+
+def test_unknown_terminal_method_is_refused():
+    bad = Assumption(name="terminal_method", period=SINGLE, value=None, source="user", method="x")
+    with pytest.raises(DCFInputError, match="terminal_method"):
+        dcf.value(rows() + [bad])

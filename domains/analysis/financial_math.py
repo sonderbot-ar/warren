@@ -86,6 +86,20 @@ def gordon_terminal_value(
     return final_annual_cash_flow * (1 + terminal_growth) / (discount_rate - terminal_growth)
 
 
+def value_driver_terminal_value(
+    final_annual_nopat: Number, discount_rate: Number, terminal_growth: Number
+) -> Number:
+    """Value, at the end of the last forecast year, when new investment earns its cost of capital.
+
+    The value-driver formula NOPAT × (1 + g) × (1 − g / RONIC) / (WACC − g) with RONIC = WACC
+    (Koller, Goedhart & Wessels, Valuation, 7th ed., ch. 14): reinvestment is tied to growth and
+    growth adds no value, so it reduces to NOPAT × (1 + g) / WACC.
+    """
+    if _any(discount_rate <= 0):
+        raise FinancialMathError(f"discount rate must be positive, got {discount_rate}")
+    return final_annual_nopat * (1 + terminal_growth) / discount_rate
+
+
 @dataclass(frozen=True)
 class DCFValue:
     pv_explicit: Number  # present value of the forecast-period cash flows
@@ -105,11 +119,14 @@ def enterprise_value(
     year_fractions: Sequence[float],
     terminal_growth: Number,
     final_annual_cash_flow: Number | None = None,
+    final_annual_nopat: Number | None = None,
 ) -> DCFValue:
-    """DCF enterprise value: forecast cash flows plus a Gordon terminal value, both discounted.
+    """DCF enterprise value: forecast cash flows plus a terminal value, both discounted.
 
-    The terminal value grows an annual cash flow; it defaults to the last period's cash flow, which
-    is right when the last period is a year. It is discounted at the last period's rate.
+    With final_annual_nopat the terminal value is the value-driver form with new investment
+    earning WACC (M4); without it, a Gordon growth of an annual cash flow, which defaults to the
+    last period's cash flow (right when the last period is a year). Either is discounted at the
+    last period's rate.
     """
     if len(cash_flows) != len(rates):
         raise FinancialMathError("cash_flows and rates must have one value per period")
@@ -117,8 +134,11 @@ def enterprise_value(
         raise FinancialMathError("at least one forecast period is required")
     factors = discount_factors(rates, year_fractions)
     pv_explicit = sum(cf * df for cf, df in zip(cash_flows, factors, strict=True))
-    final = cash_flows[-1] if final_annual_cash_flow is None else final_annual_cash_flow
-    terminal = gordon_terminal_value(final, rates[-1], terminal_growth)
+    if final_annual_nopat is not None:
+        terminal = value_driver_terminal_value(final_annual_nopat, rates[-1], terminal_growth)
+    else:
+        final = cash_flows[-1] if final_annual_cash_flow is None else final_annual_cash_flow
+        terminal = gordon_terminal_value(final, rates[-1], terminal_growth)
     pv_terminal = terminal * factors[-1]
     return DCFValue(pv_explicit, terminal, pv_terminal, pv_explicit + pv_terminal)
 

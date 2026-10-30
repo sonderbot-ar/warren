@@ -36,6 +36,10 @@ SINGLE_VALUES = (
     "terminal_growth",
     "roll_years",
 )
+# terminal_method (a user row; its choice is in the method text). A run stored without the row
+# predates it and keeps the Gordon rule on Y5's free cash flow, so it still reproduces.
+VALUE_DRIVER = "value_driver_ronic_wacc"
+GORDON = "gordon_fcff"
 LINES = ("revenue", "ebit", "nopat", "d_and_a", "capex", "delta_nwc", "fcff", "discount_factor")
 
 
@@ -110,12 +114,24 @@ class Inputs:
     driver: dict[str, list]  # one value per forecast period, for each of DRIVERS
     one: dict[str, float]  # each of SINGLE_VALUES
     cost_of_equity_shift: list | None = None  # added to the cost of equity per period (M4)
+    terminal_method: str = GORDON
 
     def replace(self, **changes) -> "Inputs":
         return dataclasses.replace(self, **changes)
 
 
+def terminal_method(assumptions: Iterable[Assumption]) -> str:
+    for a in assumptions:
+        if a.name == "terminal_method":
+            choice = a.method.split(":")[0].strip()
+            if choice not in (VALUE_DRIVER, GORDON):
+                raise DCFInputError(f"unknown terminal_method {choice}")
+            return choice
+    return GORDON
+
+
 def inputs(assumptions: Iterable[Assumption]) -> Inputs:
+    assumptions = list(assumptions)
     rows = _index(assumptions)
     seed_periods, periods = forecast_periods(rows)
     missing = [n for n in DRIVERS if set(rows.get(n, {})) != set(periods)]
@@ -127,6 +143,7 @@ def inputs(assumptions: Iterable[Assumption]) -> Inputs:
         periods=periods,
         driver={name: [rows[name][p] for p in periods] for name in DRIVERS},
         one={name: rows[name][SINGLE] for name in SINGLE_VALUES},
+        terminal_method=terminal_method(assumptions),
     )
 
 
@@ -175,7 +192,13 @@ def compute(inp: Inputs) -> Valuation:
     else:
         rates = [wacc_at(cost_of_equity + shift) for shift in inp.cost_of_equity_shift]
     year_fractions = [0.25] * QUARTERS + [1.0] * len(YEARS)
-    dcf = fm.enterprise_value(fcff, rates, year_fractions, one["terminal_growth"])
+    dcf = fm.enterprise_value(
+        fcff,
+        rates,
+        year_fractions,
+        one["terminal_growth"],
+        final_annual_nopat=nopat[-1] if inp.terminal_method == VALUE_DRIVER else None,
+    )
     ev_as_of = fm.roll_forward(dcf.enterprise_value, wacc, one["roll_years"])
     net_debt = one["debt"] - one["cash_and_investments"]
     equity = fm.equity_value(ev_as_of, net_debt, one["minority_interest"])

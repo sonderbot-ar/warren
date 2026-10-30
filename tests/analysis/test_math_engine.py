@@ -244,13 +244,22 @@ def test_margin_check_reads_the_rows_so_shocked_drivers_pass_through_it(company)
 
 
 def test_spread_warning_fires_below_three_points(company):
-    rows = build(company).assumptions
+    # a run stored before M4 has no terminal_method row and keeps the Gordon rule
+    rows = [a for a in build(company).assumptions if a.name != "terminal_method"]
     wacc = dcf.run_outputs(rows)[("wacc", "-")]
     for spread, fires in ((0.031, False), (0.029, True)):
         shifted = dcf.with_value(rows, "terminal_growth", wacc - spread)
         warnings = [w for w in post_checks(shifted, dcf.run_outputs(shifted)) if "WACC" in w]
         assert bool(warnings) is fires
     assert "2.90 points" in warnings[0] and "of enterprise value" in warnings[0]
+
+
+def test_spread_warning_is_not_raised_under_the_value_driver_terminal(company):
+    rows = build(company).assumptions
+    assert dcf.terminal_method(rows) == dcf.VALUE_DRIVER
+    wacc = dcf.run_outputs(rows)[("wacc", "-")]
+    shifted = dcf.with_value(rows, "terminal_growth", wacc - 0.01)
+    assert not [w for w in post_checks(shifted, dcf.run_outputs(shifted)) if "WACC" in w]
 
 
 def test_a_data_warning_raised_by_every_query_is_noted_once(company, monkeypatch):

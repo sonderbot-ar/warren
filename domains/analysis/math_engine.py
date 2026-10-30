@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
 
+from domains.analysis import dcf
 from domains.analysis import financial_math as fm
 from domains.analysis.dcf import QUARTERS, SEED, YEARS
 from domains.analysis.schemas import SINGLE, Assumption
@@ -41,6 +42,7 @@ USER_CHOICES = {
     "erp_method": {"historical_geometric"},
     "erp_first_year": None,  # a year
     "terminal_growth_method": {"risk_free"},
+    "terminal_method": {"value_driver_ronic_wacc"},  # M4; runs without it are Gordon on FCFF
 }
 
 SUPPORTED_FROM = date(2019, 3, 1)  # three full fiscal years of FY2016+ history behind it
@@ -768,6 +770,7 @@ def post_checks(
     They read nothing but the run, so they apply to any row set: a baseline, or (M4) one whose
     drivers were shocked.
     """
+    assumptions = list(assumptions)
     rows: dict[str, dict[str, float]] = defaultdict(dict)
     for a in assumptions:
         rows[a.name][a.period] = a.value
@@ -789,8 +792,9 @@ def post_checks(
                     f"({mean:.1%} ± {MARGIN_SIGMAS} × {sd:.1%}, {len(history)} quarters)"
                 )
 
+    # under the value-driver terminal value the spread no longer drives the value (M4)
     spread = outputs[("wacc", SINGLE)] - rows["terminal_growth"][SINGLE]
-    if spread < TERMINAL_SPREAD_WARNING:
+    if dcf.terminal_method(assumptions) == dcf.GORDON and spread < TERMINAL_SPREAD_WARNING:
         out.append(
             f"WACC − terminal growth is {spread * 100:.2f} points (below "
             f"{TERMINAL_SPREAD_WARNING * 100:.0f}): terminal value is "
