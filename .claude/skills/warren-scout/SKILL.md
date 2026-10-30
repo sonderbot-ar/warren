@@ -17,8 +17,12 @@ Many open-source projects and open models could save Warren work or money (Struc
 
 1. **Data:** data sources and loaders (SEC EDGAR and XBRL tooling, prices, rates, IFRS filings for Decision 11).
 2. **Valuation:** finance math, DCF, Monte Carlo, forecast evaluation and test tooling.
-3. **News models:** GDELT tooling, and open models on Hugging Face for event extraction, company matching and classification (M5, M6). Each model notes whether it runs on a laptop CPU.
+3. **News models:** GDELT tooling, and open models on Hugging Face for event extraction, company matching and classification (M5, M6). Each model notes whether it runs on the owner's machine (below).
 4. **Agent tooling:** orchestration and telemetry (M7), and anything that makes the agent team cheaper.
+
+## The owner's machine
+
+Warren runs locally on an Apple M5 MacBook with 16 GB of unified memory. A model must run there with room left for Warren itself: about 8 billion parameters at most when quantized to 4 bits (about 5 GB of memory), smaller when it runs at full precision. Prefer models with a Metal or MLX build (`mlx-community` on Hugging Face, `llama.cpp` GGUF, or PyTorch with the `mps` backend). A model that needs an NVIDIA GPU (CUDA only) fails. Libraries must install on macOS with Apple Silicon (arm64).
 
 ## The run lead (the session running this skill)
 
@@ -36,12 +40,13 @@ Hard rules (fail one and the candidate is dropped):
 
 - **Licence** allows use in a paid product: MIT, BSD, Apache-2.0, ISC, MPL-2.0 or similar. GPL, AGPL, "non-commercial" (CC-BY-NC and the like) and no licence at all fail. A model's licence is the model card's, not the code's.
 - **Free:** no paid API, key or hosted service needed to use it.
+- **Runs on the owner's machine** (above): macOS arm64, and for models at most about 8B parameters at 4 bits with no CUDA-only code.
 - **Safe to run:** a pinned release exists. For models, weights in `safetensors` and no `trust_remote_code`.
 
 Recorded facts (cite a URL for each, or write "unknown"):
 
 - **Upkeep:** date of the last release and the last commit, open issues, and roughly how many maintainers.
-- **Size:** install size or model parameters, and whether it runs on a laptop CPU.
+- **Size:** install size, or model parameters with the memory it needs at the precision we'd use, and whether a Metal or MLX build exists.
 - **What it replaces:** the Warren file, step or milestone it would replace or speed up, and what we do today.
 - **Fit:** any conflict with a standing rule (point-in-time, no LLM numbers, sources behind adapters, everything in this repo).
 
