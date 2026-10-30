@@ -41,7 +41,7 @@ Durations are indicative, assuming part-time work (roughly 8–12 hours a week).
 | M2.1 | DCF hardening (review of M2) | 0.5 | oct.28 – oct.30 | M2 | **Done** (oct.30.2026; PR #7, merged by the agent team after a gatekeeper GO; recorded as v0.2 in `docs/versions.md`) |
 | M3 | Evaluation harness v1 (baseline only) | 1.5 | nov.23 – dec.03 | M2.1 | Done (oct.30.2026, v0.3; design in `docs/designs/m3-evaluation-harness.md`) |
 | M4 | Shock model and Monte Carlo (manual shocks) | 1.5 | dec.04 – dec.13 | M2.1 | **Done** (oct.30.2026, v0.4; PRs #30 and #39; design in `docs/designs/m4-shock-model.md`) |
-| M5 | News ingestion (GDELT) and event clustering | 2.5 | dec.14 – jan.03 | M1 | In progress (oct.30.2026; design in `docs/designs/m5-news-ingestion.md`; engine merged in PR #41; real run done: all 26 windows ingested and clustered; first precision draw failed, 0.06–0.40 for `org_exact` against a 0.80 gate; a headline rule (Step 6) lifted it to 0.52–0.90, 0.72 pooled, passing only MSFT and XOM; waiting on the owner) |
+| M5 | News ingestion (GDELT) and event clustering | 2.5 | dec.14 – jan.03 | M1 | Done (oct.30.2026, v0.5; design in `docs/designs/m5-news-ingestion.md`; all 26 case windows ingested and clustered; with the headline rule, `org_exact` precision 0.72 pooled, 0.52–0.90 per company, accepted by the owner; PRs #41, #43, #48, #51, #65, #66, #67) |
 | M6 | LLM steps: event extraction and shock proposal | 2 | jan.04 – jan.17 | M4, M5 | Not started |
 | M7 | LangGraph orchestration and telemetry | 1.5 | jan.18 – jan.27 | M6 | Not started |
 | M8 | Full backtest and Phase 1 review | 1.5 | jan.28 – feb.07.2027 | M3, M7 | Not started |
@@ -371,7 +371,7 @@ event_articles(event_id TEXT, article_id TEXT)
 
 **Tests:** matching precision on a hand-labelled sample; the same story from ten outlets becomes one event; re-running ingestion is idempotent.
 
-**Exit criterion:** for every eval case date, the events around it are ingested, matched and clustered, with a hand-checked sample showing acceptable precision.
+**Exit criterion:** for every eval case date, the events around it are ingested, matched and clustered, with a hand-checked sample showing acceptable precision. *(oct.30.2026, owner: "acceptable" is the precision measured with the headline rule, 0.72 pooled; the 0.80 per-company bar in the M5 design wasn't met and is accepted. M6 adds an "about the company" check.)*
 
 **Learning notes:** GDELT is noisy by design: machine-coded, global and fast. Expect duplicates, wrong organisation matches and tone that does not track importance. Measuring and fixing that noise is the point of this milestone.
 
@@ -386,6 +386,7 @@ event_articles(event_id TEXT, article_id TEXT)
 **Design**
 
 - **Event extraction (LLM 1):** input = one clustered event (titles, sources, timestamps, available text). Output = a validated structured object: event type from the fixed taxonomy, short factual summary, materiality (low / medium / high) with reasons, and the evidence it relied on. Invalid output is rejected and retried, never silently accepted.
+- **About the company (with LLM 1):** for each headline in an event, the model also says whether it is about the company or only names it. Articles judged not about it leave the event. The check is scored against the two labelled M5 draws (`domains/news/match_sample.csv`), so its precision is measured against M5's headline rule (0.72 pooled), not assumed. *(Added oct.30.2026 by the owner's M5 decision.)*
 - **Shock proposal (LLM 2):** input = the classified event plus the company's baseline drivers and recent history. Output = zero or more shocks in the M4 schema (driver, low/base/high, start, horizon, decay) with a rationale tied to evidence. "No material impact" is a valid and expected answer.
 - **Human review:** proposed shocks pause for approval or edit before simulation (a LangGraph interrupt in M7; a command-line prompt before then). Edited values are stored with `source='user'`.
 - **Traceability:** every LLM call stores model, prompt version (prompts live in versioned files), input, output, tokens and latency.
