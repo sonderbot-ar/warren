@@ -1,6 +1,6 @@
 # M4 design: shock model and Monte Carlo (manual shocks)
 
-Status: In progress (oct.30.2026) · Elephant: agent team · Branch `m4-shock-model`
+Status: Done (oct.30.2026, v0.4) · Elephant: agent team · Branch `m4-shock-model`
 Implements Structure Guide Decisions 4 (Monte Carlo) and 6 (simulation step), and Build Plan M4.
 
 ## Problem
@@ -156,8 +156,6 @@ Both join `cases.csv` (26 cases now; the library only grows). `guidance.csv` gai
 
 **Same-day quarters.** Warren reads quarters from filed 10-Qs. P&G's fiscal Q3 and Coca-Cola's Q2 were announced in the same release as the revised guide but filed later, so the full-year revision spreads over those quarters too. That uses only what was public on the case date, but it means part of the "shock" is a quarter already announced. The report says so.
 
-## Where the work stopped (oct.30.2026)
+## Result (oct.30.2026)
 
-- Done: Steps 0–5 (engine, merged in PR #30); Step 4's data: `guidance.csv` for MSFT_2022-06-02, PG_2019-04-23 and KO_2019-07-23, two new cases.
-- Next: Step 6, the real batch with `--guidance`, then M4 Done and v0.4.
-- Blocked for the real batch on oct.30.2026: the cloud environment's proxy refuses `query2.finance.yahoo.com`, `fc.yahoo.com` and `guce.yahoo.com` (403), which `yfinance` needs for prices and beta. EDGAR and FRED are reachable. Needs the hosts allowed in the environment's network settings, or a run from the owner's machine.
+Step 6 ran once Yahoo Finance was reachable: batch `eval_2026-10-30_1`, 26 of 26 cases, three with `with_shocks` rows, every run and simulation reproduced to the cent. Numbers in the build plan, M4 result.
