@@ -134,7 +134,7 @@ Changed: `docs/build-plan.md` (status, M5 source note, results), `README.md` (co
 
 - **Step 6 design review (oct.30.2026)**: the explainer, analyst and professor reviewed in parallel. All three said accept with changes.
   - *Accepted:*
-    - Tylenol and most brands are out; the analyst found 3,163 MSFT passes only through "Xbox", and both brand rows kept in the draw were labelled `related`.
+    - Brands are out, `coke` with them; the analyst found 3,163 MSFT passes only through "Xbox", and both brand rows kept in the draw were labelled `related`.
     - Flipkart and the other acquisitions count only from their dates, as subsidiaries.
     - "deals" is now matched only in shopping forms, and the bare "deal on" and "stake in" are gone; each had cut real news. "biggest moves" and "movers" were added.
     - Real headlines from the review are now tests.
@@ -148,7 +148,6 @@ Changed: `docs/build-plan.md` (status, M5 source note, results), `README.md` (co
     - A recall draw from failing articles was added.
     - Missing tests were added.
   - *Escalated:* reading the gate on articles that pass the rule. It drops most `org_exact` matches for some companies, so it goes to the owner as a decision card (the analyst's request).
-  - *Rejected:* "coke" for cocaine was not a problem to solve; `coke` was dropped anyway with the brands.
 
 - **PR review (oct.30.2026)**, gatekeeper NO-GO, then fixed: event runs didn't record the alias set (now in the params, rebuild names it); a parse error was recorded as a bad MD5 and one bad row dropped a file (now `rows_bad`, rows skipped); doc and README gaps (function names, legal words, events per case and the kappa floor in the report, `rematch`). Ideas taken: subsidiary dates in the case calendar, search one row per article, an explicit FTS key, a failed re-fetch keeps earlier rows, any request error recorded. To backlog: a migration test with rows in every older table.
 - **Design review (oct.30.2026)**, explainer, analyst, professor in parallel.
