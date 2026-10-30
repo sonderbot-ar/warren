@@ -17,9 +17,9 @@ XOM_2023-10-11,XOM,2023-10-11,m_and_a,ExxonMobil announces an all-stock merger w
 CAT_2019-10-23,CAT,2019-10-23,guidance,Caterpillar misses third-quarter estimates and lowers its 2019 outlook,4,event rule: company announcement,https://www.sec.gov/Archives/edgar/data/18230/000001823019000266/catex9913q2019earnings.htm,
 AAPL_2019-05-19,AAPL,2019-05-19,control,No event: rule-dated control,4,control rule: 50 days after the end of fiscal Q2 FY2019,,
 CAT_2020-08-19,CAT,2020-08-19,control,No event: rule-dated control,4,control rule: 50 days after the end of fiscal Q2 FY2020,,
-JNJ_2022-05-20,JNJ,2022-05-20,control,No event: rule-dated control,4,control rule: 50 days after the end of fiscal Q2 FY2021 moved forward three quarters (within 120 days of JNJ_2021-11-12),,Abiomed consolidated from 2022-12-22 (h3-h4)
-KO_2022-08-19,KO,2022-08-19,control,No event: rule-dated control,4,control rule: 50 days after the end of fiscal Q2 FY2022,,
+JNJ_2022-05-23,JNJ,2022-05-23,control,No event: rule-dated control,4,control rule: 50 days after the end of fiscal Q2 FY2021 moved forward three quarters (within 120 days of JNJ_2021-11-12),,Abiomed consolidated from 2022-12-22 (h3-h4)
+KO_2022-08-20,KO,2022-08-20,control,No event: rule-dated control,4,control rule: 50 days after the end of fiscal Q2 FY2022,,
 MSFT_2023-05-20,MSFT,2023-05-20,control,No event: rule-dated control,4,control rule: 50 days after the end of fiscal Q2 FY2023 moved forward one quarter (within 120 days of MSFT_2023-01-18),,Activision Blizzard consolidated from 2023-10-13 (h3-h4)
 PG_2024-02-19,PG,2024-02-19,control,No event: rule-dated control,4,control rule: 50 days after the end of fiscal Q2 FY2024,,
-WMT_2024-09-19,WMT,2024-09-19,control,No event: rule-dated control,4,control rule: 50 days after the end of fiscal Q2 FY2025,,VIZIO consolidated from 2024-12-03 (h2-h4)
+WMT_2025-06-19,WMT,2025-06-19,control,No event: rule-dated control,4,control rule: 50 days after the end of fiscal Q2 FY2025 moved forward three quarters (within 120 days of the VIZIO acquisition closing 2024-12-03),,
 XOM_2019-08-19,XOM,2019-08-19,control,No event: rule-dated control,4,control rule: 50 days after the end of fiscal Q2 FY2019,,

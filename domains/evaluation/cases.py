@@ -17,6 +17,7 @@ from domains.fundamentals.universe import PHASE1_UNIVERSE
 
 CASES_PATH = Path(__file__).parent / "cases.csv"
 CONTROL_CLEARANCE_DAYS = 120  # a control sits at least this far from any event of its company
+CONTROL_OFFSET_DAYS = 50  # a control is dated this long after one of its fiscal quarters ends
 EVENT_TYPES = {
     "guidance",
     "m_and_a",
@@ -123,7 +124,7 @@ def load_cases(path: Path = CASES_PATH, tickers: set[str] | None = None) -> list
             if abs((control.event_date - event.event_date).days) < CONTROL_CLEARANCE_DAYS:
                 raise CaseError(
                     f"control {control.case_id} is within {CONTROL_CLEARANCE_DAYS} days of "
-                    f"{event.case_id}: move it forward one fiscal quarter"
+                    f"{event.case_id}: move it forward a fiscal quarter at a time"
                 )
     return cases
 

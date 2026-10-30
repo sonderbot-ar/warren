@@ -10,6 +10,7 @@ from domains.evaluation.harness import (
     EvaluationError,
     direction,
     evaluate_case,
+    guard_control_date,
     guard_coverage,
     guard_look_ahead,
     run_batch,
@@ -20,12 +21,12 @@ from tests.evaluation.conftest import CHOICES
 TODAY = date(2020, 6, 30)
 
 
-def case(event_date=date(2019, 6, 30), horizon=4, ticker="TST") -> Case:
+def case(event_date=date(2019, 6, 30), horizon=4, ticker="TST", event_type="guidance") -> Case:
     return Case(
         case_id=f"{ticker}_{event_date}",
         ticker=ticker,
         event_date=event_date,
-        event_type="guidance",
+        event_type=event_type,
         description="test",
         horizon_quarters=horizon,
         selected_because="test",
@@ -138,6 +139,14 @@ def test_a_batch_records_results_and_failures(company):
     assert count == 4 * 2 * 2  # quarters × items × variants
     (failure,) = company.execute("SELECT case_id, reason FROM eval_failures").fetchall()
     assert failure["case_id"] == "TST_2019-01-15" and "as-of date" in failure["reason"]
+
+
+def test_a_control_must_sit_50_days_after_one_of_its_quarter_ends(company):
+    cik = company.execute("SELECT cik FROM companies WHERE ticker = 'TST'").fetchone()[0]
+    guard_control_date(company, cik, case(date(2019, 8, 19), event_type="control"))  # 06-30 + 50
+    with pytest.raises(EvaluationError, match="control rule: 2019-08-20"):
+        guard_control_date(company, cik, case(date(2019, 8, 20), event_type="control"))
+    guard_control_date(company, cik, case(date(2019, 8, 20)))  # events are dated by the news
 
 
 def test_coverage_is_a_hard_error_past_a_companys_history():

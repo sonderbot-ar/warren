@@ -19,7 +19,7 @@ from datetime import date, timedelta
 from domains.analysis.dcf import YEARS
 from domains.analysis.math_engine import CHAINS, EngineError, UserChoice, step_quarter, trace
 from domains.analysis.runs import code_version, load_assumptions, load_outputs, run_baseline
-from domains.evaluation.cases import Case, store_cases
+from domains.evaluation.cases import CONTROL_OFFSET_DAYS, Case, store_cases
 from domains.fundamentals.facts import get_facts
 from domains.fundamentals.schemas import Fact
 from domains.fundamentals.universe import get_universe_company
@@ -87,6 +87,27 @@ def guard_look_ahead(conn: sqlite3.Connection, run_id: str, case_date: date) -> 
             + ", ".join(late + [f"{a} (unknown)" for a in unknown])
         )
     return len(accessions)
+
+
+def guard_control_date(conn: sqlite3.Connection, cik: str, case: Case) -> None:
+    """Fail a control that isn't CONTROL_OFFSET_DAYS after one of its company's quarter ends.
+
+    The case file can't check this alone: fiscal quarters end on the company's own calendar
+    (JNJ and KO on the Sunday or Friday nearest the month end), so the dates come from filings.
+    """
+    if not case.is_control:
+        return
+    quarter_end = case.event_date - timedelta(days=CONTROL_OFFSET_DAYS)
+    found = conn.execute(
+        "SELECT 1 FROM financial_facts WHERE cik = ? AND period_end = ? AND period_start IS NOT "
+        "NULL AND fiscal_period IN ('Q1', 'Q2', 'Q3', 'FY') LIMIT 1",
+        (cik, quarter_end.isoformat()),
+    ).fetchone()
+    if found is None:
+        raise EvaluationError(
+            f"control rule: {case.event_date} is not {CONTROL_OFFSET_DAYS} days after a fiscal "
+            f"quarter end of {case.ticker} ({quarter_end} is not one)"
+        )
 
 
 def guard_coverage(case: Case) -> None:
@@ -222,6 +243,7 @@ def evaluate_case(
     if cik is None:
         raise EvaluationError(f"{case.ticker} has not been ingested")
     cik = cik["cik"]
+    guard_control_date(conn, cik, case)
     run_id = run_baseline(conn, case.ticker, case.event_date, choices=choices, today=today)
     guard_look_ahead(conn, run_id, case.event_date)
 

@@ -87,7 +87,7 @@ eval_failures(batch_id TEXT, case_id TEXT, reason TEXT)
   - known event types
   - horizon 1–4
   - no duplicates
-  - controls on their rule dates
+  - controls clear of their company's events (the rule date itself is checked by the harness, from the filings' quarter ends)
 
   Tests: the migration applies to an existing database, and malformed rows are refused.
 - **Step 2.** `domains/evaluation/harness.py`: actuals (with the EBIT alternative rule and derived-Q4 flags), the naive forecast, the look-ahead and coverage guards, scoring, `evaluate_case`, and batch storage. Tests on Test Corp:
@@ -124,6 +124,10 @@ Baseline error and naive error for every case are computed and saved. The baseli
 - **Explainer** (13 gaps): quarter alignment, horizon handling, the direction tie, missing data, near-zero APE, the guard's scope, the EBIT rule, derived Q4, case selection and the headline metric. Each is now answered in a section above.
 - **Analyst** (5 blockers, all accepted): the controls weren't quiet; the direction used different bases; the direction hit rate shows only the base rate; APE is wrong for EBIT; derived Q4 mixes bases. Ideas taken up: the EBIT governing quarter, `scope_change`, period lengths, case age, a cluster-aware summary, more fixture paths.
 - **Professor** (3 blockers, all accepted): no naive benchmark; APE for EBIT; confounded controls. Ideas taken up: nullable p10/p50/p90 columns, descriptive-only type results, a paired test in M8, the hindsight limitation, and a glossary in the report.
+- **PR review** (gatekeeper GO; analyst 3 blockers, all accepted, fixed before merge):
+  - "First reported" took a Q4 reported on its own only in the next 10-K (JNJ FY2022 Q4 after the Kenvue recast: 19,939 instead of 23,706). In `first_reported` mode each quarter is now the version public first (`facts.py`, test in `test_quarterly.py`).
+  - A derived comparative could mix a recast prior year with nine months as first reported. Such a comparative is now unknown, and so is the actual direction.
+  - Three controls broke their rule: JNJ (2022-05-20 → 2022-05-23) and KO (2022-08-19 → 2022-08-20) were a few days off, and WMT sat 75 days before the VIZIO closing (moved forward three quarters to 2025-06-19). The harness now fails any control that isn't 50 days after one of its company's quarter ends (`guard_control_date`). These are rule corrections, not choices made from results; the case file's new SHA-256 is recorded with the batch.
 - **Not taken:**
   - A cluster bootstrap and Diebold–Mariano, left to M8, which owns the "beat" test.
   - The interval score, left to M8 with the ranges.
