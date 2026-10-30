@@ -127,7 +127,7 @@ Baseline error and naive error for every case are computed and saved. The baseli
 - **PR review** (gatekeeper GO; analyst 3 blockers, all accepted, fixed before merge):
   - "First reported" took a Q4 reported on its own only in the next 10-K (JNJ FY2022 Q4 after the Kenvue recast: 19,939 instead of 23,706). In `first_reported` mode each quarter is now the version public first (`facts.py`, test in `test_quarterly.py`).
   - A derived comparative could mix a recast prior year with nine months as first reported. Such a comparative is now unknown, and so is the actual direction.
-  - Three controls broke their rule: JNJ (2022-05-20 → 2022-05-23) and KO (2022-08-19 → 2022-08-20) were a few days off, and WMT sat 75 days before the VIZIO closing (moved forward three quarters to 2025-06-19). The harness now fails any control that isn't 50 days after one of its company's quarter ends (`guard_control_date`). These are rule corrections, not choices made from results; the case file's new SHA-256 is recorded with the batch.
+  - Three controls broke their rule: JNJ (2022-05-20 → 2022-05-23) and KO (2022-08-19 → 2022-08-20) were a few days off, and WMT sat 75 days before the VIZIO closing. It moved forward four quarters to 2025-09-19: the analyst's re-check found the first try, 2025-06-19, 35 days after Walmart withheld its Q2 FY2026 guidance (2025-05-15). The harness now fails any control that isn't 50 days after one of its company's quarter ends (`guard_control_date`). These are rule corrections, not choices made from results; the case file's new SHA-256 is recorded with the batch.
 - **Not taken:**
   - A cluster bootstrap and Diebold–Mariano, left to M8, which owns the "beat" test.
   - The interval score, left to M8 with the ranges.
