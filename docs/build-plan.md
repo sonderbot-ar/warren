@@ -438,7 +438,19 @@ load_fundamentals → build_baseline → fetch_news → cluster_events
 - Every change to a decision adds or updates a row in the decision log with a date and status; superseded decisions stay listed so the history is visible.
 - Each milestone's status in Section 2 is updated when it starts and when its exit criterion is met.
 
-## 6. Risks and Open Questions
+## 6. Keys and Paid Services From the Owner
+
+The default is free tools only (CLAUDE.md). This list is what the team will ask the owner for, and when. A key never goes in the repo: it lives in `.env` for local runs and in the environment for cloud runs.
+
+When the milestone before the one that needs an item merges, email the owner (CLAUDE.md, Email) with what to create, step by step, and where to put it, so the item is ready before the work stops on it.
+
+| What | Why | Needed from | Cost | Status |
+|---|---|---|---|---|
+| `SEC_USER_AGENT` (a name and contact email) | SEC EDGAR requires it | M1 | Free | In place |
+| `ANTHROPIC_API_KEY` | The LLM steps: event extraction and shock proposal | M6, after Decision 1 is settled | Paid per token | Not yet requested |
+| Google Cloud project with BigQuery (a service-account key) | Fetch a company's GDELT news for any date in seconds, instead of downloading every 15-minute file (about 670 files for one week). The pipeline's `fetch_news` step needs it to run for any company and date. | M7 | About 0.33 GB read per day of news (measured oct.30.2026 on 2020 and 2022 files). Our 26 case weeks come to about 60 GB, inside BigQuery's free 1 TB a month. Beyond that, about $6.25 per TB. A billing account with a card is required even for the free tier. | Owner approved the cost on oct.30.2026. Before use: a dry run to confirm bytes, a daily cap on bytes read, and an update to Decision 8 (data sources) |
+
+## 7. Risks and Open Questions
 
 | Risk or question | Mitigation |
 |---|---|
