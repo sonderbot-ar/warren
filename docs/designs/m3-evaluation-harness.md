@@ -132,3 +132,11 @@ Baseline error and naive error for every case are computed and saved. The baseli
 
 New: `domains/evaluation/{__main__,harness,cases,report}.py`, `domains/evaluation/cases.csv`, `shared_kernel/migrations/0007_evaluation.sql`, `tests/evaluation/test_{cases,harness,cli}.py`.
 Changed: `docs/build-plan.md` (status and implementation notes), `docs/versions.md` on merge.
+
+## Where the work stopped (oct.30.2026, 06:10 UTC)
+
+- Done and pushed: Steps 0, 1, 2 and 4 (237 tests pass). Step 3 code is in: `domains/evaluation/report.py` and `__main__.py`.
+- Next:
+  - Step 3: add `tests/evaluation/test_cli.py`, which runs `main(["run", "--cases-file", <a TST case file>])` against Test Corp (patch `get_db_connection` and `REPORTS_DIR`). Check that the report lists every case, the failures, the headline and the glossary.
+  - Open the PR. The gatekeeper reviews it, then merge (engine only).
+  - Step 5: refresh data (`python -m domains.fundamentals ingest --all --refresh`, `python -m domains.market load --refresh`), run `python -m domains.evaluation run`, and record the results in the build plan.
