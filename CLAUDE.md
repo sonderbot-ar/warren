@@ -75,7 +75,7 @@ Tools named `mcp__github__*` assume the GitHub MCP server is registered as `gith
 - **Lesson:** one page per version, teaching the version's concepts as they appear together in the code, with why they suit Warren or not.
 - **Weekly digest:** versions shipped, what is next, anything waiting on the owner.
 
-Plain language, short sentences. The owner reads reports, not code.
+Lay language, short sentences, no code names in the body, bad news said straight; casual language and the odd swear word are fine when they help. The owner reads reports, not code. Full rules: the Voice section of `warren-desk-report`.
 
 ## Keeping the docs current
 

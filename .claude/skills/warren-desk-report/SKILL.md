@@ -5,33 +5,42 @@ description: "Write the owner's desk entry and one-page lesson after a Warren ve
 
 # Warren desk report
 
-The owner, Andrew, reads reports, not code. Warren is also how he learns finance and AI building. Write in plain language with short sentences and no jargon left unexplained. Avoid em-dashes and arrow chains.
+The owner, Andrew, reads reports, not code, often on his phone. Warren is also how he learns finance and AI building. Write like a smart friend explaining it over a beer, not like an analyst writing a memo.
+
+## Voice (applies to everything below)
+
+- Lay words, short sentences. If a sentence needs a second read, rewrite it.
+- No file names, function names, test names or table names in the body. Links and counts go in the one-line footer.
+- A finance term is fine if you explain it in the same sentence in under ten words ("the median, the middle result").
+- At most three numbers in a section, rounded, each with what it means ("5.6% typical revenue miss").
+- Say bad news straight. "It's a coin flip case by case" beats "performance is mixed".
+- Casual language and the odd swear word are fine when they make a point land. Never at a person, and never more than once or twice per entry.
+- One analogy per lesson, from everyday life.
+- No em-dashes, no arrow chains.
 
 ## Desk entry (one per merged version)
 
-Add it to the top of the desk page. Find the page's link in `docs/versions.md` or in the project thread. Use this shape:
+Add it to the top of the desk page (link in `docs/versions.md`). Shape:
 
-1. **Header:** version (from `docs/versions.md`), date, milestone or backlog item, PR links.
-2. **In one line:** what Warren can do now that the previous version couldn't.
-3. **What changed, and why it's better:** 2 to 5 items. Each is one sentence on the change and one on why it beats the previous version.
-4. **Evidence:** test count before and after; whether the reproduce-to-the-cent check holds; from M3 on, forecast error against the baseline, and lead with that number. Never invent a number. Quote it from a test run, a command's output or a stored run.
-5. **Open arguments:** one line per disagreement from the review that's still open.
-6. **Waiting on you:** decisions from the trigger list, or "nothing".
-7. **Lesson:** a link to it.
+1. **Headline:** what's different, in plain words, as a sentence. "Warren can finally grade its own homework", not "Evaluation harness v1".
+2. **One-liner:** what Warren can do now that it couldn't before. Two sentences max.
+3. **Did it get better?** From M3 on, lead with the forecast error against the previous version and against the lazy rival (copy last year). Up to three number tiles, then two or three sentences on what they mean, including the worst miss.
+4. **What's new:** up to three bullets, each under 20 words, each saying why it matters.
+5. **What the reviewers caught:** the one thing worth knowing, plus "smaller stuff is parked as to-dos". Skip the issue numbers.
+6. **Your move:** decisions waiting, or skip the section when there are none (the top strip already says so).
+7. **Lesson** (collapsed under the entry).
+8. **Footer line:** milestone, PR links, test count, reproduce check.
 
-Use a lighter model for the writing. Take every fact from the PR, the commits and the review comments.
+Never invent a number. Quote it from a test run, a command's output, a stored run or a batch report. Take every fact from the PR, the commits and the review. A lighter model is fine for the writing.
 
-## Lesson (one page per version)
+## Lesson (one per version)
 
-Treat the version as one class. Show the concepts as they actually work together in the code, not one at a time. Cover:
-
-- the decisions taken and why
-- new tools or libraries and why they were chosen
-- what each new script or module does, in a sentence each
-- for each concept: why it does or doesn't suit Warren, which kinds of projects benefit from it and which don't, and its limits
-
-One page at most. Offer a deeper lesson only if the owner asks.
+Under 250 words. One big idea, one everyday analogy, then the two or three tricks in the code that make the idea work, in plain words. End with where else this is useful, and its main limit, in one line each.
 
 ## Weekly digest
 
-Cover the versions shipped this week, with one line each and a link to the desk entry. Add what's next, any decisions waiting on the owner, and anything that blocked work, such as usage limits, a failing check or an open question. Keep it under 150 words.
+Under 100 words, three short parts:
+
+- **Shipped:** one line per version, with a link to its desk entry. "Nothing shipped" is fine; then say why.
+- **Next:** what the team is working on now.
+- **Need from you:** decisions waiting and anything that blocked work (usage limits, a failing check), or "nothing".
