@@ -48,6 +48,10 @@ Work on other tracks continues while a card waits.
 - A bad merge is undone with a revert PR, never by rewriting history.
 - The invariants are tests: runs reproduce to the cent from stored assumptions, no data after `as_of`, property tests on `financial_math.py`. A change that needs to relax one is a decision for the owner.
 
+## Skills and where the team runs
+
+The team's procedures are skills in `.claude/skills/`: `warren-run-track` (the Elephant loop), `warren-goldfish-review` (the reviewers) and `warren-desk-report` (desk entry, lesson, weekly digest). They load in Claude Code wherever the repo is open: cloud sessions, scheduled runs, or the owner's VS Code. Local runs read `SEC_USER_AGENT` from `.env`; cloud runs read it from the environment. It is never committed.
+
 ## Reports for the owner
 
 - **The desk:** one entry per merged version, newest first: what changed from the previous version and why it is better, the evidence (tests, reproduce check, from M3 on forecast error against the baseline), open arguments from the review, decisions waiting.
