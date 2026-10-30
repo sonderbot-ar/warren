@@ -319,7 +319,7 @@ Shock
   start_period  : first affected period
   horizon       : number of quarters the shock can last (M4 design)
   decay         : 0 < decay ≤ 1, share of the effect remaining each period (1.0 = permanent within horizon)
-  source        : user | llm_proposed
+  source        : user | computed | llm_proposed  (computed = converted by code from company guidance, M4)
   rationale     : text, with evidence references
 ```
 

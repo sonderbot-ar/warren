@@ -96,3 +96,11 @@ def test_rebuild_refuses_a_changed_concept_map(company, monkeypatch):
     monkeypatch.setattr(runs, "concept_map_sha256", lambda: "f" * 64)
     with pytest.raises(ValueError, match="concept_map.csv changed"):
         rebuild(company, run_id, choices=CHOICES, today=AS_OF)
+
+
+def test_a_run_made_before_terminal_method_rebuilds_under_its_own_rule(company):
+    run_id = run(company)
+    company.execute(
+        "DELETE FROM assumptions WHERE run_id = ? AND name = 'terminal_method'", (run_id,)
+    )
+    assert rebuild(company, run_id, choices=CHOICES, today=AS_OF).values_ok

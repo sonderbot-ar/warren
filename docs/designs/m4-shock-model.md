@@ -115,7 +115,7 @@ Reading a guided range's ends as p10 and p90 is an assumption: managers' range m
 - **Step 5.** The value-driver terminal value (owner decision), as a `terminal_method` row. Tests: TV = NOPAT × (1 + g) / WACC by hand; a run without the row reproduces under Gordon; the spread warning is not raised under the new rule; the Structure Guide records the decision.
 - **Step 6.** Real run on the three cases (SEC EDGAR, Yahoo Finance, FRED), results in the build plan, M4 Done on merge.
 
-Steps 1–4 change no existing number and can merge as an engine-only PR, as M3 did.
+Steps 1–4 change no existing number; Step 5 changes value per share for new baseline runs (not revenue, EBIT or FCF). Steps 0–5 merge as an engine-only PR, as M3 did.
 
 ## Exit criterion (Build Plan)
 
@@ -132,12 +132,13 @@ For three eval cases, hand-entered shocks run end to end and appear in the harne
 
 ## Files
 
-New: `domains/analysis/{shocks,montecarlo}.py`, `shared_kernel/migrations/0008_shocks.sql`, `domains/evaluation/shocks.csv`, `tests/analysis/test_{shocks,montecarlo}.py`, `tests/evaluation/test_shocks.py`.
-Changed: `domains/analysis/{financial_math,dcf,__main__,report}.py`, `domains/evaluation/{harness,__main__,report}.py`, `docs/build-plan.md`.
+New: `domains/analysis/{shocks,montecarlo,sim_report}.py`, `domains/evaluation/guidance.py` (and `guidance.csv` in Step 6), `shared_kernel/migrations/0008_shocks.sql`, `tests/analysis/test_{shock_math,shocks,montecarlo}.py`, `tests/evaluation/test_guidance.py`.
+Changed: `domains/analysis/{financial_math,dcf,math_engine,runs,__main__,report,user_assumptions.csv}`, `domains/evaluation/{harness,__main__,report}.py`, `docs/{build-plan,structure-guide}.md`.
 
 ## Review log
 
 - **Analyst** (6 blockers on Step 4, all accepted; Steps 1–3 sound): CAT guides EPS only and AAPL gives no figure, so the third case comes from a stated rule; Walmart guides rates, so rates become amounts first; full-year guides go to the unreported quarters only; operating income guidance counted the revenue cut twice; a level change must be scaled by (1 + g) to become a growth shock, and units are pinned by a test; transcription needs a quote and a parse test. Ideas taken: impossible-driver samples stop the run; empty ranges named; MSFT's actual outside its revised range noted. Ideas to backlog: mean/p50 flag for skewed value ranges, a spread floor under the old rule, a separate line for permanent revenue effects.
+- **PR review** (gatekeeper GO, no blockers): a pre-M4 run now rebuilds under its own terminal rule (`rebuild` drops `terminal_method` from the choices when the run has none; test); the Koller chapter and the file list fixed. To backlog: a migration test from a v7 database; only Y5's rate is checked and the roll-forward keeps the baseline WACC (documented above under Drivers).
 - **Explainer** (5 gaps, all answered above): what decay = 1 means beyond the horizon (Permanent), how Y3–Y5 take a growth shock (Years), the risk premium's rates and weights, the terminal order (decided), and the guidance denominator and basis. Ideas taken: `computed` source, the exact generator call, the hash format, the invalid-sample case, tolerances, which run with_shocks uses, the EPS fallback, who enters the numbers, sign convention.
 - **Professor** (1 blocker, accepted): value per share as a range must not be reported before the terminal rule is decided (Build Plan M2.1 B). The owner decided it (oct.30.2026); Step 5 lands before the Monte Carlo report shows a value range. Suggestions taken: the corrected reason for rejecting Wallis's two-piece normal, the edition and chapter of Koller et al., guidance ends as an assumption, the band labelled shock-size only, percentiles don't add. Ideas left to the report: a worked growth-shock example.
 
