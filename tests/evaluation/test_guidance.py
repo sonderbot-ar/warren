@@ -98,6 +98,65 @@ def test_a_margin_guide_over_partly_reported_quarters_is_not_used(company):
         guidance.to_shocks([margin], run_rows(company))
 
 
+def test_a_guide_in_billions_is_the_same_guide_in_millions(company):
+    rows = run_rows(company)
+    [millions] = guidance.to_shocks([guide()], rows)
+    billions = guide(unit="billions", old_low=0.1, old_high=0.11, new_low=0.09, new_high=0.1,
+                     quote="revenue $0.09 to $0.1 billion, was $0.1 to $0.11")  # fmt: skip
+    [shock] = guidance.to_shocks([billions], rows)
+    assert (shock.low, shock.base, shock.high) == pytest.approx(
+        (millions.low, millions.base, millions.high)
+    )
+
+
+def test_only_amounts_take_a_unit():
+    with pytest.raises(ValueError, match="only amounts"):
+        guide(basis="growth", unit="billions")
+
+
+def test_operating_income_in_another_unit_than_revenue_is_refused(company):
+    income = guide(item="operating_income", unit="billions", old_low=0.02, old_high=0.02,
+                   new_low=0.01, new_high=0.01, quote="income 0.01, was 0.02")  # fmt: skip
+    with pytest.raises(GuidanceError, match="same unit"):
+        guidance.to_shocks([guide(), income], run_rows(company))
+
+
+def _write(path, **fields):
+    row = guide(**fields).model_dump()
+    cols = guidance.FIELDS + list(guidance.OPTIONAL)
+    values = ",".join(f'"{"" if row[f] is None else row[f]}"' for f in cols)
+    path.write_text(",".join(cols) + "\n" + values + "\n")
+
+
+def test_an_old_guide_from_an_earlier_release_is_read_in_its_own_quote(tmp_path):
+    path = tmp_path / "guidance.csv"
+    old = "0000000123-19-000001"
+    _write(path, quote="now $90 to $100 million", old_accession=old,
+           old_quote="revenue of $100 to $110 million")  # fmt: skip
+    [loaded] = guidance.load_guides(path)
+    assert loaded.old_accession == old
+    _write(path, quote="now $90 to $100 million, was $100 to $110", old_accession=old,
+           old_quote="revenue of $100 to $111 million")  # fmt: skip
+    with pytest.raises(GuidanceError, match="old_high"):
+        guidance.load_guides(path)
+
+
+def test_old_quote_needs_its_accession():
+    with pytest.raises(ValueError, match="go together"):
+        guide(old_quote="revenue of $100 to $110 million")
+
+
+def test_a_dash_percentage_reads_as_zero_but_a_negative_does_not():
+    assert guidance._numbers("FY 2019 (Estimate) -% to +1%") >= {0, 1}
+    assert guidance._numbers("(-1)% to 1%") == {-1, 1}
+    assert 0 not in guidance._numbers("(-1)% to 1%")
+
+
+def test_the_checked_in_guidance_parses():
+    guides = guidance.load_guides()
+    assert guides and all(g.source_date <= date.fromisoformat(g.case_id[-10:]) for g in guides)
+
+
 def test_every_figure_must_be_in_its_quote(tmp_path):
     path = tmp_path / "guidance.csv"
     row = guide().model_dump() | {

@@ -85,7 +85,7 @@ LLMs never produce financial numbers, and agents are LLMs, so no agent picks a m
 
 So the third exit case is a **new case**, picked by a rule fixed before any shock is scored: the earliest 8-K exhibit 99 from a Phase 1 company, from 2019-03-01, that revises earlier numeric revenue or operating-margin guidance, and whose date isn't already in the library. It joins `cases.csv` like any case (the library only grows; removing a case is the owner's call). Which case was taken and why is in the report.
 
-**Transcription.** The case librarian copies into `domains/evaluation/shocks.csv`, from the dated release only: the old and new guided figures (range ends, unit, the fiscal period covered), the accession number, and a `quote` column with the exact sentence or table row. A test parses every figure out of its quote, so a typo fails. The file is checked in before the first scored batch, and its SHA-256 is stored with the batch, as with `cases.csv`.
+**Transcription.** The case librarian copies into `domains/evaluation/guidance.csv`, from the dated release: the old and new guided figures (the old ones from the earlier release, with its accession, when the new release doesn't restate them) (range ends, unit, the fiscal period covered), the accession number, and a `quote` column with the exact sentence or table row. A test parses every figure out of its quote, so a typo fails. The file is checked in before the first scored batch, and its SHA-256 is stored with the batch, as with `cases.csv`.
 
 **Conversion (code, at simulation time, from the transcription and the run's rows).** The news is the *revision*, so a shock is added to Warren's own baseline path, never set to the guided level.
 
@@ -142,8 +142,22 @@ Changed: `domains/analysis/{financial_math,dcf,math_engine,runs,__main__,report,
 - **Explainer** (5 gaps, all answered above): what decay = 1 means beyond the horizon (Permanent), how Y3–Y5 take a growth shock (Years), the risk premium's rates and weights, the terminal order (decided), and the guidance denominator and basis. Ideas taken: `computed` source, the exact generator call, the hash format, the invalid-sample case, tolerances, which run with_shocks uses, the EPS fallback, who enters the numbers, sign convention.
 - **Professor** (1 blocker, accepted): value per share as a range must not be reported before the terminal rule is decided (Build Plan M2.1 B). The owner decided it (oct.30.2026); Step 5 lands before the Monte Carlo report shows a value range. Suggestions taken: the corrected reason for rejecting Wallis's two-piece normal, the edition and chapter of Koller et al., guidance ends as an assumption, the band labelled shock-size only, percentiles don't add. Ideas left to the report: a worked growth-shock example.
 
+## Cases picked by the rule (oct.30.2026)
+
+The case librarian applied the rule above to every Phase 1 8-K with items 2.02 or 7.01 from 2019-03-01. Walmart turned out unusable too: its earlier Q2 guide was one-sided ("increase over 5%"), its income guide had no figure ("flat to up slightly"), and its full-year guides mixed constant-currency and reported bases. So two new cases were needed. One more reading was fixed before any shock was scored: **when a release guides revenue on several bases, the one closest to reported revenue is used.**
+
+- **JNJ_2019-04-16, rejected.** Operational sales (currency-neutral) went from $81.6–82.4B to $82.0–82.8B, but the "Estimated Reported Sales" row stayed at $80.4–81.2B because the euro assumption moved. Reported revenue wasn't revised, so there's no shock to apply.
+- **PG_2019-04-23, taken.** All-in (reported) fiscal 2019 sales growth from −1% to +1% (January, accession 0000080424-19-000008) to 0% to +1%. Organic growth also rose (2–4% to 4%), but all-in is the reported basis.
+- **KO_2019-07-23, taken.** Only non-GAAP bases are guided. Comparable currency-neutral net revenues (which keep acquisitions, so closest to reported) from 12–13% (April, 0000021344-19-000022) to 12%, a cut; organic revenues went the other way, 4% to 5%. The reading above picks the first, so the shock is negative. The report flags the case as non-GAAP-based. Gatekeeper note: the release also guides a currency headwind (3–4% in April, 4% in July), so growth including currency would fall more, about 9% to 8% at midpoints; that figure isn't guided as such (it combines two guides), so it isn't used, and the shock understates the cut.
+
+Microsoft's revenue and operating income totals are marked "* Calculated as no explicit guidance provided": they are Microsoft's own sums of its segment guidance.
+
+Both join `cases.csv` (26 cases now; the library only grows). `guidance.csv` gained two optional columns: `old_accession` and `old_quote`, for an old guide that the new release doesn't restate (its figures are checked in that quote), and `unit` (millions or billions, for Microsoft's table). In P&G's tables a dash percentage (`-%`) is zero; the quote parser reads it so, and a test pins that `(-1)%` stays −1.
+
+**Same-day quarters.** Warren reads quarters from filed 10-Qs. P&G's fiscal Q3 and Coca-Cola's Q2 were announced in the same release as the revised guide but filed later, so the full-year revision spreads over those quarters too. That uses only what was public on the case date, but it means part of the "shock" is a quarter already announced. The report says so.
+
 ## Where the work stopped (oct.30.2026)
 
-- Done on the branch: Steps 0–5 as engine code with tests (shock math, shocked paths, Monte Carlo with storage, reproduce-sim, CLI and report, guidance conversion and the `with_shocks` variant, the value-driver terminal value). Engine-only PR to `main`.
-- Next: Step 4's data part and Step 6. The case librarian transcribes `domains/evaluation/guidance.csv` for MSFT_2022-06-02 and WMT_2022-07-25 from the releases on EDGAR (reachable), finds the third case by the rule in "Shocks for the exit criterion" and adds it to `cases.csv`; then the real batch with `--guidance`.
-- Blocked for the real batch on oct.30.2026: Yahoo Finance answered 429 (rate limit) from the cloud environment, and the batch needs prices for beta. Retry on the next run.
+- Done: Steps 0–5 (engine, merged in PR #30); Step 4's data: `guidance.csv` for MSFT_2022-06-02, PG_2019-04-23 and KO_2019-07-23, two new cases.
+- Next: Step 6, the real batch with `--guidance`, then M4 Done and v0.4.
+- Blocked for the real batch on oct.30.2026: the cloud environment's proxy refuses `query2.finance.yahoo.com`, `fc.yahoo.com` and `guce.yahoo.com` (403), which `yfinance` needs for prices and beta. EDGAR and FRED are reachable. Needs the hosts allowed in the environment's network settings, or a run from the owner's machine.

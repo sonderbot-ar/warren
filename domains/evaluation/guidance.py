@@ -32,6 +32,10 @@ FIELDS = (
     "case_id guide_id item basis fiscal_year first_quarter last_quarter old_low old_high "
     "new_low new_high source_date accession quote"
 ).split()
+# unit: blank means millions. old_quote and old_accession: the earlier release, when the new one
+# doesn't restate the old guide (then old_low and old_high must be read in old_quote)
+OPTIONAL = ("unit", "old_accession", "old_quote")
+SCALE = {"millions": 1e6, "billions": 1e9}
 FIGURES = ("old_low", "old_high", "new_low", "new_high")
 
 
@@ -43,7 +47,7 @@ class Guide(BaseModel):
     case_id: str
     guide_id: str = Field(..., min_length=1)  # rows of one release share it
     item: Literal["revenue", "operating_income", "operating_margin"]
-    basis: Literal["amount", "growth", "margin"]  # amount in millions; growth, margin in percent
+    basis: Literal["amount", "growth", "margin"]  # amount in `unit`; growth, margin in percent
     fiscal_year: int
     first_quarter: int = Field(..., ge=1, le=4)
     last_quarter: int = Field(..., ge=1, le=4)
@@ -54,6 +58,9 @@ class Guide(BaseModel):
     source_date: date
     accession: str = Field(..., pattern=r"^\d{10}-\d{2}-\d{6}$")
     quote: str = Field(..., min_length=1)
+    unit: Literal["millions", "billions"] = "millions"  # amounts as the release prints them
+    old_accession: str | None = Field(None, pattern=r"^\d{10}-\d{2}-\d{6}$")
+    old_quote: str | None = None
 
     @model_validator(mode="after")
     def _valid(self) -> "Guide":
@@ -65,6 +72,10 @@ class Guide(BaseModel):
         allowed["operating_margin"] = {"margin"}
         if self.basis not in allowed[self.item]:
             raise ValueError(f"{self.guide_id}: {self.item} can't be guided as {self.basis}")
+        if (self.old_accession is None) != (self.old_quote is None):
+            raise ValueError(f"{self.guide_id}: old_quote and old_accession go together")
+        if self.unit != "millions" and self.basis != "amount":
+            raise ValueError(f"{self.guide_id}: only amounts take a unit")
         return self
 
     @property
@@ -75,7 +86,14 @@ class Guide(BaseModel):
 
 
 def _numbers(text: str) -> set[float]:
-    return {float(n) for n in re.findall(r"-?\d+(?:\.\d+)?", text.replace(",", ""))}
+    """Numerals in a quote. A dash for a percentage (`-%`, `—%`) is zero, as in P&G's tables."""
+    text = re.sub(r"(?<![\d)])[-—–]%", "0%", text.replace(",", ""))
+    return {float(n) for n in re.findall(r"-?\d+(?:\.\d+)?", text)}
+
+
+def _in(figures: list[str], guide: "Guide", quote: str) -> list[str]:
+    found = {abs(n) for n in _numbers(quote)}
+    return [f for f in figures if abs(getattr(guide, f)) not in found]
 
 
 def load_guides(path: Path = GUIDANCE_PATH) -> list[Guide]:
@@ -86,12 +104,17 @@ def load_guides(path: Path = GUIDANCE_PATH) -> list[Guide]:
         if set(FIELDS) - set(reader.fieldnames or []):
             raise GuidanceError(f"{path.name}: missing columns")
         for line, row in enumerate(reader, start=2):
+            values = {k: (row[k] or "").strip() for k in FIELDS}
+            values |= {k: row[k].strip() for k in OPTIONAL if (row.get(k) or "").strip()}
             try:
-                guide = Guide(**{k: (row[k] or "").strip() for k in FIELDS})
+                guide = Guide(**values)
             except ValueError as e:
                 raise GuidanceError(f"{path.name} line {line}: {e}") from e
-            found = _numbers(guide.quote)
-            missing = [f for f in FIGURES if abs(getattr(guide, f)) not in {abs(n) for n in found}]
+            if guide.old_quote is None:
+                missing = _in(list(FIGURES), guide, guide.quote)
+            else:
+                missing = _in(["old_low", "old_high"], guide, guide.old_quote)
+                missing += _in(["new_low", "new_high"], guide, guide.quote)
             if missing:
                 raise GuidanceError(f"{path.name} line {line}: {missing} not in the quote")
             out.append(guide)
@@ -156,7 +179,7 @@ def to_shocks(guides: list[Guide], rows: list[Assumption]) -> list[Shock]:
                 )
                 amounts = {f: prior * (1 + getattr(revenue, f) / 100) for f in FIGURES}
             else:
-                amounts = {f: getattr(revenue, f) * 1e6 for f in FIGURES}
+                amounts = {f: getattr(revenue, f) * SCALE[revenue.unit] for f in FIGURES}
             old = _mid(amounts["old_low"], amounts["old_high"]) - done
             if old <= 0:
                 raise GuidanceError(f"{guide_id}: guided revenue left for open quarters is ≤ 0")
@@ -184,10 +207,15 @@ def to_shocks(guides: list[Guide], rows: list[Assumption]) -> list[Shock]:
         if margin is not None and income is not None:
             raise GuidanceError(f"{guide_id}: both a margin and an income guide")
         if income is not None:
-            if revenue is None or revenue.basis != "amount" or revenue.quarters != income.quarters:
+            if (
+                revenue is None
+                or revenue.basis != "amount"
+                or revenue.quarters != income.quarters
+                or revenue.unit != income.unit
+            ):
                 raise GuidanceError(
                     f"{guide_id}: operating income needs revenue guided in amounts for the same "
-                    "quarters in the same release"
+                    "quarters, in the same unit, in the same release"
                 )
             old_margin = _mid(income.old_low, income.old_high) / _mid(
                 revenue.old_low, revenue.old_high
@@ -238,5 +266,6 @@ def _shock(shock_id: str, driver: str, values: tuple, start: int, guide: Guide) 
         horizon=1,
         decay=1.0,
         source="computed",
-        rationale=f"{guide.accession} ({guide.source_date}): {guide.quote}",
+        rationale=f"{guide.accession} ({guide.source_date}): {guide.quote}"
+        + (f"; was, in {guide.old_accession}: {guide.old_quote}" if guide.old_quote else ""),
     )
