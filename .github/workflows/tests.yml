@@ -1,0 +1,22 @@
+# Runs on every pull request and every push to main. Branch protection on main requires the
+# "tests" check, so a change that breaks a test or the lint rules cannot be merged.
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: python -m pytest -q
