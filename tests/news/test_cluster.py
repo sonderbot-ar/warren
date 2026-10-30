@@ -138,3 +138,54 @@ def test_search_returns_each_article_once_with_its_earliest_sighting(conn):  # n
     )  # noqa: E501
     [hit] = cluster.search(conn, "forecast", date(2022, 6, 2), MSFT)
     assert hit["title"] == "Microsoft forecast cut"
+
+
+def scan_every_event(items, words, params=cluster.PARAMS):
+    """The plain single pass, checking every open event: the reference the indexed one matches."""
+    events = []
+    window = timedelta(hours=params["window_hours"])
+    for item in sorted(items, key=lambda i: (i.seen_at, i.article_id)):
+        mine = cluster.tokens(item.title, words)
+        best, best_score, by_themes = None, -1.0, False
+        for event in events:
+            if item.seen_at - event.last_seen > window:
+                continue
+            score = cluster.jaccard(mine, event.tokens)
+            joins = score >= params["title_jaccard"]
+            themed = (
+                not joins
+                and score >= params["joint_jaccard"]
+                and len(item.themes & event.themes) >= params["shared_themes"]
+            )
+            if (joins or themed) and score > best_score:
+                best, best_score, by_themes = event, score, themed
+        if best is None:
+            best = cluster.Event()
+            events.append(best)
+        elif by_themes:
+            best.joined_by_themes += 1
+        best.items.append(item)
+        if len(best.items) <= cluster.SEED_ARTICLES:
+            best.tokens |= mine
+            best.themes |= item.themes
+    return events
+
+
+def test_the_word_index_gives_exactly_the_events_of_a_full_scan():
+    rng = random.Random(11)
+    vocab = [f"w{i}" for i in range(40)]
+    themes = [f"T{i}" for i in range(8)]
+    start = datetime(2022, 6, 1, tzinfo=UTC)
+    items = [
+        Item(f"a{i:04d}", "f", "s", start + timedelta(minutes=rng.randrange(0, 60 * 24 * 9)),
+             " ".join(rng.sample(vocab, rng.randrange(0, 6))) or None, None,
+             frozenset(rng.sample(themes, rng.randrange(0, 5))))
+        for i in range(1500)
+    ]  # fmt: skip
+    fast = cluster.cluster(items, frozenset())
+    slow = scan_every_event(items, frozenset())
+    assert [[i.article_id for i in e.items] for e in fast] == [
+        [i.article_id for i in e.items] for e in slow
+    ]
+    assert [e.joined_by_themes for e in fast] == [e.joined_by_themes for e in slow]
+    assert len(fast) < len(items)  # some joins happened, so the test exercises them

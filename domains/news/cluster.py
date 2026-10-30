@@ -109,13 +109,21 @@ def items_as_of(
 
 
 def cluster(items: list[Item], words: frozenset[str], params: dict = PARAMS) -> list[Event]:
+    """Items must come sorted by time. An item can only join an event sharing a title word
+    (Jaccard is 0 otherwise), so candidates come from a word index, read in creation order so
+    ties go to the older event; an event idle longer than the window leaves the index for good.
+    """
     events: list[Event] = []
+    index: dict[str, set[int]] = {}
     window = timedelta(hours=params["window_hours"])
     for item in sorted(items, key=lambda i: (i.seen_at, i.article_id)):
         mine = tokens(item.title, words)
-        best, best_score, by_themes = None, -1.0, False
-        for event in events:
+        best, best_n, best_score, by_themes = None, -1, -1.0, False
+        for n in sorted({n for w in mine for n in index.get(w, ())}):
+            event = events[n]
             if item.seen_at - event.last_seen > window:
+                for w in event.tokens:
+                    index[w].discard(n)
                 continue
             score = jaccard(mine, event.tokens)
             joins = score >= params["title_jaccard"]
@@ -125,14 +133,16 @@ def cluster(items: list[Item], words: frozenset[str], params: dict = PARAMS) -> 
                 and len(item.themes & event.themes) >= params["shared_themes"]
             )
             if (joins or themed) and score > best_score:
-                best, best_score, by_themes = event, score, themed
+                best, best_n, best_score, by_themes = event, n, score, themed
         if best is None:
-            best = Event()
+            best, best_n = Event(), len(events)
             events.append(best)
         elif by_themes:
             best.joined_by_themes += 1
         best.items.append(item)
         if len(best.items) <= SEED_ARTICLES:
+            for w in mine - best.tokens:
+                index.setdefault(w, set()).add(best_n)
             best.tokens |= mine
             best.themes |= item.themes
     return events
