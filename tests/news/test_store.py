@@ -5,7 +5,7 @@ import io
 import json
 import shutil
 import zipfile
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
@@ -70,6 +70,7 @@ def gkg_file(url: str, lines: list[str]) -> tuple[MasterEntry, bytes]:
 
 URL1 = "http://data.gdeltproject.org/gdeltv2/20220602150000.gkg.csv.zip"
 URL2 = "http://data.gdeltproject.org/gdeltv2/20220602151500.gkg.csv.zip"
+URL_STEP = timedelta(minutes=15)
 
 
 def test_migration_0009_applies_to_an_existing_database(tmp_path, db_path):
@@ -245,3 +246,27 @@ def test_a_title_made_from_the_url_is_kept_but_doesnt_match_a_company(conn, alia
     rows = conn.execute("SELECT title, title_from_url FROM article_sightings").fetchall()
     # the first has Microsoft only in its URL words: not matched; the second by organisation
     assert [tuple(r) for r in rows] == [("microsoft opens data centre", 1)]
+
+
+def test_a_window_downloads_in_parallel_skips_files_read_before_and_keeps_file_order(conn, aliases):
+    entries, contents = {}, {}
+    for i in range(10):
+        ts = datetime(2022, 6, 2, 15, tzinfo=UTC) + i * (URL_STEP)
+        url = f"http://data.gdeltproject.org/gdeltv2/{ts:%Y%m%d%H%M%S}.gkg.csv.zip"
+        entry, content = gkg_file(url, [gkg_line(f"https://a.com/{i}", ["microsoft"], f"t{i}")])
+        entries[ts], contents[url] = entry, content
+    first = sorted(entries)[:3]
+    for ts in first:
+        store.ingest_file(conn, entries[ts], aliases, lambda u: contents[u], lambda: NOW)
+    fetched = []
+
+    def download(url):
+        fetched.append(url)
+        return contents[url]
+
+    start, end = min(entries), max(entries) + URL_STEP
+    results = store.ingest_window(conn, entries, start, end, aliases, download, lambda: NOW, 4)
+    assert [r.file_url for r in results] == [entries[ts].url for ts in sorted(entries)]
+    assert [r.status for r in results] == ["skipped"] * 3 + ["ok"] * 7
+    assert sorted(fetched) == sorted(entries[ts].url for ts in sorted(entries)[3:])
+    assert conn.execute("SELECT COUNT(*) FROM article_sightings").fetchone()[0] == 10

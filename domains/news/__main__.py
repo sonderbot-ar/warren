@@ -49,7 +49,7 @@ def cmd_ingest(args) -> int:
             statuses = ("ok", "skipped", "missing", "bad_md5")
             by = {s: sum(r.status == s for r in results) for s in statuses}
             kept = sum(r.rows_kept for r in results)
-            print(f"{ticker}_{case_date}  files {by}  articles kept {kept}")
+            print(f"{ticker}_{case_date}  files {by}  articles kept {kept}", flush=True)
     return 0
 
 
