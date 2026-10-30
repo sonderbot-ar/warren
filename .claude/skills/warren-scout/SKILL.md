@@ -22,7 +22,7 @@ Many open-source projects and open models could save Warren work or money (Struc
 
 ## The owner's machine
 
-Warren runs locally on an Apple M5 MacBook with 16 GB of unified memory. A model must run there with room left for Warren itself: about 8 billion parameters at most when quantized to 4 bits (about 5 GB of memory), smaller when it runs at full precision. Prefer models with a Metal or MLX build (`mlx-community` on Hugging Face, or PyTorch with the `mps` backend). A model that needs an NVIDIA GPU (CUDA only) fails. Libraries must install on macOS with Apple Silicon (arm64).
+Warren runs locally on an Apple M5 MacBook with 16 GB of unified memory. A model must run there with room left for Warren itself: about 8 billion parameters at most when quantized to 4 bits (about 5 GB of memory), smaller when it runs at full precision. Prefer models with a Metal or MLX build (`mlx-community` on Hugging Face, `llama.cpp` or Ollama GGUF, or PyTorch with the `mps` backend). A model that needs an NVIDIA GPU (CUDA only) fails. Libraries must install on macOS with Apple Silicon (arm64).
 
 ## The run lead (the session running this skill)
 
@@ -41,7 +41,7 @@ Hard rules (fail one and the candidate is dropped):
 - **Licence** allows use in a paid product: MIT, BSD, Apache-2.0, ISC, MPL-2.0 or similar. GPL, AGPL, "non-commercial" (CC-BY-NC and the like) and no licence at all fail. A model's licence is the model card's, not the code's.
 - **Free:** no paid API, key or hosted service needed to use it.
 - **Runs on the owner's machine** (above): macOS arm64, and for models at most about 8B parameters at 4 bits with no CUDA-only code.
-- **Safe to run:** a pinned release exists. For models, weights in `safetensors` and no `trust_remote_code`.
+- **Safe to run:** a pinned release exists. For models, weights in `safetensors` or GGUF (owner decision oct.30.2026; neither holds executable code, while pickle `.bin`, `.pt` and `.pkl` stay banned) and no `trust_remote_code`. A GGUF model runs only on a current `llama.cpp`, Ollama or `llama-cpp-python` (0.2.72 or later), because GGUF metadata carries a chat template that older runtimes rendered unsafely (CVE-2024-34359).
 
 Recorded facts (cite a URL for each, or write "unknown"). For Python packages, read versions, `requires_python`, wheel tags and `requires_dist` from the PyPI JSON (`https://pypi.org/pypi/<name>/json`), not from third-party listings:
 

@@ -60,7 +60,7 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 | 9 | LLM usage limited to judgment-over-text steps | **Accepted** | oct.14.2026 |
 | 10 | Development workflow: Claude agent teams plan, review, merge and report; owner sets goals | **Accepted** (replaces owner-approved plans and owner merges) | oct.30.2026 |
 | 11 | Product direction: teaching platform for LatAm finance schools; Phase 1 unchanged, scale guardrails for new code | **Accepted** | oct.30.2026 |
-| 12 | Research scouts: find open-source repos and models, judged on paper by the Goldfish reviewers | **Accepted** | oct.30.2026 |
+| 12 | Research scouts: find open-source repos and models, judged on paper by the Goldfish reviewers | **Accepted** (amended: GGUF weights allowed, owner decision) | oct.30.2026 |
 | — | Entity-Attribute-Value (EAV) metrics table | Superseded by 2 | sep.24.2026 |
 | — | Passing only database IDs between graph nodes | Superseded by 2 | sep.24.2026 |
 | — | ChromaDB vector store for documents | Superseded by 3 | sep.24.2026 |
@@ -174,7 +174,7 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 
 - **Decision:** a research team of *scouts* searches GitHub and Hugging Face for open-source repos and open models that could replace or speed up part of Warren. A kickoff runs four scouts in parallel (data, valuation, news models, agent tooling); after that one scout runs every 3 days. A run files at most 5 candidates as GitHub issues labelled `scout`. Procedure: the `warren-scout` skill; agent: `scout` (lighter model).
 - **Evaluation:** on paper, by the existing Goldfish `analyst` and `gatekeeper`, with no hands-on trial (owner's choice). Both must say GO; the issue then gets the `backlog` label and goes through the normal loop of Decision 10. Otherwise it is closed with the reason.
-- **Hard rules for a candidate:** a licence that allows use in a paid product (Decision 11; no GPL, AGPL or non-commercial), free to use, a pinned release, runs on the owner's 16 GB Apple Silicon MacBook (for models, about 8B parameters at 4 bits at most, no CUDA-only code), and for models `safetensors` weights with no remote code. Upkeep, size and what it replaces are recorded with sources.
+- **Hard rules for a candidate:** a licence that allows use in a paid product (Decision 11; no GPL, AGPL or non-commercial), free to use, a pinned release, runs on the owner's 16 GB Apple Silicon MacBook (for models, about 8B parameters at 4 bits at most, no CUDA-only code), and for models `safetensors` or GGUF weights (GGUF added by the owner, oct.30.2026, on a current, patched runtime) with no remote code. Upkeep, size and what it replaces are recorded with sources.
 - **Still goes to the owner:** any cost, forking a project into a new repository, and any candidate that would change an Accepted decision.
 - **Reasoning:** existing open-source work can save build time, and open models may cut the M6 LLM cost (about $1–3 per analysis on a paid API). Scouts on a light model with a cap per run keep it free and keep the backlog readable. Paper review is cheaper than a trial; the Elephant's design review still tests a candidate before it is used.
 - **Considered:** a weekly single scout (too slow for the owner); a hands-on *trialist* that tests each candidate on Warren's evaluation cases before approval (more proof, more cost; the owner chose paper review).
