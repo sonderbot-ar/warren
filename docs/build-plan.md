@@ -340,7 +340,7 @@ Shock
 
 **Design**
 
-- **Source:** GDELT 2.0 Global Knowledge Graph (GKG), which provides for each article its URL, timestamp, source, organisations mentioned, themes and tone. Access options: the raw 15-minute files, Google BigQuery for historical slices, or the DOC API for recent windows. Recommendation: BigQuery for building the historical case library (filter by organisation and date before downloading), raw files or the DOC API for recent data. Check current access terms and quotas before starting.
+- **Source:** GDELT 2.0 Global Knowledge Graph (GKG), which provides for each article its URL, timestamp, source, organisations mentioned, themes and tone. Access options: the raw 15-minute files, Google BigQuery for historical slices, or the DOC API for recent windows. Recommendation: BigQuery for building the historical case library (filter by organisation and date before downloading), raw files or the DOC API for recent data. Check current access terms and quotas before starting. *(oct.30.2026: the M5 design uses the free raw 15-minute GKG files for history instead, because BigQuery needs a billed Google Cloud project; see `docs/designs/m5-news-ingestion.md`.)*
 - **Tables:**
 
 ```sql
