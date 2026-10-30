@@ -1,6 +1,6 @@
 # M3 design: evaluation harness v1 (baseline only)
 
-Status: revised after the Goldfish design review (oct.30.2026) · Elephant: agent team · Branch `m3-evaluation-harness`
+Status: Done (oct.30.2026, v0.3) · Elephant: agent team · Branch `m3-evaluation-harness`
 Implements Structure Guide Decision 7 and Build Plan M3, including the items "carried to the M3 plan" from the review of M2.
 
 ## Problem
@@ -103,7 +103,7 @@ eval_failures(batch_id TEXT, case_id TEXT, reason TEXT)
   - It ends with a short glossary of the metrics and the stated limitations.
   - Tests: the CLI end to end on Test Corp.
 - **Step 4.** The case library: 16 events with dated sources, and 8 rule-dated controls. The controls' scope screen needs filings data, so a control's final date is confirmed in Step 5.
-- **Step 5.** The real batch on the eight companies, the results in the build plan, and M3 marked done when merged. **Blocked** until the cloud environment can reach SEC EDGAR, Yahoo Finance and FRED, and the owner confirms the SEC contact.
+- **Step 5.** The real batch on the eight companies, the results in the build plan, and M3 marked done when merged. Ran oct.30.2026 (SEC EDGAR, Yahoo Finance and FRED reachable; the SEC contact is set in `.env`).
 
 Steps 1–4 can merge before Step 5 as an engine-only PR, because they change no existing behaviour.
 
@@ -139,7 +139,4 @@ Changed: `docs/build-plan.md` (status and implementation notes), `docs/versions.
 
 ## Where the work stopped (oct.30.2026)
 
-- Done: Steps 0–4 (241 tests pass). Step 3's tests are in `tests/evaluation/test_cli.py`.
-- Next:
-  - The gatekeeper reviews the engine-only PR, then merge.
-  - Step 5: refresh data (`python -m domains.fundamentals ingest --all --refresh`, `python -m domains.market load --refresh`), run `python -m domains.evaluation run`, and record the results in the build plan.
+- Done. Steps 0–4 merged in #16 (`0b1008f`, v0.3). Step 5 ran as batch `eval_2026-10-30_1`; the results are in the build plan (M3, Result). M3 is Done.
