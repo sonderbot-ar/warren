@@ -75,6 +75,12 @@ Tools named `mcp__github__*` assume the GitHub MCP server is registered as `gith
 - **Lesson:** one page per version, teaching the version's concepts as they appear together in the code, with why they suit Warren or not.
 - **Weekly digest:** versions shipped, what is next, anything waiting on the owner.
 
+**Email.** The owner asked (oct.30.2026) to get these by email too. Gmail is connected with send access. Send with the Gmail send tool, in plain text, to the owner's account email (the one Claude Code shows for the session's user, never written in this repo), and to no one else. Never read the inbox. If the tool is missing, say so in the run summary and carry on.
+
+- Each desk entry, once it is published: subject "Warren desk: v<version> shipped (<headline>)". Include the entry's text and the desk link.
+- Each weekly digest: subject "Warren weekly digest: <date>".
+- Each roadblock that needs the owner (a decision card, a blocked host, a missing key or connector, usage limits stopping the work): subject "Warren: need you: <one-line ask>". Open with exactly what the owner must do and include a link. Send one email per roadblock, not one per run.
+
 Lay language, short sentences, no code names in the body, bad news said straight; casual language and the odd swear word are fine when they help. The owner reads reports, not code. Full rules: the Voice section of `warren-desk-report`.
 
 ## Keeping the docs current
