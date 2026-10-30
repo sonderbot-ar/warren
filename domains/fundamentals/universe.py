@@ -1,11 +1,17 @@
 """The Phase 1 universe: large US non-financial companies with clean XBRL filings."""
 
+import csv
 import warnings
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
 
 # FY2016-FY2025: the ten fiscal years the M1 exit criterion requires.
 FISCAL_YEARS = range(2016, 2026)
+
+# universe.csv is the editable company list (Decision 11: companies are data, not code)
+UNIVERSE_PATH = Path(__file__).parent / "universe.csv"
+COLUMNS = ["ticker", "cik", "history_ends", "note"]
 
 
 class CoverageWarning(UserWarning):
@@ -20,27 +26,46 @@ class UniverseCompany:
     history_ends: date | None = None  # from this date, newer filings are on another CIK
 
 
-PHASE1_UNIVERSE = [
-    UniverseCompany("AAPL"),
-    UniverseCompany("MSFT"),
-    UniverseCompany("WMT"),
-    UniverseCompany("KO"),
-    UniverseCompany("PG"),
-    UniverseCompany("JNJ"),
-    UniverseCompany("CAT"),
-    UniverseCompany(
-        "XOM",
-        cik="0000034088",
-        note=(
-            "Exxon Mobil Corp, the registrant before the 2026-07-01 holding-company "
-            "reorganisation. The XOM ticker now maps to ExxonMobil Holdings Corp (CIK 0002115436), "
-            "whose filings start in 2026. Linking predecessor and successor is a later task."
-        ),
-        # the Q2 2026 10-Q (filed 2026-08-03) was filed jointly on the new CIK and is missing
-        # from the predecessor's companyfacts: from then on the history here is incomplete
-        history_ends=date(2026, 8, 3),
-    ),
-]
+class UniverseError(ValueError):
+    """universe.csv is malformed."""
+
+
+def load_universe(path: Path = UNIVERSE_PATH) -> list[UniverseCompany]:
+    """Read and validate the company list. Every problem found is reported at once."""
+    with open(path, newline="") as f:
+        reader = csv.DictReader(f)
+        if reader.fieldnames != COLUMNS:
+            raise UniverseError(f"Expected columns {COLUMNS}, got {reader.fieldnames}")
+        raw = list(reader)
+
+    errors, companies, seen = [], [], set()
+    for line, r in enumerate(raw, start=2):
+        if None in r or None in r.values():
+            errors.append(f"line {line}: wrong number of fields (quote any field with a comma)")
+            continue
+        ticker, cik, ends = r["ticker"].strip(), r["cik"].strip(), r["history_ends"].strip()
+        if not ticker or ticker != ticker.upper():
+            errors.append(f"line {line}: ticker must be non-empty and upper case, got {ticker!r}")
+        elif ticker in seen:
+            errors.append(f"line {line}: duplicate ticker {ticker}")
+        seen.add(ticker)
+        if cik and not (len(cik) == 10 and cik.isdigit()):
+            errors.append(f"line {line}: cik must be empty or ten digits, got {cik!r}")
+        history_ends = None
+        if ends:
+            try:
+                history_ends = date.fromisoformat(ends)
+            except ValueError:
+                errors.append(f"line {line}: history_ends must be an ISO date, got {ends!r}")
+            if not cik:
+                errors.append(f"line {line}: history_ends needs a pinned cik")
+        companies.append(UniverseCompany(ticker, cik or None, r["note"].strip(), history_ends))
+    if errors:
+        raise UniverseError(f"{path.name}: " + "; ".join(errors))
+    return companies
+
+
+PHASE1_UNIVERSE = load_universe()
 
 
 def warn_if_beyond_history(cik: str, as_of: date) -> None:

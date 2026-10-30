@@ -161,7 +161,7 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 - **Why it can replace Excel:** a spreadsheet hides where a number came from and whether it was known on that date. In Warren every number traces to its filing, tag and period, is point-in-time, and rebuilds to the cent (Principles 2, 5 and 6). A student can click any figure and see why it is what it is.
 - **Guardrails (apply to new code from now on):**
   1. *Sources behind adapters.* Analysis code never calls a data source directly. A new source (IFRS filings, a local regulator, a licensed price feed) is a new adapter plus a concept map. Concepts stay taxonomy-qualified (`us-gaap:…`, later `ifrs-full:…`).
-  2. *Companies are data.* No new code hardcodes tickers. The Phase 1 list moves out of `universe.py` before Phase 2.
+  2. *Companies are data.* No new code hardcodes tickers. The Phase 1 list moves out of `universe.py` before Phase 2 (done oct.30.2026: it is `domains/fundamentals/universe.csv`, backlog #18).
   3. *Currency and calendars explicit.* New tables that hold money carry a currency; no new code assumes US dollars or a December year-end.
   4. *Engine as a library.* Logic lives in the domain modules. The command line, and later a web app, only call it.
   5. *Reader-facing text apart from logic,* so reports can later be translated into Spanish and Portuguese. Phase 1 stays in English.

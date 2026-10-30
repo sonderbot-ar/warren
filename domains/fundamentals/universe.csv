@@ -1,0 +1,9 @@
+ticker,cik,history_ends,note
+AAPL,,,
+MSFT,,,
+WMT,,,
+KO,,,
+PG,,,
+JNJ,,,
+CAT,,,
+XOM,0000034088,2026-08-03,"Exxon Mobil Corp, the registrant before the 2026-07-01 holding-company reorganisation. The XOM ticker now maps to ExxonMobil Holdings Corp (CIK 0002115436), whose filings start in 2026. Linking predecessor and successor is a later task. History ends on 2026-08-03: the Q2 2026 10-Q filed that day was filed jointly on the new CIK and is missing from the predecessor's companyfacts."
