@@ -31,7 +31,7 @@ Add it to the top of the desk page (link in `docs/versions.md`). Shape:
 7. **Lesson** (collapsed under the entry).
 8. **Footer line:** milestone, PR links, test count, reproduce check.
 
-Never invent a number. Quote it from a test run, a command's output, a stored run or a batch report. Take every fact from the PR, the commits and the review.
+Never invent a number. Quote it from a test run, a command's output, a stored run or a batch report. Take every fact from the PR, the commits and the review. A lighter model is fine for the writing.
 
 ## Lesson (one per version)
 
@@ -43,4 +43,4 @@ Under 100 words, three short parts:
 
 - **Shipped:** one line per version, with a link to its desk entry. "Nothing shipped" is fine; then say why.
 - **Next:** what the team is working on now.
-- **Need from you:** decisions waiting, or "nothing".
+- **Need from you:** decisions waiting and anything that blocked work (usage limits, a failing check), or "nothing".
