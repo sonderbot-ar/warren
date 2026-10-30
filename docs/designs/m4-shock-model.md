@@ -85,7 +85,7 @@ LLMs never produce financial numbers, and agents are LLMs, so no agent picks a m
 
 So the third exit case is a **new case**, picked by a rule fixed before any shock is scored: the earliest 8-K exhibit 99 from a Phase 1 company, from 2019-03-01, that revises earlier numeric revenue or operating-margin guidance, and whose date isn't already in the library. It joins `cases.csv` like any case (the library only grows; removing a case is the owner's call). Which case was taken and why is in the report.
 
-**Transcription.** The case librarian copies into `domains/evaluation/guidance.csv`, from the dated release only: the old and new guided figures (range ends, unit, the fiscal period covered), the accession number, and a `quote` column with the exact sentence or table row. A test parses every figure out of its quote, so a typo fails. The file is checked in before the first scored batch, and its SHA-256 is stored with the batch, as with `cases.csv`.
+**Transcription.** The case librarian copies into `domains/evaluation/guidance.csv`, from the dated release: the old and new guided figures (the old ones from the earlier release, with its accession, when the new release doesn't restate them) (range ends, unit, the fiscal period covered), the accession number, and a `quote` column with the exact sentence or table row. A test parses every figure out of its quote, so a typo fails. The file is checked in before the first scored batch, and its SHA-256 is stored with the batch, as with `cases.csv`.
 
 **Conversion (code, at simulation time, from the transcription and the run's rows).** The news is the *revision*, so a shock is added to Warren's own baseline path, never set to the guided level.
 
@@ -148,7 +148,9 @@ The case librarian applied the rule above to every Phase 1 8-K with items 2.02 o
 
 - **JNJ_2019-04-16, rejected.** Operational sales (currency-neutral) went from $81.6–82.4B to $82.0–82.8B, but the "Estimated Reported Sales" row stayed at $80.4–81.2B because the euro assumption moved. Reported revenue wasn't revised, so there's no shock to apply.
 - **PG_2019-04-23, taken.** All-in (reported) fiscal 2019 sales growth from −1% to +1% (January, accession 0000080424-19-000008) to 0% to +1%. Organic growth also rose (2–4% to 4%), but all-in is the reported basis.
-- **KO_2019-07-23, taken.** Only non-GAAP bases are guided. Comparable currency-neutral net revenues (which keep acquisitions, so closest to reported) from 12–13% (April, 0000021344-19-000022) to 12%, a cut; organic revenues went the other way, 4% to 5%. The reading above picks the first, so the shock is negative. The report flags the case as non-GAAP-based.
+- **KO_2019-07-23, taken.** Only non-GAAP bases are guided. Comparable currency-neutral net revenues (which keep acquisitions, so closest to reported) from 12–13% (April, 0000021344-19-000022) to 12%, a cut; organic revenues went the other way, 4% to 5%. The reading above picks the first, so the shock is negative. The report flags the case as non-GAAP-based. Gatekeeper note: the release also guides a currency headwind (3–4% in April, 4% in July), so growth including currency would fall more, about 9% to 8% at midpoints; that figure isn't guided as such (it combines two guides), so it isn't used, and the shock understates the cut.
+
+Microsoft's revenue and operating income totals are marked "* Calculated as no explicit guidance provided": they are Microsoft's own sums of its segment guidance.
 
 Both join `cases.csv` (26 cases now; the library only grows). `guidance.csv` gained two optional columns: `old_accession` and `old_quote`, for an old guide that the new release doesn't restate (its figures are checked in that quote), and `unit` (millions or billions, for Microsoft's table). In P&G's tables a dash percentage (`-%`) is zero; the quote parser reads it so, and a test pins that `(-1)%` stays −1.
 
