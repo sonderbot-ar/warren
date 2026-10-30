@@ -54,6 +54,7 @@ class ArticleRecord:
     source: str  # the publisher's domain
     seen_at: datetime  # UTC, when GDELT processed the article
     title: str | None
+    title_from_url: bool  # GDELT has no page titles before about October 2019: words of the URL
     tone: float | None  # average tone, the first V2Tone value
     themes: tuple[str, ...]  # distinct, in first-seen order
     organisations: tuple[str, ...]  # distinct, as GDELT wrote them
@@ -126,6 +127,15 @@ def _title(extras: str) -> str | None:
     return html.unescape(match.group(1)).strip() or None if match else None
 
 
+def url_title(url: str) -> str | None:
+    """Headline words from the URL's last path part (`/microsoft-cuts-forecast-123.html`), if 3+."""
+    path = re.sub(r"[?#].*$", "", url.split("://", 1)[-1]).rstrip("/")
+    last = path.rsplit("/", 1)[-1] if "/" in path else ""
+    last = re.sub(r"\.(s?html?|php|aspx?)$", "", last.lower())
+    words = [w for w in re.split(r"[-_+]+", last) if w.isalpha()]
+    return " ".join(words) if len(words) >= 3 else None
+
+
 def parse_row(line: str, file_url: str) -> ArticleRecord | None:
     """One GKG 2.1 row; None for a row that isn't a web article (no URL to key it by)."""
     cols = line.rstrip("\r\n").split("\t")
@@ -135,11 +145,14 @@ def parse_row(line: str, file_url: str) -> ArticleRecord | None:
     if not url.startswith(("http://", "https://")):
         return None
     tone = cols[V2TONE].split(",")[0].strip()
+    page_title = _title(cols[EXTRAS])
+    words = None if page_title else url_title(url)
     return ArticleRecord(
         url=url,
         source=cols[SOURCE].strip().lower(),
         seen_at=datetime.strptime(cols[DATE], "%Y%m%d%H%M%S").replace(tzinfo=UTC),
-        title=_title(cols[EXTRAS]),
+        title=page_title or words,
+        title_from_url=words is not None,
         tone=float(tone) if tone else None,
         themes=_without_offsets(cols[V2THEMES]),
         organisations=_without_offsets(cols[V2ORGS]),
@@ -170,7 +183,15 @@ def read_file(content: bytes, entry: MasterEntry) -> tuple[list[ArticleRecord], 
     return records, bad
 
 
+def fetch_url(url: str) -> str:
+    """GDELT lists its files as http://; the same paths are served over https, which is used.
+
+    The listed URL stays the file's name in the manifest, so nothing stored changes.
+    """
+    return "https://" + url.removeprefix("http://") if url.startswith("http://") else url
+
+
 def http_download(url: str) -> bytes:
-    response = requests.get(url, timeout=TIMEOUT_SECONDS)
+    response = requests.get(fetch_url(url), timeout=TIMEOUT_SECONDS)
     response.raise_for_status()
     return response.content

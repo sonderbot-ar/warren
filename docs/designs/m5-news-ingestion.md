@@ -138,7 +138,16 @@ Changed: `docs/build-plan.md` (status, M5 source note, results), `README.md` (co
   - *Rejected:* "Decision 8 names GDELT Events, so not using it drops a decision" (explainer). Decision 8 names GDELT as the source; reading one of its tables is within it, and nothing is dropped. No Structure Guide change.
   - *To backlog:* normalise `source_count` by GDELT's daily volume before M6 uses it as materiality (GDELT coverage grows over 2019–2025); a "why this matched / why these merged" trace per event for teaching; fetching article text where allowed; ExxonMobil Holdings alias after the 2026 reorganisation; the translingual stream for LatAm sources.
 
+## Field checks on real files (oct.30.2026, Step 5)
+
+Read on real GKG files from 2019-04-23 to 2025-09-19 before any case window was ingested:
+
+- **Download.** GDELT lists its files as `http://`; this environment allows only https, and `data.gdeltproject.org` serves the same paths over https. The adapter fetches over https; the manifest keeps the listed URL as the file's name.
+- **`DATE`** is the 15-minute batch the article was processed in (20190423150000 for every row of that file); some rows also carry `<PAGE_PRECISEPUBTIMESTAMP>`, an earlier publication time. Warren keeps the batch time: later, so conservative for as-of.
+- **`V2Organizations`** is `Name,offset;Name,offset` with the publisher's capitals ("Microsoft,3701"); the normaliser lowercases, as designed. Every row has 27 columns.
+- **`PAGE_TITLE`** is missing from every row until about October 2019 (none on 2019-04-23, 2019-07-19, 2019-08-26 or 2019-09-20; every row on 2019-10-23 and in each later year checked). Six case windows fall before it. Without titles every article would be its own event, so a sighting with no page title takes its headline words from the URL's last path part (`/microsoft-cuts-revenue-forecast-123.html` → "microsoft cuts revenue forecast", when at least three words), flagged `title_from_url` (migration 0010). Those words cluster but never match a company on their own: `title_alias` reads page titles only. The coverage table in the report counts, per case window, the sightings and how many of them use URL words; a row with neither a page title nor three URL words keeps no title and no flag.
+
 ## Where the work stopped (oct.30.2026)
 
 - Done on the branch: Steps 0–4 (adapter, migration 0009, aliases and matching, sightings and manifest, clustering and event runs, as-of search, sample draws, precision with Wilson intervals, kappa, coverage, CLI). Engine merged in PR #41.
-- Next: Step 5, the real run. Blocked on oct.30.2026: the cloud environment refuses `data.gdeltproject.org` (403). Needs the host allowed in the environment's network settings, or a run from the owner's machine. Then check the three field claims on a real 2019 file before trusting the fixtures.
+- Next: Step 5, the real run. The host is allowed since oct.30.2026 (over https); the field checks above are done.

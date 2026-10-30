@@ -114,3 +114,26 @@ def test_the_window_covers_seven_new_york_days_including_the_next_utc_morning():
     assert len(found) == 7 * 96 and not missing
     assert found[-1].url == f"x/{7 * 96 - 1}.gkg.csv.zip"  # 03:45 UTC on jun.03
     assert end - start == timedelta(days=7)
+
+
+def test_files_listed_as_http_are_fetched_over_https():
+    assert gdelt.fetch_url(FILE_URL) == FILE_URL.replace("http://", "https://")
+    assert gdelt.fetch_url("https://x.org/a") == "https://x.org/a"
+
+
+def test_without_a_page_title_the_url_gives_the_headline_words():
+    assert (
+        gdelt.url_title(
+            "https://www.reuters.com/business/microsoft-cuts-revenue-forecast-2022-06-02/"
+        )
+        == "microsoft cuts revenue forecast"
+    )  # noqa: E501
+    assert gdelt.url_title("https://x.com/story.php?id=7") is None  # too few words
+    line = GKG.read_text().splitlines()[0]
+    no_title = line.rsplit("\t", 1)[0] + "\t"
+    record = gdelt.parse_row(no_title, FILE_URL)
+    assert record.title == "microsoft cuts forecast" and record.title_from_url
+    cols = no_title.split("\t")
+    cols[gdelt.URL] = "https://x.com/story.php?id=7"
+    bare = gdelt.parse_row("\t".join(cols), FILE_URL)
+    assert bare.title is None and not bare.title_from_url  # flagged only when words were used

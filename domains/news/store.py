@@ -71,7 +71,9 @@ def store_records(conn: sqlite3.Connection, records: list[ArticleRecord], aliase
     kept = 0
     for r in records:
         # a subsidiary's start date is read in the case calendar, like every as-of date
-        found = match(r.organisations, r.title, r.seen_at.astimezone(CASE_TZ).date(), aliases)
+        # titles made from URL words help clustering but don't match companies on their own
+        page_title = None if r.title_from_url else r.title
+        found = match(r.organisations, page_title, r.seen_at.astimezone(CASE_TZ).date(), aliases)
         if not found:
             continue
         aid = article_id(r.url)
@@ -81,10 +83,10 @@ def store_records(conn: sqlite3.Connection, records: list[ArticleRecord], aliase
             (aid, r.url, r.source),
         )
         inserted = conn.execute(
-            "INSERT INTO article_sightings (article_id, file_url, seen_at, title, tone, "
-            "themes_json, orgs_json) VALUES (?, ?, ?, ?, ?, ?, ?) "
+            "INSERT INTO article_sightings (article_id, file_url, seen_at, title, title_from_url, "
+            "tone, themes_json, orgs_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT (article_id, file_url) DO NOTHING",
-            (aid, r.file_url, iso(r.seen_at), r.title, r.tone,
+            (aid, r.file_url, iso(r.seen_at), r.title, int(r.title_from_url), r.tone,
              json.dumps(r.themes), json.dumps(r.organisations)),
         ).rowcount  # fmt: skip
         if not inserted:  # the same URL twice in one file: the first row stands
