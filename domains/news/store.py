@@ -2,7 +2,8 @@
 
 A file is read once per alias set. Every Phase 1 company is matched on every pass, whatever case
 asked for the file, so overlapping windows share files without losing rows. A file missing from
-the master list, gone from the server, or failing its MD5 is recorded with that status, never
+the master list or gone from the server is `missing` (GDELT's gap); one we failed to download is
+`fetch_error` (ours, read again on the next run); one failing its MD5 is `bad_md5`. None is
 skipped in silence. A file matched under an older alias set is read again and its rows replaced.
 """
 
@@ -19,7 +20,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit
 import requests
 
 from domains.news import gdelt
-from domains.news.gdelt import CASE_TZ, ArticleRecord, GdeltError, MasterEntry
+from domains.news.gdelt import CASE_TZ, ArticleRecord, FileGone, GdeltError, MasterEntry
 from domains.news.matching import AliasSet, match
 
 FILE_URL = "http://data.gdeltproject.org/gdeltv2/{ts:%Y%m%d%H%M%S}.gkg.csv.zip"
@@ -45,7 +46,7 @@ def article_id(url: str) -> str:
 @dataclass(frozen=True)
 class FileResult:
     file_url: str
-    status: str  # ok | missing | bad_md5 | skipped (already read under this alias set)
+    status: str  # ok | missing | fetch_error | bad_md5 | skipped (read under this alias set)
     rows_total: int = 0
     rows_kept: int = 0
     rows_bad: int = 0
@@ -114,19 +115,22 @@ def ingest_file(
     row = _file_row(conn, entry.url)
     if not _needs_read(row, aliases):
         return FileResult(entry.url, "skipped")
+    content, failed = None, None
     try:
         content = (download or gdelt.http_download)(entry.url)
+    except FileGone:
+        failed = "missing"
     except requests.RequestException:
-        content = None
-    if content is None and row is not None and row["status"] == "ok":
+        failed = "fetch_error"
+    if failed and row is not None and row["status"] == "ok":
         # read fine before, unreachable now: keep its rows; it stays stale for the next rematch
-        return FileResult(entry.url, "missing")
+        return FileResult(entry.url, failed)
     with conn:
         _clear_file(conn, entry.url)
-        if content is None:
-            _record_file(conn, entry.url, entry.file_ts, entry.md5, "missing", None, None,
+        if failed:
+            _record_file(conn, entry.url, entry.file_ts, entry.md5, failed, None, None,
                          aliases, now())  # fmt: skip
-            return FileResult(entry.url, "missing")
+            return FileResult(entry.url, failed)
         try:
             records, bad = gdelt.read_file(content, entry)
         except GdeltError:

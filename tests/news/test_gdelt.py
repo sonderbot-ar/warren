@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
+import requests
 
 from domains.news import gdelt
 from domains.news.gdelt import GdeltError, MasterEntry
@@ -137,3 +138,77 @@ def test_without_a_page_title_the_url_gives_the_headline_words():
     cols[gdelt.URL] = "https://x.com/story.php?id=7"
     bare = gdelt.parse_row("\t".join(cols), FILE_URL)
     assert bare.title is None and not bare.title_from_url  # flagged only when words were used
+
+
+class FakeResponse:
+    def __init__(self, status: int, content: bytes = b"", headers: dict | None = None):
+        self.status_code, self.content, self.headers = status, content, headers or {}
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"HTTP {self.status_code}", response=self)
+
+
+def scripted(*outcomes):
+    """A stand-in for requests.get that returns or raises each outcome in turn."""
+    calls = []
+
+    def get(url, timeout):
+        calls.append(url)
+        outcome = outcomes[len(calls) - 1]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    return get, calls
+
+
+def test_a_503_is_retried_after_a_pause_and_the_file_returned():
+    get, calls = scripted(FakeResponse(503), FakeResponse(200, b"zip"))
+    waits = []
+    assert gdelt.http_download(FILE_URL, get, waits.append) == b"zip"
+    assert waits == [2.0]
+    assert calls == [gdelt.fetch_url(FILE_URL)] * 2
+
+
+def test_retry_after_is_followed_and_capped():
+    get, _ = scripted(FakeResponse(429, headers={"Retry-After": "7"}), FakeResponse(200, b"z"))
+    waits = []
+    gdelt.http_download(FILE_URL, get, waits.append)
+    assert waits == [7.0]
+    get, _ = scripted(FakeResponse(429, headers={"Retry-After": "600"}), FakeResponse(200, b"z"))
+    waits = []
+    gdelt.http_download(FILE_URL, get, waits.append)
+    assert waits == [gdelt.MAX_WAIT_SECONDS]
+
+
+def test_connection_errors_back_off_and_the_last_one_is_raised():
+    get, calls = scripted(*[requests.ConnectionError("offline")] * gdelt.ATTEMPTS)
+    waits = []
+    with pytest.raises(requests.ConnectionError):
+        gdelt.http_download(FILE_URL, get, waits.append)
+    assert len(calls) == gdelt.ATTEMPTS
+    assert waits == [2.0, 4.0]
+
+
+def test_three_503s_raise_an_http_error():
+    get, calls = scripted(*[FakeResponse(503)] * gdelt.ATTEMPTS)
+    with pytest.raises(requests.HTTPError):
+        gdelt.http_download(FILE_URL, get, lambda _: None)
+    assert len(calls) == gdelt.ATTEMPTS
+
+
+@pytest.mark.parametrize("status", [404, 410])
+def test_a_file_gone_from_the_server_is_not_retried(status):
+    get, calls = scripted(FakeResponse(status))
+    waits = []
+    with pytest.raises(gdelt.FileGone):
+        gdelt.http_download(FILE_URL, get, waits.append)
+    assert (len(calls), waits) == (1, [])
+
+
+def test_a_403_is_not_retried():
+    get, calls = scripted(FakeResponse(403))
+    with pytest.raises(requests.HTTPError):
+        gdelt.http_download(FILE_URL, get, lambda _: None)
+    assert len(calls) == 1

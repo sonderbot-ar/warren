@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import shutil
+import sqlite3
 import zipfile
 from datetime import UTC, date, datetime, timedelta
 
@@ -82,7 +83,7 @@ def test_migration_0009_applies_to_an_existing_database(tmp_path, db_path):
         apply_migrations(conn, older)
         conn.execute("INSERT INTO companies (cik, ticker, name) VALUES ('0000000001', 'TST', 'T')")
         conn.commit()
-        assert apply_migrations(conn) == [9, 10]
+        assert apply_migrations(conn) == [9, 10, 11]
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert {"news_files", "articles", "article_sightings", "events", "sightings_fts"} <= tables
         assert conn.execute("SELECT ticker FROM companies").fetchone()[0] == "TST"
@@ -232,7 +233,7 @@ def test_a_file_read_before_keeps_its_rows_when_it_cant_be_fetched_again(conn, a
     def down(_):
         raise requests.ConnectionError("offline")
 
-    assert store.ingest_file(conn, entry, wider, down, lambda: NOW).status == "missing"
+    assert store.ingest_file(conn, entry, wider, down, lambda: NOW).status == "fetch_error"
     assert conn.execute("SELECT COUNT(*) FROM article_sightings").fetchone()[0] == 1
     assert store.stale_files(conn, wider) == [URL1]  # still to be read again
 
@@ -270,3 +271,56 @@ def test_a_window_downloads_in_parallel_skips_files_read_before_and_keeps_file_o
     assert [r.status for r in results] == ["skipped"] * 3 + ["ok"] * 7
     assert sorted(fetched) == sorted(entries[ts].url for ts in sorted(entries)[3:])
     assert conn.execute("SELECT COUNT(*) FROM article_sightings").fetchone()[0] == 10
+
+
+def test_a_file_gone_from_the_server_is_missing_and_a_download_error_is_a_fetch_error(
+    conn, aliases
+):
+    import requests
+
+    from domains.news.gdelt import FileGone
+
+    entry, content = gkg_file(URL1, [gkg_line("https://a.com/1", ["microsoft"], "t")])
+    other, _ = gkg_file(URL2, [gkg_line("https://a.com/2", ["microsoft"], "t")])
+
+    def gone(_):
+        raise FileGone("404")
+
+    def offline(_):
+        raise requests.ConnectionError("offline")
+
+    assert store.ingest_file(conn, entry, aliases, gone, lambda: NOW).status == "missing"
+    assert store.ingest_file(conn, other, aliases, offline, lambda: NOW).status == "fetch_error"
+    rows = dict(conn.execute("SELECT file_url, status FROM news_files").fetchall())
+    assert rows == {URL1: "missing", URL2: "fetch_error"}
+    # the next run reads the failed file again
+    result = store.ingest_file(conn, entry, aliases, lambda _: content, lambda: NOW)
+    assert (result.status, result.rows_kept) == ("ok", 1)
+
+
+def test_migration_0011_keeps_news_rows_and_accepts_fetch_error(tmp_path, db_path):
+    older = tmp_path / "older"
+    older.mkdir()
+    for path in MIGRATIONS_DIR.glob("00[01][0-9]_*.sql"):
+        if path.name < "0011":
+            shutil.copy(path, older / path.name)
+    entry, content = gkg_file(URL1, [gkg_line("https://a.com/1", ["microsoft"], "t")])
+    with get_db_connection(db_path) as conn:
+        apply_migrations(conn, older)
+        for cik, ticker, names in COMPANIES:
+            conn.execute(
+                "INSERT INTO companies (cik, ticker, name, aliases_json) VALUES (?, ?, ?, ?)",
+                (cik, ticker, names[0], json.dumps(names)),
+            )
+        conn.commit()
+        aliases = matching.load_aliases(conn)
+        store.ingest_file(conn, entry, aliases, lambda _: content, lambda: NOW)
+        store.record_missing_slot(conn, T0 + URL_STEP, aliases, NOW)
+        before = conn.execute("SELECT * FROM news_files ORDER BY file_url").fetchall()
+        assert apply_migrations(conn) == [11]
+        assert conn.execute("SELECT * FROM news_files ORDER BY file_url").fetchall() == before
+        assert conn.execute("SELECT COUNT(*) FROM article_sightings").fetchone()[0] == 1
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+        conn.execute("UPDATE news_files SET status = 'fetch_error' WHERE file_url = ?", (URL1,))
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute("UPDATE news_files SET status = 'lost' WHERE file_url = ?", (URL1,))
