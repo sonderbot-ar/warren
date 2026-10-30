@@ -244,3 +244,44 @@ def historical_premium(
         std_error=stdev / math.sqrt(n),
         years=n,
     )
+
+
+# -- shocks (M4, Decision 6) ------------------------------------------------------------------
+
+# z of the 90th percentile of a standard normal: low and high sit this many σ from the median
+Z90 = 1.2815515655446004
+
+
+def shock_shape(start: int, horizon: int, decay: float, quarters: int) -> list[float]:
+    """Share of a shock's magnitude in force at each quarter h = 1…quarters.
+
+    decay^(h − start) for start ≤ h < start + horizon, else 0 (Build Plan M4). decay = 1 keeps
+    the effect constant over the horizon.
+    """
+    if not 0 < decay <= 1:
+        raise FinancialMathError(f"decay must be in (0, 1], got {decay}")
+    if horizon < 1 or start < 1 or start + horizon - 1 > quarters:
+        raise FinancialMathError(
+            f"a shock from quarter {start} lasting {horizon} must fit in {quarters} quarters"
+        )
+    return [
+        decay ** (h - start) if start <= h < start + horizon else 0.0
+        for h in range(1, quarters + 1)
+    ]
+
+
+def split_normal(low: float, base: float, high: float, z: Number) -> Number:
+    """A magnitude whose p10, p50 and p90 are low, base and high, from standard normal draws z.
+
+    Below the median it is a normal with σ = (base − low) / Z90, above it one with
+    σ = (high − base) / Z90, each side with half the probability, so an asymmetric range keeps
+    its three quantiles exactly. low = base = high gives a constant.
+    """
+    if not low <= base <= high:
+        raise FinancialMathError(f"need low ≤ base ≤ high, got {low}, {base}, {high}")
+    sigma_low, sigma_high = (base - low) / Z90, (high - base) / Z90
+    if hasattr(z, "shape"):
+        import numpy as np
+
+        return base + z * np.where(z < 0, sigma_low, sigma_high)
+    return base + z * (sigma_low if z < 0 else sigma_high)
