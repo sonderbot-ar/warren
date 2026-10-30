@@ -52,6 +52,23 @@ Work on other tracks continues while a card waits.
 
 The team's procedures are skills in `.claude/skills/`: `warren-run-track` (the Elephant loop), `warren-goldfish-review` (the reviewers) and `warren-desk-report` (desk entry, lesson, weekly digest). They load in Claude Code wherever the repo is open: cloud sessions, scheduled runs, or the owner's VS Code. Local runs read `SEC_USER_AGENT` from `.env`; cloud runs read it from the environment. It is never committed.
 
+The team's members are defined agents in `.claude/agents/`, each with its own model and only the tools its job needs:
+
+| Agent | Model | Tools | Job |
+|---|---|---|---|
+| `track-lead` | Opus | all | Elephant: runs one track from design doc to merge |
+| `test-writer` | Sonnet | read, edit, shell | Tests for a step, under `tests/` only |
+| `analyst` | Opus | read, read-only DB, web | Goldfish: practitioner check on real companies |
+| `professor` | Opus | read, web | Goldfish: literature and teachability |
+| `explainer` | Haiku | read | Goldfish: restates the design, lists its gaps |
+| `gatekeeper` | Opus | read, shell, GitHub PR read | Goldfish: final GO or NO-GO |
+| `data-steward` | Sonnet | read, shell | Ingests and data quality reports |
+| `case-librarian` | Sonnet | read, edit, web | Sources and rows for the M3 case library |
+| `reporter` | Sonnet | read, git, web | Desk entry, lesson, weekly digest |
+| `triager` | Haiku | GitHub issue tools | Turns review notes into `backlog` issues |
+
+Tools named `mcp__github__*` assume the GitHub MCP server is registered as `github`. Add an agent when a job recurs and needs different tools or a different model, not for each task.
+
 ## Reports for the owner
 
 - **The desk:** one entry per merged version, newest first: what changed from the previous version and why it is better, the evidence (tests, reproduce check, from M3 on forecast error against the baseline), open arguments from the review, decisions waiting.
