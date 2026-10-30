@@ -98,6 +98,34 @@ def test_a_margin_guide_over_partly_reported_quarters_is_not_used(company):
         guidance.to_shocks([margin], run_rows(company))
 
 
+def test_a_guide_in_billions_is_the_same_guide_in_millions(company):
+    rows = run_rows(company)
+    [millions] = guidance.to_shocks([guide()], rows)
+    billions = guide(unit="billions", old_low=0.1, old_high=0.11, new_low=0.09, new_high=0.1,
+                     quote="revenue $0.09 to $0.1 billion, was $0.1 to $0.11")  # fmt: skip
+    [shock] = guidance.to_shocks([billions], rows)
+    assert (shock.low, shock.base, shock.high) == pytest.approx(
+        (millions.low, millions.base, millions.high)
+    )
+
+
+def test_only_amounts_take_a_unit():
+    with pytest.raises(ValueError, match="only amounts"):
+        guide(basis="growth", unit="billions")
+
+
+def test_operating_income_in_another_unit_than_revenue_is_refused(company):
+    income = guide(item="operating_income", unit="billions", old_low=0.02, old_high=0.02,
+                   new_low=0.01, new_high=0.01, quote="income 0.01, was 0.02")  # fmt: skip
+    with pytest.raises(GuidanceError, match="same unit"):
+        guidance.to_shocks([guide(), income], run_rows(company))
+
+
+def test_the_checked_in_guidance_parses():
+    guides = guidance.load_guides()
+    assert guides and all(g.source_date <= date.fromisoformat(g.case_id[-10:]) for g in guides)
+
+
 def test_every_figure_must_be_in_its_quote(tmp_path):
     path = tmp_path / "guidance.csv"
     row = guide().model_dump() | {
