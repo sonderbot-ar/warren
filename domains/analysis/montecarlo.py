@@ -50,6 +50,9 @@ def _check_samples(inp: Inputs, n: int) -> None:
     for name, test in (
         ("operating_margin", lambda v: (v <= MARGIN_BOUNDS[0]) | (v >= MARGIN_BOUNDS[1])),
         ("capex_pct", lambda v: v < 0),
+        # revenue starts positive, so revenue at or below zero needs a growth of −100% or less
+        # somewhere (a level shock's multiplier at or below zero shows up here, M6)
+        ("revenue_growth", lambda v: (v <= -1) | ~np.isfinite(v)),
     ):
         bad = np.zeros(n, dtype=bool)
         for v in inp.driver[name]:
@@ -109,6 +112,7 @@ def simulate(
 SHOCK_FIELDS = (
     "shock_id event_id driver low base high start_period horizon decay source rationale".split()
 )
+OPTIONAL_FIELDS = ("basis",)  # a file or row without it holds growth shocks (M6)
 
 
 def load_shocks(path: Path) -> list[Shock]:
@@ -122,6 +126,7 @@ def load_shocks(path: Path) -> list[Shock]:
         for line, row in enumerate(reader, start=2):
             try:
                 fields = {k: (row[k] or "").strip() for k in SHOCK_FIELDS}
+                fields |= {k: row[k].strip() for k in OPTIONAL_FIELDS if row.get(k)}
                 out.append(Shock(**fields | {"event_id": fields["event_id"] or None}))
             except ValueError as e:
                 raise SimulationError(f"{path.name} line {line}: {e}") from e
@@ -177,8 +182,8 @@ def save_simulation(
             shock_id = f"{sim_id}:{s.shock_id}"
             conn.execute(
                 "INSERT INTO shocks (shock_id, run_id, event_id, driver, low, base, high, "
-                "start_period, horizon, decay, source, rationale) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "start_period, horizon, decay, source, rationale, basis) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     shock_id,
                     run_id,
@@ -192,6 +197,7 @@ def save_simulation(
                     s.decay,
                     s.source,
                     s.rationale,
+                    s.basis,
                 ),
             )
             conn.execute(
@@ -217,7 +223,10 @@ def load_simulation_shocks(conn: sqlite3.Connection, sim_id: str) -> list[Shock]
     ).fetchall()
     prefix = f"{sim_id}:"
     return [
-        Shock(**{k: r[k] for k in SHOCK_FIELDS} | {"shock_id": r["shock_id"].removeprefix(prefix)})
+        Shock(
+            **{k: r[k] for k in (*SHOCK_FIELDS, *OPTIONAL_FIELDS)}
+            | {"shock_id": r["shock_id"].removeprefix(prefix)}
+        )
         for r in rows
     ]
 

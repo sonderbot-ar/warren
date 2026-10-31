@@ -1,0 +1,14 @@
+event_type,definition
+guidance,The company changes or confirms its own forecast of revenue or profit
+earnings,The company reports quarterly or annual results
+m_and_a,The company buys or sells a business or agrees to merge
+litigation,A lawsuit or settlement involving the company
+regulation,A regulator or government acts on the company or its products
+product,A product launch or recall or a product problem
+management,A change of chief executive or other senior managers
+supply_chain,A disruption or change in how the company makes or ships its products
+restructuring,Job cuts or impairments or a split or a plan to reorganise the company
+capital_return,Dividends or share buybacks or a debt issue
+macro,An economy-wide or industry-wide development that affects the company
+other,About the company but none of the types above
+not_about_company,The headlines name the company but none of them is about it
