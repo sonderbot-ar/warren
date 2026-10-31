@@ -62,4 +62,4 @@ Explainer, analyst and professor, oct.31.2026, on the first draft. All three: no
 
 ## Where the work stopped
 
-- Steps 0–4 and the review fixes committed in PR #92 (532 tests); gatekeeper and analyst GO; merge next.
+- Done. Merged in #92 (`51f70e2`, v0.5.5) after green CI and GO from the gatekeeper and analyst (532 tests). Review ideas: backlog #93.
