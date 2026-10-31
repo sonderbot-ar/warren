@@ -22,6 +22,10 @@ No design decision changes: Decision 1 (keys loaded once, from the environment, 
 
 `shared_kernel/config.py`, `domains/llm/client.py`, `domains/llm/__main__.py`, `.env.example`, `tests/shared_kernel/test_config.py`, `tests/llm/test_cli.py`, `docs/build-plan.md`, `docs/designs/m6-llm-steps.md`, `docs/versions.md`.
 
+## Review log
+
+- **Gatekeeper** (NO-GO, 1 blocker, fixed): `test_anthropic_api_key_returns_configured_value` set only the old name, so with `WARREN_ANTHROPIC_API_KEY` in the environment it failed and pytest printed the key. Fixed for every test at once: an autouse fixture in `tests/conftest.py` clears both key names and both base-URL names, so no test can read or print a real key. Taken: the Build Plan's M6 "Before starting" line and the M6 design's Step 8 name the new variable. Confirmed: in anthropic 2.3.0 an explicit `base_url` wins over `ANTHROPIC_BASE_URL`. Not changed: the fallback to `ANTHROPIC_API_KEY` stays, because the cloud keeps that name away from Warren and a local `.env` is the owner's own.
+
 ## Where the work stopped
 
-- Step 1 committed; PR and gatekeeper next. After merge the owner renames the cloud variable to `WARREN_ANTHROPIC_API_KEY`, and the next run starts M6 Step 8 with a dry run.
+- Step 1 and the review fix committed in PR #96; gatekeeper re-check next. After merge the owner renames the cloud variable to `WARREN_ANTHROPIC_API_KEY`, and the next run starts M6 Step 8 with a dry run.

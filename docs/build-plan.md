@@ -383,7 +383,7 @@ event_articles(event_id TEXT, article_id TEXT)
 
 **Implements:** Decisions 1, 6 and 9.
 
-**Before starting:** `ANTHROPIC_API_KEY` in the environment (Section 6). Decision 1 was settled on oct.30.2026: keys loaded once, one node-to-model map.
+**Before starting:** the Anthropic key in the environment as `WARREN_ANTHROPIC_API_KEY` (or `ANTHROPIC_API_KEY` in a local `.env`; Section 6). Decision 1 was settled on oct.30.2026: keys loaded once, one node-to-model map.
 
 **Design**
 
