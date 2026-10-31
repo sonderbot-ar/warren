@@ -114,3 +114,14 @@ def test_a_down_shock_is_not_cut_by_its_upper_tail():
                               scales.Sigma(1.0, None, []), BASE, scales.Bounds(margin=(0.0, 0.201)),
                               TABLE)  # fmt: skip
     assert not sized.clipped and sized.base == -1.0
+
+
+def test_the_other_tail_still_keeps_capex_above_zero():
+    inp = dcf.inputs(rows())
+    inp = inp.replace(driver=inp.driver | {"capex_pct": [0.02] * len(inp.periods)})  # 2%
+    # a small rise whose range crosses zero: the lower tail would reach below zero capex
+    s = scales.Sigma(3.0, "capped", [])
+    sized = scales.size_shock("capex_intensity", "up", "small", "lasting", 1, s, inp,
+                              scales.Bounds(), TABLE)  # fmt: skip
+    lower = sized.base - scales.Z99_OVER_Z90 * (sized.base - sized.low)
+    assert sized.clipped and 2.0 + lower >= -1e-9

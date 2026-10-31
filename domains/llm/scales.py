@@ -121,15 +121,17 @@ def clip_factor(
     """How much to scale (low, base, high) so the 1st and 99th percentiles stay in bounds."""
     if driver == "risk_premium":
         return 1.0
-    # only the tail the shock points to: a down shock is not cut because its upper tail touches
-    # the top of a band the baseline already sits near (gatekeeper review)
-    reach = ((base - Z99_OVER_Z90 * (base - low),) if base < 0
-             else (base + Z99_OVER_Z90 * (high - base),))  # fmt: skip
+    # the tail the shock points to meets every bound; the other tail only the hard ones (capex at
+    # zero, the revenue level band), so a down shock is not cut because its upper tail touches
+    # the top of a margin band the baseline already sits near (gatekeeper review)
+    lower = base - Z99_OVER_Z90 * (base - low)
+    upper = base + Z99_OVER_Z90 * (high - base)
+    reach = ((lower, True), (upper, False)) if base < 0 else ((upper, True), (lower, False))
     factor = 1.0
     for i, share in enumerate(effects):
         if not share:
             continue
-        for extreme in reach:
+        for extreme, main in reach:
             delta = extreme * m4.UNIT[driver] * share
             if driver == "revenue_growth":  # a level shock: the multiplier stays in the band
                 factor = min(factor, _limit(1.0, delta, 1 - bounds.level_band,
@@ -137,7 +139,7 @@ def clip_factor(
             elif driver == "capex_intensity":
                 factor = min(factor, _limit(inp.driver["capex_pct"][i], delta,
                                             bounds.capex_floor, None))  # fmt: skip
-            elif bounds.margin is not None:
+            elif bounds.margin is not None and main:
                 factor = min(factor, _limit(inp.driver["operating_margin"][i], delta,
                                             *bounds.margin))  # fmt: skip
     return factor
