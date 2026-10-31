@@ -219,3 +219,18 @@ def test_a_bad_input_in_a_sensitivity_stops_instead_of_becoming_a_gap(monkeypatc
     monkeypatch.setattr(dcf, "value", second_call_fails)
     with pytest.raises(fm.FinancialMathError, match="share count"):
         dcf.outputs_and_gaps(rows() + [row("erp_std_error", 0.02)])
+
+
+def test_discount_rates_are_the_wacc_per_period_with_its_shift():
+    # equity 1000, debt 500: weights 2/3 and 1/3; cost of equity 4% + 1.0 × 6% = 10%;
+    # debt 5% × (1 − 25%) = 3.75%, so WACC = 2/3 × 10% + 1/3 × 3.75% = 7.9167% (backlog #90)
+    inp = dcf.inputs(rows(debt=500.0))
+    by_hand = 2 / 3 * 0.10 + 1 / 3 * 0.05 * 0.75
+    assert dcf.discount_rates(inp) == pytest.approx([by_hand] * 11)
+    assert dcf.base_wacc(inp) == pytest.approx(by_hand)
+    # +200 bp on the cost of equity in the second quarter only moves that quarter, by 2/3 × 2%
+    shifted = inp.replace(cost_of_equity_shift=[0.0, 0.02] + [0.0] * 9)
+    rates = dcf.discount_rates(shifted)
+    assert rates[1] == pytest.approx(by_hand + 2 / 3 * 0.02)
+    assert rates[:1] + rates[2:] == pytest.approx([by_hand] * 10)
+    assert dcf.compute(shifted).wacc == pytest.approx(by_hand)  # the run's WACC is unshifted

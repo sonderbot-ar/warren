@@ -60,15 +60,7 @@ def _check_samples(inp: Inputs, n: int) -> None:
         if bad.any():
             problems.append(f"{int(bad.sum())} samples give an impossible {name}")
     one = inp.one
-    cost_of_equity = fm.capm_cost_of_equity(one["risk_free"], one["beta"], one["erp"])
-    shift = (inp.cost_of_equity_shift or [0.0])[-1]
-    last = fm.wacc(
-        one["equity_market_value"],
-        one["debt"],
-        cost_of_equity + np.asarray(shift),
-        one["cost_of_debt"],
-        one["debt_tax_rate"],
-    )
+    last = dcf.discount_rates(inp)[-1]
     # both terminal rules need Y5's rate above terminal growth: the perpetuity behind either one
     # converges only there (Decision 4; backlog #79, owner decision)
     floor = one["terminal_growth"]
@@ -79,19 +71,85 @@ def _check_samples(inp: Inputs, n: int) -> None:
         raise SimulationError(f"of {n} samples: " + "; ".join(problems))
 
 
-def simulate(
-    rows, shock_list: list[Shock], n: int = DEFAULT_SAMPLES, seed: int = 0
-) -> dict[tuple[str, str], Band]:
-    """p10/p50/p90 and mean of each output over n shocked samples, next to the baseline."""
+BAND_NOTE = "band = shock-size uncertainty only; baseline drivers not sampled"
+RATES_CLEAN = (
+    "rate check: no sample has a cost of equity at or below the risk-free rate or a discount rate "
+    "at or below zero"
+)
+P90_SHARE, P50_SHARE = 0.10, 0.50  # past these shares, samples in the upper tail set p90 / p50
+
+
+def rate_warnings(shocked: Inputs, n: int) -> list[str]:
+    """One line per rate check that some sample fails, in any forecast period (backlog #90).
+
+    A cost of equity at or below the risk-free rate is a negative risk premium, which CAPM rules
+    out for a beta above zero; a discount rate at or below zero values money later at least as
+    much as money now. Neither stops the run: the value exists, but the shock range is almost
+    certainly typed too wide.
+    """
+    shocks_advice = "check the risk-premium shocks' ranges"
+    one = shocked.one
+    no_premium = one["beta"] * one["erp"] <= 0  # the run itself has none: not the shocks' fault
+    checks = (
+        (
+            dcf.costs_of_equity(shocked),
+            one["risk_free"],
+            "put the cost of equity at or below the risk-free rate, a negative risk premium,",
+            "CAPM rules that out for a company with a beta above zero",
+            "the run's own beta × ERP is at or below zero, so check the beta and the ERP first"
+            if no_premium
+            else shocks_advice,
+        ),
+        (
+            dcf.discount_rates(shocked),
+            0.0,
+            "put the discount rate (WACC) at or below zero",
+            "money later would be worth as much as or more than money now",
+            shocks_advice,
+        ),
+    )
+    # Y5's WACC at or below zero only shows here when terminal growth is at or below zero too:
+    # above that, _check_samples has already stopped the run
+    out = []
+    for rates, floor, what, why, advice in checks:
+        bad = [np.broadcast_to(np.asarray(r) <= floor, (n,)) for r in rates]
+        failing = int(np.logical_or.reduce(bad).sum())
+        if not failing:
+            continue
+        periods = ", ".join(p for p, b in zip(shocked.periods, bad, strict=True) if b.any())
+        share = failing / n
+        line = (
+            f"{failing:,} of {n:,} samples ({share:.1%}) {what} in {periods}. {why[0].upper()}"
+            f"{why[1:]}: {advice}."
+        )
+        tail = "p50" if share >= P50_SHARE else "p90" if share >= P90_SHARE else None
+        if tail:
+            line += (
+                f" That many can set the {tail} of value: lower rates raise the value of positive "
+                "cash flows."
+            )
+        out.append(line)
+    return out
+
+
+def _shocked(rows, shock_list: list[Shock], n: int, seed: int) -> tuple[Inputs, Inputs]:
+    """The run's inputs and, drawn once from the seed, the shocked inputs of every sample."""
     if n < 1:
         raise SimulationError("need at least one sample")
     base_inputs = dcf.inputs(rows)
-    baseline = dcf.compute(base_inputs)
     rng = np.random.Generator(np.random.PCG64(seed))
     z = rng.standard_normal((n, len(shock_list)))
     magnitudes = [fm.split_normal(s.low, s.base, s.high, z[:, i]) for i, s in enumerate(shock_list)]
-    shocked = shocks.apply(base_inputs, shock_list, magnitudes)
+    return base_inputs, shocks.apply(base_inputs, shock_list, magnitudes)
+
+
+def simulate_checked(
+    rows, shock_list: list[Shock], n: int = DEFAULT_SAMPLES, seed: int = 0
+) -> tuple[dict[tuple[str, str], Band], list[str]]:
+    """The bands of `simulate` and the rate warnings of the same samples."""
+    base_inputs, shocked = _shocked(rows, shock_list, n, seed)
     _check_samples(shocked, n)
+    baseline = dcf.compute(base_inputs)
     valuation = dcf.compute(shocked)
 
     out = {}
@@ -106,7 +164,14 @@ def simulate(
             band((line, period), baseline.lines[line][i], valuation.lines[line][i])
     for name in SINGLES:
         band((name, SINGLE), getattr(baseline, name), getattr(valuation, name))
-    return out
+    return out, rate_warnings(shocked, n)
+
+
+def simulate(
+    rows, shock_list: list[Shock], n: int = DEFAULT_SAMPLES, seed: int = 0
+) -> dict[tuple[str, str], Band]:
+    """p10/p50/p90 and mean of each output over n shocked samples, next to the baseline."""
+    return simulate_checked(rows, shock_list, n, seed)[0]
 
 
 # -- shocks from a file ------------------------------------------------------------------------
@@ -160,7 +225,7 @@ def save_simulation(
     """Simulate a stored run under the shocks and store it all in one transaction; its id."""
     if seed is None:
         seed = int(np.random.SeedSequence().entropy % 2**63)
-    bands = simulate(load_assumptions(conn, run_id), shock_list, n, seed)
+    bands, warnings = simulate_checked(load_assumptions(conn, run_id), shock_list, n, seed)
     count = conn.execute("SELECT COUNT(*) FROM simulations WHERE run_id = ?", (run_id,)).fetchone()[
         0
     ]
@@ -177,7 +242,7 @@ def save_simulation(
                 code_version(),
                 shocks.shocks_sha256(shock_list),
                 _currency(conn),
-                "band = shock-size uncertainty only; baseline drivers not sampled",
+                "\n".join([BAND_NOTE, *(warnings or [RATES_CLEAN])]),
             ),
         )
         for position, s in enumerate(shock_list):

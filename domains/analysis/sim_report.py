@@ -3,7 +3,7 @@
 import sqlite3
 from pathlib import Path
 
-from domains.analysis.montecarlo import LINES, load_bands, load_simulation_shocks
+from domains.analysis.montecarlo import LINES, RATES_CLEAN, load_bands, load_simulation_shocks
 from domains.analysis.schemas import SINGLE
 from shared_kernel.config import REPORTS_DIR as ALL_REPORTS_DIR
 
@@ -14,6 +14,22 @@ UNITS = {"risk_premium": "bp"}
 
 def _m(value: float) -> str:
     return f"{value / 1e6:,.0f}"
+
+
+def _warnings(notes: str | None) -> list[str]:
+    """The rate-check lines stored after the band note (backlog #90)."""
+    stored = [n for n in (notes or "").split("\n") if n][1:]
+    if not stored:
+        return [
+            "Not checked: this simulation was stored before Warren checked its rates. Run it "
+            "again to check."
+        ]
+    if stored == [RATES_CLEAN]:
+        return [
+            "None. No sample has a cost of equity at or below the risk-free rate or a discount "
+            "rate at or below zero."
+        ]
+    return [f"- {line}" for line in stored]
 
 
 def render(conn: sqlite3.Connection, sim_id: str) -> str:
@@ -42,6 +58,10 @@ def render(conn: sqlite3.Connection, sim_id: str) -> str:
         "drivers are not sampled, so the true uncertainty is wider.",
         "- Percentiles don't add up: the p50s of the quarters don't sum to the p50 of a year or "
         "of the value.",
+        "",
+        "## Warnings",
+        "",
+        *_warnings(sim["notes"]),
         "",
         "## Shocks",
         "",

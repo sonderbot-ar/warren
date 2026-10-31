@@ -26,6 +26,7 @@ from domains.analysis import sim_report
 from domains.analysis.math_engine import EngineError, fallback_backtest
 from domains.analysis.montecarlo import (
     DEFAULT_SAMPLES,
+    RATES_CLEAN,
     SimulationError,
     load_shocks,
     reproduce_simulation,
@@ -154,10 +155,14 @@ def cmd_simulate(args: argparse.Namespace) -> int:
             "SELECT * FROM simulation_outputs WHERE sim_id = ? AND name = 'value_per_share'",
             (sim_id,),
         ).fetchone()
+        notes = conn.execute("SELECT notes FROM simulations WHERE sim_id = ?", (sim_id,)).fetchone()
     print(
         f"{sim_id}  value per share baseline {vps['baseline']:,.2f}, shocked p10 {vps['p10']:,.2f}"
         f" p50 {vps['p50']:,.2f} p90 {vps['p90']:,.2f}  {path}"
     )
+    for line in (notes["notes"] or "").split("\n")[1:]:
+        if line and line != RATES_CLEAN:
+            print(f"WARNING: {line}")
     return 0
 
 
