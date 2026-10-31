@@ -38,16 +38,34 @@ def sec_user_agent() -> str:
     return value
 
 
+# Cloud sessions reserve ANTHROPIC_API_KEY for Claude Code's own sign-in, so Warren's key goes in
+# under its own name there; a local .env may use either (backlog #95)
+ANTHROPIC_KEY_NAMES = ("WARREN_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY")
+ANTHROPIC_API_URL = "https://api.anthropic.com"
+
+
 def anthropic_api_key() -> str:
-    """The Anthropic key for the LLM steps (M6). The value is never printed or logged."""
-    value = os.environ.get("ANTHROPIC_API_KEY", "").strip().strip('"')
-    if not value:
-        raise ConfigError(
-            "ANTHROPIC_API_KEY is not set. Create a key at console.anthropic.com (API keys), then "
-            "put ANTHROPIC_API_KEY=... in .env for local runs, or add it to the cloud "
-            "environment's variables."
-        )
-    return value
+    """The Anthropic key for the LLM steps (M6), first of ANTHROPIC_KEY_NAMES that is set.
+
+    The value is never printed or logged."""
+    for name in ANTHROPIC_KEY_NAMES:
+        value = os.environ.get(name, "").strip().strip('"')
+        if value:
+            return value
+    raise ConfigError(
+        "No Anthropic key: set WARREN_ANTHROPIC_API_KEY (or ANTHROPIC_API_KEY). Create a key at "
+        "console.anthropic.com (API keys), then put it in .env for local runs, or add "
+        "WARREN_ANTHROPIC_API_KEY to the cloud environment's variables (the cloud keeps "
+        "ANTHROPIC_API_KEY for Claude Code's own sign-in)."
+    )
+
+
+def anthropic_base_url() -> str:
+    """Where Warren's model calls go: WARREN_ANTHROPIC_BASE_URL, else Anthropic's public API.
+
+    Never the ambient ANTHROPIC_BASE_URL, which a Claude Code session sets for itself and which
+    the SDK would otherwise follow with Warren's key (backlog #95)."""
+    return os.environ.get("WARREN_ANTHROPIC_BASE_URL", "").strip() or ANTHROPIC_API_URL
 
 
 @dataclass(frozen=True)
