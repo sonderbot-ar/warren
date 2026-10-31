@@ -43,7 +43,7 @@ python -m domains.analysis reproduce --all                # value every stored r
 python -m domains.analysis fallbacks                      # compare each fallback item with its primary across the universe
 ```
 
-The owner's choices (equity risk premium and terminal growth methods) are in `domains/analysis/user_assumptions.csv`.
+The owner's choices (equity risk premium and terminal growth methods) are in `domains/analysis/user_assumptions.csv`. An edit applies to new runs only: each run stores the choices it used, and a rebuild reads them from the run.
 
 ## News and events (M5)
 
