@@ -236,20 +236,44 @@ def with_value(assumptions: Iterable[Assumption], name: str, new: float) -> list
     ]
 
 
-def run_outputs(assumptions: Iterable[Assumption]) -> dict[tuple[str, str], float]:
-    """Everything a run stores: the valuation, plus value per share at ERP ± 1 standard error
-    (left out where it has no value, e.g. when WACC falls to terminal growth)."""
+@dataclass(frozen=True)
+class Gap:
+    """Why an output has no value: a code from financial_math.REASONS and the error's message."""
+
+    reason: str
+    detail: str
+
+
+# Reasons that mean "this output has no value" rather than "the inputs are wrong": only these
+# leave a sensitivity out; any other FinancialMathError stops the run (backlog #9 review).
+NO_VALUE_REASONS = frozenset(
+    {"growth_not_below_rate", "rate_not_positive", "rate_not_above_minus_100"}
+)
+
+
+def outputs_and_gaps(
+    assumptions: Iterable[Assumption],
+) -> tuple[dict[tuple[str, str], float], dict[tuple[str, str], Gap]]:
+    """Everything a run stores: the valuation, plus value per share at ERP ± 1 standard error,
+    and, for each of those that has no value, why (keys are (name, period) in both)."""
     rows = list(assumptions)
     out = value(rows).outputs()
+    gaps: dict[tuple[str, str], Gap] = {}
     index = _index(rows)
     erp, std_error = index["erp"][SINGLE], index.get("erp_std_error", {}).get(SINGLE)
     if std_error is None:
         raise DCFInputError("missing assumption erp_std_error")
     for name, shifted in (("erp_minus_1se", erp - std_error), ("erp_plus_1se", erp + std_error)):
+        key = (f"value_per_share_{name}", SINGLE)
         try:
-            out[(f"value_per_share_{name}", SINGLE)] = value(
-                with_value(rows, "erp", shifted)
-            ).value_per_share
-        except fm.FinancialMathError:
-            pass  # e.g. WACC at or below terminal growth: no value; the report says so
-    return out
+            out[key] = value(with_value(rows, "erp", shifted)).value_per_share
+        except fm.FinancialMathError as e:
+            if e.reason not in NO_VALUE_REASONS:
+                raise
+            gaps[key] = Gap(e.reason, str(e))
+    return out, gaps
+
+
+def run_outputs(assumptions: Iterable[Assumption]) -> dict[tuple[str, str], float]:
+    """The outputs of outputs_and_gaps, for callers that only need the numbers."""
+    return outputs_and_gaps(assumptions)[0]
