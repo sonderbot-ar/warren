@@ -9,10 +9,11 @@ from pathlib import Path
 
 from domains.analysis import dcf
 from domains.analysis.math_engine import (
+    USER_CHOICES,
+    EngineError,
     EngineResult,
     UserChoice,
     build_inputs,
-    load_user_assumptions,
     post_checks,
 )
 from domains.analysis.schemas import Assumption
@@ -138,6 +139,34 @@ def reproduce(conn: sqlite3.Connection, run_id: str) -> Reproduction:
     return Reproduction(run_id, len(stored), mismatches, run["code_version"], code_version())
 
 
+# Choices a run made before they existed may lack; the engine's rule for their absence applies
+# (no terminal_method: Gordon on FCFF, as before M4).
+CHOICES_ADDED_LATER = {"terminal_method"}
+
+
+def stored_choices(rows: list[Assumption]) -> dict[str, UserChoice]:
+    """The owner's choices a run used, read back from its own rows (not today's file)."""
+    choices = {
+        a.name: UserChoice.from_assumption(a)
+        for a in rows
+        if a.source == "user" and a.name in USER_CHOICES
+    }
+    missing = sorted(set(USER_CHOICES) - CHOICES_ADDED_LATER - set(choices))
+    if missing:
+        raise EngineError(f"the run stored no choice for {missing}")
+    for choice in choices.values():
+        # the engine doesn't read every method name, so one it no longer supports is refused here
+        allowed = USER_CHOICES[choice.name]
+        if (
+            allowed is None
+            and not choice.value.isdigit()
+            or allowed
+            and choice.value not in allowed
+        ):
+            raise EngineError(f"the run's {choice.name} {choice.value!r} is no longer supported")
+    return choices
+
+
 @dataclass(frozen=True)
 class Rebuild:
     run_id: str
@@ -162,9 +191,11 @@ def rebuild(
 ) -> Rebuild:
     """Build a stored run's assumption rows again from data and compare them row by row.
 
-    Market queries are pinned to the downloads the run used (by content hash). Facts need no pin:
-    the point-in-time query only sees filings public on the as-of date, and ingests only add
-    facts. A different concept map can change which tag is selected, so it is refused.
+    The owner's choices are the ones the run stored, so a later edit of user_assumptions.csv
+    changes nothing; passing `choices` rebuilds the run as if they had been different. Market
+    queries are pinned to the downloads the run used (by content hash). Facts need no pin: the
+    point-in-time query only sees filings public on the as-of date, and ingests only add facts.
+    A different concept map can change which tag is selected, so it is refused.
     """
     run = conn.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
     if run is None:
@@ -180,8 +211,9 @@ def rebuild(
         )
     }
     stored_rows = load_assumptions(conn, run_id)
-    choices = load_user_assumptions() if choices is None else choices
-    if not any(a.name == "terminal_method" for a in stored_rows):
+    if choices is None:
+        choices = stored_choices(stored_rows)
+    elif not any(a.name == "terminal_method" for a in stored_rows):
         # made before the owner set terminal_method (M4): rebuild it under the rule it used
         choices = {k: v for k, v in choices.items() if k != "terminal_method"}
     with pin_fetches(pins):

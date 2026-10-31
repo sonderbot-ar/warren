@@ -2,9 +2,22 @@ import sqlite3
 
 import pytest
 
-from domains.analysis import runs
-from domains.analysis.math_engine import build_inputs
-from domains.analysis.runs import load_assumptions, load_outputs, rebuild, reproduce, run_baseline
+from domains.analysis import math_engine, runs
+from domains.analysis.math_engine import (
+    EngineError,
+    UserChoice,
+    build_inputs,
+    load_user_assumptions,
+)
+from domains.analysis.runs import (
+    load_assumptions,
+    load_outputs,
+    rebuild,
+    reproduce,
+    run_baseline,
+    stored_choices,
+)
+from domains.analysis.schemas import Assumption
 from domains.market.prices import load_prices
 from tests.analysis.conftest import AS_OF, CHOICES, FETCHED, market_rows
 
@@ -104,3 +117,89 @@ def test_a_run_made_before_terminal_method_rebuilds_under_its_own_rule(company):
         "DELETE FROM assumptions WHERE run_id = ? AND name = 'terminal_method'", (run_id,)
     )
     assert rebuild(company, run_id, choices=CHOICES, today=AS_OF).values_ok
+
+
+def test_a_run_made_before_terminal_method_rebuilds_from_its_own_rows(company):
+    run_id = run(company)
+    company.execute(
+        "DELETE FROM assumptions WHERE run_id = ? AND name = 'terminal_method'", (run_id,)
+    )
+    assert "terminal_method" not in stored_choices(load_assumptions(company, run_id))
+    assert rebuild(company, run_id, today=AS_OF).values_ok
+
+
+@pytest.mark.parametrize(
+    "choice",
+    [
+        *load_user_assumptions().values(),  # the checked-in file
+        *CHOICES.values(),  # an empty note
+        UserChoice("erp_first_year", "1990", "owner (x)", "2026-11-02", "a: b. set on 2026-01-01."),
+        UserChoice("erp_method", "historical_geometric", "o", "2026-11-02", "line one.\nline two"),
+    ],
+)
+def test_a_stored_choice_reads_back_exactly(choice):
+    assert UserChoice.from_assumption(choice.as_assumption()) == choice
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        ("erp", 0.05, "computed", "1990: set by o on 2026-11-02. note"),
+        ("erp_method", None, "user", "historical_geometric, set by hand"),
+        ("erp_method", None, "user", "x: set by o on 2nd November. note"),
+    ],
+)
+def test_a_row_that_is_not_a_stored_choice_is_refused(row):
+    name, value, source, method = row
+    row = Assumption(name=name, period="-", value=value, source=source, method=method)
+    with pytest.raises(EngineError, match="not a stored choice"):
+        UserChoice.from_assumption(row)
+
+
+def test_a_numeric_choice_reads_back_from_its_text_not_its_value_column():
+    row = CHOICES["erp_first_year"].as_assumption()
+    assert row.value == 1989.0 and UserChoice.from_assumption(row).value == "1989"
+
+
+def test_a_run_missing_a_choice_it_always_had_is_refused(company):
+    run_id = run(company)
+    company.execute("DELETE FROM assumptions WHERE run_id = ? AND name = 'erp_method'", (run_id,))
+    with pytest.raises(EngineError, match="no choice for \\['erp_method'\\]"):
+        rebuild(company, run_id, today=AS_OF)
+
+
+def test_a_run_reads_back_the_choices_it_was_made_with(company):
+    run_id = run(company)
+    assert stored_choices(load_assumptions(company, run_id)) == CHOICES
+
+
+def test_a_stored_choice_the_code_no_longer_supports_is_refused(company):
+    run_id = run(company)
+    company.execute(
+        "UPDATE assumptions SET method = replace(method, 'historical_geometric', 'arithmetic') "
+        "WHERE run_id = ? AND name = 'erp_method'",
+        (run_id,),
+    )
+    with pytest.raises(EngineError, match="erp_method 'arithmetic' is no longer supported"):
+        rebuild(company, run_id, today=AS_OF)
+
+
+def test_editing_the_choices_file_after_a_run_does_not_change_its_rebuild(
+    company, tmp_path, monkeypatch
+):
+    run_id = run(company)
+    edited = {
+        name: UserChoice(name, c.value, "owner", "2026-11-02", "edited later")
+        for name, c in CHOICES.items()
+    }
+    edited["erp_first_year"] = UserChoice("erp_first_year", "1999", "owner", "2026-11-02", "")
+    path = tmp_path / "user_assumptions.csv"
+    path.write_text(
+        "name,value,set_by,set_on,note\n"
+        + "".join(f"{c.name},{c.value},{c.set_by},{c.set_on},{c.note}\n" for c in edited.values())
+    )
+    assert load_user_assumptions(path) == edited  # what a run made today would use
+    monkeypatch.setattr(math_engine, "load_user_assumptions", lambda: edited)
+    assert rebuild(company, run_id, today=AS_OF).ok  # the run's own choices, not the file's
+    what_if = rebuild(company, run_id, choices=edited, today=AS_OF)  # explicitly different
+    assert {name for name, _period, _what in what_if.mismatches} >= {"erp_first_year", "erp"}
