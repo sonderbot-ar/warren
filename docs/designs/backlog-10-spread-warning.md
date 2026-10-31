@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/10 · Branch `backlog-10-spread-warning` · Version v0.5.3 when merged.
 
-Status: In progress (oct.31.2026).
+Status: Done (oct.31.2026; merged in PR #83, merge commit `b6756a8`, v0.5.3).
 
 ## Problem
 
