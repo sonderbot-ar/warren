@@ -48,6 +48,7 @@ def test_dry_run_calls_nothing_counts_calls_and_leaves_the_database(conn, wired,
 
 def test_a_missing_key_stops_before_any_call(conn, wired, monkeypatch, capsys):  # noqa: F811
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    monkeypatch.delenv("WARREN_ANTHROPIC_API_KEY", raising=False)
     assert cli.main(["classify", "--case", "MSFT_2022-06-02"]) == 2
     assert "ANTHROPIC_API_KEY" in capsys.readouterr().err and wired.requests == []
 

@@ -1,6 +1,6 @@
 # M6 design: LLM steps (event extraction and shock proposal)
 
-Status: In progress (oct.31.2026; Steps 1–7 in the engine PR #72, Step 8 waits on `ANTHROPIC_API_KEY`) · Elephant: agent team · Branch `m6-llm-steps`
+Status: In progress (oct.31.2026; Steps 1–7 in the engine PR #72, Step 8 waits on the key reaching cloud runs as `WARREN_ANTHROPIC_API_KEY`, backlog #95) · Elephant: agent team · Branch `m6-llm-steps`
 Implements Structure Guide Decisions 1 (keys and model map), 6 (event extraction and shock proposal) and 9 (LLM usage), and Build Plan M6.
 
 ## Problem

@@ -6,9 +6,10 @@
     python -m domains.llm check-headlines
     python -m domains.llm report
 
-`classify`, `propose` and `check-headlines` call the model (ANTHROPIC_API_KEY) and stop cleanly
-when the batch has used `--max-tokens-total`. With `--dry-run` they call nothing: they render
-every prompt on a throwaway copy of the database and print calls and estimated tokens per node.
+`classify`, `propose` and `check-headlines` call the model (key in WARREN_ANTHROPIC_API_KEY, or
+ANTHROPIC_API_KEY locally) and stop cleanly when the batch has used `--max-tokens-total`. With
+`--dry-run` they call nothing: they render every prompt on a throwaway copy of the database and
+print calls and estimated tokens per node.
 `review --auto` records every proposal as auto-approved (eval cases: a person today knows what
 happened next). The report goes to data/reports/llm/.
 """

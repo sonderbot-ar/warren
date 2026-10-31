@@ -34,11 +34,15 @@ class AnthropicClient:
 
     TOOL = "answer"
 
-    def __init__(self, api_key: str, max_tokens: int = 2048):
+    def __init__(self, api_key: str, max_tokens: int = 2048, base_url: str | None = None):
         import anthropic  # imported here so the rest of Warren runs without the SDK
 
+        from shared_kernel.config import anthropic_base_url
+
         self._anthropic = anthropic
-        self._client = anthropic.Anthropic(api_key=api_key, max_retries=3)
+        self._client = anthropic.Anthropic(
+            api_key=api_key, base_url=base_url or anthropic_base_url(), max_retries=3
+        )
         self.max_tokens = max_tokens
 
     def call(self, model: str, system: str, user: str, schema: dict) -> Reply:

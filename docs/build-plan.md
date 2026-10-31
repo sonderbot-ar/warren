@@ -42,7 +42,7 @@ Durations are indicative, assuming part-time work (roughly 8–12 hours a week).
 | M3 | Evaluation harness v1 (baseline only) | 1.5 | nov.23 – dec.03 | M2.1 | Done (oct.30.2026, v0.3; design in `docs/designs/m3-evaluation-harness.md`) |
 | M4 | Shock model and Monte Carlo (manual shocks) | 1.5 | dec.04 – dec.13 | M2.1 | **Done** (oct.30.2026, v0.4; PRs #30 and #39; design in `docs/designs/m4-shock-model.md`) |
 | M5 | News ingestion (GDELT) and event clustering | 2.5 | dec.14 – jan.03 | M1 | Done (oct.30.2026, v0.5; design in `docs/designs/m5-news-ingestion.md`; all 26 case windows ingested and clustered; with the headline rule, `org_exact` precision 0.72 pooled, 0.52–0.90 per company, accepted by the owner; PRs #41, #43, #48, #51, #65, #66, #67) |
-| M6 | LLM steps: event extraction and shock proposal | 2 | jan.04 – jan.17 | M4, M5 | In progress (oct.31.2026; design in `docs/designs/m6-llm-steps.md`; Steps 1–7, the engine with recorded answers, merged in PR #72 after a gatekeeper GO; the real run, Step 8, waits on `ANTHROPIC_API_KEY`) |
+| M6 | LLM steps: event extraction and shock proposal | 2 | jan.04 – jan.17 | M4, M5 | In progress (oct.31.2026; design in `docs/designs/m6-llm-steps.md`; Steps 1–7, the engine with recorded answers, merged in PR #72 after a gatekeeper GO; the real run, Step 8, waits on the Anthropic key reaching cloud runs as `WARREN_ANTHROPIC_API_KEY`, backlog #95) |
 | M7 | LangGraph orchestration and telemetry | 1.5 | jan.18 – jan.27 | M6 | Not started |
 | M8 | Full backtest and Phase 1 review | 1.5 | jan.28 – feb.07.2027 | M3, M7 | Not started |
 
@@ -450,7 +450,7 @@ When the milestone before the one that needs an item merges, email the owner (CL
 | What | Why | Needed from | Cost | Status |
 |---|---|---|---|---|
 | `SEC_USER_AGENT` (a name and contact email) | SEC EDGAR requires it | M1 | Free | In place |
-| `ANTHROPIC_API_KEY` | The LLM steps: event extraction and shock proposal | M6 | Paid per token | Requested from the owner oct.30.2026, with setup steps |
+| `WARREN_ANTHROPIC_API_KEY` (or `ANTHROPIC_API_KEY` in a local `.env`) | The LLM steps: event extraction and shock proposal | M6 | Paid per token | Requested from the owner oct.30.2026, with setup steps; bought oct.31.2026. Cloud environments keep `ANTHROPIC_API_KEY` for Claude Code's own sign-in, so cloud runs read `WARREN_ANTHROPIC_API_KEY` (backlog #95) |
 | Google Cloud project with BigQuery (a service-account key) | Fetch a company's GDELT news for any date in seconds, instead of downloading every 15-minute file (about 670 files for one week). The pipeline's `fetch_news` step needs it to run for any company and date. | M7 | About 0.33 GB read per day of news (measured oct.30.2026 on 2020 and 2022 files). Our 26 case weeks come to about 60 GB, inside BigQuery's free 1 TB a month. Beyond that, about $6.25 per TB. A billing account with a card is required even for the free tier. | Owner approved the cost on oct.30.2026. Before use: a dry run to confirm bytes, a daily cap on bytes read, and an update to Decision 8 (data sources) |
 
 ## 7. Risks and Open Questions
