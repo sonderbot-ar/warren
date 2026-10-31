@@ -120,7 +120,7 @@ def test_cli_simulates_and_reproduces(company, tmp_path, monkeypatch, capsys):
     args = ["simulate", "--run-id", run_id, "--shocks", str(path), "--n", "300", "--seed", "9"]
     assert cli.main(args) == 0
     out = capsys.readouterr().out
-    assert "shocked p10" in out
+    assert "shocked p10" in out and "WARNING" not in out
     assert cli.main(["reproduce-sim", "--sim-id", f"{run_id}_sim1"]) == 0
     assert (tmp_path / f"{run_id}_sim1.md").exists()
 
@@ -226,3 +226,35 @@ def test_rate_warnings_are_stored_and_the_simulation_still_reproduces(company):
     lines = notes[deep].split("\n")
     assert lines[0] == montecarlo.BAND_NOTE and "negative risk premium" in lines[1]
     assert montecarlo.reproduce_simulation(company, deep).ok
+
+
+def test_report_warnings_say_none_name_the_samples_or_say_not_checked(company):
+    run_id = run_baseline(company, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    clean = montecarlo.save_simulation(company, run_id, [shock(**RANGE)], n=200, seed=2)
+    deep = montecarlo.save_simulation(company, run_id, [shock(**DEEP)], n=500, seed=3)
+    assert "## Warnings\n\nNone. No sample" in sim_report.render(company, clean)
+    text = sim_report.render(company, deep)
+    assert "## Warnings\n\n- " in text and "negative risk premium" in text
+    # a simulation stored before the check has only the band note
+    company.execute(
+        "UPDATE simulations SET notes = ? WHERE sim_id = ?", (montecarlo.BAND_NOTE, clean)
+    )
+    assert "Not checked: this simulation was stored before" in sim_report.render(company, clean)
+
+
+def test_cli_prints_rate_warnings(company, tmp_path, monkeypatch, capsys):
+    @contextmanager
+    def same_connection(*args):
+        yield company
+
+    run_id = run_baseline(company, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    path = tmp_path / "shocks.csv"
+    path.write_text(
+        ",".join(montecarlo.SHOCK_FIELDS) + "\nrp,,risk_premium,-1500,-500,0,1,4,1,user,test\n"
+    )
+    monkeypatch.setattr(cli, "get_db_connection", same_connection)
+    monkeypatch.setattr(sim_report, "REPORTS_DIR", tmp_path)
+    args = ["simulate", "--run-id", run_id, "--shocks", str(path), "--n", "300", "--seed", "9"]
+    assert cli.main(args) == 0
+    out = capsys.readouterr().out
+    assert "WARNING: " in out and "negative risk premium" in out
