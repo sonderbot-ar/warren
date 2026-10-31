@@ -87,22 +87,31 @@ def rate_warnings(shocked: Inputs, n: int) -> list[str]:
     much as money now. Neither stops the run: the value exists, but the shock range is almost
     certainly typed too wide.
     """
+    shocks_advice = "check the risk-premium shocks' ranges"
+    one = shocked.one
+    no_premium = one["beta"] * one["erp"] <= 0  # the run itself has none: not the shocks' fault
     checks = (
         (
             dcf.costs_of_equity(shocked),
-            shocked.one["risk_free"],
+            one["risk_free"],
             "put the cost of equity at or below the risk-free rate, a negative risk premium,",
             "CAPM rules that out for a company with a beta above zero",
+            "the run's own beta × ERP is at or below zero, so check the beta and the ERP first"
+            if no_premium
+            else shocks_advice,
         ),
         (
             dcf.discount_rates(shocked),
             0.0,
             "put the discount rate (WACC) at or below zero",
             "money later would be worth as much as or more than money now",
+            shocks_advice,
         ),
     )
+    # Y5's WACC at or below zero only shows here when terminal growth is at or below zero too:
+    # above that, _check_samples has already stopped the run
     out = []
-    for rates, floor, what, why in checks:
+    for rates, floor, what, why, advice in checks:
         bad = [np.broadcast_to(np.asarray(r) <= floor, (n,)) for r in rates]
         failing = int(np.logical_or.reduce(bad).sum())
         if not failing:
@@ -111,12 +120,14 @@ def rate_warnings(shocked: Inputs, n: int) -> list[str]:
         share = failing / n
         line = (
             f"{failing:,} of {n:,} samples ({share:.1%}) {what} in {periods}. {why[0].upper()}"
-            f"{why[1:]}: check the risk-premium shocks' ranges."
+            f"{why[1:]}: {advice}."
         )
-        if share >= P50_SHARE:
-            line += " That many can set the p50 of value: lower rates raise it."
-        elif share >= P90_SHARE:
-            line += " That many can set the p90 of value: lower rates raise it."
+        tail = "p50" if share >= P50_SHARE else "p90" if share >= P90_SHARE else None
+        if tail:
+            line += (
+                f" That many can set the {tail} of value: lower rates raise the value of positive "
+                "cash flows."
+            )
         out.append(line)
     return out
 

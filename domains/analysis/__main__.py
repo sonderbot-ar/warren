@@ -160,7 +160,7 @@ def cmd_simulate(args: argparse.Namespace) -> int:
         f"{sim_id}  value per share baseline {vps['baseline']:,.2f}, shocked p10 {vps['p10']:,.2f}"
         f" p50 {vps['p50']:,.2f} p90 {vps['p90']:,.2f}  {path}"
     )
-    for line in notes["notes"].split("\n")[1:]:
+    for line in (notes["notes"] or "").split("\n")[1:]:
         if line and line != RATES_CLEAN:
             print(f"WARNING: {line}")
     return 0

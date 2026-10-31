@@ -258,3 +258,10 @@ def test_cli_prints_rate_warnings(company, tmp_path, monkeypatch, capsys):
     assert cli.main(args) == 0
     out = capsys.readouterr().out
     assert "WARNING: " in out and "negative risk premium" in out
+
+
+def test_a_run_with_no_premium_of_its_own_points_at_beta_and_erp_not_the_shocks():
+    # β = 0: the cost of equity is the risk-free rate in every sample, before any shock
+    [line] = montecarlo.simulate_checked(rows(beta=0.0), [], n=10, seed=1)[1]
+    assert line.startswith("10 of 10 samples (100.0%)") and "check the beta and the ERP" in line
+    assert "shocks' ranges" not in line

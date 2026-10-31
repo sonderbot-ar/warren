@@ -57,6 +57,9 @@ Explainer, analyst and professor, oct.31.2026, on the first draft. All three: no
 
 ## Review log
 
+- **Gatekeeper** (GO, no blockers; 531 tests, ruff clean, CI green): no number changes (same draws, same arithmetic), no migration, no data query, docs match; the new tests check the counts two independent ways and no test was weakened. Taken: a run whose own β × ERP is at or below zero now gets advice to check the beta and the ERP, not the shocks (test); the command line tolerates empty notes. To backlog: `reproduce-sim` could also compare the stored warning lines.
+- **Analyst** (GO, no blockers): ran `simulate` on `main` and on the branch for three shock sets and two fixtures, all outputs identical to the last digit. Warnings fire where they should on real companies: about −250 to −300 bp for KO, JNJ and PG (β about 0.6), −450 to −600 bp for AAPL, MSFT and CAT; WACC at or below zero only for gross typos. No stored M4 simulation shocks the risk premium. Taken: "lower rates raise the value of positive cash flows" (true also if a company's flows were negative); the β × ERP ≤ 0 advice; a comment on why Y5's WACC check rarely shows. To backlog: a sample landing exactly on the floor can miss it by float rounding (no practical effect with continuous draws).
+
 ## Where the work stopped
 
-- Steps 0–4 committed (531 tests green); PR and gatekeeper next.
+- Steps 0–4 and the review fixes committed in PR #92 (532 tests); gatekeeper and analyst GO; merge next.
