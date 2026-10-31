@@ -134,3 +134,11 @@ def test_a_level_shock_is_stored_and_reproduces(company):
     [loaded] = montecarlo.load_simulation_shocks(company, sim_id)
     assert loaded.basis == "level"
     assert montecarlo.reproduce_simulation(company, sim_id).ok
+
+
+def test_a_level_sample_that_removes_all_revenue_stops_the_run():
+    level = shock(low=-95.0, base=-70.0, high=-30.0, horizon=4).model_copy(
+        update={"basis": "level"}
+    )
+    with pytest.raises(SimulationError, match="revenue_growth"):
+        montecarlo.simulate(rows(), [level], n=2000, seed=1)

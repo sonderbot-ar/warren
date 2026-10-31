@@ -108,7 +108,7 @@ CREATE TABLE shock_proposals (
     UNIQUE (set_id, driver)
 );
 
--- a revenue-level proposal is two M4 shocks (the cut and its reversal); others are one
+-- the M4 shock a reviewed proposal became (revenue proposals are one level shock)
 CREATE TABLE proposal_shocks (
     proposal_id  INTEGER NOT NULL REFERENCES shock_proposals (proposal_id),
     shock_id     TEXT NOT NULL REFERENCES shocks (shock_id),

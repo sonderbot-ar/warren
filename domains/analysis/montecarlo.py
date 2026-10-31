@@ -50,6 +50,9 @@ def _check_samples(inp: Inputs, n: int) -> None:
     for name, test in (
         ("operating_margin", lambda v: (v <= MARGIN_BOUNDS[0]) | (v >= MARGIN_BOUNDS[1])),
         ("capex_pct", lambda v: v < 0),
+        # revenue starts positive, so revenue at or below zero needs a growth of −100% or less
+        # somewhere (a level shock's multiplier at or below zero shows up here, M6)
+        ("revenue_growth", lambda v: (v <= -1) | ~np.isfinite(v)),
     ):
         bad = np.zeros(n, dtype=bool)
         for v in inp.driver[name]:

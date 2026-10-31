@@ -121,7 +121,10 @@ def clip_factor(
     """How much to scale (low, base, high) so the 1st and 99th percentiles stay in bounds."""
     if driver == "risk_premium":
         return 1.0
-    reach = (base - Z99_OVER_Z90 * (base - low), base + Z99_OVER_Z90 * (high - base))
+    # only the tail the shock points to: a down shock is not cut because its upper tail touches
+    # the top of a band the baseline already sits near (gatekeeper review)
+    reach = ((base - Z99_OVER_Z90 * (base - low),) if base < 0
+             else (base + Z99_OVER_Z90 * (high - base),))  # fmt: skip
     factor = 1.0
     for i, share in enumerate(effects):
         if not share:

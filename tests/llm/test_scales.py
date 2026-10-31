@@ -106,3 +106,11 @@ def test_a_small_shock_inside_the_bounds_is_not_clipped():
                               scales.Sigma(1.0, None, []), BASE, scales.Bounds(margin=(0.1, 0.3)),
                               TABLE)  # fmt: skip
     assert not sized.clipped and sized.base == -0.5
+
+
+def test_a_down_shock_is_not_cut_by_its_upper_tail():
+    # baseline margin 20%, band top at 20.1%: a medium cut only moves away from the top
+    sized = scales.size_shock("operating_margin", "down", "medium", "lasting", 1,
+                              scales.Sigma(1.0, None, []), BASE, scales.Bounds(margin=(0.0, 0.201)),
+                              TABLE)  # fmt: skip
+    assert not sized.clipped and sized.base == -1.0
