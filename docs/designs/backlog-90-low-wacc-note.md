@@ -59,4 +59,4 @@ Explainer, analyst and professor, oct.31.2026, on the first draft. All three: no
 
 ## Where the work stopped
 
-- Design reviewed and revised; Step 1 committed; Steps 2–4 next.
+- Steps 0–4 committed (531 tests green); PR and gatekeeper next.
