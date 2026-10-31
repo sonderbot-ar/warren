@@ -821,15 +821,43 @@ def post_checks(
                 )
 
     # under the value-driver terminal value the spread no longer drives the value (M4)
-    spread = outputs[("wacc", SINGLE)] - rows["terminal_growth"][SINGLE]
-    if dcf.terminal_method(assumptions) == dcf.GORDON and spread < TERMINAL_SPREAD_WARNING:
+    if dcf.terminal_method(assumptions) != dcf.GORDON:
+        return out
+    growth = rows["terminal_growth"][SINGLE]
+    spread = outputs[("wacc", SINGLE)] - growth
+    if _thin(spread):
         out.append(
             f"WACC − terminal growth is {spread * 100:.2f} points (below "
             f"{TERMINAL_SPREAD_WARNING * 100:.0f}): terminal value is "
             f"{outputs[('terminal_share', SINGLE)]:.0%} of enterprise value, so the result depends "
             "mostly on terminal growth and WACC"
         )
+    # the same check at ERP ± 1 SE (backlog #10): revalue the run's own rows with the ERP moved,
+    # the path that made the stored sensitivity; a bound with no value is noted elsewhere (#9)
+    std_error = rows.get("erp_std_error", {}).get(SINGLE)
+    if std_error is None:
+        return out
+    erp = rows["erp"][SINGLE]
+    for sign, label, word in ((-1, "ERP − 1 SE", "lower"), (1, "ERP + 1 SE", "higher")):
+        try:
+            shifted = dcf.value(dcf.with_value(assumptions, "erp", erp + sign * std_error))
+        except fm.FinancialMathError:
+            continue
+        spread = shifted.wacc - growth
+        if _thin(spread):
+            out.append(
+                f"At {label}, WACC − terminal growth is {spread * 100:.2f} points (below "
+                f"{TERMINAL_SPREAD_WARNING * 100:.0f}): terminal value is "
+                f"{shifted.dcf.terminal_share:.0%} of enterprise value there, so this bound "
+                f"mostly shows how the terminal value reacts to the {word} ERP"
+            )
     return out
+
+
+def _thin(spread: float) -> bool:
+    """Below the warning line; a spread of exactly 3 points that floating point lands a hair
+    under still counts as 3."""
+    return spread < TERMINAL_SPREAD_WARNING - 1e-12
 
 
 # -- fallback back-test (D11) ------------------------------------------------------------------
