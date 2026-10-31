@@ -33,8 +33,9 @@ class AnthropicClient:
     """Claude through the Anthropic SDK; the key comes from `shared_kernel.config` only."""
 
     TOOL = "answer"
+    USE_TOOL = "Give your answer only by calling the `answer` tool, once."
 
-    def __init__(self, api_key: str, max_tokens: int = 2048, base_url: str | None = None):
+    def __init__(self, api_key: str, max_tokens: int = 8000, base_url: str | None = None):
         import anthropic  # imported here so the rest of Warren runs without the SDK
 
         from shared_kernel.config import anthropic_base_url
@@ -46,16 +47,22 @@ class AnthropicClient:
         self.max_tokens = max_tokens
 
     def call(self, model: str, system: str, user: str, schema: dict) -> Reply:
+        # Current models refuse a forced tool choice and any sampling setting (temperature), so
+        # the tool is offered with `auto` and the prompt says to use it; an answer without the
+        # tool comes back empty and `calls.structured_call` retries it like any invalid answer
+        # (M6 Step 8). Effort is set per node in `shared_kernel.config`.
+        from shared_kernel.config import model_effort
+
         start = time.monotonic()
         try:
             msg = self._client.messages.create(
                 model=model,
                 max_tokens=self.max_tokens,
-                temperature=0,
-                system=system,
+                system=f"{system}\n\n{self.USE_TOOL}",
                 messages=[{"role": "user", "content": user}],
                 tools=[{"name": self.TOOL, "description": "The answer.", "input_schema": schema}],
-                tool_choice={"type": "tool", "name": self.TOOL},
+                tool_choice={"type": "auto"},
+                output_config={"effort": model_effort(model)},
             )
         except self._anthropic.APIError as e:
             raise LLMError(f"{type(e).__name__}: {e}") from e
