@@ -79,7 +79,7 @@ The labels are inputs, so the model is never shown them. The score is measured, 
 
 **One proposal set per case, not per event** (analyst review). M5's clustering can split one story into several events when outlets word it differently on different days, so per-event proposals could stack three revenue cuts for one Apple warning. LLM 2 therefore sees all of a case's classified events at once (one call per case and variant), and proposes **at most one shock per driver for the case**, citing the events and headlines it rests on. Events classified `not_about_company` or `failed` are left out; events of materiality `low` stay in, and "no shock" is the expected answer and is recorded as such.
 
-**Input.** For each event: id, type, materiality, summary and its `about` headlines; the as-of date; and from the baseline run as of the case date: the first 8 forecast quarters of revenue growth, operating margin and capex intensity, and the last 8 reported quarters of the same three ratios (as first reported, point-in-time).
+**Input.** For each event: id, type, materiality, summary and its `about` headlines; the as-of date; and from the baseline run as of the case date: the first 8 forecast quarters of revenue growth, operating margin and capex intensity, and the last 8 reported quarters of the same three ratios (as first reported, point-in-time). Quarters are labelled Q1…Q8 (forecast) and Q−8…Q−1 (reported) in both variants; only the named variant has the company and the as-of date.
 
 **Output** (`ShockProposalSet`, validated): zero to four proposals (one per driver at most), each
 

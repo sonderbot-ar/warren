@@ -1,0 +1,23 @@
+# Shock sizes from classes (M6 Step B). Judgments, not a calibration: calibrating needs held-out
+# cases (backlog). Units: percentage points; basis points for the risk premium.
+key,value,note
+multiple_small,0.5,base = multiple × sigma
+multiple_medium,1.0,
+multiple_large,2.0,
+range_width,0.75,low and high = base ∓ width × sigma: the same width for every size
+min_changes,12,four-quarter changes needed before sigma is the company's own
+revenue_growth_fallback,2.0,sigma when the history is too short
+revenue_growth_floor,0.5,
+revenue_growth_cap,10.0,
+operating_margin_fallback,1.0,
+operating_margin_floor,0.2,
+operating_margin_cap,5.0,
+capex_intensity_fallback,0.5,
+capex_intensity_floor,0.1,
+capex_intensity_cap,3.0,
+risk_premium_sigma,25,basis points; no reported history to scale by: the range width uses it
+risk_premium_small,25,basis points: the base itself
+risk_premium_medium,50,
+risk_premium_large,100,
+margin_band_sigmas,2.0,margin bounds = the last 12 quarters' lowest and highest ± this × sigma
+revenue_level_band,50.0,revenue level within ± this percent of the baseline
