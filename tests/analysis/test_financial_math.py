@@ -160,3 +160,31 @@ def test_historical_premium_rejects_mismatched_or_short_series():
         fm.historical_premium([0.1, 0.2], [0.05])
     with pytest.raises(FinancialMathError, match="at least 2"):
         fm.historical_premium([0.1], [0.05])
+
+
+# -- why a formula has no value (backlog #9) ---------------------------------------------------
+
+
+def _reason(call):
+    with pytest.raises(FinancialMathError) as caught:
+        call()
+    return caught.value.reason
+
+
+def test_each_no_value_case_carries_its_reason():
+    # Gordon fails at g ≥ WACC; the value-driver form only at WACC ≤ 0; discounting at ≤ −100%
+    assert _reason(lambda: fm.gordon_terminal_value(100, 0.04, 0.04)) == "growth_not_below_rate"
+    assert _reason(lambda: fm.value_driver_terminal_value(60, 0.0, 0.04)) == "rate_not_positive"
+    assert _reason(lambda: fm.discount_factors([-1.0], [1])) == "rate_not_above_minus_100"
+
+
+def test_the_value_driver_form_has_a_value_below_growth():
+    # WACC 3% < g 4% still has a value: 60 × 1.04 / 0.03 = 2080
+    assert fm.value_driver_terminal_value(60, 0.03, 0.04) == pytest.approx(2080)
+
+
+def test_other_checks_say_invalid_input_and_unknown_codes_are_refused():
+    assert _reason(lambda: fm.value_per_share(100, 0)) == "invalid_input"
+    assert _reason(lambda: fm.discount_factors([0.1], [0])) == "invalid_input"
+    with pytest.raises(ValueError, match="unknown"):
+        FinancialMathError("x", "made_up")
