@@ -21,7 +21,7 @@ Tests: g = WACC and g > WACC are refused with `growth_not_below_rate`; WACC ≤ 
 
 **Step 2. The Monte Carlo floor is terminal growth for both rules.** `_check_samples` refuses samples whose Y5 discount rate is at or below terminal growth, whatever the terminal rule, with the same count message. Tests: a value-driver simulation whose samples push Y5 WACC to g stops with the count; one that stays above runs as before. Exit: green.
 
-**Step 3. Docs.** Build Plan M4 notes (terminal value) and the M2.1 "Reproduce" bullet; after merge, v0.5.4 in `docs/versions.md`.
+**Step 3. Docs.** Build Plan M4 Result notes (the terminal value now needs g < WACC); after merge, v0.5.4 in `docs/versions.md`.
 
 ## What changes for stored results
 
@@ -43,4 +43,4 @@ No base valuation is expected to change: every base run in the M2.1 grid had WAC
 
 ## Where the work stopped
 
-- Step 0 written.
+- Steps 0–3 built (521 tests). Next: review, PR.
