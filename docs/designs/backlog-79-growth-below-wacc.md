@@ -39,8 +39,11 @@ No base valuation is expected to change: every base run in the M2.1 grid had WAC
 
 ## Review log
 
-(filled after review)
+The decision was the owner's, so the design went straight to build; the analyst and gatekeeper reviewed the PR together.
+
+- **Analyst** (GO, no blockers): the fix is how a practitioner computes it; at g = WACC all NOPAT is reinvested and FCF is zero forever, at g > WACC the sum diverges (Koller, Goedhart and Wessels, ch. 14). The order of checks is sensible, and the Monte Carlo floor uses Y5's rate, the one the terminal value uses. Taken: a property test tying the closed form to the perpetuity it comes from. To backlog: a risk-premium shock that ends before Y5 can push an earlier period's WACC to zero or below unreported (a valid discount, not a missing value). For the desk: say that a reproduce check on the owner's database may show mismatches for ERP − 1 SE and for simulations, by design.
+- **Gatekeeper** (GO, no blockers; 521 tests, ruff clean, CI green): the replaced test asserted the defect the owner ruled out, and its replacements check more. Taken: a property test that both terminal rules refuse g ≥ WACC. To do after merge: count affected runs on the owner's database.
 
 ## Where the work stopped
 
-- Steps 0–3 built (521 tests). Next: review, PR.
+- Steps 0–3 built and reviewed (GO from analyst and gatekeeper), PR #89. Next: merge, v0.5.4.
