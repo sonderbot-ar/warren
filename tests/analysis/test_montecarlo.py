@@ -125,3 +125,12 @@ def test_split_normal_draws_use_the_documented_generator():
 
     expected = 20 + np.percentile(fm.split_normal(-6, -2, -1, z), 50)
     assert bands[("ebit", "FY2024Q3")].p50 == pytest.approx(expected)
+
+
+def test_a_level_shock_is_stored_and_reproduces(company):
+    run_id = run_baseline(company, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    level = shock(**RANGE, horizon=4).model_copy(update={"basis": "level"})
+    sim_id = montecarlo.save_simulation(company, run_id, [level], n=200, seed=3)
+    [loaded] = montecarlo.load_simulation_shocks(company, sim_id)
+    assert loaded.basis == "level"
+    assert montecarlo.reproduce_simulation(company, sim_id).ok

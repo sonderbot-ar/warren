@@ -5,6 +5,11 @@ h = 1…20: the run's 8 forecast quarters map one to one, and each of Y3, Y4 and
 of its four quarters' effects. Magnitudes are in percentage points (basis points for the risk
 premium); positive means a higher driver. The magnitude may be a number or a numpy array of
 samples: applying a shock is the same arithmetic either way.
+
+A revenue shock's basis is `growth` (M4: it moves the growth rate, so even a short one leaves a
+lasting level change) or `level` (M6: it moves revenue itself by magnitude × the period's share
+of the shape, and once the shape ends revenue is back at the baseline). A level shock is turned
+into the growth path exactly, from the run's own seed.
 """
 
 import hashlib
@@ -39,11 +44,16 @@ class Shock(BaseModel):
     decay: float = Field(..., description="share of the effect left each quarter, in (0, 1]")
     source: Literal["user", "computed", "llm_proposed"]
     rationale: str = Field(..., min_length=1, description="evidence: a URL or accession number")
+    basis: Literal["growth", "level"] = "growth"
 
     @model_validator(mode="after")
     def _valid(self) -> "Shock":
         if not self.low <= self.base <= self.high:
             raise ValueError(f"{self.shock_id}: need low ≤ base ≤ high")
+        if self.basis == "level" and self.driver != "revenue_growth":
+            raise ValueError(f"{self.shock_id}: only a revenue shock can move the level")
+        if self.basis == "level" and self.low <= -100:
+            raise ValueError(f"{self.shock_id}: a level shock can't remove all revenue")
         try:
             fm.shock_shape(self.start_period, self.horizon, self.decay, GRID_QUARTERS)
         except fm.FinancialMathError as e:
@@ -66,19 +76,49 @@ def apply(inp: Inputs, shocks: list[Shock], magnitudes: list | None = None) -> I
         raise ValueError("one magnitude per shock")
     driver = {name: list(path) for name, path in inp.driver.items()}
     shift = list(inp.cost_of_equity_shift or [0.0] * len(inp.periods))
+    level = [1.0] * len(inp.periods)  # revenue multiplier per period from level shocks
     for shock, magnitude in zip(shocks, magnitudes, strict=True):
         size = magnitude * UNIT[shock.driver]
+        if shock.basis == "level":
+            for i, share in enumerate(period_effects(shock)):
+                if share:
+                    level[i] = level[i] + size * share
+            continue
         path = shift if shock.driver == "risk_premium" else driver[DRIVER_ROWS[shock.driver]]
         for i, share in enumerate(period_effects(shock)):
             if share:
                 path[i] = path[i] + size * share
+    if any(s.basis == "level" for s in shocks):
+        driver["revenue_growth"] = _growth_for_level(inp.seed, driver["revenue_growth"], level)
     has_shift = inp.cost_of_equity_shift is not None or any(
         s.driver == "risk_premium" for s in shocks
     )
     return inp.replace(driver=driver, cost_of_equity_shift=shift if has_shift else None)
 
 
+def _growth_for_level(seed: list, growth: list, level: list) -> list:
+    """The growth path whose revenue is the path from `growth` times `level`, period by period.
+
+    Quarters grow from the same quarter a year earlier and years from the year before (dcf), so
+    each new rate is the target level over the target level it grows from, minus 1.
+    """
+    quarters = fm.compound(seed, growth[:QUARTERS], lag=4)
+    target = [q * m for q, m in zip(quarters, level[:QUARTERS], strict=True)]
+    history = list(seed) + target
+    out = [history[i + 4] / history[i] - 1 for i in range(QUARTERS)]
+    year, before = sum(quarters[-4:]), sum(target[-4:])
+    for g, m in zip(growth[QUARTERS:], level[QUARTERS:], strict=True):
+        year = year * (1 + g)
+        out.append(year * m / before - 1)
+        before = year * m
+    return out
+
+
 def shocks_sha256(shocks: list[Shock]) -> str:
-    """Hash of the shocks' fields, in order, so an edited shock can't pass as the one simulated."""
-    payload = json.dumps([s.model_dump() for s in shocks], sort_keys=True)
+    """Hash of the shocks' fields, in order, so an edited shock can't pass as the one simulated.
+    A growth shock hashes without its basis, as it did before the basis existed (M6)."""
+    payload = json.dumps(
+        [s.model_dump(exclude={"basis"} if s.basis == "growth" else None) for s in shocks],
+        sort_keys=True,
+    )
     return hashlib.sha256(payload.encode()).hexdigest()
