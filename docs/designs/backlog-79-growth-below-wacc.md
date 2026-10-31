@@ -46,4 +46,4 @@ The decision was the owner's, so the design went straight to build; the analyst 
 
 ## Where the work stopped
 
-- Steps 0–3 built and reviewed (GO from analyst and gatekeeper), PR #89. Next: merge, v0.5.4.
+- Done. Merged in #89 (`88cba70`, v0.5.4) after green CI and GO from the analyst and gatekeeper (523 tests). Still to do on the owner's database: `reproduce --all` and the simulation check, to count affected runs. Review idea: backlog #90.
