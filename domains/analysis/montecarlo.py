@@ -69,7 +69,9 @@ def _check_samples(inp: Inputs, n: int) -> None:
         one["cost_of_debt"],
         one["debt_tax_rate"],
     )
-    floor = 0.0 if inp.terminal_method == dcf.VALUE_DRIVER else one["terminal_growth"]
+    # both terminal rules need Y5's rate above terminal growth: the perpetuity behind either one
+    # converges only there (Decision 4; backlog #79, owner decision)
+    floor = one["terminal_growth"]
     bad = np.broadcast_to(np.asarray(last) <= floor, (n,))
     if bad.any():
         problems.append(f"{int(bad.sum())} samples put Y5's discount rate at or below {floor:.2%}")

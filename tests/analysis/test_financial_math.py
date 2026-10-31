@@ -172,15 +172,29 @@ def _reason(call):
 
 
 def test_each_no_value_case_carries_its_reason():
-    # Gordon fails at g ≥ WACC; the value-driver form only at WACC ≤ 0; discounting at ≤ −100%
+    # Gordon fails at g ≥ WACC; the value-driver form at WACC ≤ 0 first; discounting at ≤ −100%
     assert _reason(lambda: fm.gordon_terminal_value(100, 0.04, 0.04)) == "growth_not_below_rate"
     assert _reason(lambda: fm.value_driver_terminal_value(60, 0.0, 0.04)) == "rate_not_positive"
     assert _reason(lambda: fm.discount_factors([-1.0], [1])) == "rate_not_above_minus_100"
 
 
-def test_the_value_driver_form_has_a_value_below_growth():
-    # WACC 3% < g 4% still has a value: 60 × 1.04 / 0.03 = 2080
-    assert fm.value_driver_terminal_value(60, 0.03, 0.04) == pytest.approx(2080)
+@pytest.mark.parametrize("wacc", [0.04, 0.03])
+def test_the_value_driver_form_has_no_value_at_or_above_growth(wacc):
+    # the perpetuity behind NOPAT × (1 + g) / WACC converges only for g < WACC (backlog #79)
+    call = lambda: fm.value_driver_terminal_value(60, wacc, 0.04)  # noqa: E731
+    assert _reason(call) == "growth_not_below_rate"
+
+
+def test_the_value_driver_form_just_below_growth_by_hand():
+    # WACC 4.1% > g 4%: 60 × 1.04 / 0.041 = 1521.95…
+    assert fm.value_driver_terminal_value(60, 0.041, 0.04) == pytest.approx(60 * 1.04 / 0.041)
+
+
+def test_the_value_driver_form_refuses_any_sample_at_or_above_growth():
+    import numpy as np
+
+    with pytest.raises(FinancialMathError, match="terminal growth"):
+        fm.value_driver_terminal_value(60, np.array([0.08, 0.04]), 0.04)
 
 
 def test_other_checks_say_invalid_input_and_unknown_codes_are_refused():

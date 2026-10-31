@@ -12,7 +12,7 @@ from domains.analysis.montecarlo import SimulationError
 from domains.analysis.runs import run_baseline
 from shared_kernel.database import apply_migrations
 from tests.analysis.conftest import AS_OF, CHOICES
-from tests.analysis.test_dcf import rows
+from tests.analysis.test_dcf import VALUE_DRIVER_ROW, rows
 from tests.analysis.test_shocks import shock
 
 RANGE = {"low": -6.0, "base": -2.0, "high": -1.0}
@@ -55,6 +55,21 @@ def test_a_discount_rate_the_terminal_value_cannot_use_stops_the_run():
     deep = shock(driver="risk_premium", low=-1500.0, base=0.0, high=0.0, horizon=20)
     with pytest.raises(SimulationError, match="discount rate"):
         montecarlo.simulate(rows(), [deep], n=1000, seed=1)
+
+
+def test_under_the_value_driver_rule_a_rate_at_terminal_growth_stops_the_run():
+    # g 4%; −700 bp at p10 on a 10% cost of equity puts Y5's rate below 4% in some samples,
+    # which the value-driver perpetuity can't value either (backlog #79)
+    low = shock(driver="risk_premium", low=-700.0, base=-300.0, high=0.0, horizon=20)
+    with pytest.raises(SimulationError, match="at or below 4.00%"):
+        montecarlo.simulate(rows(terminal_growth=0.04) + [VALUE_DRIVER_ROW], [low], n=1000, seed=1)
+
+
+def test_under_the_value_driver_rule_rates_above_terminal_growth_run():
+    # −100 bp at p10: the lowest of 1,000 samples stays far above 4%
+    mild = shock(driver="risk_premium", low=-100.0, base=0.0, high=0.0, horizon=20)
+    bands = montecarlo.simulate(rows(terminal_growth=0.04) + [VALUE_DRIVER_ROW], [mild], n=1000)
+    assert bands[("value_per_share", "-")].p50 > 0
 
 
 def test_migration_applies_to_an_existing_database(tmp_path):

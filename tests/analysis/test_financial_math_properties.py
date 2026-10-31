@@ -75,3 +75,21 @@ def test_wacc_lies_between_its_two_costs(equity, debt, cost_equity, cost_debt, t
 def test_compound_with_zero_growth_repeats_the_seed(seed, n):
     projected = fm.compound(seed, [0.0] * n, lag=4)
     assert projected == pytest.approx([seed[i % 4] for i in range(n)])
+
+
+@given(cash_flow, rate, growth)
+def test_value_driver_form_is_the_perpetuity_it_comes_from(nopat, r, g):
+    # with RONIC = WACC, g / WACC of NOPAT is reinvested; Gordon on what is left gives the same
+    # value as NOPAT × (1 + g) / WACC (Koller, Goedhart and Wessels, ch. 14)
+    free_cash_flow = nopat * (1 - g / r)
+    gordon = fm.gordon_terminal_value(free_cash_flow, r, g)
+    assert fm.value_driver_terminal_value(nopat, r, g) == pytest.approx(gordon, rel=1e-9)
+
+
+@given(cash_flow, rate, st.floats(min_value=0.0, max_value=0.10))
+def test_both_terminal_rules_refuse_growth_at_or_above_the_rate(cf, r, extra):
+    # backlog #79: neither perpetuity converges at g ≥ WACC
+    for formula in (fm.gordon_terminal_value, fm.value_driver_terminal_value):
+        with pytest.raises(fm.FinancialMathError) as caught:
+            formula(cf, r, r + extra)
+        assert caught.value.reason == "growth_not_below_rate"

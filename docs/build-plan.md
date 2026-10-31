@@ -340,6 +340,7 @@ Shock
 | PG, fiscal Q4 2019 | 5.2% → 3.2% | 46.21 → 46.53 (an $8B Gillette impairment) |
 | KO, Q2–Q4 2019 | 19.9–30.2% → 20.4–30.6% | 6.39–10.85 → 6.51–10.92 |
 
+- *(oct.31.2026, backlog #79, owner decision.)* The value-driver terminal value needs terminal growth below WACC, like Gordon: the perpetuity behind it converges only there. A baseline's ERP ± 1 SE at g ≥ WACC is stored as a gap with its reason, and a simulation stops when samples put Y5's rate at or below g under either rule (it used to allow anything above 0 under the value-driver rule). The three simulations above shock revenue and operating income only, so every sample keeps the base rate; whether any stored run or simulation is affected is still to be checked on the owner's database (the cloud has no database).
 - Three cases test the plumbing, not whether shocks help; M8 decides that. Microsoft's actual revenue ($51.87B) fell below its revised low, so the guided band was too narrow, as noted in the design.
 - Coca-Cola's baseline misses 2019 revenue by 20–30%: all four year-1 quarters take one rate, the FY2016–FY2018 average decline (−10.3%, years of bottler refranchising), fading after that, in a year that grew. The shock (a 0.5-point cut) is small next to that baseline error, and its band has no width because the revised guide is a single figure (12%).
 - With 26 cases the headline medians are revenue 6.1% (naive 7.2%) and EBIT 3.33 points (naive 4.06); M3's were 5.6% and 3.17 on 24. The two new cases explain the change; no forecast rule changed.
