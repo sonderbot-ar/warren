@@ -14,6 +14,7 @@ company: there are no per-company exceptions.
 
 import csv
 import math
+import re
 import sqlite3
 import warnings
 from collections import defaultdict
@@ -38,6 +39,7 @@ from domains.market.store import selected_fetch
 from domains.market.yields import RISK_FREE_SERIES, risk_free_rate
 
 USER_ASSUMPTIONS_PATH = Path(__file__).parent / "user_assumptions.csv"
+# A choice added later needs a rule for runs made before it: see CHOICES_ADDED_LATER in runs.py.
 USER_CHOICES = {
     "erp_method": {"historical_geometric"},
     "erp_first_year": None,  # a year
@@ -121,6 +123,21 @@ class UserChoice:
             method=f"{self.value}: set by {self.set_by} on {self.set_on}. {self.note}",
         )
 
+    @classmethod
+    def from_assumption(cls, row: Assumption) -> "UserChoice":
+        """The choice a run stored, read back from its row: the inverse of `as_assumption`."""
+        match = _CHOICE_METHOD.fullmatch(row.method)
+        if row.source != "user" or match is None:
+            raise EngineError(f"{row.name}: not a stored choice of the owner ({row.method!r})")
+        return cls(row.name, **match.groupdict())
+
+
+# as_assumption's method text; the first " on <date>. " ends the name, so a note may hold dates
+_CHOICE_METHOD = re.compile(
+    r"(?P<value>.+?): set by (?P<set_by>.+?) on (?P<set_on>\d{4}-\d{2}-\d{2})\. (?P<note>.*)",
+    re.DOTALL,
+)
+
 
 def load_user_assumptions(path: Path = USER_ASSUMPTIONS_PATH) -> dict[str, UserChoice]:
     """The owner's choices; a missing, unknown or invalid one is an error, never a default."""
@@ -141,6 +158,17 @@ def load_user_assumptions(path: Path = USER_ASSUMPTIONS_PATH) -> dict[str, UserC
                 )
             if not (choice.set_by and choice.set_on):
                 raise EngineError(f"{path.name} line {line}: {choice.name} needs set_by and set_on")
+            # a run stores the choice as text that UserChoice.from_assumption must read back
+            try:
+                date.fromisoformat(choice.set_on)
+            except ValueError:
+                raise EngineError(
+                    f"{path.name} line {line}: set_on must be a date like 2026-10-26"
+                ) from None
+            if " on " in choice.set_by or ": set by " in choice.set_by:
+                raise EngineError(
+                    f"{path.name} line {line}: set_by can't hold ' on ' or ': set by '"
+                )
             choices[choice.name] = choice
     missing = sorted(set(USER_CHOICES) - set(choices))
     if missing:

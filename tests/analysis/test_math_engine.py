@@ -188,6 +188,13 @@ def test_user_assumptions_must_be_complete_and_valid(tmp_path):
     path.write_text(header + "erp_first_year,1989,,2026-10-26,x\n")
     with pytest.raises(EngineError, match="set_by"):
         load_user_assumptions(path)
+    # what a run stores must read back (backlog #11): an ISO date, and a name without " on "
+    path.write_text(header + "erp_first_year,1989,owner,oct.30.2026,x\n")
+    with pytest.raises(EngineError, match="set_on must be a date"):
+        load_user_assumptions(path)
+    path.write_text(header + "erp_first_year,1989,owner on call,2026-10-26,x\n")
+    with pytest.raises(EngineError, match="set_by can't hold"):
+        load_user_assumptions(path)
 
 
 def test_the_shipped_user_assumptions_load():
