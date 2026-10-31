@@ -114,3 +114,8 @@ CREATE TABLE proposal_shocks (
     shock_id     TEXT NOT NULL REFERENCES shocks (shock_id),
     PRIMARY KEY (proposal_id, shock_id)
 );
+
+-- a revenue shock may move the level instead of the growth rate (M6 design, Revenue is a level);
+-- every shock stored before 0012 is a growth shock
+ALTER TABLE shocks ADD COLUMN basis TEXT NOT NULL DEFAULT 'growth'
+    CHECK (basis IN ('growth', 'level'));
