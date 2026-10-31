@@ -1,5 +1,7 @@
 from contextlib import contextmanager
 
+import pytest
+
 from domains.analysis import __main__ as cli
 from domains.analysis import report
 from domains.analysis.runs import load_outputs, run_baseline
@@ -32,15 +34,58 @@ def test_report_shows_the_valuation_and_its_sources(company, tmp_path):
     assert "No useful precision" not in text
 
 
-def test_report_says_when_erp_minus_one_se_leaves_no_value(company):
+MINUS = "value_per_share_erp_minus_1se"
+
+
+def _drop_minus(conn, run_id):
+    conn.execute("DELETE FROM run_outputs WHERE run_id = ? AND name = ?", (run_id, MINUS))
+
+
+@pytest.mark.parametrize(
+    "reason, words, sentence",
+    [
+        ("growth_not_below_rate", "WACC ≤ terminal growth", "falls to terminal growth or below"),
+        ("rate_not_positive", "WACC ≤ 0", "falls to zero or below"),
+    ],
+)
+def test_report_says_the_stored_reason_for_a_missing_value(company, reason, words, sentence):
     run_id = run(company)
+    _drop_minus(company, run_id)
     company.execute(
-        "DELETE FROM run_outputs WHERE run_id = ? AND name = 'value_per_share_erp_minus_1se'",
-        (run_id,),
+        "INSERT INTO run_output_gaps VALUES (?, ?, '-', ?, 'detail')", (run_id, MINUS, reason)
     )
     text = report.render(company, run_id)
-    assert "−1 SE no value (WACC ≤ growth)" in text
-    assert "**No useful precision.**" in text
+    assert f"−1 SE no value ({words})" in text
+    assert "**No useful precision.**" in text and sentence in text
+    # a lower ERP raises the value, so the missing bound is the upper one
+    assert "without an upper bound" in text and "lower bound" not in text
+    assert "recomputed" not in text
+
+
+def test_report_recomputes_the_reason_for_a_run_stored_before_reasons_were(company):
+    # no gap row (a run from before 0013) and rows whose ERP − 1 SE truly has no value: an
+    # ERP standard error larger than the ERP takes the cost of equity, and WACC, below zero
+    run_id = run(company)
+    _drop_minus(company, run_id)
+    erp = company.execute(
+        "SELECT value FROM assumptions WHERE run_id = ? AND name = 'erp'", (run_id,)
+    ).fetchone()[0]
+    company.execute(
+        "UPDATE assumptions SET value = ? WHERE run_id = ? AND name = 'erp_std_error'",
+        (erp + 0.5, run_id),
+    )
+    text = report.render(company, run_id)
+    assert "−1 SE no value (WACC ≤ 0) (recomputed" in text
+    assert "falls to zero or below" in text
+
+
+def test_report_does_not_guess_a_reason_it_cannot_find(company):
+    # an output missing although the rows give it a value: say so, never name a cause
+    run_id = run(company)
+    _drop_minus(company, run_id)
+    text = report.render(company, run_id)
+    assert "−1 SE no value (reason not found)" in text
+    assert "No useful precision" not in text
 
 
 def test_cli_runs_reproduces_and_reports(company, tmp_path, monkeypatch, capsys):
