@@ -28,4 +28,4 @@ No design decision changes: Decision 1 (keys loaded once, from the environment, 
 
 ## Where the work stopped
 
-- Step 1 and the review fix committed in PR #96; gatekeeper re-check next. After merge the owner renames the cloud variable to `WARREN_ANTHROPIC_API_KEY`, and the next run starts M6 Step 8 with a dry run.
+- Done. Merged in #96 (`5b2b1bd`, v0.5.6) after green CI and a gatekeeper GO on re-check (535 tests). Next: the owner renames the cloud variable to `WARREN_ANTHROPIC_API_KEY`; the next run then starts M6 Step 8 with a dry run. After merge the owner renames the cloud variable to `WARREN_ANTHROPIC_API_KEY`, and the next run starts M6 Step 8 with a dry run.
