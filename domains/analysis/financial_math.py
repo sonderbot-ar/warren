@@ -113,11 +113,18 @@ def value_driver_terminal_value(
 
     The value-driver formula NOPAT × (1 + g) × (1 − g / RONIC) / (WACC − g) with RONIC = WACC
     (Koller, Goedhart & Wessels, Valuation, 7th ed., ch. 14): reinvestment is tied to growth and
-    growth adds no value, so it reduces to NOPAT × (1 + g) / WACC.
+    growth adds no value, so it reduces to NOPAT × (1 + g) / WACC. The cancellation holds only
+    where the perpetuity converges, g < WACC; at g ≥ WACC there is no value (backlog #79).
     """
     if _any(discount_rate <= 0):
         raise FinancialMathError(
             f"discount rate must be positive, got {discount_rate}", "rate_not_positive"
+        )
+    if _any(terminal_growth >= discount_rate):
+        raise FinancialMathError(
+            f"terminal growth ({terminal_growth}) must be below the discount rate "
+            f"({discount_rate})",
+            "growth_not_below_rate",
         )
     return final_annual_nopat * (1 + terminal_growth) / discount_rate
 

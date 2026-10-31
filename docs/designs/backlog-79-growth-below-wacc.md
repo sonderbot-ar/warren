@@ -25,7 +25,7 @@ Tests: g = WACC and g > WACC are refused with `growth_not_below_rate`; WACC ≤ 
 
 ## What changes for stored results
 
-No base valuation changes: every stored base run has WACC above g (the spread warning counts runs below 3 points, all positive). A value-driver run that stored an ERP − 1 SE value at WACC ≤ g will now show a mismatch in `reproduce` for that one output (stored a value, now none). That is the intended effect: the stored number did not exist. Such runs should be valued again. A stored simulation whose samples reach WACC ≤ g will no longer reproduce; it stops instead. The cloud environment has no database, so the count of affected runs is checked on the owner's database after merge (`python -m domains.analysis reproduce --all`); the desk entry says so.
+No base valuation is expected to change: every base run in the M2.1 grid had WACC above g (Gordon, which refuses g ≥ WACC, gave all 40 a value), and a base run at g ≥ WACC would now stop with an error instead of storing a value. A value-driver run that stored an ERP − 1 SE value at WACC ≤ g will now show a mismatch in `reproduce` for that one output (stored a value, now none). That is the intended effect: the stored number did not exist. Such runs should be valued again. A stored simulation whose samples reach WACC ≤ g will no longer reproduce; it stops instead. The cloud environment has no database, so the count of affected runs is checked on the owner's database after merge (`python -m domains.analysis reproduce --all`); the desk entry says so.
 
 ## Alternatives considered
 

@@ -191,6 +191,16 @@ def test_a_value_driver_gap_says_wacc_at_or_below_zero():
     assert ("value_per_share_erp_plus_1se", SINGLE) in out
 
 
+def test_a_value_driver_gap_at_wacc_equal_to_growth():
+    # ERP − 1 SE = 0: cost of capital 4% = terminal growth 4%; the value-driver perpetuity does
+    # not converge there, so no value, as under Gordon (backlog #79)
+    out, gaps = dcf.outputs_and_gaps(
+        rows(terminal_growth=0.04) + [row("erp_std_error", 0.06), VALUE_DRIVER_ROW]
+    )
+    assert MINUS not in out and gaps[MINUS].reason == "growth_not_below_rate"
+    assert ("value_per_share", SINGLE) in out
+
+
 def test_no_gap_when_both_sensitivities_have_a_value():
     _out, gaps = dcf.outputs_and_gaps(rows() + [row("erp_std_error", 0.02)])
     assert gaps == {}
