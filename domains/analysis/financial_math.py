@@ -20,8 +20,24 @@ Number = Any  # float, or a numpy array of samples (M4)
 BLUME_WEIGHT = 2 / 3
 
 
+# Why a formula has no value, as a code a run can store (backlog #9). The words a reader sees
+# live with the report (Decision 11, guardrail 5), not here.
+REASONS = frozenset(
+    {"growth_not_below_rate", "rate_not_positive", "rate_not_above_minus_100", "invalid_input"}
+)
+
+
 class FinancialMathError(ValueError):
-    """An input makes a formula meaningless (e.g. terminal growth at or above the discount rate)."""
+    """An input makes a formula meaningless (e.g. terminal growth at or above the discount rate).
+
+    `reason` is one of REASONS; checks that only guard against bad arguments use invalid_input.
+    """
+
+    def __init__(self, message: str, reason: str = "invalid_input"):
+        if reason not in REASONS:
+            raise ValueError(f"unknown FinancialMathError reason {reason}")
+        super().__init__(message)
+        self.reason = reason
 
 
 def _any(condition: Number) -> bool:
@@ -67,7 +83,9 @@ def discount_factors(rates: Sequence[Number], year_fractions: Sequence[float]) -
     factors, factor = [], 1.0
     for rate, years in zip(rates, year_fractions, strict=True):
         if _any(rate <= -1):
-            raise FinancialMathError(f"discount rate must be above -100%, got {rate}")
+            raise FinancialMathError(
+                f"discount rate must be above -100%, got {rate}", "rate_not_above_minus_100"
+            )
         if years <= 0:
             raise FinancialMathError(f"period length must be positive, got {years}")
         factor = factor * (1 + rate) ** -years
@@ -81,7 +99,9 @@ def gordon_terminal_value(
     """Value, at the end of the last forecast year, of the cash flows after it growing forever."""
     if _any(terminal_growth >= discount_rate):
         raise FinancialMathError(
-            f"terminal growth ({terminal_growth}) must be below the discount rate ({discount_rate})"
+            f"terminal growth ({terminal_growth}) must be below the discount rate "
+            f"({discount_rate})",
+            "growth_not_below_rate",
         )
     return final_annual_cash_flow * (1 + terminal_growth) / (discount_rate - terminal_growth)
 
@@ -96,7 +116,9 @@ def value_driver_terminal_value(
     growth adds no value, so it reduces to NOPAT × (1 + g) / WACC.
     """
     if _any(discount_rate <= 0):
-        raise FinancialMathError(f"discount rate must be positive, got {discount_rate}")
+        raise FinancialMathError(
+            f"discount rate must be positive, got {discount_rate}", "rate_not_positive"
+        )
     return final_annual_nopat * (1 + terminal_growth) / discount_rate
 
 

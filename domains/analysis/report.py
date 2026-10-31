@@ -4,8 +4,9 @@ import sqlite3
 from pathlib import Path
 
 from domains.analysis import dcf
-from domains.analysis.runs import load_assumptions, load_outputs
+from domains.analysis.runs import load_assumptions, load_gaps, load_outputs
 from domains.analysis.schemas import SINGLE
+from domains.analysis.text import REASON_SENTENCES, REASON_WORDS
 from shared_kernel.config import REPORTS_DIR as ALL_REPORTS_DIR
 
 REPORTS_DIR = ALL_REPORTS_DIR / "dcf"
@@ -49,6 +50,7 @@ def render(conn: sqlite3.Connection, run_id: str) -> str:
     rows = load_assumptions(conn, run_id)
     by_key = {(a.name, a.period): a for a in rows}
     out = load_outputs(conn, run_id)
+    gaps = _gaps(conn, run_id, rows, out)
 
     def a(name: str, period: str = SINGLE) -> float:
         return by_key[(name, period)].value
@@ -70,8 +72,8 @@ def render(conn: sqlite3.Connection, run_id: str) -> str:
         "",
         f"- **Value per share: {o('value_per_share'):,.2f}** "
         f"(share price {price.value:,.2f}, {price.method.split(' (')[0]}, for comparison only)",
-        f"- At ERP ± 1 standard error: {_sensitivity(out)}",
-        *_precision(out),
+        f"- At ERP ± 1 standard error: {_sensitivity(out, gaps)}",
+        *_precision(gaps),
         f"- Enterprise value {_m(o('enterprise_value_as_of'))}M · equity value "
         f"{_m(o('equity_value'))}M (USD millions)",
         f"- WACC {_pct(o('wacc'))} · terminal growth {_pct(a('terminal_growth'))} · terminal "
@@ -198,24 +200,50 @@ def render(conn: sqlite3.Connection, run_id: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _sensitivity(out: dict) -> str:
+SENSITIVITIES = (("erp_minus_1se", "−1 SE"), ("erp_plus_1se", "+1 SE"))
+
+
+RECOMPUTED = " (recomputed: this run was stored before reasons were)"
+
+
+def _gaps(conn: sqlite3.Connection, run_id: str, rows, out: dict) -> dict:
+    """Why each ERP ± 1 SE value is missing, as (gap, note): as stored with the run, or, for a
+    run stored before reasons were (migration 0013), found again from the run's own rows the way
+    reproduce values them, and noted as recomputed."""
+    gaps = {key: (gap, "") for key, gap in load_gaps(conn, run_id).items()}
+    keys = [(f"value_per_share_{name}", SINGLE) for name, _label in SENSITIVITIES]
+    missing = [key for key in keys if key not in out and key not in gaps]
+    if missing:
+        _outputs, found = dcf.outputs_and_gaps(rows)
+        gaps |= {key: (found[key], RECOMPUTED) for key in missing if key in found}
+    return gaps
+
+
+def _sensitivity(out: dict, gaps: dict) -> str:
     parts = []
-    for name, label in (("erp_minus_1se", "−1 SE"), ("erp_plus_1se", "+1 SE")):
-        value = out.get((f"value_per_share_{name}", SINGLE))
-        parts.append(
-            f"{label} {value:,.2f}" if value is not None else f"{label} no value (WACC ≤ growth)"
-        )
+    for name, label in SENSITIVITIES:
+        key = (f"value_per_share_{name}", SINGLE)
+        if key in out:
+            parts.append(f"{label} {out[key]:,.2f}")
+        elif key in gaps:
+            gap, note = gaps[key]
+            parts.append(f"{label} no value ({REASON_WORDS[gap.reason]}){note}")
+        else:
+            parts.append(f"{label} no value (reason not found)")
     return " · ".join(parts)
 
 
-def _precision(out: dict) -> list[str]:
+def _precision(gaps: dict) -> list[str]:
     """A sentence when ERP − 1 SE leaves no value: the ERP's error alone swamps the result."""
-    if ("value_per_share_erp_minus_1se", SINGLE) in out:
+    key = ("value_per_share_erp_minus_1se", SINGLE)
+    if key not in gaps:
         return []
+    gap, _note = gaps[key]
+    # a lower ERP lowers WACC and raises the value, so it is the upper bound that goes missing
     return [
-        "- **No useful precision.** One standard error below the estimated ERP, WACC falls to "
-        "terminal growth or below and the DCF has no value, so the ERP's uncertainty alone "
-        "leaves the value per share without a lower bound. Read it as an order of magnitude."
+        f"- **No useful precision.** One standard error below the estimated ERP, "
+        f"{REASON_SENTENCES[gap.reason]}. The ERP's uncertainty alone leaves the value per share "
+        "without an upper bound. Read it as an order of magnitude."
     ]
 
 

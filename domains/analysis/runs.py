@@ -1,6 +1,7 @@
 """Storing DCF runs, reproducing them from their stored assumptions (exit criterion of M2) and
 rebuilding their assumptions from the data they were built from (M2.1)."""
 
+import dataclasses
 import sqlite3
 import subprocess
 from dataclasses import dataclass
@@ -8,6 +9,7 @@ from datetime import date
 from pathlib import Path
 
 from domains.analysis import dcf
+from domains.analysis import financial_math as fm
 from domains.analysis.math_engine import (
     USER_CHOICES,
     EngineError,
@@ -17,6 +19,7 @@ from domains.analysis.math_engine import (
     post_checks,
 )
 from domains.analysis.schemas import Assumption
+from domains.analysis.text import REASON_WORDS
 from domains.fundamentals.concepts import concept_map_sha256
 from domains.market.prices import MARKET_INDEX
 from domains.market.store import fetch_with_hash, pin_fetches
@@ -51,8 +54,13 @@ def save_run(
     result: EngineResult,
     outputs: dict[tuple[str, str], float],
     notes: list[str],
+    gaps: dict[tuple[str, str], dcf.Gap] | None = None,
 ) -> str:
-    """Store a run's assumptions and outputs in one transaction; returns its run id."""
+    """Store a run's assumptions, outputs and the reasons for outputs it has no value for, in one
+    transaction; returns its run id."""
+    gaps = gaps or {}
+    for gap in gaps.values():
+        _check_reason(gap.reason)
     prefix = f"{result.ticker}_{result.as_of.isoformat()}_"
     count = conn.execute(
         "SELECT COUNT(*) FROM runs WHERE run_id LIKE ?", (prefix + "%",)
@@ -87,7 +95,28 @@ def save_run(
             "INSERT INTO run_outputs (run_id, name, period, value) VALUES (?, ?, ?, ?)",
             [(run_id, name, period, value) for (name, period), value in outputs.items()],
         )
+        conn.executemany(
+            "INSERT INTO run_output_gaps (run_id, name, period, reason, detail) "
+            "VALUES (?, ?, ?, ?, ?)",
+            [(run_id, n, p, g.reason, g.detail) for (n, p), g in gaps.items()],
+        )
     return run_id
+
+
+def _check_reason(reason: str) -> str:
+    if reason not in fm.REASONS:
+        raise ValueError(f"unknown reason {reason!r} for a missing output")
+    return reason
+
+
+def load_gaps(conn: sqlite3.Connection, run_id: str) -> dict[tuple[str, str], dcf.Gap]:
+    """Why each output a run has no value for is missing. Empty for a run stored before 0013."""
+    return {
+        (r["name"], r["period"]): dcf.Gap(_check_reason(r["reason"]), r["detail"])
+        for r in conn.execute(
+            "SELECT name, period, reason, detail FROM run_output_gaps WHERE run_id = ?", (run_id,)
+        )
+    }
 
 
 def load_assumptions(conn: sqlite3.Connection, run_id: str) -> list[Assumption]:
@@ -117,10 +146,12 @@ class Reproduction:
     mismatches: list[tuple[str, str, float | None, float | None]]  # name, period, stored, now
     stored_code_version: str
     current_code_version: str
+    # name, period, stored reason, reason now: a stored gap whose cause changed (backlog #9)
+    gap_mismatches: list[tuple[str, str, str, str | None]] = dataclasses.field(default_factory=list)
 
     @property
     def ok(self) -> bool:
-        return not self.mismatches
+        return not self.mismatches and not self.gap_mismatches
 
 
 def reproduce(conn: sqlite3.Connection, run_id: str) -> Reproduction:
@@ -129,14 +160,22 @@ def reproduce(conn: sqlite3.Connection, run_id: str) -> Reproduction:
     if run is None:
         raise ValueError(f"No run {run_id}")
     stored = load_outputs(conn, run_id)
-    now = dcf.run_outputs(load_assumptions(conn, run_id))
+    now, gaps_now = dcf.outputs_and_gaps(load_assumptions(conn, run_id))
     mismatches = []
     for key in sorted(stored.keys() | now.keys()):
         before, after = stored.get(key), now.get(key)
         tolerance = RATIO_TOLERANCE if key[0] in RATIOS else CENT
         if before is None or after is None or abs(before - after) > tolerance:
             mismatches.append((*key, before, after))
-    return Reproduction(run_id, len(stored), mismatches, run["code_version"], code_version())
+    # a run stored before 0013 has no gap rows: its missing outputs are checked above, not why
+    gap_mismatches = [
+        (*key, gap.reason, gaps_now[key].reason if key in gaps_now else None)
+        for key, gap in sorted(load_gaps(conn, run_id).items())
+        if key not in gaps_now or gaps_now[key].reason != gap.reason
+    ]
+    return Reproduction(
+        run_id, len(stored), mismatches, run["code_version"], code_version(), gap_mismatches
+    )
 
 
 # Choices a run made before they existed may lack; the engine's rule for their absence applies
@@ -243,9 +282,9 @@ def run_baseline(
 ) -> str:
     """Build, value and store a baseline DCF; returns the run id."""
     result = build_inputs(conn, ticker, as_of, choices=choices, today=today)
-    outputs = dcf.run_outputs(result.assumptions)
+    outputs, gaps = dcf.outputs_and_gaps(result.assumptions)
     notes = result.warnings + post_checks(result.assumptions, outputs)
-    for name in ("erp_minus_1se", "erp_plus_1se"):
-        if (f"value_per_share_{name}", "-") not in outputs:
-            notes.append(f"No value per share at {name.replace('_', ' ')}: WACC ≤ terminal growth")
-    return save_run(conn, result, outputs, notes)
+    for (name, _period), gap in sorted(gaps.items()):
+        label = name.removeprefix("value_per_share_").replace("_", " ")
+        notes.append(f"No value per share at {label}: {REASON_WORDS[gap.reason]}")
+    return save_run(conn, result, outputs, notes, gaps)

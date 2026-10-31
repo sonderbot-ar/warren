@@ -203,3 +203,57 @@ def test_editing_the_choices_file_after_a_run_does_not_change_its_rebuild(
     assert rebuild(company, run_id, today=AS_OF).ok  # the run's own choices, not the file's
     what_if = rebuild(company, run_id, choices=edited, today=AS_OF)  # explicitly different
     assert {name for name, _period, _what in what_if.mismatches} >= {"erp_first_year", "erp"}
+
+
+# -- why an output has no value (backlog #9) ---------------------------------------------------
+
+MINUS = ("value_per_share_erp_minus_1se", "-")
+
+
+def _store_gap(conn, run_id, reason="growth_not_below_rate"):
+    conn.execute("DELETE FROM run_outputs WHERE run_id = ? AND name = ?", (run_id, MINUS[0]))
+    conn.execute(
+        "INSERT INTO run_output_gaps (run_id, name, period, reason, detail) VALUES (?, ?, ?, ?, ?)",
+        (run_id, *MINUS, reason, "terminal growth (0.04) must be below the discount rate (0.04)"),
+    )
+
+
+def test_a_run_with_values_stores_no_gap(company):
+    run_id = run(company)
+    assert runs.load_gaps(company, run_id) == {}
+    assert reproduce(company, run_id).gap_mismatches == []
+
+
+def test_save_run_stores_each_gap_and_its_note(company, monkeypatch):
+    real = runs.dcf.outputs_and_gaps
+
+    def with_gap(rows):
+        out, _gaps = real(rows)
+        out.pop(MINUS)
+        return out, {MINUS: runs.dcf.Gap("rate_not_positive", "discount rate must be positive")}
+
+    monkeypatch.setattr(runs.dcf, "outputs_and_gaps", with_gap)
+    run_id = run(company)
+    assert runs.load_gaps(company, run_id)[MINUS].reason == "rate_not_positive"
+    notes = company.execute("SELECT notes FROM runs WHERE run_id = ?", (run_id,)).fetchone()[0]
+    assert "No value per share at erp minus 1se: WACC ≤ 0" in notes
+    assert "terminal growth" not in notes
+
+
+def test_an_unknown_reason_is_refused_on_write_and_on_read(company):
+    run_id = run(company)
+    result = build_inputs(company, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    with pytest.raises(ValueError, match="unknown reason"):
+        runs.save_run(company, result, {}, [], {MINUS: runs.dcf.Gap("made_up", "x")})
+    _store_gap(company, run_id, reason="made_up")
+    with pytest.raises(ValueError, match="unknown reason"):
+        runs.load_gaps(company, run_id)
+
+
+def test_reproduce_flags_a_stored_gap_the_code_no_longer_finds(company):
+    # the run has a value at ERP − 1 SE; a stored gap saying otherwise is a mismatch
+    run_id = run(company)
+    _store_gap(company, run_id)
+    result = reproduce(company, run_id)
+    assert not result.ok
+    assert result.gap_mismatches == [(*MINUS, "growth_not_below_rate", None)]

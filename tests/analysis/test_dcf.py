@@ -1,6 +1,7 @@
 import pytest
 
 from domains.analysis import dcf
+from domains.analysis import financial_math as fm
 from domains.analysis.dcf import DCFInputError
 from domains.analysis.schemas import SINGLE, Assumption
 
@@ -159,3 +160,52 @@ def test_unknown_terminal_method_is_refused():
     bad = Assumption(name="terminal_method", period=SINGLE, value=None, source="user", method="x")
     with pytest.raises(DCFInputError, match="terminal_method"):
         dcf.value(rows() + [bad])
+
+
+# -- why a sensitivity has no value (backlog #9) -----------------------------------------------
+
+VALUE_DRIVER_ROW = Assumption(
+    name="terminal_method",
+    period=SINGLE,
+    value=None,
+    source="user",
+    method="value_driver_ronic_wacc: set by test",
+)
+MINUS = ("value_per_share_erp_minus_1se", SINGLE)
+
+
+def test_a_gordon_gap_says_wacc_at_terminal_growth():
+    # ERP − 1 SE = 0: cost of capital 4% = terminal growth 4% under Gordon
+    out, gaps = dcf.outputs_and_gaps(rows(terminal_growth=0.04) + [row("erp_std_error", 0.06)])
+    assert MINUS not in out and set(gaps) == {MINUS}
+    assert gaps[MINUS].reason == "growth_not_below_rate"
+    assert "terminal growth" in gaps[MINUS].detail
+
+
+def test_a_value_driver_gap_says_wacc_at_or_below_zero():
+    # ERP − 1 SE = 0.06 − 0.12 = −6%: cost of equity 4% − 6% = −2%, no debt, so WACC −2%
+    out, gaps = dcf.outputs_and_gaps(
+        rows(terminal_growth=0.04) + [row("erp_std_error", 0.12), VALUE_DRIVER_ROW]
+    )
+    assert gaps[MINUS].reason == "rate_not_positive"
+    assert ("value_per_share_erp_plus_1se", SINGLE) in out
+
+
+def test_no_gap_when_both_sensitivities_have_a_value():
+    _out, gaps = dcf.outputs_and_gaps(rows() + [row("erp_std_error", 0.02)])
+    assert gaps == {}
+
+
+def test_a_bad_input_in_a_sensitivity_stops_instead_of_becoming_a_gap(monkeypatch):
+    calls = []
+    real = dcf.value
+
+    def second_call_fails(assumptions):
+        calls.append(1)
+        if len(calls) == 2:
+            raise fm.FinancialMathError("share count must be positive, got 0")
+        return real(assumptions)
+
+    monkeypatch.setattr(dcf, "value", second_call_fails)
+    with pytest.raises(fm.FinancialMathError, match="share count"):
+        dcf.outputs_and_gaps(rows() + [row("erp_std_error", 0.02)])

@@ -86,6 +86,10 @@ def cmd_reproduce(args: argparse.Namespace) -> int:
             print(f"{status} {run_id:22} {result.outputs_checked} outputs")
             for name, period, stored, now in result.mismatches:
                 print(f"         {name} {period}: stored {stored}, now {now}")
+            for name, period, stored, now in result.gap_mismatches:
+                print(
+                    f"         {name} {period}: no value because {stored}, now {now or 'a value'}"
+                )
             if result.stored_code_version != result.current_code_version:
                 print(f"         code {result.stored_code_version} → {result.current_code_version}")
             bad += not result.ok
