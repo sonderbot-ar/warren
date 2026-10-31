@@ -151,6 +151,34 @@ def value(assumptions: Iterable[Assumption]) -> Valuation:
     return compute(inputs(assumptions))
 
 
+def _wacc_at(one: dict, cost_of_equity):
+    return fm.wacc(
+        one["equity_market_value"],
+        one["debt"],
+        cost_of_equity,
+        one["cost_of_debt"],
+        one["debt_tax_rate"],
+    )
+
+
+def base_wacc(inp: Inputs):
+    """The run's WACC before any risk-premium shock."""
+    one = inp.one
+    return _wacc_at(one, fm.capm_cost_of_equity(one["risk_free"], one["beta"], one["erp"]))
+
+
+def discount_rates(inp: Inputs) -> list:
+    """WACC for each forecast period, with the period's cost-of-equity shift (M4) if any.
+
+    Floats, or per-sample arrays in the Monte Carlo; the valuation and the sample checks both read
+    the rates from here, so they can't disagree (backlog #90)."""
+    if inp.cost_of_equity_shift is None:
+        return [base_wacc(inp)] * len(inp.periods)
+    one = inp.one
+    cost_of_equity = fm.capm_cost_of_equity(one["risk_free"], one["beta"], one["erp"])
+    return [_wacc_at(one, cost_of_equity + shift) for shift in inp.cost_of_equity_shift]
+
+
 def compute(inp: Inputs) -> Valuation:
     periods, driver, one, seed = inp.periods, inp.driver, inp.one, inp.seed
     quarters = fm.compound(seed, driver["revenue_growth"][:QUARTERS], lag=4)
@@ -176,21 +204,9 @@ def compute(inp: Inputs) -> Valuation:
     ]
     nopat = [e * (1 - t) for e, t in zip(ebit, driver["tax_rate"], strict=True)]
 
-    def wacc_at(cost_of_equity):
-        return fm.wacc(
-            one["equity_market_value"],
-            one["debt"],
-            cost_of_equity,
-            one["cost_of_debt"],
-            one["debt_tax_rate"],
-        )
-
     cost_of_equity = fm.capm_cost_of_equity(one["risk_free"], one["beta"], one["erp"])
-    wacc = wacc_at(cost_of_equity)
-    if inp.cost_of_equity_shift is None:
-        rates = [wacc] * len(periods)
-    else:
-        rates = [wacc_at(cost_of_equity + shift) for shift in inp.cost_of_equity_shift]
+    wacc = base_wacc(inp)
+    rates = discount_rates(inp)
     year_fractions = [0.25] * QUARTERS + [1.0] * len(YEARS)
     dcf = fm.enterprise_value(
         fcff,

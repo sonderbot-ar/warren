@@ -60,15 +60,7 @@ def _check_samples(inp: Inputs, n: int) -> None:
         if bad.any():
             problems.append(f"{int(bad.sum())} samples give an impossible {name}")
     one = inp.one
-    cost_of_equity = fm.capm_cost_of_equity(one["risk_free"], one["beta"], one["erp"])
-    shift = (inp.cost_of_equity_shift or [0.0])[-1]
-    last = fm.wacc(
-        one["equity_market_value"],
-        one["debt"],
-        cost_of_equity + np.asarray(shift),
-        one["cost_of_debt"],
-        one["debt_tax_rate"],
-    )
+    last = dcf.discount_rates(inp)[-1]
     # both terminal rules need Y5's rate above terminal growth: the perpetuity behind either one
     # converges only there (Decision 4; backlog #79, owner decision)
     floor = one["terminal_growth"]
