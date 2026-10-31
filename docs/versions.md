@@ -6,6 +6,7 @@ The owner's desk, with an entry and a lesson for each version: https://claude.ai
 
 | Version | Date | What it is | Merge commit | PRs |
 |---|---|---|---|---|
+| v0.5.3 | oct.31.2026 | Thin-spread warning at ERP ± 1 SE (backlog #10): under the Gordon terminal value, a run is now warned when WACC − terminal growth is below 3 points at ERP − 1 SE or + 1 SE, not only at the base ERP, with the terminal value's share there; a spread of exactly 3 points never warns; no number changes | `b6756a8` | #83 |
 | v0.5.2 | oct.31.2026 | Why a value is missing (backlog #9): when value per share at the ERP ± 1 standard error has no value, the run stores the real cause and the report and run notes name it, instead of always blaming "WACC ≤ growth"; the report now says the missing bound is the upper one; no number changes | `d6789b5` | #78 |
 | v0.5.1 | oct.31.2026 | A rebuild uses the run's own choices (backlog #11): each run's owner choices are read back from its stored rows, so editing `user_assumptions.csv` later no longer breaks the rebuild of earlier runs; the loader refuses a choice whose stored text could not be read back | `740f735` | #75 |
 | v0.5 | oct.30.2026 | News ingestion and events (M5): GDELT news for all 26 case windows, matched to the eight companies and grouped into events that rebuild exactly; a headline rule keeps only articles that name the company, lifting measured precision from 0.18 to 0.72 pooled (0.52–0.90 per company, accepted by the owner) | `cbec76b` | #41, #43, #48, #51, #65, #66, #67 |
