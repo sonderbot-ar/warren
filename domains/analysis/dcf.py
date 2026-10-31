@@ -167,16 +167,22 @@ def base_wacc(inp: Inputs):
     return _wacc_at(one, fm.capm_cost_of_equity(one["risk_free"], one["beta"], one["erp"]))
 
 
+def costs_of_equity(inp: Inputs) -> list:
+    """Cost of equity for each forecast period: CAPM plus the period's shift (M4) if any."""
+    one = inp.one
+    cost_of_equity = fm.capm_cost_of_equity(one["risk_free"], one["beta"], one["erp"])
+    shifts = inp.cost_of_equity_shift or [0.0] * len(inp.periods)
+    return [cost_of_equity + shift for shift in shifts]
+
+
 def discount_rates(inp: Inputs) -> list:
-    """WACC for each forecast period, with the period's cost-of-equity shift (M4) if any.
+    """WACC for each forecast period, from that period's cost of equity.
 
     Floats, or per-sample arrays in the Monte Carlo; the valuation and the sample checks both read
     the rates from here, so they can't disagree (backlog #90)."""
     if inp.cost_of_equity_shift is None:
         return [base_wacc(inp)] * len(inp.periods)
-    one = inp.one
-    cost_of_equity = fm.capm_cost_of_equity(one["risk_free"], one["beta"], one["erp"])
-    return [_wacc_at(one, cost_of_equity + shift) for shift in inp.cost_of_equity_shift]
+    return [_wacc_at(inp.one, cost) for cost in costs_of_equity(inp)]
 
 
 def compute(inp: Inputs) -> Valuation:

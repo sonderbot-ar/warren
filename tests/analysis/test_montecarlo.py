@@ -157,3 +157,72 @@ def test_a_level_sample_that_removes_all_revenue_stops_the_run():
     )
     with pytest.raises(SimulationError, match="revenue_growth"):
         montecarlo.simulate(rows(), [level], n=2000, seed=1)
+
+
+# -- rate checks (backlog #90) --------------------------------------------------------------------
+
+# −1,500 / −500 / 0 bp on the cost of equity for the first 4 quarters, no decay; the test company
+# has a 10% cost of equity (4% risk-free + 1.0 × 6%) and no debt, so WACC = cost of equity
+DEEP = {"driver": "risk_premium", "low": -1500.0, "base": -500.0, "high": 0.0, "horizon": 4}
+
+
+def _magnitudes(n, seed):
+    from domains.analysis import financial_math as fm
+
+    z = np.random.Generator(np.random.PCG64(seed)).standard_normal((n, 1))[:, 0]
+    return fm.split_normal(DEEP["low"], DEEP["base"], DEEP["high"], z)
+
+
+def test_a_negative_risk_premium_and_a_rate_below_zero_are_counted_and_the_run_goes_on():
+    n, seed = 10_000, 7
+    bands, warnings = montecarlo.simulate_checked(rows(), [shock(**DEEP)], n=n, seed=seed)
+    assert bands == montecarlo.simulate(rows(), [shock(**DEEP)], n=n, seed=seed)
+    m = _magnitudes(n, seed)
+    premium_gone = int((m <= -600).sum())  # β × ERP = 600 bp
+    rate_gone = int((m <= -1000).sum())  # the whole 10%
+    # independently of the draws: P(m ≤ x) = Φ((x − base) / σ_low), σ_low = 1000 / Z90
+    for count, p in ((premium_gone, 0.4490), (rate_gone, 0.2608)):
+        assert abs(count / n - p) < 4 * (p * (1 - p) / n) ** 0.5
+    quarters = ", ".join(dcf.inputs(rows()).periods[:4])
+    premium, rate = warnings
+    assert premium.startswith(f"{premium_gone:,} of 10,000 samples ({premium_gone / n:.1%})")
+    assert "negative risk premium" in premium and f"in {quarters}." in premium
+    assert rate.startswith(f"{rate_gone:,} of 10,000 samples") and "at or below zero" in rate
+    assert f"in {quarters}." in rate
+    assert "p90" in premium and "p90" in rate  # 45% and 26%: past 10%, short of 50%
+
+
+def test_most_samples_past_the_floor_can_set_the_p50():
+    wide = shock(**DEEP | {"low": -2000.0, "base": -1200.0, "high": -700.0})
+    _, warnings = montecarlo.simulate_checked(rows(), [wide], n=2000, seed=1)
+    assert "p50" in warnings[0]  # every sample is past −600 bp
+
+
+def test_a_mild_risk_premium_shock_gives_no_rate_warning():
+    mild = shock(driver="risk_premium", low=-200.0, base=-50.0, high=100.0, horizon=20)
+    assert montecarlo.simulate_checked(rows(), [mild], n=2000, seed=1)[1] == []
+    assert montecarlo.simulate_checked(rows(), [], n=10, seed=1)[1] == []
+
+
+def test_a_few_samples_past_the_floor_do_not_claim_the_p90():
+    # p10 at −400 bp, base −100: σ_low = 300 / Z90, so P(m ≤ −600) = Φ(−2.14) ≈ 1.6%
+    few = shock(driver="risk_premium", low=-400.0, base=-100.0, high=0.0, horizon=2)
+    warnings = montecarlo.simulate_checked(rows(), [few], n=5000, seed=2)[1]
+    assert "negative risk premium" in warnings[0]
+    assert not any("p90" in line or "p50" in line for line in warnings)
+
+
+def test_rate_warnings_are_stored_and_the_simulation_still_reproduces(company):
+    run_id = run_baseline(company, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    clean = montecarlo.save_simulation(company, run_id, [shock(**RANGE)], n=200, seed=2)
+    deep = montecarlo.save_simulation(company, run_id, [shock(**DEEP)], n=500, seed=3)
+    notes = {
+        sim_id: company.execute(
+            "SELECT notes FROM simulations WHERE sim_id = ?", (sim_id,)
+        ).fetchone()[0]
+        for sim_id in (clean, deep)
+    }
+    assert notes[clean].split("\n") == [montecarlo.BAND_NOTE, montecarlo.RATES_CLEAN]
+    lines = notes[deep].split("\n")
+    assert lines[0] == montecarlo.BAND_NOTE and "negative risk premium" in lines[1]
+    assert montecarlo.reproduce_simulation(company, deep).ok
