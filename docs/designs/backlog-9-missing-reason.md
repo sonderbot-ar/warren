@@ -69,4 +69,4 @@ Tests: Gordon at ERP − 1 SE = g gives `growth_not_below_rate`; value-driver wi
 
 ## Where the work stopped
 
-- Steps 0–3 built (511 tests). Step 4 docs, then PR.
+- Done. Steps 0–4 merged in #78 (`d6789b5`, v0.5.2) after green CI and a gatekeeper GO (511 tests). Review ideas are backlog #80 and #81. The value-driver g ≥ WACC defect is #79, waiting on the owner's decision.
