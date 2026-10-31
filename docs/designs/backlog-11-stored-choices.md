@@ -45,4 +45,4 @@ The run already stores each choice: `UserChoice.as_assumption()` writes one `ass
 
 ## Where the work stopped
 
-- Steps 0–2 done on the branch (oct.31.2026); PR next.
+- Done. Steps 0–2 merged in #75 (`740f735`, v0.5.1) after green CI and a gatekeeper GO (496 tests). Review ideas are backlog #76.
