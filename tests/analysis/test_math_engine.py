@@ -254,11 +254,76 @@ def test_spread_warning_fires_below_three_points(company):
     # a run stored before M4 has no terminal_method row and keeps the Gordon rule
     rows = [a for a in build(company).assumptions if a.name != "terminal_method"]
     wacc = dcf.run_outputs(rows)[("wacc", "-")]
-    for spread, fires in ((0.031, False), (0.029, True)):
+    for spread, fires in ((0.031, False), (0.03, False), (0.029, True)):
         shifted = dcf.with_value(rows, "terminal_growth", wacc - spread)
-        warnings = [w for w in post_checks(shifted, dcf.run_outputs(shifted)) if "WACC" in w]
+        warnings = [
+            w for w in post_checks(shifted, dcf.run_outputs(shifted)) if w.startswith("WACC")
+        ]
         assert bool(warnings) is fires
     assert "2.90 points" in warnings[0] and "of enterprise value" in warnings[0]
+
+
+def gordon_rows(company):
+    """The test company's rows under the Gordon rule (a run stored before M4)."""
+    return [a for a in build(company).assumptions if a.name != "terminal_method"]
+
+
+def at_bound(rows, sign):
+    erp, se = (next(a.value for a in rows if a.name == n) for n in ("erp", "erp_std_error"))
+    return dcf.value(dcf.with_value(rows, "erp", erp + sign * se))
+
+
+def test_spread_warning_at_erp_minus_1se_fires_below_three_points(company):
+    rows = gordon_rows(company)
+    wacc_low = at_bound(rows, -1).wacc
+    for spread, fires in ((0.031, False), (0.03, False), (0.029, True)):
+        shifted = dcf.with_value(rows, "terminal_growth", wacc_low - spread)
+        outputs = dcf.run_outputs(shifted)
+        notes = post_checks(shifted, outputs)
+        bound = [w for w in notes if w.startswith("At ERP − 1 SE")]
+        assert bool(bound) is fires
+        # the base spread is wider, so here only the bound is thin
+        assert not [w for w in notes if w.startswith("WACC")]
+    share = at_bound(shifted, -1).dcf.terminal_share
+    assert "2.90 points" in bound[0] and f"terminal value is {share:.0%}" in bound[0]
+    assert "lower ERP" in bound[0]
+    assert outputs[("value_per_share_erp_minus_1se", "-")] > outputs[("value_per_share", "-")]
+
+
+def test_spread_warning_at_erp_plus_1se_reads_the_higher_erp(company):
+    rows = gordon_rows(company)
+    wacc_high = at_bound(rows, 1).wacc
+    shifted = dcf.with_value(rows, "terminal_growth", wacc_high - 0.02)
+    notes = post_checks(shifted, dcf.run_outputs(shifted))
+    bound = [w for w in notes if w.startswith("At ERP + 1 SE")]
+    assert len(bound) == 1 and "2.00 points" in bound[0] and "higher ERP" in bound[0]
+    # a lower ERP gives a thinner spread still, and the base is thinner than + 1 SE
+    assert [w for w in notes if w.startswith("At ERP − 1 SE")]
+    assert [w for w in notes if w.startswith("WACC")]
+
+
+def test_a_bound_without_a_value_adds_no_spread_note(company):
+    rows = gordon_rows(company)
+    wacc_low = at_bound(rows, -1).wacc
+    for growth in (wacc_low, wacc_low + 0.001):  # spread zero, then negative at − 1 SE
+        shifted = dcf.with_value(rows, "terminal_growth", growth)
+        outputs, gaps = dcf.outputs_and_gaps(shifted)
+        assert ("value_per_share_erp_minus_1se", "-") in gaps
+        notes = post_checks(shifted, outputs)
+        assert not [w for w in notes if w.startswith("At ERP − 1 SE")]
+
+
+def test_no_bound_note_under_the_value_driver_rule_or_without_a_standard_error(company):
+    rows = build(company).assumptions
+    assert dcf.terminal_method(rows) == dcf.VALUE_DRIVER
+    wacc_low = at_bound(rows, -1).wacc
+    shifted = dcf.with_value(rows, "terminal_growth", wacc_low - 0.01)
+    assert not [w for w in post_checks(shifted, dcf.run_outputs(shifted)) if "WACC" in w]
+    gordon = gordon_rows(company)
+    thin = dcf.with_value(gordon, "terminal_growth", at_bound(gordon, -1).wacc - 0.01)
+    outputs = dcf.run_outputs(thin)
+    no_se = [a for a in thin if a.name != "erp_std_error"]
+    assert not [w for w in post_checks(no_se, outputs) if w.startswith("At ERP")]
 
 
 def test_spread_warning_is_not_raised_under_the_value_driver_terminal(company):
