@@ -108,5 +108,5 @@ def test_0012_applies_to_a_v11_database(db_path, tmp_path):
         assert max(apply_migrations(conn, old)) == 11
         assert apply_migrations(conn) == [12]
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        assert {"llm_calls", "event_classifications", "headline_checks",
-                "shock_proposals", "case_llm_status"} <= tables  # fmt: skip
+        assert {"llm_calls", "event_classifications", "headline_checks", "shock_proposals",
+                "case_llm_status", "proposal_sets", "proposal_shocks"} <= tables  # fmt: skip

@@ -63,30 +63,54 @@ CREATE TABLE headline_checks (
     PRIMARY KEY (article_id, cik, variant, model, prompt_sha256)
 );
 
+-- one proposal set per case and variant, so one story split across events can't stack shocks
+CREATE TABLE proposal_sets (
+    set_id         INTEGER PRIMARY KEY,
+    case_id        TEXT NOT NULL,
+    event_run_id   TEXT NOT NULL REFERENCES event_runs (event_run_id),
+    variant        TEXT NOT NULL CHECK (variant IN ('named', 'masked')),
+    model          TEXT NOT NULL,
+    prompt_sha256  TEXT NOT NULL,
+    call_id        INTEGER REFERENCES llm_calls (call_id),
+    run_id         TEXT NOT NULL REFERENCES runs (run_id),  -- the baseline it was sized on
+    status         TEXT NOT NULL CHECK (status IN ('ok', 'failed')),
+    no_impact      INTEGER CHECK (no_impact IN (0, 1)),
+    reason         TEXT,
+    created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    UNIQUE (case_id, event_run_id, variant, model, prompt_sha256)
+);
+
 CREATE TABLE shock_proposals (
-    proposal_id        INTEGER PRIMARY KEY,
-    classification_id  INTEGER NOT NULL REFERENCES event_classifications (classification_id),
-    call_id            INTEGER REFERENCES llm_calls (call_id),
-    run_id             TEXT NOT NULL REFERENCES runs (run_id),  -- the baseline it was sized on
-    no_impact          INTEGER NOT NULL CHECK (no_impact IN (0, 1)),
-    driver             TEXT,
-    direction          TEXT CHECK (direction IN ('up', 'down')),
-    size               TEXT CHECK (size IN ('small', 'medium', 'large')),
-    duration           TEXT CHECK (duration IN ('one_quarter', 'fading', 'lasting', 'permanent')),
-    start_quarter      INTEGER,
-    rationale          TEXT NOT NULL,
-    evidence_json      TEXT NOT NULL,
-    sigma              REAL,                           -- computed by code, never by the model
-    sigma_source       TEXT,
-    low                REAL,
-    base               REAL,
-    high               REAL,
-    horizon            INTEGER,
-    decay              REAL,
-    status             TEXT NOT NULL CHECK (status IN
-                           ('proposed', 'auto_approved', 'approved', 'edited', 'rejected')),
-    reviewer           TEXT,
-    review_note        TEXT,
-    shock_id           TEXT REFERENCES shocks (shock_id),
-    created_at         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+    proposal_id    INTEGER PRIMARY KEY,
+    set_id         INTEGER NOT NULL REFERENCES proposal_sets (set_id),
+    driver         TEXT NOT NULL CHECK (driver IN
+                       ('revenue_growth', 'operating_margin', 'capex_intensity', 'risk_premium')),
+    direction      TEXT NOT NULL CHECK (direction IN ('up', 'down')),
+    size           TEXT NOT NULL CHECK (size IN ('small', 'medium', 'large')),
+    duration       TEXT NOT NULL
+                   CHECK (duration IN ('one_quarter', 'fading', 'lasting', 'permanent')),
+    start_quarter  INTEGER NOT NULL CHECK (start_quarter BETWEEN 1 AND 4),
+    rationale      TEXT NOT NULL,                      -- the model's words
+    evidence_json  TEXT NOT NULL,
+    sigma          REAL NOT NULL,                      -- computed by code, never by the model
+    sigma_flag     TEXT,                               -- fallback | floored | capped
+    low            REAL NOT NULL,
+    base           REAL NOT NULL,
+    high           REAL NOT NULL,
+    horizon        INTEGER NOT NULL,
+    decay          REAL NOT NULL,
+    clipped        INTEGER NOT NULL DEFAULT 0 CHECK (clipped IN (0, 1)),
+    status         TEXT NOT NULL CHECK (status IN
+                       ('proposed', 'auto_approved', 'approved', 'edited', 'rejected')),
+    reviewer       TEXT,
+    review_note    TEXT,
+    created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    UNIQUE (set_id, driver)
+);
+
+-- a revenue-level proposal is two M4 shocks (the cut and its reversal); others are one
+CREATE TABLE proposal_shocks (
+    proposal_id  INTEGER NOT NULL REFERENCES shock_proposals (proposal_id),
+    shock_id     TEXT NOT NULL REFERENCES shocks (shock_id),
+    PRIMARY KEY (proposal_id, shock_id)
 );

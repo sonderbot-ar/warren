@@ -392,7 +392,7 @@ event_articles(event_id TEXT, article_id TEXT)
 - **Traceability:** every LLM call stores model, prompt version (prompts live in versioned files), input, output, tokens and latency.
 - **Look-ahead through the model's memory:** an LLM may already know what happened after a historical event, which would make the backtest look better than it really is. Mitigations: prefer evaluation events after the model's training cutoff where possible, test a variant with the company name masked, and report both.
 
-**Tests:** schema validation rejects malformed output; a fixed set of example events produces stable classifications at low temperature; prompts and outputs are logged.
+**Tests:** schema validation rejects malformed output; a fixed set of example events produces stable classifications at low temperature; prompts and outputs are logged. *(oct.31.2026, M6 design: Phase 1 events carry titles only, as M5 stores no article text; the stability check runs in the real run, since CI has no key, and CI tests the same code with recorded answers. Shocks are proposed once per case, from all its events, so one story split across events can't stack shocks.)*
 
 **Exit criterion:** for every eval case, events are classified and shocks proposed, reviewed and stored.
 

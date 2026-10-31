@@ -41,7 +41,7 @@ Prompts are files: `domains/llm/prompts/<node>.v<N>.md`, a system part and a use
 
 **Which events.** For each eval case: the stored event run as of the case date with the headline rule (M5, Step 6). All its events with `source_count ≥ 2`, the 15 largest by source count (ties by `first_seen`); single-source events are usually one outlet's angle on a bigger story. Every case's skipped events are counted in the report. A case with no qualifying events gets the record `no_events`, so "nothing happened" is visible, not missing.
 
-**Input.** The company's name and ticker, the as-of date, and the event's headlines (up to 25, earliest first, each with its `article_id`, source domain and sighting time). No article text: M5 stores titles only (Build Plan M5, Article text).
+**Input.** The company's name and ticker, the as-of date, and the event's headlines, each with its `article_id`, source domain and sighting time. When an event has more than 25 headlines, the 25 are chosen as one per source domain first, earliest first, then the earliest of the rest. No article text: M5 stores titles only (Build Plan M5, Article text), so the Build Plan's "available text" is titles in Phase 1.
 
 **Output** (`EventClassification`, validated):
 
@@ -54,7 +54,7 @@ evidence       : article_ids it relied on, each one from the input
 headlines      : for every input headline: article_id, about (true | false)
 ```
 
-Validation refuses: a type outside the taxonomy; an `article_id` not in the input; a `headlines` list that misses or repeats an input headline.
+Validation refuses (and so asks again, Step 2): a type outside the taxonomy; an `article_id` not in the input; a `headlines` list that misses or repeats an input headline; evidence citing a headline marked `about: false`; and the type `not_about_company` while some headline is marked `about: true`.
 
 **The taxonomy** is data (`event_types.csv`, one row per type with a one-line definition that also goes in the prompt): `guidance`, `earnings`, `m_and_a`, `litigation`, `regulation`, `product`, `management`, `supply_chain`, `restructuring`, `capital_return`, `macro`, `other`, and `not_about_company`. It covers every `event_type` in `domains/evaluation/cases.csv` except `control`, which is a case kind, not an event type.
 
@@ -77,11 +77,11 @@ The labels are inputs, so the model is never shown them. The score is measured, 
 
 ## Step B: shock proposal (LLM 2)
 
-**Which events.** Every classified event except `not_about_company` and `failed`. An event of materiality `low` is still sent: "no shock" is the expected answer and is recorded as such.
+**One proposal set per case, not per event** (analyst review). M5's clustering can split one story into several events when outlets word it differently on different days, so per-event proposals could stack three revenue cuts for one Apple warning. LLM 2 therefore sees all of a case's classified events at once (one call per case and variant), and proposes **at most one shock per driver for the case**, citing the events and headlines it rests on. Events classified `not_about_company` or `failed` are left out; events of materiality `low` stay in, and "no shock" is the expected answer and is recorded as such.
 
-**Input.** The classification (type, materiality, summary, the `about` headlines), the as-of date, and from the baseline run as of the case date: the first 8 forecast quarters of revenue growth, operating margin and capex intensity, and the last 8 reported quarters of the same three ratios (as first reported, point-in-time).
+**Input.** For each event: id, type, materiality, summary and its `about` headlines; the as-of date; and from the baseline run as of the case date: the first 8 forecast quarters of revenue growth, operating margin and capex intensity, and the last 8 reported quarters of the same three ratios (as first reported, point-in-time).
 
-**Output** (`ShockProposalSet`, validated): zero to three proposals, each
+**Output** (`ShockProposalSet`, validated): zero to four proposals (one per driver at most), each
 
 ```text
 driver        : revenue_growth | operating_margin | capex_intensity | risk_premium
@@ -90,32 +90,41 @@ size          : small | medium | large
 duration      : one_quarter | fading | lasting | permanent
 start_quarter : 1–4 (first affected forecast quarter)
 rationale     : 1–2 sentences tied to the evidence
-evidence      : article_ids, each one from the input
+evidence      : event ids and article_ids, each one from the input
 ```
 
-plus `no_material_impact: true` with a reason when the list is empty. Validation refuses a repeated driver, an empty list without the flag, and any extra field (`extra="forbid"`), so a number the model adds is an invalid answer, retried, not stored.
+plus `no_material_impact: true` with a reason when the list is empty. Validation refuses a repeated driver, an empty list without the flag, `risk_premium` with duration `permanent` unless one cited event has materiality `high` (a permanent premium reaches the terminal value; 100 bp on a large company's cost of equity is a double-digit share of its value), and any extra field (`extra="forbid"`), so a number the model adds is an invalid answer, retried, not stored.
 
-**Code turns the classes into a shock** (`domains/llm/scales.py`, pure functions, property-tested):
+**Code turns the classes into a shock** (`domains/llm/scales.py`, pure functions, property-tested; the table is `scales.csv`, checked in):
 
-- **Scale σ for a driver** = the standard deviation of the driver's year-over-year change over the last 12 reported quarters, as first reported, as of the case date (the same series the baseline is built on). It is the company's own normal quarter-to-quarter variation: a "large" cut for Microsoft's margin and for Walmart's is a different number of points, as a practitioner would expect. When fewer than 8 quarters exist, the size table's fallback σ is used, and the row is flagged.
-- **Size → multiple of σ** (`scales.csv`, checked in): small 0.5, medium 1.0, large 2.0. base = sign × multiple × σ; low and high are base × 0.5 and base × 1.5, sorted, so the range keeps the sign and is asymmetric toward bigger moves (the M4 split normal takes them as p10 and p90).
-- **Risk premium** has no reported history, so `scales.csv` gives fixed basis points: small 25, medium 50, large 100. This is an assumption, stated in the report and in each shock's rationale.
-- **Duration → (horizon, decay)**: one_quarter (1, 1.0); fading (8, 0.7); lasting (8, 1.0); permanent (21 − start, 1.0), which reaches quarter 20, so it is in force in Y5 and carried into the terminal value (M4, Permanent).
-- The result is an M4 `Shock` with `source='llm_proposed'`, `event_id` set, and `rationale` = the model's rationale, the evidence URLs, and the class choices in words ("medium cut, fading, from Q1"). The M4 validator then checks it like any other shock.
+- **The series.** For each driver, x_q is the reported quarter's value as first reported, point-in-time on the case date: revenue growth = revenue over the same quarter a year earlier, minus 1; operating margin = operating income over revenue; capex intensity = capex over revenue (the same items and fallbacks the baseline run uses).
+- **The scale σ** is the robust spread of the driver's four-quarter change d_q = x_q − x_{q−4} over the last 12 reported quarters before the case date: σ = 1.4826 × median(|d_q − median(d)|), the median absolute deviation scaled to match a standard deviation for normal data. The shock is a change in the driver, so σ measures how much the driver usually changes in a year; for revenue growth that is the change in the growth rate, which needs 20 quarters of revenue. The median keeps one or two odd quarters from setting σ: a large impairment (P&G's Gillette charge, Exxon's 2020 write-down), a 14-week quarter (Apple's Q1 FY2017), or a quarter after a change in what the company owns (Coca-Cola's bottler refranchising). Taking those quarters out by name waits for backlog #23 (14-week quarters) and the `scope_change` column of the case file; until then the median is the guard, and each case's 12 changes are in the report so a reader can see them.
+- **Fallback and bounds.** With fewer than 12 changes, σ is the driver's fallback value in `scales.csv` (revenue growth 2.0 points, margin 1.0, capex intensity 0.5), flagged `fallback`. σ is then held between the table's floor and cap per driver (growth 0.5–10 points, margin 0.2–5, capex 0.1–3), flagged `floored` or `capped`. These values are judgments, stated as such in the table and the report.
+- **Size and range.** base = sign × m × σ, with m = 0.5, 1.0, 2.0 for small, medium, large; low and high = base ∓ c × σ with c = 0.75 for every size (analyst review). The range has the same width for every size, as the uncertainty about an event's effect does not shrink because the effect is small, and a small shock's range crosses zero: the model may be wrong about the direction.
+- **Duration → (horizon, decay):** one_quarter (1, 1.0); fading (8, 0.7: the effect halves in about 2 quarters, said in the rationale text); lasting (8, 1.0); permanent (21 − start, 1.0), which reaches quarter 20, so it is in force in Y5 and carried into the terminal value (M4, Permanent).
+- **Revenue is a level** (analyst review). M4's revenue growth is against the same quarter a year earlier, so a one-quarter growth cut leaves every later quarter lower: a lasting level loss that reaches the terminal value (M4, Drivers). For revenue, the size class therefore describes the revenue *level*: code turns a temporary class into two M4 shocks, the cut from the start quarter and the same cut reversed (up) four quarters later with the same horizon and decay, so the level returns. `permanent` stays one shock. The reversal must fit in the 20-quarter grid, which holds for every start 1–4 and horizon ≤ 8. Test: a temporary revenue shock leaves Y5 revenue within 0.5% of the baseline; a permanent one does not.
+- **Risk premium** has no reported history, so `scales.csv` gives fixed basis points as base (small 25, medium 50, large 100) and the same range rule with σ = 25 bp. This is an assumption, stated in the report and in each shock's rationale.
+- **Bounds on the shocked path.** M4 stops a simulation when a sample makes a driver impossible. So code checks each shock against the baseline path out to the 1st and 99th percentiles of its split normal (base ∓ 1.815 × the distance to low or high): capex intensity must stay ≥ 0, operating margin must stay within the company's lowest and highest margin of the last 12 quarters widened by 2σ, and the four-quarter revenue level within ±50%. When a shock would cross, low, base and high are scaled down together until it fits, and the shock is flagged `clipped`; the report counts clipped shocks. This is the automatic sanity check that stands where a person would in live use.
+- The result is one or two M4 `Shock`s with `source='llm_proposed'`, `event_id` = the first cited event, and `rationale` = the model's rationale, the evidence headlines and URLs, the class choices and σ in words ("medium cut in revenue level, fading, from Q1; σ 1.8 points"). The M4 validator then checks it like any other shock.
 
-These multiples are a starting point, not a calibration. Calibrating them against outcomes is M8's job (backlog #33 asks the same for guided ranges); the report says so.
+These multiples, the range width and the bounds are a starting point, not a calibration. Calibrating them on the 26 eval cases would tune the method on its own test set, so calibration needs held-out cases and is a backlog item, not part of M6 or M8 (professor review).
 
 ## Human review
 
 - `python -m domains.llm review --case CASE_ID` shows each proposal with its event, evidence and computed numbers, and asks approve, edit or reject. An edit takes new low, base, high, start, horizon or decay; the edited shock is stored with `source='user'` and the proposal keeps the model's original. A rejection stores the reason.
 - **Eval cases are not reviewed by a person.** A person reviewing a 2020 event today knows what happened next, which is the look-ahead the harness exists to prevent. So `--auto` records every proposal as `auto_approved` with reviewer `none`, and M8 scores those. The manual path is for live use (a date with no future yet), and its tests run it with scripted answers.
-- Approved shocks (auto or manual) are written to M4's `shocks` table against the case's baseline run, so `with_shocks` in the harness can read them in M8.
+- Approved shocks (auto or manual) are written to M4's `shocks` table against the case's baseline run, so `with_shocks` in the harness can read them in M8. Review is idempotent: a proposal that already has a review status is skipped, so running `review` twice writes no second shock.
 
 ## Look-ahead through the model's memory
 
-- **Masked variant.** Every event is classified and proposed twice: `named`, and `masked`, where every company alias (M5's `aliases.csv`) and the ticker in a headline become "the Company", and the company name and ticker are left out of the input. Both are stored (`variant` column) and kept apart all the way to M8, which reports both (Build Plan M6 and M8).
-- **Cutoff.** The node-to-model map stores each model's published training cutoff. Each case is tagged pre- or post-cutoff by its date. Today all 26 cases fall before the models' cutoffs, so the masked variant is the mitigation that counts; the report says this plainly.
-- The prompt tells the model the as-of date and to use only the headlines given. That is an instruction, not a guarantee, and is described as such.
+An LLM trained on later text may know what happened after a 2020 event, which would make the backtest look better than it is. Code can't close this leak; the design reduces it and reports it.
+
+- **Masked variant.** Every event is classified, and every case proposed, twice: `named`, and `masked`. In the masked input, every company alias (M5's `aliases.csv`) and the ticker become "the Company" in headlines; source domains are dropped; absolute dates become relative ones (day 0 is the as-of date, sightings are "day −2, 14:00"; history quarters are "Q−8 … Q−1" and forecast quarters "Q1 … Q8"); and the company name, ticker and as-of date are left out. Both variants are stored (`variant` column) and kept apart all the way to M8, which reports both (Build Plan M6 and M8). Relative dates follow Kim, Muhn and Nikolaev (2024), who anonymised statements the same way.
+- **What masking does not do.** Models can recover a masked company and date from small clues, such as a product, an executive or the shape of the numbers (Lopez-Lira, Tang and Zhu 2025, "The Memorization Problem"), and prompt instructions to ignore later knowledge have limits (Sarkar and Vafa 2024). Glasserman and Lin (2023) show that the gap between named and masked results mixes memory of what happened next with a "distraction effect" of the name itself. So masking reduces the leak, it does not remove it, and M8 must not read the named-vs-masked gap as a measure of look-ahead on its own. The report says this next to the masked results.
+- **Cutoff.** The node-to-model map has a field for each model's published training cutoff, empty until Step 8 fills it from the model cards (no date is guessed). Each case is then tagged pre- or post-cutoff by its date; with the case library ending in 2025, the expected count of post-cutoff cases is zero, and the report puts that count next to the masked results.
+- The prompt tells the model the as-of date (named variant only) and to use only the information given. That is an instruction, not a guarantee, and is described as such.
+
+**Related work.** Classifying news with an LLM follows Lopez-Lira and Tang (2023), who score headlines for stock returns; Warren classifies the *type* and *materiality* of an event instead of good or bad news, which fits Decision 6 (sentiment is not impact).
 
 ## Storage (migration `0012_llm.sql`)
 
@@ -123,17 +132,25 @@ These multiples are a starting point, not a calibration. Calibrating them agains
 llm_calls(call_id, batch_id, node, model, prompt_name, prompt_version, prompt_sha256,
           ref, attempt, input_json, output_json, status ok|invalid|error, error,
           input_tokens, output_tokens, latency_ms, created_at)
-event_classifications(classification_id, event_id, variant named|masked, call_id,
-          status ok|failed|no_events, event_type, materiality, reasons, summary,
-          evidence_json, about_json, created_at)   UNIQUE(event_id, variant, prompt_sha256, model)
-headline_checks(article_id, cik, draw, variant, call_id, about, model, prompt_sha256)
-shock_proposals(proposal_id, classification_id, call_id, driver, direction, size,
-          duration, start_quarter, rationale, evidence_json, sigma, sigma_source,
-          low, base, high, horizon, decay, status proposed|auto_approved|approved|edited|rejected,
-          reviewer, review_note, shock_id, created_at)
+event_classifications(classification_id, event_id, variant named|masked, model, prompt_sha256,
+          call_id, status ok|failed, event_type, model_event_type, materiality, reasons,
+          summary, evidence_json, about_json, created_at)
+          UNIQUE(event_id, variant, model, prompt_sha256)
+case_llm_status(case_id, event_run_id, variant, events_total, events_chosen)
+headline_checks(article_id, cik, variant, model, prompt_sha256, call_id, about)
+proposal_sets(set_id, case_id, event_run_id, variant, model, prompt_sha256, call_id, run_id,
+          status ok|failed, no_impact, reason, created_at)
+          UNIQUE(case_id, event_run_id, variant, model, prompt_sha256)
+shock_proposals(proposal_id, set_id, driver, direction, size, duration, start_quarter,
+          rationale, evidence_json, sigma, sigma_flag, low, base, high, horizon, decay,
+          clipped, status proposed|auto_approved|approved|edited|rejected,
+          reviewer, review_note, created_at)
+proposal_shocks(proposal_id, shock_id)       -- one or two M4 shocks per proposal (revenue level)
 ```
 
-No money columns (shocks are in points and basis points), so guardrail 3 adds nothing here. A rerun with the same event, variant, prompt and model returns the stored classification instead of paying again. `events.event_type` and `events.summary` (left empty in M5 for M6) stay empty: the answers live in `event_classifications`, because one event has two variants and may be classified by more than one model.
+- `batch_id` is one command's id (`<command>_<UTC time>`), used for its token budget; `ref` is what a call is about (an event id, a case id and variant, or a headline batch).
+- **Reruns.** A rerun with the same event (or case), variant, prompt and model returns the stored `ok` answer instead of paying again; a `failed` one is tried again and its row replaced. `case_llm_status` records how many events a case had and how many were chosen, so a case with none (`events_chosen = 0`) is visible, not missing.
+- No money columns (shocks are in points and basis points), so guardrail 3 adds nothing here. `events.event_type` and `events.summary` (left empty in M5 for M6) stay empty: the answers live in `event_classifications`, because one event has two variants and may be classified by more than one model.
 
 ## Commands
 
@@ -150,14 +167,14 @@ No money columns (shocks are in points and basis points), so guardrail 3 adds no
 - **Step 2.** Migration 0012, `LLMClient`, `FakeClient`, `AnthropicClient`, `structured_call` with retry and the budget, prompt loading. Tests: a valid answer is stored once; an invalid one is retried with the error and stored per attempt; three invalid answers raise `LLMRejected`; the budget refuses the next call; a prompt's SHA and version are stored; the migration applies to a v11 database.
 - **Step 3.** Taxonomy, `EventClassification`, `extract_event.v1`, event selection, masking, `classify`. Tests: an out-of-taxonomy type, an unknown or missing `article_id` are refused; all `about: false` becomes `not_about_company`; masking removes every alias and the ticker; an event seen after the as-of date is never an input; a rerun pays nothing; `no_events` is recorded.
 - **Step 4.** `check-headlines` and its score. Tests: precision and recall by hand on six rows; labels are never in a prompt; both labellers reported.
-- **Step 5.** `ShockProposalSet`, `scales.py`, `scales.csv`, `propose_shocks.v1`, `propose`. Tests: an extra numeric field is refused; σ by hand for Test Corp; size and duration map to the table; every computed shock passes M4's validator (property test over all class combinations and σ > 0); permanent reaches quarter 20; the fallback σ is flagged; the history read is as first reported and as of the date.
-- **Step 6.** `review` (manual with scripted answers, and `--auto`), writing to `shocks`. Tests: an edit stores `source='user'` and keeps the original; a rejection writes no shock; `--auto` records reviewer `none`; approved shocks simulate with M4 on Test Corp and reproduce to the cent.
+- **Step 5.** `ShockProposalSet`, `scales.py`, `scales.csv`, `propose_shocks.v1`, `propose`. Tests: an extra numeric field is refused; a repeated driver is refused; a permanent risk premium without a high-materiality event is refused; σ (median absolute deviation) by hand for Test Corp, and one outlier quarter barely moves it; fallback, floor and cap are flagged; size and duration map to the table; every computed shock passes M4's validator (property test over all class combinations and σ in its bounds); permanent reaches quarter 20; a temporary revenue shock leaves Y5 revenue within 0.5% of the baseline and a permanent one doesn't; a capex cut that would go below zero is clipped and flagged; the history read is as first reported and as of the date; one proposal set per case, so two events about one story give one shock per driver.
+- **Step 6.** `review` (manual with scripted answers, and `--auto`), writing to `shocks`. Tests: an edit stores `source='user'` and keeps the original; a rejection writes no shock; `--auto` records reviewer `none`; reviewing twice writes no second shock; approved shocks simulate with M4 on Test Corp and reproduce to the cent.
 - **Step 7.** CLI, `--dry-run`, the report with tokens per node. Tests: dry run calls nothing and counts calls; the CLI end to end on Test Corp with `FakeClient`.
-- **Step 8.** Real run (needs `ANTHROPIC_API_KEY`, and the M5 news data rebuilt locally): the stability check (ten fixed events classified three times at temperature 0; event type agrees in at least 9 of 10, stated in the report, not a CI test since CI has no key), the about-check score, then every eval case classified and proposed in both variants and auto-reviewed. Results here and in the build plan; M6 Done on merge.
+- **Step 8.** Real run (needs `ANTHROPIC_API_KEY`, and the M5 news data rebuilt locally): fill the models' training cutoffs from their model cards; the stability check (the largest event of each of the first ten cases by case id that have one, classified three times at temperature 0; the type is the same in all three runs for at least 9 of the 10, stated in the report); the about-check score; then every eval case classified and proposed in both variants and auto-reviewed. Results here and in the build plan; M6 Done on merge. The Build Plan's M6 test "stable classifications at low temperature" moves here from CI, because CI has no key; CI tests the same code with recorded answers.
 
 Steps 1–7 make no LLM call outside tests and merge as one engine-only PR, as M3 and M4 did. Step 8 is a second PR.
 
-**Cost estimate for Step 8.** About 26 cases × up to 15 events × 2 variants = up to 780 extraction calls of roughly 1,500 input tokens, plus up to 780 proposal calls of roughly 2,500, plus about 70 headline-check calls. That is under 4 million tokens, a few US dollars at list prices. The default budget stops each command at 2 million.
+**Cost estimate for Step 8.** About 26 cases × up to 15 events × 2 variants = up to 780 extraction calls of roughly 1,500 input tokens, plus 52 proposal calls (one per case and variant) of roughly 6,000, plus about 70 headline-check calls of roughly 1,500, plus 30 stability calls. That is about 1.6 million tokens over four commands (classify, propose, check-headlines, stability), each under the 2 million default budget. `--dry-run` gives the real count before any money is spent; the dollar figure follows from Anthropic's published per-token prices on the day and goes in the report.
 
 ## Exit criterion (Build Plan)
 
@@ -166,7 +183,10 @@ For every eval case, events are classified and shocks proposed, reviewed and sto
 ## Alternatives considered
 
 - **The LLM writes low/base/high directly** (the M4 schema as its output). Rejected: that is an LLM producing a financial number. It chooses classes; code computes.
-- **Size classes as fixed points for every company** (say, small = 1 point of growth). Rejected: one point of margin is noise for one company and a crisis for another; scaling by the company's own σ is the standardised-surprise idea from the earnings literature (Latané and Jones 1977; Foster, Olsen and Shevlin 1984).
+- **One proposal per event.** Rejected (analyst review): one story split into several events would stack shocks on one driver.
+- **σ as a plain standard deviation.** Rejected (analyst review): one impairment or 14-week quarter in 12 sets it; the median absolute deviation ignores one or two.
+- **low/high as base × 0.5 and × 1.5.** Rejected (analyst review): a small shock's range would be narrow and never cross zero, overconfident against Decision 7's 80% coverage target.
+- **Size classes as fixed points for every company** (say, small = 1 point of growth). Rejected: one point of margin is noise for one company and a crisis for another; scaling by the company's own σ borrows the standardised-surprise idea from the earnings literature (Latané and Jones 1977; Foster, Olsen and Shevlin 1984), which scales a surprise by the spread of past forecast errors. That literature measures surprises after the fact; it does not support the particular multiples, which are judgments.
 - **Human review of eval cases.** Rejected for the backtest: the reviewer knows the outcome. Kept for live use.
 - **One LLM call for both steps.** Rejected: Decision 9 names them as two tasks, and splitting them lets a cheap model classify many events while a stronger model reasons about the few that matter. Each step's output is then checked on its own.
 - **Free-text JSON parsing instead of forced tool use.** Rejected: tool use with a schema is how the SDK returns a structured object, and validation still runs on it.
@@ -180,4 +200,6 @@ Changed: `shared_kernel/config.py`, `requirements.txt`, `docs/build-plan.md`, `d
 
 ## Review log
 
-(Filled in after the design review.)
+- **Analyst** (NO-GO, 3 blockers, all accepted): one story split across events stacked shocks (now one proposal set per case, one shock per driver); a temporary revenue-growth shock was a lasting level loss (now a cut and its reversal four quarters later; Y5 test); σ was loose, not robust and unbounded (now the median absolute deviation of the four-quarter change over 12 quarters, with fallback, floor, cap and bounds on the shocked path, all flagged). Ideas taken: equal-width ranges crossing zero; a permanent risk premium only for a high-materiality event; the fading half-life in the rationale; clips as the automatic check for auto-approved shocks. To report in Step 7: how many selected events are macro.
+- **Professor** (changes requested, 2 blockers, both accepted): masking left absolute dates and domains in and the doc overstated it (now relative dates, domains dropped, and a section on what masking does not do, with Glasserman and Lin 2023, Sarkar and Vafa 2024, Lopez-Lira, Tang and Zhu 2025, Kim, Muhn and Nikolaev 2024); calibration was handed to M8 (now a backlog item on held-out cases). Ideas taken: cite Lopez-Lira and Tang 2023; define σ exactly; label the basis points as an assumption; a worked σ example in the lesson.
+- **Explainer** (4 blockers, all answered): σ defined; `no_events` lives in `case_llm_status`; reruns defined (stored answers reused, failed ones retried, review idempotent); domains are dropped in the masked variant. Gaps answered: cutoffs are filled from model cards in Step 8; which headlines when more than 25; the `not_about_company` and evidence rules; an API error counts as an attempt (`calls.py`); `batch_id` and `ref`; commands vs the budget; the stability set and its agreement rule; titles only and stability outside CI are recorded against the Build Plan. Proposals use each variant's own classifications; `check-headlines` runs named only, as it scores the rule M5 measured on named headlines.
