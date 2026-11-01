@@ -107,7 +107,8 @@ def render(conn: sqlite3.Connection, state: PipelineState) -> str:
         warnings = [n for n in stored if n not in (BAND_NOTE, RATES_CLEAN)]
         lines += [f"- {v} simulation warning: {w}" for w in warnings]
     if run["notes"]:
-        lines += ["", "Baseline notes:", "", *[f"- {n}" for n in run["notes"].split("\n") if n]]
+        lines += [*([""] if lines[-1] else []), "Baseline notes:", "",
+                  *[f"- {n}" for n in run["notes"].split("\n") if n]]  # fmt: skip
 
     lines += ["", "## 2. Paths", ""]
     if not sims:

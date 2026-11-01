@@ -20,6 +20,7 @@ from datetime import date
 from pathlib import Path
 
 import numpy as np
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command
@@ -45,6 +46,9 @@ NODE_ORDER = (
 )
 LIVE_DAYS = 7  # a date this recent is live use: a person may review its shocks (no hindsight)
 DEFAULT_SAMPLES = 10_000
+# the state's own types, which the checkpointer may read back (LangGraph refuses unknown ones)
+STATE_TYPES = [("domains.orchestration.state", "PipelineState"),
+               ("domains.orchestration.state", "SimSummary")]  # fmt: skip
 
 
 @dataclass(frozen=True)
@@ -71,7 +75,7 @@ def checkpointer(conn: sqlite3.Connection):
     """LangGraph's SQLite saver on its own connection to the same database file."""
     with closing(sqlite3.connect(_db_file(conn), check_same_thread=False, timeout=10.0)) as c:
         c.execute("PRAGMA journal_mode=WAL;")
-        saver = SqliteSaver(c)
+        saver = SqliteSaver(c, serde=JsonPlusSerializer(allowed_msgpack_modules=STATE_TYPES))
         saver.setup()
         yield saver
 
