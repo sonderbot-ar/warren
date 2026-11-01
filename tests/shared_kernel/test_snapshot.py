@@ -68,3 +68,71 @@ def test_only_the_newest_two_are_kept_and_the_newest_is_restored(data, tmp_path)
         _save(data, folder, minute)
     assert len(snapshot.manifests(folder)) == 2 and len(list(folder.glob("*.tar.gz"))) == 2
     assert snapshot.restore(folder, tmp_path / "fresh")["row_counts"]["probe"] == 4
+
+
+ODD_NAMES = ["../outside.tar.gz", "/etc/passwd", "warren-20261031T230000Z.tar",
+             "warren-20261031T225900Z.tar.gz", "sub/warren-20261031T230000Z.tar.gz"]  # fmt: skip
+
+
+@pytest.mark.parametrize("name", ODD_NAMES)
+def test_restore_refuses_a_manifest_that_names_another_archive(data, tmp_path, name):
+    path = _save(data, tmp_path / "snap")
+    manifest = json.loads(path.read_text())
+    manifest["archive"] = name
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(snapshot.SnapshotError, match="expected 'warren-20261031T230000Z.tar.gz'"):
+        snapshot.restore(tmp_path / "snap", tmp_path / "fresh")
+    assert not (tmp_path / "fresh" / "warren.db").exists()
+
+
+def test_prune_never_deletes_a_file_an_odd_manifest_names(data, tmp_path):
+    folder = tmp_path / "snap"
+    victim = tmp_path / "keep-me.txt"
+    victim.write_text("precious")
+    first = _save(data, folder, 1)
+    manifest = json.loads(first.read_text())
+    manifest["archive"] = "../keep-me.txt"
+    first.write_text(json.dumps(manifest))
+    _save(data, folder, 2)
+    _save(data, folder, 3)
+    assert victim.read_text() == "precious"
+    assert first.exists()  # left alone for a person to look at
+    assert (folder / "warren-20261031T230100Z.tar.gz").exists()
+
+
+def test_a_failed_force_restore_keeps_the_old_database_and_raw_files(data, tmp_path, monkeypatch):
+    _save(data, tmp_path / "snap")
+    with get_db_connection(data / "warren.db") as conn:
+        conn.execute("INSERT INTO probe VALUES (7)")
+        conn.commit()
+    (data / "raw" / "edgar" / "only-local.json").write_text("{}")
+    real_move = snapshot.shutil.move
+
+    def failing_move(src, dst, *a, **k):
+        if str(dst).endswith("edgar"):
+            real_move(src, dst, *a, **k)  # a half-done copy is left behind...
+            raise OSError("disk full")  # ...and then the move fails
+        return real_move(src, dst, *a, **k)
+
+    monkeypatch.setattr(snapshot.shutil, "move", failing_move)
+    with pytest.raises(OSError, match="disk full"):
+        snapshot.restore(tmp_path / "snap", data, force=True)
+    assert (data / "raw" / "edgar" / "only-local.json").read_text() == "{}"
+    assert (data / "raw" / "edgar" / "CIK0000789019.json").exists()
+    assert not list(data.glob("tmp*"))  # the unpack folder is cleaned up
+
+
+def test_a_failed_database_move_keeps_the_old_database(data, tmp_path, monkeypatch):
+    _save(data, tmp_path / "snap")
+    with get_db_connection(data / "warren.db") as conn:
+        conn.execute("INSERT INTO probe VALUES (7)")
+        conn.commit()
+
+    def failing_move(src, dst, *a, **k):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(snapshot.shutil, "move", failing_move)
+    with pytest.raises(OSError, match="disk full"):
+        snapshot.restore(tmp_path / "snap", data, force=True)
+    with get_db_connection(data / "warren.db") as conn:
+        assert sorted(r[0] for r in conn.execute("SELECT x FROM probe")) == [7, 42]
