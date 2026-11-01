@@ -83,7 +83,7 @@ def test_migration_0009_applies_to_an_existing_database(tmp_path, db_path):
         apply_migrations(conn, older)
         conn.execute("INSERT INTO companies (cik, ticker, name) VALUES ('0000000001', 'TST', 'T')")
         conn.commit()
-        assert apply_migrations(conn) == [9, 10, 11, 12, 13, 14]
+        assert apply_migrations(conn) == [9, 10, 11, 12, 13, 14, 15]
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert {"news_files", "articles", "article_sightings", "events", "sightings_fts"} <= tables
         assert conn.execute("SELECT ticker FROM companies").fetchone()[0] == "TST"
@@ -317,7 +317,7 @@ def test_migration_0011_keeps_news_rows_and_accepts_fetch_error(tmp_path, db_pat
         store.ingest_file(conn, entry, aliases, lambda _: content, lambda: NOW)
         store.record_missing_slot(conn, T0 + URL_STEP, aliases, NOW)
         before = conn.execute("SELECT * FROM news_files ORDER BY file_url").fetchall()
-        assert apply_migrations(conn) == [11, 12, 13, 14]
+        assert apply_migrations(conn) == [11, 12, 13, 14, 15]
         assert conn.execute("SELECT * FROM news_files ORDER BY file_url").fetchall() == before
         assert conn.execute("SELECT COUNT(*) FROM article_sightings").fetchone()[0] == 1
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []

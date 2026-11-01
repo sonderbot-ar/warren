@@ -165,20 +165,35 @@ def current_keys() -> tuple[str, str, str, str]:
             calls.latest_prompt(EXTRACT_PROMPT).sha256)  # fmt: skip
 
 
+def latest_event_run(conn: sqlite3.Connection, case_id: str, variant: str) -> str | None:
+    """The event run the case was last classified on (`case_llm_status`, by row order)."""
+    row = conn.execute(
+        "SELECT event_run_id FROM case_llm_status WHERE case_id = ? AND variant = ? "
+        "ORDER BY rowid DESC LIMIT 1",
+        (case_id, variant),
+    ).fetchone()
+    return row["event_run_id"] if row else None
+
+
 def case_events(conn: sqlite3.Connection, case_id: str, variant: str, model: str,
-                extract_sha256: str) -> list[dict]:  # fmt: skip
+                extract_sha256: str, event_run_id: str | None = None) -> list[dict]:  # fmt: skip
     """The case's `ok` classifications in this variant by this model and extraction prompt, of the
     events extraction chooses for the case window now (`extract.choose_events`), minus
     not-about-company events: one row per event, never one per stored prompt version, and never
-    an event from outside the window that an earlier choice classified."""
+    an event from outside the window that an earlier choice classified.
+
+    One event run only (M7, analyst review): `event_run_id`, or the case's latest. A second ingest
+    of the window makes a second event run, whose events repeat the first run's stories under
+    other ids; reading both would count a story twice."""
+    event_run_id = event_run_id or latest_event_run(conn, case_id, variant)
     rows = conn.execute(
         "SELECT c.*, e.event_run_id, e.source_count, e.first_seen, e.last_seen, r.as_of, r.tz "
         "FROM event_classifications c JOIN events e USING (event_id) "
         "JOIN event_runs r ON r.event_run_id = e.event_run_id "
         "JOIN case_llm_status s ON s.event_run_id = e.event_run_id AND s.variant = c.variant "
         "WHERE s.case_id = ? AND c.variant = ? AND c.model = ? AND c.prompt_sha256 = ? "
-        "AND c.status = 'ok' ORDER BY e.first_seen, c.event_id",
-        (case_id, variant, model, extract_sha256),
+        "AND c.status = 'ok' AND e.event_run_id = ? ORDER BY e.first_seen, c.event_id",
+        (case_id, variant, model, extract_sha256, event_run_id),
     ).fetchall()
     if not rows:
         return []
@@ -193,16 +208,20 @@ def inputs_sha256(extract_sha256: str, rows: list) -> str:
     return hashlib.sha256(f"{extract_sha256}|{ids}".encode()).hexdigest()
 
 
-def current_set(conn: sqlite3.Connection, case_id: str, variant: str) -> sqlite3.Row | None:
-    """The stored set the current models, prompts and event choice give for a case, if any."""
+def current_set(conn: sqlite3.Connection, case_id: str, variant: str, run_id: str | None = None,
+                event_run_id: str | None = None) -> sqlite3.Row | None:  # fmt: skip
+    """The stored set the current models, prompts, scales and event choice give for a case, if
+    any: sized on `run_id`, or the newest such set on any baseline run."""
     p_model, p_sha, x_model, x_sha = current_keys()
-    rows = case_events(conn, case_id, variant, x_model, x_sha)
+    rows = case_events(conn, case_id, variant, x_model, x_sha, event_run_id)
     if not rows:
         return None
     return conn.execute(
         "SELECT * FROM proposal_sets WHERE case_id = ? AND event_run_id = ? AND variant = ? AND "
-        "model = ? AND prompt_sha256 = ? AND inputs_sha256 = ?",
-        (case_id, rows[0]["event_run_id"], variant, p_model, p_sha, inputs_sha256(x_sha, rows)),
+        "model = ? AND prompt_sha256 = ? AND inputs_sha256 = ? AND scales_sha256 = ? "
+        "AND (? IS NULL OR run_id = ?) ORDER BY set_id DESC LIMIT 1",
+        (case_id, rows[0]["event_run_id"], variant, p_model, p_sha, inputs_sha256(x_sha, rows),
+         scales.scales_sha256(), run_id, run_id),
     ).fetchone()  # fmt: skip
 
 
@@ -256,22 +275,28 @@ def propose_case(
     batch_id: str = "propose",
     budget: int = calls.DEFAULT_BUDGET,
     scale_table: dict | None = None,
+    event_run_id: str | None = None,
 ) -> int | None:
     """Propose and size the case's shocks in one variant; the proposal set id, or None when the
-    case has no events to propose from. A stored `ok` set is reused; a failed one is retried."""
+    case has no events to propose from. A stored `ok` set is reused only when it read the same
+    events and was sized on the same baseline run with the same scales; a failed one is retried.
+    Events come from `event_run_id`, or the case's latest event run."""
     prompt = calls.latest_prompt(PROMPT)
     model = calls.node_model(NODE).model
     extract_model = calls.node_model("extract_events").model
     table = scale_table or scales.load_scales()
+    scales_sha = scales.scales_sha256(table)
     extract_sha = calls.latest_prompt(EXTRACT_PROMPT).sha256
-    rows = case_events(conn, case_id, variant, extract_model, extract_sha)
+    rows = case_events(conn, case_id, variant, extract_model, extract_sha, event_run_id)
     if not rows:
         return None
     event_run_id = rows[0]["event_run_id"]
-    key = (case_id, event_run_id, variant, model, prompt.sha256, inputs_sha256(extract_sha, rows))
+    key = (case_id, event_run_id, variant, model, prompt.sha256, inputs_sha256(extract_sha, rows),
+           run_id, scales_sha)  # fmt: skip
     stored = conn.execute(
         "SELECT set_id, status FROM proposal_sets WHERE case_id = ? AND event_run_id = ? AND "
-        "variant = ? AND model = ? AND prompt_sha256 = ? AND inputs_sha256 = ?", key,
+        "variant = ? AND model = ? AND prompt_sha256 = ? AND inputs_sha256 = ? AND run_id = ? "
+        "AND scales_sha256 = ?", key,
     ).fetchone()  # fmt: skip
     if stored is not None and stored["status"] == "ok":
         return stored["set_id"]
@@ -301,8 +326,9 @@ def propose_case(
     except calls.LLMRejected:
         cur = conn.execute(
             "INSERT INTO proposal_sets (case_id, event_run_id, variant, model, prompt_sha256, "
-            "inputs_sha256, run_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'failed')",
-            (*key, run_id),
+            "inputs_sha256, run_id, scales_sha256, status) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'failed')",
+            key,
         )  # fmt: skip
         conn.commit()
         return cur.lastrowid
@@ -311,9 +337,9 @@ def propose_case(
     with conn:
         set_id = conn.execute(
             "INSERT INTO proposal_sets (case_id, event_run_id, variant, model, prompt_sha256, "
-            "inputs_sha256, call_id, run_id, status, no_impact, reason) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ok', ?, ?)",
-            (*key, result.call_id, run_id, int(value.no_material_impact), value.reason),
+            "inputs_sha256, run_id, scales_sha256, call_id, status, no_impact, reason) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ok', ?, ?)",
+            (*key, result.call_id, int(value.no_material_impact), value.reason),
         ).lastrowid
         for p in value.proposals:
             s = scales.sigma(p.driver, series_for(history, p.driver), table)

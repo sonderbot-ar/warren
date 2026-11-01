@@ -1,26 +1,37 @@
 from datetime import UTC, datetime
-from typing import Any
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class LLMUsage(BaseModel):
+    """One model's calls in one node: every attempt, as `llm_calls` records it (M6)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    model: str
+    calls: int = Field(..., ge=0, description="attempts, valid or not")
+    invalid: int = Field(default=0, ge=0, description="attempts refused or failed")
+    input_tokens: int = Field(..., ge=0)
+    output_tokens: int = Field(..., ge=0)
 
 
 class TelemetryEvent(BaseModel):
-    """Standardized payload for tracking agent health and token burn"""
+    """One JSON line of a pipeline's telemetry (Decision 5, settled in M7): a node starting or
+    ending, with its timing, status, error and, for LLM nodes, model and tokens."""
 
-    agent_name: str = Field(..., description="Name of node executing the task")
-    task_id: str = Field(..., description="Unique identifier for the specific operation")
+    model_config = ConfigDict(extra="forbid")
+
+    pipeline_id: str = Field(..., description="the pipeline run")
+    node: str = Field(..., description="the graph node")
+    status: Literal["started", "ok", "error", "interrupted"]
     timestamp: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
         description="Time of the event (timezone-aware UTC)",
     )
-    tokens_used: int = Field(
-        default=0, description="Tracker for amount of tokens used during this operation"
-    )
-    status: str = Field(..., description="Current state: 'success', 'error', or 'running' ")
-    metadata: dict[str, Any] | None = Field(
-        default=None,
-        description="Extra content such as: database reference IDs, or error TraceBacks",
-    )
+    duration_ms: int | None = Field(default=None, ge=0, description="on end lines")
+    error: str | None = Field(default=None, description="type and message, never a traceback")
+    llm: list[LLMUsage] = Field(default_factory=list, description="LLM nodes, per model")
 
 
 # PLACEHOLDER: replaced in M2 by a multi-year view built from financial_facts (Decision 4)
@@ -55,19 +66,4 @@ class SentimentShock(BaseModel):
     cost_modifier: float = Field(default=0.0, description="Percentage impact on baseline costs")
     rationale: str = Field(
         ..., description="The agent's brief justification for these specific modifiers"
-    )
-
-
-# PLACEHOLDER: replaced in M7 by typed graph state with small data inline (Decision 2)
-class SimulationState(BaseModel):
-    """The lightweight payload passed between LangGraph nodes, holding only database pointers."""
-
-    session_id: str = Field(..., description="Unique identifier for this full simulation run")
-    current_ticker: str = Field(..., description="The ticker currently being analyzed")
-    financial_db_id: str | None = Field(
-        default=None, description="SQLite row ID pointing to the baseline financials"
-    )
-    sentiment_db_ids: list[str] = Field(
-        default_factory=list,
-        description="List of SQLite row IDs pointing to applied sentiment shocks",
     )

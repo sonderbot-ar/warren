@@ -56,8 +56,13 @@ def test_0014_keeps_sets_and_their_shocks_and_marks_the_prompt_unknown(db_path, 
         )
         conn.commit()
 
+    upto = tmp_path / "migrations_0014"  # 0014 alone; 0015 has its own test
+    upto.mkdir()
+    for path in sorted(MIGRATIONS_DIR.glob("*.sql")):
+        if int(path.name[:4]) <= 14:
+            shutil.copy(path, upto / path.name)
     with get_db_connection(db_path) as conn:
-        assert apply_migrations(conn) == [14]
+        assert apply_migrations(conn, upto) == [14]
         assert current_schema_version(conn) == 14
         row = conn.execute("SELECT * FROM proposal_sets WHERE set_id = 7").fetchone()
         assert row["inputs_sha256"] == "" and row["prompt_sha256"] == "p"

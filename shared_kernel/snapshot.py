@@ -4,10 +4,11 @@
     python -m shared_kernel.snapshot restore --dir DIR [--force]
 
 A snapshot is one `warren-<UTC time>.tar.gz` holding a consistent copy of the database (made with
-SQLite's backup, so the WAL is included) and the raw EDGAR files, next to a JSON manifest with the
-archive's SHA-256, its size, the schema version, the code commit and row counts. `restore` picks
-the newest manifest, checks the hash, unpacks into `data/` and applies newer migrations. Nothing in
-a snapshot changes point-in-time reads: every row keeps its own filing, fetch and seen dates.
+SQLite's backup, so the WAL is included), the raw EDGAR files and the pipelines' telemetry (M7),
+next to a JSON manifest with the archive's SHA-256, its size, the schema version, the code commit
+and row counts. `restore` picks the newest manifest, checks the hash, unpacks into `data/` and
+applies newer migrations. Nothing in a snapshot changes point-in-time reads: every row keeps its
+own filing, fetch and seen dates.
 Callers still run the reproduce checks before trusting the data (the warren-run-track skill).
 
 The SHA-256 proves the archive is the one its manifest describes (integrity), not who made it
@@ -37,7 +38,7 @@ from shared_kernel.config import DATA_DIR, DB_PATH, PROJECT_ROOT, RAW_EDGAR_DIR
 from shared_kernel.database import apply_migrations, current_schema_version, get_db_connection
 
 KEEP = 2  # snapshots kept in the folder; older ones are removed after a good save
-DB_NAME, RAW_NAME = "warren.db", "raw/edgar"
+DB_NAME, RAW_NAME, TELEMETRY_NAME = "warren.db", "raw/edgar", "telemetry"  # telemetry: M7
 
 
 class SnapshotError(RuntimeError):
@@ -130,7 +131,7 @@ def manifests(folder: Path) -> list[Path]:
 
 
 def save(folder: Path, db_path: Path = DB_PATH, raw_dir: Path = RAW_EDGAR_DIR,
-         now: datetime | None = None) -> Path:  # fmt: skip
+         now: datetime | None = None, telemetry_dir: Path | None = None) -> Path:  # fmt: skip
     """Write a snapshot and its manifest to `folder`; returns the manifest's path."""
     if not db_path.exists():
         raise SnapshotError(f"no database at {db_path}")
@@ -148,6 +149,9 @@ def save(folder: Path, db_path: Path = DB_PATH, raw_dir: Path = RAW_EDGAR_DIR,
             tar.add(copy, arcname=DB_NAME)
             if raw_dir.exists():
                 tar.add(raw_dir, arcname=RAW_NAME)
+            telemetry = telemetry_dir or db_path.parent / TELEMETRY_NAME
+            if telemetry.exists():  # the pipelines' telemetry lines, which reports point to
+                tar.add(telemetry, arcname=TELEMETRY_NAME)
         partial.rename(archive)  # a reader never sees a half-written archive
     manifest = {
         "archive": archive.name,
@@ -196,6 +200,14 @@ def restore(folder: Path, data_dir: Path = DATA_DIR, force: bool = False) -> dic
                 raise SnapshotError(
                     f"the database was restored but the raw EDGAR files were not ({e}); "
                     "the old raw files are still in place, and ingest re-fetches what it needs"
+                ) from e
+        if (unpacked / TELEMETRY_NAME).exists():
+            try:
+                _swap_in(unpacked / TELEMETRY_NAME, [data_dir / TELEMETRY_NAME], "telemetry")
+            except OSError as e:  # the old telemetry is back; the reports' trace may lag
+                raise SnapshotError(
+                    f"the database was restored but the telemetry files were not ({e}); "
+                    "the old telemetry files are still in place"
                 ) from e
     with get_db_connection(db_path) as conn:
         if current_schema_version(conn) > manifest["schema_version"]:
