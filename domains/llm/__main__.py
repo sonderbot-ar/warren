@@ -172,12 +172,11 @@ def _ask(row, shock):
 def cmd_review(args) -> int:
     with get_db_connection() as conn:
         apply_migrations(conn)
-        p_model, p_sha, _, x_sha = propose.current_keys()
-        sets = conn.execute(  # the current prompts' sets only; older ones stay as they were
-            "SELECT set_id, variant FROM proposal_sets WHERE case_id = ? AND status = 'ok' "
-            "AND model = ? AND prompt_sha256 = ? AND extract_prompt_sha256 = ? ORDER BY set_id",
-            (args.case, p_model, p_sha, x_sha),
-        ).fetchall()
+        sets = [
+            x
+            for v in extract.VARIANTS  # the current set of each variant only
+            if (x := propose.current_set(conn, args.case, v)) is not None and x["status"] == "ok"
+        ]
         if not sets:
             print(f"No proposals for {args.case}")
             return 2

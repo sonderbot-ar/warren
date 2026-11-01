@@ -1,4 +1,4 @@
-"""0014 adds the extraction prompt to proposal sets' key and keeps every set and its shocks."""
+"""0014 adds what a proposal set read to its key and keeps every set and its shocks."""
 
 import shutil
 import sqlite3
@@ -14,7 +14,7 @@ from shared_kernel.database import (
 
 INSERT_SET = (
     "INSERT INTO proposal_sets (case_id, event_run_id, variant, model, prompt_sha256, "
-    "extract_prompt_sha256, run_id, status) VALUES ('C', 'r1', 'named', 'm', 'p', 'x', "
+    "inputs_sha256, run_id, status) VALUES ('C', 'r1', 'named', 'm', 'p', 'x', "
     "'TST_2019-06-30_1', 'ok')"
 )
 
@@ -60,7 +60,7 @@ def test_0014_keeps_sets_and_their_shocks_and_marks_the_prompt_unknown(db_path, 
         assert apply_migrations(conn) == [14]
         assert current_schema_version(conn) == 14
         row = conn.execute("SELECT * FROM proposal_sets WHERE set_id = 7").fetchone()
-        assert row["extract_prompt_sha256"] == "" and row["prompt_sha256"] == "p"
+        assert row["inputs_sha256"] == "" and row["prompt_sha256"] == "p"
         assert conn.execute("SELECT set_id FROM shock_proposals").fetchone()[0] == 7
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
         conn.execute(INSERT_SET)  # the same set under another extraction prompt is a new row

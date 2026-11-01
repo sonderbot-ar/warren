@@ -177,9 +177,9 @@ def test_single_source_events_are_skipped_and_counted(conn):  # noqa: F811
 
 
 def test_events_chosen_largest_first_and_at_most_fifteen():
-    events = [{"event_id": f"e{n:02d}", "source_count": n % 5, "first_seen": f"2022-06-{n:02d}"}
-              for n in range(1, 30)]  # fmt: skip
-    chosen = extract.choose_events(events)
+    events = [{"event_id": f"e{n:02d}", "source_count": n % 5, "first_seen": f"2022-06-{n:02d}",
+               "last_seen": f"2022-06-{n:02d}"} for n in range(1, 30)]  # fmt: skip
+    chosen = extract.choose_events(events, "2022-06-01T00:00:00Z")
     assert len(chosen) == 15 and all(e["source_count"] >= 2 for e in chosen)
     assert [e["source_count"] for e in chosen] == sorted(
         (e["source_count"] for e in chosen), reverse=True
@@ -196,3 +196,42 @@ def test_headlines_one_per_source_first_then_earliest():
     assert len(chosen) == extract.MAX_HEADLINES
     assert "a40" in {i.article_id for i in chosen}
     assert [i.seen_at for i in chosen] == sorted(i.seen_at for i in chosen)
+
+
+def test_only_events_running_in_the_case_window_are_chosen():
+    # the real run: WMT_2022-07-25 read 2019 news, larger than its own profit warning (37 sources)
+    start = extract.window_start(date(2022, 7, 25))
+    assert start == "2022-07-19T04:00:00Z"  # 7 New York days ending on the case date
+    old = {
+        "event_id": "old",
+        "source_count": 90,
+        "first_seen": "2019-08-04T00:00:00Z",
+        "last_seen": "2019-08-06T00:00:00Z",
+    }
+    late = {
+        "event_id": "late",
+        "source_count": 5,
+        "first_seen": "2022-07-18T20:00:00Z",
+        "last_seen": "2022-07-19T05:00:00Z",
+    }  # began before the window, still running in it
+    own = {
+        "event_id": "own",
+        "source_count": 37,
+        "first_seen": "2022-07-25T21:30:00Z",
+        "last_seen": "2022-07-25T23:00:00Z",
+    }
+    ended = {
+        "event_id": "ended",
+        "source_count": 50,
+        "first_seen": "2022-07-17T00:00:00Z",
+        "last_seen": "2022-07-19T03:59:59Z",
+    }
+    chosen = extract.choose_events([old, late, own, ended], start)
+    assert [e["event_id"] for e in chosen] == ["own", "late"]
+
+
+def test_a_case_classifies_none_of_another_windows_news(conn):  # noqa: F811
+    story(conn, hours=-24 * 30)  # the same story a month before the case window
+    client = FakeClient(answer())
+    assert classify(conn, client) == {"named": []}
+    assert client.requests == []

@@ -33,7 +33,7 @@ def add_events(conn, *materialities, sha=EXTRACT_SHA):
             "INSERT INTO events (event_id, event_run_id, cik, first_seen, last_seen, "
             "article_count, source_count, label, themes_json) "
             "VALUES (?, 'run1', ?, ?, ?, 3, 3, 'label', '[]')",
-            (f"ev{n}", co.cik, f"2020-06-2{n}T12:00:00Z", f"2020-06-2{n}T18:00:00Z"),
+            (f"ev{n}", co.cik, f"2020-06-2{n + 4}T12:00:00Z", f"2020-06-2{n + 4}T18:00:00Z"),
         )
         conn.execute(
             "INSERT INTO event_classifications (event_id, variant, model, prompt_sha256, status, "
@@ -166,6 +166,39 @@ def test_a_case_reads_one_classification_per_event_from_the_current_prompt(compa
     client = FakeClient([answer(no_impact=True)])
     new = propose.propose_case(company, client, CASE, co, AS_OF, run_id, NO_ALIASES, "named", "t")
     assert len(client.requests) == 1 and client.requests[0]["user"].count("e1 |") <= 1
-    stored = company.execute("SELECT extract_prompt_sha256 FROM proposal_sets WHERE set_id = ?",
+    stored = company.execute("SELECT inputs_sha256 FROM proposal_sets WHERE set_id = ?",
                              (new,)).fetchone()[0]  # fmt: skip
-    assert stored == EXTRACT_SHA
+    assert stored == propose.inputs_sha256(EXTRACT_SHA, rows)
+    assert propose.current_set(company, CASE, "named")["set_id"] == new
+
+
+def test_a_set_is_proposed_again_when_its_events_change(company):  # noqa: F811
+    # the real run first chose events from outside the case window; once the choice changed, the
+    # stored set no longer matched what the case reads and had to be proposed again
+    co = add_events(company, "high")
+    run_id = run_baseline(company, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    first = FakeClient([answer(no_impact=True)])
+    old = propose.propose_case(company, first, CASE, co, AS_OF, run_id, NO_ALIASES, "named", "t")
+    company.execute(
+        "UPDATE events SET first_seen = '2020-06-01T00:00:00Z', last_seen = '2020-06-01T06:00:00Z'"
+    )  # fmt: skip  (ev1 leaves the window)
+    company.execute(
+        "INSERT INTO events (event_id, event_run_id, cik, first_seen, last_seen, article_count, "
+        "source_count, label, themes_json) VALUES ('ev9', 'run1', ?, '2020-06-29T12:00:00Z', "
+        "'2020-06-29T13:00:00Z', 3, 3, 'label', '[]')", (co.cik,),
+    )  # fmt: skip
+    company.execute(
+        "INSERT INTO event_classifications (event_id, variant, model, prompt_sha256, status, "
+        "event_type, model_event_type, materiality, reasons, summary, evidence_json, about_json) "
+        "VALUES ('ev9', 'named', 'claude-haiku-5-5', ?, 'ok', 'guidance', 'guidance', 'high', "
+        "'[]', 'Test Corp cuts again.', '[]', '{}')", (EXTRACT_SHA,),
+    )  # fmt: skip
+    rows = propose.case_events(company, CASE, "named", "claude-haiku-5-5", EXTRACT_SHA)
+    assert [r["event_id"] for r in rows] == ["ev9"]
+    again = FakeClient([answer(no_impact=True)])
+    new = propose.propose_case(company, again, CASE, co, AS_OF, run_id, NO_ALIASES, "named", "t")
+    assert new != old and len(again.requests) == 1
+    assert (
+        "cuts again" in again.requests[0]["user"]
+        and "revenue outlook" not in again.requests[0]["user"]
+    )

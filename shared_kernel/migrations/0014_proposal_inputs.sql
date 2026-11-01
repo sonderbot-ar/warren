@@ -1,11 +1,11 @@
 -- foreign_keys: off
--- 0014: a proposal set records which extraction prompt made the classifications it read (M6
--- Step 8). Before this, a case's proposal read every stored classification of its events, so
--- after a new extraction prompt it saw the same event once per prompt version, and a stored set
--- was reused although its inputs had changed. The extraction prompt's hash joins the set's key.
--- SQLite can't change a UNIQUE constraint in place, so proposal_sets is rebuilt with foreign keys
--- off; the runner checks every foreign key before commit. Sets from before 0014 get '' (not
--- known) and are never reused.
+-- 0014: a proposal set records exactly what it read (M6 Step 8). Before this, a set was keyed by
+-- case, event run, variant, model and proposal prompt only, so a stored set was reused after its
+-- inputs changed: a new extraction prompt, or a different choice of events. inputs_sha256 is the
+-- SHA-256 of the extraction prompt's hash and the sorted classification ids the proposal read
+-- (`domains.llm.propose.inputs_sha256`), and joins the key. SQLite can't change a UNIQUE
+-- constraint in place, so proposal_sets is rebuilt with foreign keys off; the runner checks every
+-- foreign key before commit. Sets from before 0014 get '' (not known) and are never reused.
 
 CREATE TABLE proposal_sets_new (
     set_id                 INTEGER PRIMARY KEY,
@@ -14,14 +14,14 @@ CREATE TABLE proposal_sets_new (
     variant                TEXT NOT NULL CHECK (variant IN ('named', 'masked')),
     model                  TEXT NOT NULL,
     prompt_sha256          TEXT NOT NULL,
-    extract_prompt_sha256  TEXT NOT NULL DEFAULT '',  -- the classifications' prompt; '' before 0014
+    inputs_sha256          TEXT NOT NULL DEFAULT '',  -- what the set read; '' before 0014
     call_id                INTEGER REFERENCES llm_calls (call_id),
     run_id                 TEXT NOT NULL REFERENCES runs (run_id),  -- the baseline it was sized on
     status                 TEXT NOT NULL CHECK (status IN ('ok', 'failed')),
     no_impact              INTEGER CHECK (no_impact IN (0, 1)),
     reason                 TEXT,
     created_at             TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
-    UNIQUE (case_id, event_run_id, variant, model, prompt_sha256, extract_prompt_sha256)
+    UNIQUE (case_id, event_run_id, variant, model, prompt_sha256, inputs_sha256)
 );
 
 INSERT INTO proposal_sets_new (set_id, case_id, event_run_id, variant, model, prompt_sha256,

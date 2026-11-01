@@ -5,9 +5,12 @@ Read from the stored rows only, so the report can be written again at any time w
 
 import sqlite3
 from collections import Counter
+from datetime import date
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from domains.llm import headlines, propose
+from domains.llm.extract import choose_events, window_start
 from domains.news.report import read_sample
 from shared_kernel.config import NODE_MODELS
 
@@ -25,27 +28,30 @@ def _pct(rate: dict) -> str:
 
 
 def case_rows(conn: sqlite3.Connection) -> list[dict]:
-    """Per case and variant, with the current models and prompts only: rows stored by an earlier
-    prompt version stay in the database, for the record, and are left out here."""
-    p_model, p_sha, x_model, x_sha = propose.current_keys()
+    """Per case and variant, with the current models, prompts and event choice only: rows stored
+    by an earlier prompt version or an earlier choice stay in the database, for the record, and
+    are left out here."""
+    _, _, x_model, x_sha = propose.current_keys()
     out = []
     for s in conn.execute("SELECT * FROM case_llm_status ORDER BY case_id, variant"):
         cls = conn.execute(
-            "SELECT c.status, c.event_type FROM event_classifications c JOIN events e "
-            "USING (event_id) WHERE e.event_run_id = ? AND c.variant = ? AND c.model = ? "
-            "AND c.prompt_sha256 = ?",
+            "SELECT c.status, c.event_type, e.event_id, e.source_count, e.first_seen, e.last_seen, "
+            "r.as_of, r.tz FROM event_classifications c JOIN events e USING (event_id) "
+            "JOIN event_runs r ON r.event_run_id = e.event_run_id WHERE e.event_run_id = ? "
+            "AND c.variant = ? AND c.model = ? AND c.prompt_sha256 = ?",
             (s["event_run_id"], s["variant"], x_model, x_sha),
         ).fetchall()
-        current = ("ps.case_id = ? AND ps.variant = ? AND ps.model = ? AND ps.prompt_sha256 = ? "
-                   "AND ps.extract_prompt_sha256 = ?")  # fmt: skip
-        args = (s["case_id"], s["variant"], p_model, p_sha, x_sha)
+        if cls:  # the events chosen for the case window now, not an earlier choice's
+            start = window_start(date.fromisoformat(cls[0]["as_of"]), ZoneInfo(cls[0]["tz"]))
+            chosen = {e["event_id"] for e in choose_events([dict(c) for c in cls], start)}
+            cls = [c for c in cls if c["event_id"] in chosen]
+        current = propose.current_set(conn, s["case_id"], s["variant"])
+        set_ids = [current["set_id"]] if current is not None else []
         proposals = conn.execute(
-            "SELECT p.status, p.clipped, p.sigma_flag FROM shock_proposals p JOIN proposal_sets "
-            f"ps USING (set_id) WHERE {current}", args,
-        ).fetchall()  # fmt: skip
-        sets = conn.execute(
-            f"SELECT ps.status, ps.no_impact FROM proposal_sets ps WHERE {current}", args
-        ).fetchall()
+            "SELECT status, clipped, sigma_flag FROM shock_proposals WHERE set_id IN "
+            f"({','.join('?' * len(set_ids))})", set_ids,
+        ).fetchall() if set_ids else []  # fmt: skip
+        sets = [current] if current is not None else []
         types = Counter(c["event_type"] for c in cls if c["status"] == "ok")
         out.append({
             "case_id": s["case_id"], "variant": s["variant"], "events": s["events_total"],
