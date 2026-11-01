@@ -160,8 +160,24 @@ def test_filings_after_the_as_of_date_leave_the_baseline_unchanged(world, state)
 def test_a_day_not_yet_ended_in_new_york_is_refused(world, state):
     s = run_through(world, state, upto="build_baseline")
     world.now = datetime.combine(AS_OF, datetime.min.time(), tzinfo=UTC) + timedelta(hours=20)
+    # analyst review: refused at the first node, before a price or filing is read
+    with pytest.raises(nodes.PipelineError, match="not ended"):
+        nodes.load_fundamentals(state, world.deps())
     with pytest.raises(nodes.PipelineError, match="not ended"):
         nodes.fetch_news(s, world.deps())
+
+
+def test_a_price_downloaded_during_the_as_of_day_is_not_used(world, state):
+    # analyst review: a download at 15:00 UTC on the day holds a mid-session "close"
+    world.conn.execute(f"UPDATE market_fetches SET fetched_at = '{AS_OF}T15:00:00Z'")
+    world.conn.commit()
+    with pytest.raises(nodes.PipelineError, match="offline"):
+        nodes.load_market(state.model_copy(update={"offline": True}), world.deps())
+    world.conn.execute(f"UPDATE market_fetches SET fetched_at = '{AS_OF + timedelta(days=1)}"
+                       "T05:00:00Z'")  # fmt: skip
+    world.conn.commit()  # after midnight in New York: used as stored
+    out = nodes.load_market(state.model_copy(update={"offline": True}), world.deps())
+    assert set(out["market_fetch_ids"].values()) == {1, 2, 3}
 
 
 def test_a_window_with_no_events_makes_no_call_and_no_proposal(world):

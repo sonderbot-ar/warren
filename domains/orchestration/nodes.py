@@ -92,6 +92,7 @@ def check_closed(as_of: date, now: datetime) -> None:
 
 
 def load_fundamentals(state: PipelineState, deps: Deps) -> dict:
+    check_closed(state.as_of, deps.now())  # before any price or filing is read
     conn = deps.conn
     universe = get_universe_company(state.ticker)
     company = conn.execute(
@@ -137,13 +138,17 @@ def load_market(state: PipelineState, deps: Deps) -> dict:
         symbol = symbol or state.ticker.upper()
         try:
             fetch = require_coverage(conn, source, symbol, state.as_of)
-            stale = state.refresh and _parse(fetch["fetched_at"]) < state.started_at
+            fetched = _parse(fetch["fetched_at"])
+            # a download made before the day ended in New York has an intraday "close"
+            stale = fetched < gdelt.known_by(state.as_of) or (
+                state.refresh and fetched < state.started_at
+            )
         except MarketDataError:
             fetch, stale = None, True
         if stale:
             if state.offline:
                 raise PipelineError(
-                    f"{symbol}: no {source} download made on or after {state.as_of} is stored, "
+                    f"{symbol}: no {source} download made after {state.as_of} ended is stored, "
                     "and the run is offline"
                 )
             if source == "fred":

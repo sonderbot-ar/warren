@@ -176,6 +176,7 @@ def start(
 ) -> Outcome:
     """Start a pipeline and run it until it ends or pauses for review."""
     check_tracing_off()
+    nodes.check_closed(as_of, deps.now())  # refused before a pipeline row or download exists
     conn, ticker = deps.conn, ticker.upper()
     variants = variants or (["named", "masked"] if is_case(ticker, as_of) else ["named"])
     review = review or default_review(as_of, deps.today())

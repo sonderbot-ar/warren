@@ -2,6 +2,7 @@
 resume after a failure, the review pause, and the report."""
 
 import json
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -164,5 +165,12 @@ def test_defaults_auto_for_old_dates_and_both_variants_for_eval_cases(world):
 def test_tracing_to_an_outside_service_stops_the_start(world, folders, monkeypatch):
     monkeypatch.setenv("LANGSMITH_TRACING", "true")
     with pytest.raises(Exception, match="LANGSMITH_TRACING"):
+        go(world, folders)
+    assert world.conn.execute("SELECT COUNT(*) FROM pipeline_runs").fetchone()[0] == 0
+
+
+def test_a_day_not_yet_ended_is_refused_before_a_pipeline_starts(world, folders):
+    world.now = datetime.combine(AS_OF, datetime.min.time(), tzinfo=UTC) + timedelta(hours=20)
+    with pytest.raises(nodes.PipelineError, match="not ended"):
         go(world, folders)
     assert world.conn.execute("SELECT COUNT(*) FROM pipeline_runs").fetchone()[0] == 0
