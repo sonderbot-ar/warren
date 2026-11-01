@@ -13,6 +13,7 @@ with `offline`. `refresh` downloads again once per pipeline: what was fetched af
 started counts as fresh.
 """
 
+import json
 import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -391,7 +392,11 @@ def review_shocks(state: PipelineState, deps: Deps) -> dict:
         # nothing is written before the answers are in and checked together
         problem = None
         while True:
-            answers = interrupt({"proposals": pending, "problem": problem})
+            given = interrupt({"proposals": pending, "problem": problem})
+            try:
+                answers = json.loads(given) if isinstance(given, str) else given
+            except ValueError:
+                answers = None
             problem = review.check_answers(
                 conn, [p["proposal_id"] for ps in pending.values() for p in ps], answers
             )
