@@ -53,7 +53,7 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 | 2 | State management: SQLite, typed fact table, small data in graph state | **Accepted** (replaces EAV; version-selection rule revised and provenance added in M1.1) | oct.26.2026 |
 | 3 | Data processing: SQLite only, no vector database | **Accepted** (replaces ChromaDB) | oct.14.2026 |
 | 4 | Deterministic math engine with explicit, sourced assumptions | **Accepted** (strengthened; equity risk premium and terminal growth computed from market data, M2; terminal value with new investment earning WACC, owner decision before M4; it too needs g < WACC, owner decision) | oct.31.2026 |
-| 5 | Telemetry: local JSON log file | Accepted (details under review; timestamp bug fixed) | oct.14.2026 |
+| 5 | Telemetry: local JSON log file | **Accepted** (details settled in M7 as the Build Plan lists them: per node start and end, status, error, timing, and per model the LLM calls and input and output tokens; cost in dollars left out; timestamp bug fixed) | nov.01.2026 |
 | 6 | Shock model: event taxonomy, time-shaped and probabilistic shocks | **Accepted** | oct.14.2026 |
 | 7 | Evaluation harness on point-in-time data | **Accepted** | oct.14.2026 |
 | 8 | Data sources: SEC EDGAR, Yahoo Finance, FRED, GDELT | **Accepted** (EDGAR coverage limits noted, M1; FRED added for the risk-free rate, M2) | oct.26.2026 |
@@ -113,12 +113,13 @@ These goals shape the design so the Phase 1 build does not block them, but none 
   - **Checks are universal (oct.26.2026, M2).** Data-quality and sanity checks apply the same rules to every company; there is no per-company review list. Optional concept-map items are not part of the quality report; they are traced through the assumption rows of the runs that use them.
   - **Monte Carlo.** The DCF runs over sampled driver distributions with a fixed random seed for reproducibility, producing percentiles (p10/p50/p90) instead of a single value.
 
-### Decision 5 — Telemetry: Local Log File · *Accepted (details under review)*
+### Decision 5 — Telemetry: Local Log File · *Accepted*
 
 - **Decision:** The decoupled observer records system health and token usage by appending JSON lines to a local log file, rather than calling an external API.
 - **Reasoning:** Writing to a local file avoids network-related bugs during the initial build. Once the orchestrator and database are stable, the emitter can be swapped for an API-based system.
 - **Known issue (fixed oct.14.2026, M0):** `TelemetryEvent.timestamp` used `default_factory=datetime`, which raised an error. It now defaults to a timezone-aware UTC "now".
-- **Proposed additions (under review):** record model name, input and output tokens separately, cost and latency per call.
+- **Details (settled nov.01.2026, M7, as Build Plan M7 lists them):** one line when a pipeline node starts and one when it ends, in `data/telemetry/<pipeline id>.jsonl`: node, status (`started`, `ok`, `error`, `interrupted`), time, duration, the error's type and message (no traceback), and for LLM nodes, per model, the calls and the input and output tokens, summed from the stored calls (`llm_calls`, which also keeps each call's latency), never estimated. A line holds no prompts, inputs or environment, so it can't hold a key. Tracing to an outside service (LangSmith) is refused. Cost in dollars is left out: prices change, and tokens per model price a run on any day. The file is kept in the data snapshot.
+- **Superseded proposal:** recording cost per call (oct.14.2026).
 
 ### Decision 6 — Shock Model · *Accepted*
 
@@ -186,12 +187,13 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 
 ## 4. Project Structure
 
-Target layout for Phase 1, created step by step through the build plan. So far `shared_kernel/` (config, database, migrations, schemas), `domains/fundamentals/` (M0–M1.1), `domains/market/` and `domains/analysis/` (M2) exist; the other domain packages are empty placeholders until their milestone:
+Target layout for Phase 1, created step by step through the build plan. Every package below exists as of M7 (nov.01.2026): `shared_kernel/` and `domains/fundamentals/` (M0–M1.1), `domains/market/` and `domains/analysis/` (M2, M4), `domains/evaluation/` (M3), `domains/news/` (M5), `domains/llm/` (M6) and `domains/orchestration/` (M7):
 
 ```text
 warren/
 ├── CLAUDE.md                 # short pointer for coding assistants: read docs/ first
 ├── README.md
+├── main.py                   # the one command: python main.py run --ticker T --as-of D (M7)
 ├── pyproject.toml / requirements.txt
 ├── .env.example              # API keys, SEC User-Agent
 ├── docs/
@@ -200,17 +202,17 @@ warren/
 ├── shared_kernel/
 │   ├── config.py             # settings, node-to-model map (Decision 1)
 │   ├── database.py           # connection, WAL mode, migrations
-│   ├── schemas.py            # Pydantic models shared across domains
-│   └── telemetry.py          # JSON-lines emitter
+│   ├── schemas.py            # Pydantic models shared across domains (incl. TelemetryEvent)
+│   └── snapshot.py           # save and restore the data (backlog #98)
 ├── domains/
 │   ├── fundamentals/         # EDGAR client, concept map, fact ingestion
 │   ├── market/               # Yahoo Finance adapter, price cache
 │   ├── news/                 # GDELT client, company matching, event clustering
 │   ├── analysis/             # financial_math, math_engine, Monte Carlo
 │   ├── llm/                  # event extraction, shock proposal, prompts
-│   ├── orchestration/        # LangGraph graph, nodes, state
+│   ├── orchestration/        # LangGraph graph, nodes, state, JSON-lines telemetry, report (M7)
 │   └── evaluation/           # case library, backtests, metrics
-├── data/                     # git-ignored: warren.db, logs/, raw downloads
+├── data/                     # git-ignored: warren.db (with LangGraph's checkpoints), telemetry/, reports/, raw downloads
 └── tests/                    # mirrors domains/
 ```
 

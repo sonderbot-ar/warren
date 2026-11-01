@@ -40,7 +40,7 @@ Each node is a plain function `node(state, deps) -> dict of state changes` in `d
 | `simulate` | `analysis.montecarlo.save_simulation` per variant with that variant's stored shocks (`llm.review.approved_shocks`: proposals `approved`, `auto_approved` or `edited`; a rejected proposal stores no shock), on the run the set was sized on, which is the pipeline's run | `sim_id` per variant (or none when there is no shock), value per share p10/p50/p90 |
 | `write_report` | `orchestration.report.write_report` | report path |
 
-**Data freshness, one rule.** A stored download is used when it was made on or after the as-of date, which is the rule M2 already enforces for prices (`market.store.require_coverage`); anything older is downloaded again (online) or refused (`--offline`). Because the rule looks at when the data was fetched, not at the last date in the series, a weekend, a holiday or a series published a day late (DGS10) does not trigger a download on every run (analyst review). The as-of date must have closed: a date whose New York close (`news.gdelt.known_by`) is still in the future is refused, so news and prices never cover part of a day.
+**Data freshness, one rule.** A stored download is used when it was made on or after the as-of date, which is the rule M2 already enforces for prices (`market.store.require_coverage`); anything older is downloaded again (online) or refused (`--offline`). Because the rule looks at when the data was fetched, not at the last date in the series, a weekend, a holiday or a series published a day late (DGS10) does not trigger a download on every run (analyst review). The as-of date must have ended: a date whose New York midnight (`news.gdelt.known_by`, M5's cut-off) is still in the future is refused, so news and prices never cover part of a day.
 
 **Baseline reuse.** A stored baseline for (ticker, as-of) is reused only when its ingest run is the company's latest, its concept-map hash is today's, its three market fetch hashes are the ones `selected_fetch` gives now, and its stored owner choices (`analysis.runs.stored_choices`) equal today's `user_assumptions.csv`. Otherwise a new run is built. `--refresh` downloads again and so builds a new run. The code version is not part of the match: a run made by older code is still checked to the cent by `reproduce` (analyst review).
 
@@ -99,7 +99,7 @@ A test re-runs every node on its own output state and checks no table gained a r
 
 Nothing is written before the interrupt; the answers are applied after it, so the node re-running on resume does not double anything. The answers come back together, so they are checked together before `review_set` writes anything: one answer per open proposal, no unknown proposal id, a known action, and an edit that changes at least one editable field. One bad answer refuses the whole batch and the graph asks again (professor review: `review_set` commits one proposal at a time).
 
-One interrupt per variant, named first. A variant with no open proposals (no events, "no material impact", or every proposal already reviewed) skips it. **Earlier verdicts are inherited:** review is idempotent (M6), so a proposal reviewed by an earlier pipeline or by M6's `--auto` keeps that status and is not asked again; the report lists each shock's status, reviewer and review time, so an inherited verdict is visible (analyst review).
+One interrupt for every variant at once (a resume replays a node's interrupts in order, so one pause per node keeps the replay simple), with the answers sent back as JSON text. A variant with no open proposals (no events, "no material impact", or every proposal already reviewed) skips it. **Earlier verdicts are inherited:** review is idempotent (M6), so a proposal reviewed by an earlier pipeline or by M6's `--auto` keeps that status and is not asked again; the report lists each shock's status, reviewer and review time, so an inherited verdict is visible (analyst review).
 
 ## Simulation and the report
 
@@ -108,7 +108,7 @@ One interrupt per variant, named first. A variant with no open proposals (no eve
 `write_report` writes `data/reports/pipeline/<pipeline_id>.md`. Sections 1–5 are rendered only from stored rows, so they render to the same text every time; section 6, the trace, comes after a fixed marker line and reads the telemetry file (explainer and professor review). Report text sits in one place, `domains/orchestration/text.py`, apart from the code that fills it (guardrail 5).
 
 1. **Headline.** Company, as-of date, value per share: baseline, and per variant the shocked p10, p50 and p90 (Build Plan M7), with one line saying that p10–p90 is the spread of values the shocks allow, not a forecast of the share price, and one line on what the named and masked variants are. Both variants use the pipeline's one seed, so their ranges differ only by their shocks. Any warning the simulation stored (M4 rate checks, backlog #90) is listed here. When a variant has no shock, the report says why: no events in the window, the model found no material impact, the proposal failed, or every proposal was rejected; its value is the baseline's, and its paths show the baseline only.
-2. **Paths.** Per period (Q1–Q8, Y3–Y5): revenue, operating margin and free cash flow, baseline and shocked p10/p50/p90, from `simulation_outputs`.
+2. **Paths.** Per period (Q1–Q8, Y3–Y5): revenue, operating income (EBIT) and free cash flow, baseline and shocked p10/p50/p90, from `simulation_outputs`. (A percentile of margin is not EBIT's percentile over revenue's, so the stored lines are shown, not a ratio of them.)
 3. **Shocks with their evidence.** Each approved shock: driver, low/base/high, start, horizon, decay, source and review status, the model's classes and σ (the M6 rationale line), and the headlines of the events it cites, with their dates.
 4. **News used.** Files read and missing in the window, events in the window, events classified, failed and not about the company.
 5. **Assumptions with sources.** The baseline run's assumption table, from the M2 report (`analysis.report.render`), included as is.
@@ -207,4 +207,4 @@ Changed: `domains/llm/propose.py` and `review.py` (the two reuse fixes, `reviewe
 
 ## Where the work stopped
 
-Design review done; building Step 1.
+Steps 1–5 built (598 tests); engine PR next, then the Step 6 real run.

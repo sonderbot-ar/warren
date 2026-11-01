@@ -239,3 +239,13 @@ def history(conn: sqlite3.Connection, folders: Folders, pipeline_id: str) -> lis
         changed = sorted(k for k, v in after.values.items() if before.values.get(k) != v)
         out.append((after.metadata.get("step"), before.next[0], changed))
     return out
+
+
+def final_state(conn: sqlite3.Connection, folders: Folders, pipeline_id: str):
+    """A done pipeline's last state, from its checkpoint; None when it is not done."""
+    with checkpointer(conn) as saver:
+        app = build(nodes.Deps(conn=conn), folders, saver, pipeline_id)
+        snapshot = app.get_state(_config(pipeline_id))
+    if not snapshot.values or snapshot.next:
+        return None
+    return PipelineState(**snapshot.values)
