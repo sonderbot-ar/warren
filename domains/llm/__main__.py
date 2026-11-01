@@ -195,9 +195,11 @@ def cmd_check_headlines(args) -> int:
         return 2
 
     def work(conn, client):
-        added = headlines.check_headlines(conn, client, rows, _batch("check_headlines"),
-                                          args.max_tokens_total)  # fmt: skip
+        added, failed = headlines.check_headlines(conn, client, rows, _batch("check_headlines"),
+                                                  args.max_tokens_total)  # fmt: skip
         print(f"headlines checked: {added}")
+        if failed:
+            print(f"batches with no valid answer: {failed} (run again to retry them)")
 
     return _with_client(args, work)
 

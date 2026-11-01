@@ -52,11 +52,14 @@ def check_headlines(
     rows: list[dict],
     batch_id: str = "check_headlines",
     budget: int = calls.DEFAULT_BUDGET,
-) -> int:
-    """Ask about every labelled headline not yet checked with this prompt and model; new answers."""
+) -> tuple[int, int]:
+    """Ask about every labelled headline not yet checked with this prompt and model.
+
+    Returns (headlines answered, batches rejected). A batch with no valid answer after the retries
+    stores nothing and is asked again on the next run, like a failed classification (M6 Step 8)."""
     prompt = calls.latest_prompt(PROMPT)
     model = calls.node_model(NODE).model
-    added = 0
+    added = failed = 0
     for ticker, items in unique_headlines(rows).items():
         co = company(conn, ticker)
         done = {r[0] for r in conn.execute(
@@ -70,10 +73,14 @@ def check_headlines(
                 "company": f"{co.name} ({co.ticker})",
                 "headlines": "\n".join(f"{i} | {t}" for i, (_, t) in zip(ids, batch, strict=True)),
             }
-            result = calls.structured_call(
-                conn, client, NODE, prompt, slots, HeadlineChecks,
-                f"{ticker}:{batch[0][0]}", batch_id, budget, _checker(ids),
-            )  # fmt: skip
+            try:
+                result = calls.structured_call(
+                    conn, client, NODE, prompt, slots, HeadlineChecks,
+                    f"{ticker}:{batch[0][0]}", batch_id, budget, _checker(ids),
+                )  # fmt: skip
+            except calls.LLMRejected:
+                failed += 1
+                continue
             answer = {h.id: h.about for h in result.value.headlines}
             conn.executemany(
                 "INSERT INTO headline_checks (article_id, cik, variant, model, prompt_sha256, "
@@ -83,7 +90,7 @@ def check_headlines(
             )  # fmt: skip
             conn.commit()
             added += len(batch)
-    return added
+    return added, failed
 
 
 def _rate(k: int, n: int) -> dict:
