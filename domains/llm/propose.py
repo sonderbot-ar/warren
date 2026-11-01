@@ -21,6 +21,7 @@ from domains.evaluation.harness import ITEMS, _alternative, first_reported
 from domains.fundamentals.facts import get_facts
 from domains.llm import calls, scales
 from domains.llm.client import LLMClient
+from domains.llm.extract import PROMPT as EXTRACT_PROMPT
 from domains.llm.extract import Company, Variant, mask, mask_pattern
 from domains.llm.taxonomy import NOT_ABOUT
 from domains.news.gdelt import CASE_TZ, known_by
@@ -155,14 +156,23 @@ def series_for(history: History, driver: str) -> list[float]:
 # -- the call ----------------------------------------------------------------------------------
 
 
-def case_events(conn: sqlite3.Connection, case_id: str, variant: str, model: str) -> list[dict]:
-    """The case's `ok` classifications in this variant, minus not-about-company events."""
+def current_keys() -> tuple[str, str, str, str]:
+    """(proposal model, proposal prompt hash, extraction model, extraction prompt hash) now."""
+    return (calls.node_model(NODE).model, calls.latest_prompt(PROMPT).sha256,
+            calls.node_model("extract_events").model,
+            calls.latest_prompt(EXTRACT_PROMPT).sha256)  # fmt: skip
+
+
+def case_events(conn: sqlite3.Connection, case_id: str, variant: str, model: str,
+                extract_sha256: str) -> list[dict]:  # fmt: skip
+    """The case's `ok` classifications in this variant by this model and extraction prompt, minus
+    not-about-company events: one row per event, never one per stored prompt version."""
     return conn.execute(
         "SELECT c.*, e.event_run_id FROM event_classifications c JOIN events e USING (event_id) "
         "JOIN case_llm_status s ON s.event_run_id = e.event_run_id AND s.variant = c.variant "
-        "WHERE s.case_id = ? AND c.variant = ? AND c.model = ? AND c.status = 'ok' "
-        "AND c.event_type != ? ORDER BY e.first_seen, c.event_id",
-        (case_id, variant, model, NOT_ABOUT),
+        "WHERE s.case_id = ? AND c.variant = ? AND c.model = ? AND c.prompt_sha256 = ? "
+        "AND c.status = 'ok' AND c.event_type != ? ORDER BY e.first_seen, c.event_id",
+        (case_id, variant, model, extract_sha256, NOT_ABOUT),
     ).fetchall()
 
 
@@ -223,14 +233,15 @@ def propose_case(
     model = calls.node_model(NODE).model
     extract_model = calls.node_model("extract_events").model
     table = scale_table or scales.load_scales()
-    rows = case_events(conn, case_id, variant, extract_model)
+    extract_sha = calls.latest_prompt(EXTRACT_PROMPT).sha256
+    rows = case_events(conn, case_id, variant, extract_model, extract_sha)
     if not rows:
         return None
     event_run_id = rows[0]["event_run_id"]
-    key = (case_id, event_run_id, variant, model, prompt.sha256)
+    key = (case_id, event_run_id, variant, model, prompt.sha256, extract_sha)
     stored = conn.execute(
         "SELECT set_id, status FROM proposal_sets WHERE case_id = ? AND event_run_id = ? AND "
-        "variant = ? AND model = ? AND prompt_sha256 = ?", key,
+        "variant = ? AND model = ? AND prompt_sha256 = ? AND extract_prompt_sha256 = ?", key,
     ).fetchone()  # fmt: skip
     if stored is not None and stored["status"] == "ok":
         return stored["set_id"]
@@ -260,7 +271,8 @@ def propose_case(
     except calls.LLMRejected:
         cur = conn.execute(
             "INSERT INTO proposal_sets (case_id, event_run_id, variant, model, prompt_sha256, "
-            "run_id, status) VALUES (?, ?, ?, ?, ?, ?, 'failed')", (*key, run_id),
+            "extract_prompt_sha256, run_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'failed')",
+            (*key, run_id),
         )  # fmt: skip
         conn.commit()
         return cur.lastrowid
@@ -269,7 +281,8 @@ def propose_case(
     with conn:
         set_id = conn.execute(
             "INSERT INTO proposal_sets (case_id, event_run_id, variant, model, prompt_sha256, "
-            "call_id, run_id, status, no_impact, reason) VALUES (?, ?, ?, ?, ?, ?, ?, 'ok', ?, ?)",
+            "extract_prompt_sha256, call_id, run_id, status, no_impact, reason) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ok', ?, ?)",
             (*key, result.call_id, run_id, int(value.no_material_impact), value.reason),
         ).lastrowid
         for p in value.proposals:

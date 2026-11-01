@@ -7,7 +7,7 @@ import sqlite3
 from collections import Counter
 from pathlib import Path
 
-from domains.llm import headlines
+from domains.llm import headlines, propose
 from domains.news.report import read_sample
 from shared_kernel.config import NODE_MODELS
 
@@ -25,21 +25,26 @@ def _pct(rate: dict) -> str:
 
 
 def case_rows(conn: sqlite3.Connection) -> list[dict]:
+    """Per case and variant, with the current models and prompts only: rows stored by an earlier
+    prompt version stay in the database, for the record, and are left out here."""
+    p_model, p_sha, x_model, x_sha = propose.current_keys()
     out = []
     for s in conn.execute("SELECT * FROM case_llm_status ORDER BY case_id, variant"):
         cls = conn.execute(
             "SELECT c.status, c.event_type FROM event_classifications c JOIN events e "
-            "USING (event_id) WHERE e.event_run_id = ? AND c.variant = ?",
-            (s["event_run_id"], s["variant"]),
+            "USING (event_id) WHERE e.event_run_id = ? AND c.variant = ? AND c.model = ? "
+            "AND c.prompt_sha256 = ?",
+            (s["event_run_id"], s["variant"], x_model, x_sha),
         ).fetchall()
+        current = ("ps.case_id = ? AND ps.variant = ? AND ps.model = ? AND ps.prompt_sha256 = ? "
+                   "AND ps.extract_prompt_sha256 = ?")  # fmt: skip
+        args = (s["case_id"], s["variant"], p_model, p_sha, x_sha)
         proposals = conn.execute(
             "SELECT p.status, p.clipped, p.sigma_flag FROM shock_proposals p JOIN proposal_sets "
-            "ps USING (set_id) WHERE ps.case_id = ? AND ps.variant = ?",
-            (s["case_id"], s["variant"]),
-        ).fetchall()
+            f"ps USING (set_id) WHERE {current}", args,
+        ).fetchall()  # fmt: skip
         sets = conn.execute(
-            "SELECT status, no_impact FROM proposal_sets WHERE case_id = ? AND variant = ?",
-            (s["case_id"], s["variant"]),
+            f"SELECT ps.status, ps.no_impact FROM proposal_sets ps WHERE {current}", args
         ).fetchall()
         types = Counter(c["event_type"] for c in cls if c["status"] == "ok")
         out.append({
@@ -57,21 +62,26 @@ def case_rows(conn: sqlite3.Connection) -> list[dict]:
 
 
 def tokens(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Every call ever made, by node, model and prompt version: what was spent, and on what."""
     return conn.execute(
-        "SELECT node, model, COUNT(*) AS calls, SUM(status = 'ok') AS ok, "
+        "SELECT node, model, prompt_version, COUNT(*) AS calls, SUM(status = 'ok') AS ok, "
         "SUM(status = 'invalid') AS invalid, SUM(status = 'error') AS errors, "
         "SUM(input_tokens) AS input, SUM(output_tokens) AS output FROM llm_calls "
-        "GROUP BY node, model ORDER BY node, model"
+        "GROUP BY node, model, prompt_version ORDER BY node, model, prompt_version"
     ).fetchall()
 
 
 def agreement(conn: sqlite3.Connection) -> tuple[int, int]:
-    """Events classified ok in both variants (same model and prompt), and how many agree on type."""
+    """Events classified ok in both variants with the current model and extraction prompt, and
+    how many agree on type."""
+    _, _, x_model, x_sha = propose.current_keys()
     row = conn.execute(
         "SELECT COUNT(*), SUM(n.event_type = m.event_type) FROM event_classifications n "
         "JOIN event_classifications m ON m.event_id = n.event_id AND m.model = n.model "
         "AND m.prompt_sha256 = n.prompt_sha256 AND m.variant = 'masked' "
-        "WHERE n.variant = 'named' AND n.status = 'ok' AND m.status = 'ok'"
+        "WHERE n.variant = 'named' AND n.status = 'ok' AND m.status = 'ok' AND n.model = ? "
+        "AND n.prompt_sha256 = ?",
+        (x_model, x_sha),
     ).fetchone()
     return row[0], row[1] or 0
 
@@ -98,11 +108,15 @@ def write_report(
                   f"{m.model} {m.training_cutoff or 'not yet recorded'}"
                   for m in {v.model: v for v in NODE_MODELS.values()}.values()),
               ]  # fmt: skip
-    lines += ["", "## Calls and tokens", "", "| Node | Model | Calls | ok / invalid / error | "
-              "Input tokens | Output tokens |", "|---|---|---|---|---|---|"]  # fmt: skip
+    lines += ["", "## Calls and tokens", "",
+              "Every call made, including those of earlier prompt versions; the tables above use "
+              "the current prompts only.", "",
+              "| Node | Model | Prompt version | Calls | ok / invalid / error | Input tokens | "
+              "Output tokens |", "|---|---|---|---|---|---|---|"]  # fmt: skip
     for t in tokens(conn):
-        lines.append(f"| {t['node']} | {t['model']} | {t['calls']} | {t['ok']} / {t['invalid']} "
-                     f"/ {t['errors']} | {t['input']:,} | {t['output']:,} |")  # fmt: skip
+        lines.append(f"| {t['node']} | {t['model']} | v{t['prompt_version']} | {t['calls']} | "
+                     f"{t['ok']} / {t['invalid']} / {t['errors']} | {t['input']:,} | "
+                     f"{t['output']:,} |")  # fmt: skip
     answers = headlines.stored_answers(conn)
     sample = sample_rows if sample_rows is not None else read_sample()
     if answers and sample:
