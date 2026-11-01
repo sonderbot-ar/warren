@@ -41,4 +41,4 @@ Design review not run: this is a four-point fix list that the gatekeeper already
 
 ## Where the work stopped
 
-- Step 1 built and pushed; PR open.
+- Done. Merged in #106 (`484bbb7`, v0.6.1) after green CI and a gatekeeper GO on re-check (567 tests).
