@@ -1,5 +1,6 @@
 """Monte Carlo over shocks: sampling, storage, reproduce and the command line (M4 Step 3)."""
 
+import shutil
 import sqlite3
 from contextlib import contextmanager
 
@@ -10,7 +11,7 @@ from domains.analysis import __main__ as cli
 from domains.analysis import dcf, montecarlo, sim_report
 from domains.analysis.montecarlo import SimulationError
 from domains.analysis.runs import run_baseline
-from shared_kernel.database import apply_migrations
+from shared_kernel.database import MIGRATIONS_DIR, apply_migrations, get_db_connection
 from tests.analysis.conftest import AS_OF, CHOICES
 from tests.analysis.test_dcf import VALUE_DRIVER_ROW, rows
 from tests.analysis.test_shocks import shock
@@ -93,6 +94,55 @@ def test_stored_simulation_reproduces_to_the_cent_and_detects_an_edit(company):
     company.execute("UPDATE shocks SET high = 300 WHERE shock_id = ?", (f"{sim_id}:rp",))
     result = montecarlo.reproduce_simulation(company, sim_id)
     assert not result.ok and "hash" in result.mismatches[0]
+
+
+def test_a_simulation_stored_before_0012_upgrades_and_still_reproduces(company, tmp_path):
+    # backlog #74: build the rows on today's schema, copy them into a v11 database (no
+    # shocks.basis, no later tables), then upgrade it; the old shocks must read back as growth
+    run_id = run_baseline(company, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    shocks = [
+        shock(**RANGE, horizon=4),
+        shock(shock_id="rp", driver="risk_premium", low=0, base=50, high=150, horizon=20),
+    ]
+    sim_id = montecarlo.save_simulation(company, run_id, shocks, n=500, seed=5)
+    outputs = montecarlo.reproduce_simulation(company, sim_id).outputs_checked
+    company.commit()
+
+    v11 = tmp_path / "v11"
+    v11.mkdir()
+    for path in MIGRATIONS_DIR.glob("*.sql"):
+        if int(path.name[:4]) <= 11:
+            shutil.copy(path, v11 / path.name)
+    with get_db_connection(tmp_path / "old.db") as old:
+        assert max(apply_migrations(old, v11)) == 11
+        old.execute("PRAGMA foreign_keys=OFF")  # rows arrive in table order, not key order
+        found = old.execute("SELECT name, sql FROM sqlite_master WHERE type='table'").fetchall()
+        virtual = [name for name, sql in found if sql.startswith("CREATE VIRTUAL")]
+        tables = [
+            name
+            for name, _ in found
+            if name != "schema_version"
+            and not name.startswith("sqlite_")
+            and not any(name.startswith(v) for v in virtual)  # FTS and its shadow tables
+        ]
+        for table in tables:
+            columns = [r[1] for r in old.execute(f"PRAGMA table_info({table})")]
+            names = ", ".join(columns)
+            marks = ", ".join("?" * len(columns))
+            rows_now = company.execute(f"SELECT {names} FROM {table}").fetchall()
+            old.executemany(f"INSERT INTO {table} ({names}) VALUES ({marks})", rows_now)
+        old.commit()
+        assert "basis" not in {r[1] for r in old.execute("PRAGMA table_info(shocks)")}
+        assert old.execute("SELECT COUNT(*) FROM shocks").fetchone()[0] == 2
+
+        old.execute("PRAGMA foreign_keys=ON")
+        assert apply_migrations(old)[:2] == [12, 13]
+        assert old.execute("PRAGMA foreign_key_check").fetchall() == []
+        loaded = montecarlo.load_simulation_shocks(old, sim_id)
+        assert [(s.shock_id, s.basis) for s in loaded] == [("s1", "growth"), ("rp", "growth")]
+        result = montecarlo.reproduce_simulation(old, sim_id)
+        assert result.ok, result.mismatches
+        assert result.outputs_checked == outputs
 
 
 def test_report_shows_bands_and_says_what_they_cover(company):
