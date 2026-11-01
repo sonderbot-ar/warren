@@ -42,7 +42,7 @@ Durations are indicative, assuming part-time work (roughly 8–12 hours a week).
 | M3 | Evaluation harness v1 (baseline only) | 1.5 | nov.23 – dec.03 | M2.1 | Done (oct.30.2026, v0.3; design in `docs/designs/m3-evaluation-harness.md`) |
 | M4 | Shock model and Monte Carlo (manual shocks) | 1.5 | dec.04 – dec.13 | M2.1 | **Done** (oct.30.2026, v0.4; PRs #30 and #39; design in `docs/designs/m4-shock-model.md`) |
 | M5 | News ingestion (GDELT) and event clustering | 2.5 | dec.14 – jan.03 | M1 | Done (oct.30.2026, v0.5; design in `docs/designs/m5-news-ingestion.md`; all 26 case windows ingested and clustered; with the headline rule, `org_exact` precision 0.72 pooled, 0.52–0.90 per company, accepted by the owner; PRs #41, #43, #48, #51, #65, #66, #67) |
-| M6 | LLM steps: event extraction and shock proposal | 2 | jan.04 – jan.17 | M4, M5 | In progress (nov.01.2026; design in `docs/designs/m6-llm-steps.md`; Steps 1–7 merged in PR #72; the real run, Step 8, is done on branch `m6-real-run`, PR open: all 26 cases classified from their own week's news, proposed and auto-reviewed in both variants, stability 9 of 10, about $5.81) |
+| M6 | LLM steps: event extraction and shock proposal | 2 | jan.04 – jan.17 | M4, M5 | **Done** (nov.01.2026, v0.6; design in `docs/designs/m6-llm-steps.md`; Steps 1–7 in PR #72, the real run in PR #101, merged by the agent team after gatekeeper and analyst GO; all 26 cases classified from their own week's news, proposed and auto-reviewed in both variants; stability 9 of 10; about $5.81) |
 | M7 | LangGraph orchestration and telemetry | 1.5 | jan.18 – jan.27 | M6 | Not started |
 | M8 | Full backtest and Phase 1 review | 1.5 | jan.28 – feb.07.2027 | M3, M7 | Not started |
 
