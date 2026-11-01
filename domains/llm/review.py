@@ -121,3 +121,54 @@ def approved_shocks(conn: sqlite3.Connection, set_id: int) -> list[Shock]:
     fields = ("shock_id event_id driver low base high start_period horizon decay source rationale "
               "basis").split()  # fmt: skip
     return [Shock(**{k: r[k] for k in fields}) for r in rows]
+
+
+# -- answers given all at once (M7: the pipeline's review pause) ----------------------------------
+
+ACTIONS = ("approve", "edit", "reject")
+
+
+def check_answers(conn: sqlite3.Connection, proposal_ids: list[int], answers) -> str | None:
+    """Why a batch of answers can't be applied, or None. Checked before any row is written, as
+    `review_set` commits one proposal at a time: exactly one answer per open proposal, a known
+    action, and an edit that changes an editable field into a shock M4 accepts.
+
+    `answers` maps a proposal id to {"action": ..., "changes": {...}} or {..., "reason": ...}."""
+    if not isinstance(answers, dict):
+        return "the answers must map each proposal id to an action"
+    given = {str(k): v for k, v in answers.items()}
+    wanted = {str(p) for p in proposal_ids}
+    if set(given) != wanted:
+        missing, extra = sorted(wanted - set(given)), sorted(set(given) - wanted)
+        return f"answers must cover exactly the open proposals (missing {missing}, unknown {extra})"
+    for pid, answer in given.items():
+        action = answer.get("action") if isinstance(answer, dict) else None
+        if action not in ACTIONS:
+            return f"proposal {pid}: action must be one of {', '.join(ACTIONS)}"
+        if action == "edit":
+            changes = {k: v for k, v in (answer.get("changes") or {}).items() if k in EDITABLE}
+            if not changes:
+                return f"proposal {pid}: an edit changes one of {', '.join(EDITABLE)}"
+            row = conn.execute(
+                "SELECT * FROM shock_proposals WHERE proposal_id = ?", (int(pid),)
+            ).fetchone()
+            try:
+                _shock(row, "user", "check", **changes)
+            except (ValueError, TypeError) as e:
+                return f"proposal {pid}: the edited shock is refused: {e}"
+    return None
+
+
+def answer_from(answers: dict) -> Callable[[sqlite3.Row, Shock], Decision]:
+    """An `ask` for `review_set` that reads checked answers instead of asking a person."""
+    given = {str(k): v for k, v in answers.items()}
+
+    def ask(row: sqlite3.Row, shock: Shock) -> Decision:
+        answer = given[str(row["proposal_id"])]
+        if answer["action"] == "edit":
+            return "edit", answer["changes"]
+        if answer["action"] == "reject":
+            return "reject", answer.get("reason") or ""
+        return "approve", None
+
+    return ask

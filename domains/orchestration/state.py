@@ -5,7 +5,7 @@ Large things stay in the database and are named by id: filings (`financial_facts
 `current_node`: LangGraph records which node runs next.
 """
 
-from datetime import date
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -39,6 +39,7 @@ class PipelineState(BaseModel):
     budget: int = Field(..., gt=0, description="LLM tokens per LLM node (M6 budget)")
     offline: bool = False
     refresh: bool = False
+    started_at: datetime = Field(..., description="UTC; with refresh, data fetched after counts")
 
     # load_fundamentals, load_market
     cik: str | None = None
@@ -56,6 +57,7 @@ class PipelineState(BaseModel):
     articles_kept: int | None = None
     event_run_id: str | None = None
     events_total: int | None = None
+    events_chosen: int | None = None
 
     # extract_events, propose_shocks, review_shocks, simulate (by variant)
     classified: dict[str, dict[str, int]] = Field(default_factory=dict)

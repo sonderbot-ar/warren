@@ -2,7 +2,6 @@
 
 import json
 import shutil
-from datetime import date
 
 import pytest
 from langgraph.errors import GraphInterrupt
@@ -18,13 +17,11 @@ from shared_kernel.database import (
     get_db_connection,
 )
 from shared_kernel.schemas import TelemetryEvent
+from tests.orchestration.conftest import new_state
 
 
 def state(**changes) -> PipelineState:
-    values = dict(pipeline_id="TST_2020-06-30_p1", ticker="TST", as_of=date(2020, 6, 30),
-                  variants=["named"], review="auto", seed=7, n_samples=100,
-                  budget=1000)  # fmt: skip
-    return PipelineState(**(values | changes))
+    return new_state(**changes)
 
 
 def test_state_refuses_an_unknown_field_and_builds_the_case_id():
