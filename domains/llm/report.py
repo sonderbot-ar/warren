@@ -27,24 +27,31 @@ def _pct(rate: dict) -> str:
     return f"{rate['share']:.2f} ({rate['low']:.2f}–{rate['high']:.2f}, n={rate['n']})"
 
 
+def chosen_classifications(conn: sqlite3.Connection, event_run_id: str, variant: str) -> list:
+    """The current model and prompt's classifications of the events chosen for the case window
+    now (`extract.choose_events`), not of an earlier choice's events."""
+    _, _, x_model, x_sha = propose.current_keys()
+    cls = conn.execute(
+        "SELECT c.status, c.event_type, e.event_id, e.source_count, e.first_seen, e.last_seen, "
+        "r.as_of, r.tz FROM event_classifications c JOIN events e USING (event_id) "
+        "JOIN event_runs r ON r.event_run_id = e.event_run_id WHERE e.event_run_id = ? "
+        "AND c.variant = ? AND c.model = ? AND c.prompt_sha256 = ?",
+        (event_run_id, variant, x_model, x_sha),
+    ).fetchall()
+    if not cls:
+        return []
+    start = window_start(date.fromisoformat(cls[0]["as_of"]), ZoneInfo(cls[0]["tz"]))
+    chosen = {e["event_id"] for e in choose_events([dict(c) for c in cls], start)}
+    return [c for c in cls if c["event_id"] in chosen]
+
+
 def case_rows(conn: sqlite3.Connection) -> list[dict]:
     """Per case and variant, with the current models, prompts and event choice only: rows stored
     by an earlier prompt version or an earlier choice stay in the database, for the record, and
     are left out here."""
-    _, _, x_model, x_sha = propose.current_keys()
     out = []
     for s in conn.execute("SELECT * FROM case_llm_status ORDER BY case_id, variant"):
-        cls = conn.execute(
-            "SELECT c.status, c.event_type, e.event_id, e.source_count, e.first_seen, e.last_seen, "
-            "r.as_of, r.tz FROM event_classifications c JOIN events e USING (event_id) "
-            "JOIN event_runs r ON r.event_run_id = e.event_run_id WHERE e.event_run_id = ? "
-            "AND c.variant = ? AND c.model = ? AND c.prompt_sha256 = ?",
-            (s["event_run_id"], s["variant"], x_model, x_sha),
-        ).fetchall()
-        if cls:  # the events chosen for the case window now, not an earlier choice's
-            start = window_start(date.fromisoformat(cls[0]["as_of"]), ZoneInfo(cls[0]["tz"]))
-            chosen = {e["event_id"] for e in choose_events([dict(c) for c in cls], start)}
-            cls = [c for c in cls if c["event_id"] in chosen]
+        cls = chosen_classifications(conn, s["event_run_id"], s["variant"])
         current = propose.current_set(conn, s["case_id"], s["variant"])
         set_ids = [current["set_id"]] if current is not None else []
         proposals = conn.execute(
@@ -78,18 +85,19 @@ def tokens(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 
 
 def agreement(conn: sqlite3.Connection) -> tuple[int, int]:
-    """Events classified ok in both variants with the current model and extraction prompt, and
-    how many agree on type."""
-    _, _, x_model, x_sha = propose.current_keys()
-    row = conn.execute(
-        "SELECT COUNT(*), SUM(n.event_type = m.event_type) FROM event_classifications n "
-        "JOIN event_classifications m ON m.event_id = n.event_id AND m.model = n.model "
-        "AND m.prompt_sha256 = n.prompt_sha256 AND m.variant = 'masked' "
-        "WHERE n.variant = 'named' AND n.status = 'ok' AND m.status = 'ok' AND n.model = ? "
-        "AND n.prompt_sha256 = ?",
-        (x_model, x_sha),
-    ).fetchone()
-    return row[0], row[1] or 0
+    """Chosen events classified ok in both variants with the current model and extraction prompt,
+    and how many agree on type."""
+    both = same = 0
+    runs = conn.execute("SELECT DISTINCT event_run_id FROM case_llm_status ORDER BY 1").fetchall()
+    for (run_id,) in runs:
+        named = {c["event_id"]: c["event_type"] for c in chosen_classifications(conn, run_id,
+                 "named") if c["status"] == "ok"}  # fmt: skip
+        masked = {c["event_id"]: c["event_type"] for c in chosen_classifications(conn, run_id,
+                  "masked") if c["status"] == "ok"}  # fmt: skip
+        common = named.keys() & masked.keys()
+        both += len(common)
+        same += sum(named[e] == masked[e] for e in common)
+    return both, same
 
 
 def write_report(
