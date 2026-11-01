@@ -17,7 +17,7 @@ The gatekeeper's notes on `shared_kernel/snapshot.py` from PR #101:
 
 **Step 1 (one commit).**
 - `_archive_path(manifest_path, manifest)`: the archive must be exactly `warren-<stamp>.tar.gz`, with the same stamp as the manifest's own name, in the same folder; anything else raises `SnapshotError`. `restore` uses it before reading the archive. The prune step uses it too, and leaves an odd manifest and whatever it names alone (for a person to look at) instead of deleting.
-- `_swap_in(new, targets, aside)`: moves the old files (the database with its `-wal` and `-shm`, or `raw/edgar`) aside inside the unpack folder, moves the new copy in, and only then lets the old ones go with the unpack folder. If the move fails, a half-moved new copy is removed and the old files go back. The unpack folder sits in `data/`, so the aside moves are renames on one disk.
+- `_swap_in(new, targets, label)`: moves the old files (the database with its `-wal` and `-shm`, or `raw/edgar`) into a hidden folder of their own beside them (`.old-db-*`, `.old-raw-*`, on the same disk and outside the unpack folder), moves the new copy in, and only then deletes the old ones. If any step fails, a half-moved new copy is removed and the old files go back; if putting them back fails too, they stay in the hidden folder and the error names it. A failed raw swap after a good database swap raises a `SnapshotError` that says the database is the new one and the raw files the old.
 - `requires-python = ">=3.11.4"` in `pyproject.toml` and the README; the module docstring states it and that the hash proves integrity, not origin (fine for the project's shared folder, which only Warren's runs write to).
 
 Tests (`tests/shared_kernel/test_snapshot.py`): five odd archive names (parent path, absolute path, wrong extension, another stamp, a subfolder) are refused and nothing is unpacked; the prune step never deletes a file an odd manifest names; a failed raw move (after a half copy) keeps the old raw files, local-only file included; a failed database move keeps the old database with its newest row. All eight new tests fail on the old code. The real snapshot in the project folder passes the name check. Exit: `pytest`, `ruff check`, `ruff format --check` green.
@@ -36,6 +36,8 @@ No design decision changes. No number changes.
 ## Review log
 
 Design review not run: this is a four-point fix list that the gatekeeper already wrote as the issue, with no financial logic. Gatekeeper at the PR stage.
+
+- **Gatekeeper** (NO-GO, 1 blocker, fixed): the move-aside loop sat outside the rollback, and the old files were set aside inside the unpack folder, so a failed second rename (or a failed rollback) let the folder's cleanup delete the old database. Fixed: the whole swap is inside the rollback, the old files go to their own hidden folder that outlives the unpack folder, and a failed rollback keeps them there and names it; two tests (a failed second move aside, a failed rollback). Taken: the raw-failure test is renamed and asserts the database is the new one, and that error now says so; the leftover-folder cleanup after a good swap no longer raises. Not done: a marker file for a half-done restore (the error says it, and the next run restores again).
 
 ## Where the work stopped
 

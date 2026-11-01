@@ -59,27 +59,37 @@ def _archive_path(manifest_path: Path, manifest: dict) -> Path:
     return manifest_path.parent / expected
 
 
-def _swap_in(new: Path, targets: list[Path], aside: Path) -> None:
-    """Move `targets` that exist into `aside`, move `new` to `targets[0]`, then drop the old ones.
+def _swap_in(new: Path, targets: list[Path], label: str) -> None:
+    """Move `targets` that exist aside, move `new` to `targets[0]`, then drop the old ones.
 
-    If the move fails, the old files go back where they were, so a failed restore loses nothing.
+    The old files go to a hidden folder of their own beside `targets[0]` (same disk, outside any
+    temporary folder). If any step fails, they go back where they were; if putting them back fails
+    too, they stay in that folder and the error names it, so a failed restore never deletes the
+    only copy.
     """
-    aside.mkdir(parents=True)
-    moved = []
-    for t in targets:
-        if t.exists():
-            os.replace(t, aside / t.name)
-            moved.append(t)
+    targets[0].parent.mkdir(parents=True, exist_ok=True)
+    aside = Path(tempfile.mkdtemp(dir=targets[0].parent, prefix=f".old-{label}-"))
+    moved, moving_new = [], False
     try:
-        targets[0].parent.mkdir(parents=True, exist_ok=True)
+        for t in targets:
+            if t.exists():
+                os.replace(t, aside / t.name)
+                moved.append(t)
+        moving_new = True
         shutil.move(new, targets[0])
-    except BaseException:
-        if targets[0].exists() or targets[0].is_symlink():
-            _remove(targets[0])  # a half-moved new copy; the old one is safe in `aside`
-        for t in moved:
-            os.replace(aside / t.name, t)
+    except BaseException as failure:
+        try:
+            if moving_new and (targets[0].exists() or targets[0].is_symlink()):
+                _remove(targets[0])  # a half-moved new copy; the old one is safe in `aside`
+            for t in moved:
+                os.replace(aside / t.name, t)
+            aside.rmdir()
+        except OSError as e:
+            raise SnapshotError(
+                f"restore failed ({failure}); the old files are kept in {aside}"
+            ) from e
         raise
-    shutil.rmtree(aside)
+    shutil.rmtree(aside, ignore_errors=True)  # the swap worked; a leftover folder harms nothing
 
 
 def _remove(path: Path) -> None:
@@ -178,9 +188,15 @@ def restore(folder: Path, data_dir: Path = DATA_DIR, force: bool = False) -> dic
         unpacked = Path(tmp)
         # Swap first, delete after: the old files sit aside until the new ones are in place.
         db_files = [data_dir / n for n in (DB_NAME, f"{DB_NAME}-wal", f"{DB_NAME}-shm")]
-        _swap_in(unpacked / DB_NAME, db_files, unpacked / "old-db")
+        _swap_in(unpacked / DB_NAME, db_files, "db")
         if (unpacked / RAW_NAME).exists():
-            _swap_in(unpacked / RAW_NAME, [data_dir / RAW_NAME], unpacked / "old-raw")
+            try:
+                _swap_in(unpacked / RAW_NAME, [data_dir / RAW_NAME], "raw")
+            except OSError as e:  # the old raw files are back; say the database is the new one
+                raise SnapshotError(
+                    f"the database was restored but the raw EDGAR files were not ({e}); "
+                    "the old raw files are still in place, and ingest re-fetches what it needs"
+                ) from e
     with get_db_connection(db_path) as conn:
         if current_schema_version(conn) > manifest["schema_version"]:
             raise SnapshotError("the restored database is newer than its manifest")
