@@ -10,6 +10,7 @@ idempotent: a proposal that already has a status is never reviewed again.
 import json
 import sqlite3
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Literal
 
 from domains.analysis.shocks import Shock
@@ -63,6 +64,7 @@ def review_set(
     auto: bool = False,
     ask: Callable[[sqlite3.Row, Shock], Decision] | None = None,
     reviewer: str = "none",
+    now: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> dict[str, int]:
     """Review every unreviewed proposal of a set; counts by the status given."""
     if not auto and ask is None:
@@ -95,9 +97,15 @@ def review_set(
             else:
                 raise ValueError(f"unknown review action {action!r}")
             conn.execute(
-                "UPDATE shock_proposals SET status = ?, reviewer = ?, review_note = ? "
-                "WHERE proposal_id = ?",
-                (status, "none" if auto else reviewer, note, row["proposal_id"]),
+                "UPDATE shock_proposals SET status = ?, reviewer = ?, review_note = ?, "
+                "reviewed_at = ? WHERE proposal_id = ?",
+                (
+                    status,
+                    "none" if auto else reviewer,
+                    note,
+                    now().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    row["proposal_id"],
+                ),  # fmt: skip
             )
         counts[status] = counts.get(status, 0) + 1
     return counts

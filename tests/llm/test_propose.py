@@ -155,12 +155,13 @@ def test_a_case_reads_one_classification_per_event_from_the_current_prompt(compa
     run_id = run_baseline(company, "TST", AS_OF, choices=CHOICES, today=AS_OF)
     company.execute(
         "INSERT INTO proposal_sets (case_id, event_run_id, variant, model, prompt_sha256, run_id, "
-        "status, no_impact) VALUES (?, 'run1', 'named', ?, ?, ?, 'ok', 1)",
+        "scales_sha256, status, no_impact) VALUES (?, 'run1', 'named', ?, ?, ?, ?, 'ok', 1)",
         (
             CASE,
             calls.node_model("propose_shocks").model,
             calls.latest_prompt(propose.PROMPT).sha256,
             run_id,
+            scales.scales_sha256(),
         ),
     )  # fmt: skip  (a set stored before 0014: its extraction prompt is not known)
     client = FakeClient([answer(no_impact=True)])
@@ -202,3 +203,62 @@ def test_a_set_is_proposed_again_when_its_events_change(company):  # noqa: F811
         "cuts again" in again.requests[0]["user"]
         and "revenue outlook" not in again.requests[0]["user"]
     )
+
+
+def test_a_set_is_not_reused_for_another_baseline_run(company):  # noqa: F811
+    # M7 analyst review: sizes come from the baseline run, so a set sized on run _1 must not be
+    # reused (and simulated) on run _2
+    set_id, _ = run(company, FakeClient([answer(proposal(evidence=["e1"]))]), "high")
+    co = company_of(company, "TST")
+    second = run_baseline(company, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    again = FakeClient([answer(proposal(evidence=["e1"]))])
+    new = propose.propose_case(company, again, CASE, co, AS_OF, second, NO_ALIASES, "named", "t")
+    assert new != set_id and len(again.requests) == 1
+    stored = company.execute("SELECT run_id FROM proposal_sets WHERE set_id = ?", (new,))
+    assert stored.fetchone()[0] == second
+    assert propose.current_set(company, CASE, "named", run_id=second)["set_id"] == new
+    first = company.execute("SELECT run_id FROM proposal_sets WHERE set_id = ?", (set_id,))
+    assert propose.current_set(company, CASE, "named", run_id=first.fetchone()[0])["set_id"] == (
+        set_id
+    )
+
+
+def test_a_set_is_not_reused_with_other_scales(company):  # noqa: F811
+    set_id, _ = run(company, FakeClient([answer(proposal(evidence=["e1"]))]), "high")
+    co = company_of(company, "TST")
+    run_id = company.execute("SELECT run_id FROM proposal_sets").fetchone()[0]
+    wider = scales.load_scales() | {"range_width": 1.0}
+    again = FakeClient([answer(proposal(evidence=["e1"]))])
+    new = propose.propose_case(company, again, CASE, co, AS_OF, run_id, NO_ALIASES, "named", "t",
+                               scale_table=wider)  # fmt: skip
+    assert new != set_id and len(again.requests) == 1
+
+
+def test_a_second_event_run_of_the_case_is_not_read_with_the_first(company):  # noqa: F811
+    # M7 analyst review: a second ingest of the window makes a second event run whose events
+    # repeat the first run's stories; a proposal must read one run only
+    co = add_events(company, "high")
+    company.execute(
+        "INSERT INTO event_runs (event_run_id, cik, as_of, tz, params_json, input_sha256, "
+        "code_version) VALUES ('run2', ?, ?, 'America/New_York', '{}', 'y', 'test')",
+        (co.cik, AS_OF.isoformat()),
+    )
+    company.execute(
+        "INSERT INTO events (event_id, event_run_id, cik, first_seen, last_seen, article_count, "
+        "source_count, label, themes_json) VALUES ('ev1b', 'run2', ?, '2020-06-25T12:00:00Z', "
+        "'2020-06-25T18:00:00Z', 4, 4, 'label', '[]')",
+        (co.cik,),
+    )
+    company.execute(
+        "INSERT INTO event_classifications (event_id, variant, model, prompt_sha256, status, "
+        "event_type, model_event_type, materiality, reasons, summary, evidence_json, about_json) "
+        "VALUES ('ev1b', 'named', 'claude-haiku-5-5', ?, 'ok', 'guidance', 'guidance', 'high', "
+        "'[]', 'Test Corp cuts its revenue outlook.', '[]', '{}')",
+        (EXTRACT_SHA,),
+    )
+    company.execute("INSERT INTO case_llm_status VALUES (?, 'run2', 'named', 1, 1)", (CASE,))
+    company.commit()
+    latest = propose.case_events(company, CASE, "named", "claude-haiku-5-5", EXTRACT_SHA)
+    assert [r["event_id"] for r in latest] == ["ev1b"]  # the case's latest run only
+    first = propose.case_events(company, CASE, "named", "claude-haiku-5-5", EXTRACT_SHA, "run1")
+    assert [r["event_id"] for r in first] == ["ev1"]

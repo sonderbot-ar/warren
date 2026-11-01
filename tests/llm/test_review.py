@@ -68,3 +68,14 @@ def test_approved_shocks_simulate_and_reproduce_to_the_cent(company):  # noqa: F
     sim_id = montecarlo.save_simulation(company, run_id, review.approved_shocks(company, set_id),
                                         n=300, seed=7)  # fmt: skip
     assert montecarlo.reproduce_simulation(company, sim_id).ok
+
+
+def test_a_review_records_when_it_was_made(company):  # noqa: F811
+    # M7: the report marks a person's review made after the as-of date (hindsight)
+    from datetime import UTC, datetime
+
+    set_id, _ = run(company, FakeClient([THREE]), "high")
+    when = datetime(2026, 11, 1, 20, 0, tzinfo=UTC)
+    review.review_set(company, set_id, auto=True, now=lambda: when)
+    times = {r[0] for r in company.execute("SELECT reviewed_at FROM shock_proposals")}
+    assert times == {"2026-11-01T20:00:00Z"}

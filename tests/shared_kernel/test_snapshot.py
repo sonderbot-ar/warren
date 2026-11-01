@@ -68,3 +68,14 @@ def test_only_the_newest_two_are_kept_and_the_newest_is_restored(data, tmp_path)
         _save(data, folder, minute)
     assert len(snapshot.manifests(folder)) == 2 and len(list(folder.glob("*.tar.gz"))) == 2
     assert snapshot.restore(folder, tmp_path / "fresh")["row_counts"]["probe"] == 4
+
+
+def test_the_pipelines_telemetry_is_kept(data, tmp_path):
+    # M7: a report points to its pipeline's telemetry file, so a restored machine has it
+    (data / "telemetry").mkdir()
+    line = '{"pipeline_id": "TST_2020-06-30_p1", "node": "simulate", "status": "ok"}\n'
+    (data / "telemetry" / "TST_2020-06-30_p1.jsonl").write_text(line)
+    _save(data, tmp_path / "snap")
+    fresh = tmp_path / "fresh"
+    snapshot.restore(tmp_path / "snap", fresh)
+    assert (fresh / "telemetry" / "TST_2020-06-30_p1.jsonl").read_text() == line

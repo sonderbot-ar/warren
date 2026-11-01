@@ -10,6 +10,7 @@ lives in `scales.csv`: judgments, stated as such, not a calibration.
 """
 
 import csv
+import hashlib
 import statistics
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,6 +25,16 @@ DURATIONS = {"one_quarter": (1, 1.0), "fading": (8, 0.7), "lasting": (8, 1.0)}  
 GRID = m4.GRID_QUARTERS
 ROW = {"revenue_growth": "revenue_growth", "operating_margin": "operating_margin",
        "capex_intensity": "capex_pct"}  # fmt: skip
+
+
+def scales_sha256(table: dict[str, float] | None = None, path: Path = SCALES_PATH) -> str:
+    """What a proposal set was sized with: the SHA-256 of `scales.csv` read as text with LF line
+    endings, or, for a table passed in (tests), of its sorted keys and values."""
+    if table is not None and table != load_scales(path):
+        text = ";".join(f"{k}={v!r}" for k, v in sorted(table.items()))
+    else:
+        text = path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    return hashlib.sha256(text.encode()).hexdigest()
 
 
 def load_scales(path: Path = SCALES_PATH) -> dict[str, float]:
