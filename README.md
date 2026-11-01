@@ -10,7 +10,7 @@ A modular engine for fundamental financial analysis. It loads a company's report
 
 ## Setup
 
-Requires Python 3.11 or later.
+Requires Python 3.11.4 or later.
 
 ```bash
 python3 -m venv .venv
