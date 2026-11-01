@@ -27,6 +27,10 @@ Exit: `pytest`, `ruff check`, `ruff format --check` green. No number changes; no
 
 `tests/analysis/test_montecarlo.py`, `docs/designs/backlog-74-migration-0012-sim.md`, `docs/versions.md` (on merge).
 
+## Review log
+
+- **Gatekeeper** (GO, no blockers): 536 passed, ruff clean, CI green on `cbf05a4`. Confirmed the copy models v11 (columns from the v11 schema, 0012 and 0013 tables absent, only the FTS table and its shadows skipped) and that six breaks of 0012 or of the loader each turn the test red. Ideas not taken in this PR: the stored hash and bands come from today's `save_simulation`, so a change to how a growth shock is hashed would pass here (already covered by `tests/analysis/test_shocks.py`); read `basis` straight from SQL for a clearer failure; share the "build at vN and copy rows" loop for #8 and #34.
+
 ## Where the work stopped
 
-- Step 1 done (536 tests). A deliberate break of 0012 (default `level`) turns the test red. PR open, waiting on CI and the gatekeeper.
+- Done. Merged in #99 (`2ab35c7`, v0.5.7) after green CI and a gatekeeper GO.
