@@ -41,10 +41,16 @@ def _headlines(conn: sqlite3.Connection, event_id: str, cutoff: str) -> list[str
     rows = conn.execute(
         "SELECT MIN(s.seen_at) AS seen, s.title FROM event_articles a "
         "JOIN article_sightings s USING (article_id) WHERE a.event_id = ? AND s.seen_at < ? "
-        "AND s.title IS NOT NULL GROUP BY a.article_id ORDER BY seen, a.article_id LIMIT ?",
-        (event_id, cutoff, HEADLINES_PER_EVENT),
+        "AND s.title IS NOT NULL GROUP BY a.article_id ORDER BY seen, a.article_id",
+        (event_id, cutoff),
     ).fetchall()
-    return [f"{r['seen'][:10]} · {r['title']}" for r in rows]
+    out, seen = [], set()
+    for r in rows:  # a syndicated story repeats one headline across outlets: show it once
+        key = r["title"].split(" – ")[0].split(" - ")[0].strip().lower()
+        if key not in seen:
+            seen.add(key)
+            out.append(f"{r['seen'][:10]} · {r['title']}")
+    return out[:HEADLINES_PER_EVENT]
 
 
 def _review_note(row: sqlite3.Row, state: PipelineState) -> str:
