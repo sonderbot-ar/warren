@@ -10,11 +10,20 @@ and row counts. `restore` picks the newest manifest, checks the hash, unpacks in
 applies newer migrations. Nothing in a snapshot changes point-in-time reads: every row keeps its
 own filing, fetch and seen dates.
 Callers still run the reproduce checks before trusting the data (the warren-run-track skill).
+
+The SHA-256 proves the archive is the one its manifest describes (integrity), not who made it
+(origin): anyone who can write to the folder can write a matching pair. That is fine for the
+project's shared folder, which only Warren's own runs write to; never restore from a folder others
+can write to. A manifest's `archive` must be the bare name `warren-<stamp>.tar.gz` that matches the
+manifest's own name, so a manifest can never point `restore` or the prune step at another path.
+Needs Python 3.11.4 or later (`extractall(filter="data")`).
 """
 
 import argparse
 import hashlib
 import json
+import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -34,6 +43,61 @@ DB_NAME, RAW_NAME, TELEMETRY_NAME = "warren.db", "raw/edgar", "telemetry"  # tel
 
 class SnapshotError(RuntimeError):
     """No usable snapshot: missing, corrupt, or newer than this code."""
+
+
+_MANIFEST = re.compile(r"warren-(\d{8}T\d{6}Z)\.json")
+
+
+def _archive_path(manifest_path: Path, manifest: dict) -> Path:
+    """The archive a manifest names, refused unless it is the one beside it with the same stamp."""
+    m = _MANIFEST.fullmatch(manifest_path.name)
+    expected = f"warren-{m.group(1)}.tar.gz" if m else None
+    if expected is None or manifest.get("archive") != expected:
+        raise SnapshotError(
+            f"{manifest_path.name} names archive {manifest.get('archive')!r}; "
+            f"expected {expected!r} in the same folder"
+        )
+    return manifest_path.parent / expected
+
+
+def _swap_in(new: Path, targets: list[Path], label: str) -> None:
+    """Move `targets` that exist aside, move `new` to `targets[0]`, then drop the old ones.
+
+    The old files go to a hidden folder of their own beside `targets[0]` (same disk, outside any
+    temporary folder). If any step fails, they go back where they were; if putting them back fails
+    too, they stay in that folder and the error names it, so a failed restore never deletes the
+    only copy.
+    """
+    targets[0].parent.mkdir(parents=True, exist_ok=True)
+    aside = Path(tempfile.mkdtemp(dir=targets[0].parent, prefix=f".old-{label}-"))
+    moved, moving_new = [], False
+    try:
+        for t in targets:
+            if t.exists():
+                os.replace(t, aside / t.name)
+                moved.append(t)
+        moving_new = True
+        shutil.move(new, targets[0])
+    except BaseException as failure:
+        try:
+            if moving_new and (targets[0].exists() or targets[0].is_symlink()):
+                _remove(targets[0])  # a half-moved new copy; the old one is safe in `aside`
+            for t in moved:
+                os.replace(aside / t.name, t)
+            aside.rmdir()
+        except OSError as e:
+            raise SnapshotError(
+                f"restore failed ({failure}); the old files are kept in {aside}"
+            ) from e
+        raise
+    shutil.rmtree(aside, ignore_errors=True)  # the swap worked; a leftover folder harms nothing
+
+
+def _remove(path: Path) -> None:
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink(missing_ok=True)
 
 
 def _sha256(path: Path) -> str:
@@ -101,7 +165,10 @@ def save(folder: Path, db_path: Path = DB_PATH, raw_dir: Path = RAW_EDGAR_DIR,
     path = folder / f"warren-{stamp}.json"
     path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     for old in manifests(folder)[KEEP:]:
-        (folder / json.loads(old.read_text())["archive"]).unlink(missing_ok=True)
+        try:
+            _archive_path(old, json.loads(old.read_text())).unlink(missing_ok=True)
+        except (SnapshotError, ValueError):
+            continue  # an unreadable or odd manifest is left alone, and so is what it names
         old.unlink()
     return path
 
@@ -112,7 +179,7 @@ def restore(folder: Path, data_dir: Path = DATA_DIR, force: bool = False) -> dic
     if not found:
         raise SnapshotError(f"no snapshot in {folder}")
     manifest = json.loads(found[0].read_text())
-    archive = folder / manifest["archive"]
+    archive = _archive_path(found[0], manifest)
     if not archive.exists() or _sha256(archive) != manifest["sha256"]:
         raise SnapshotError(f"{archive.name} is missing or does not match its SHA-256")
     db_path = data_dir / DB_NAME
@@ -123,16 +190,25 @@ def restore(folder: Path, data_dir: Path = DATA_DIR, force: bool = False) -> dic
         with tarfile.open(archive, "r:gz") as tar:
             tar.extractall(tmp, filter="data")  # refuses absolute paths and links out of tmp
         unpacked = Path(tmp)
-        for name in (DB_NAME, f"{DB_NAME}-wal", f"{DB_NAME}-shm"):
-            (data_dir / name).unlink(missing_ok=True)
-        shutil.move(unpacked / DB_NAME, db_path)
-        for name in (RAW_NAME, TELEMETRY_NAME):
-            if (unpacked / name).exists():
-                target = data_dir / name
-                if target.exists():
-                    shutil.rmtree(target)
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(unpacked / name, target)
+        # Swap first, delete after: the old files sit aside until the new ones are in place.
+        db_files = [data_dir / n for n in (DB_NAME, f"{DB_NAME}-wal", f"{DB_NAME}-shm")]
+        _swap_in(unpacked / DB_NAME, db_files, "db")
+        if (unpacked / RAW_NAME).exists():
+            try:
+                _swap_in(unpacked / RAW_NAME, [data_dir / RAW_NAME], "raw")
+            except OSError as e:  # the old raw files are back; say the database is the new one
+                raise SnapshotError(
+                    f"the database was restored but the raw EDGAR files were not ({e}); "
+                    "the old raw files are still in place, and ingest re-fetches what it needs"
+                ) from e
+        if (unpacked / TELEMETRY_NAME).exists():
+            try:
+                _swap_in(unpacked / TELEMETRY_NAME, [data_dir / TELEMETRY_NAME], "telemetry")
+            except OSError as e:  # the old telemetry is back; the reports' trace may lag
+                raise SnapshotError(
+                    f"the database was restored but the telemetry files were not ({e}); "
+                    "the old telemetry files are still in place"
+                ) from e
     with get_db_connection(db_path) as conn:
         if current_schema_version(conn) > manifest["schema_version"]:
             raise SnapshotError("the restored database is newer than its manifest")

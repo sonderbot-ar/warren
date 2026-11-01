@@ -2,7 +2,7 @@
 name = "warren"
 version = "0.0.1"
 description = "Fundamental financial analysis engine: point-in-time fundamentals, DCF and time-shaped news shocks."
-requires-python = ">=3.11"
+requires-python = ">=3.11.4"
 # Pinned dependencies live in requirements.txt.
 
 [tool.pytest.ini_options]
