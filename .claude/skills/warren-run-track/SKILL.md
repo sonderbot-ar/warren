@@ -22,6 +22,7 @@ The owner has delegated building and merging to the agent team (Structure Guide 
 
 ## 3. Build
 
+- Need data? Restore the snapshot first (`CLAUDE.md`, "Data on cloud runs"); rebuild only what is missing, and save a new snapshot when the run adds data worth keeping.
 - One focused commit per step, with tests in every step. Run `python -m pytest -q`, `ruff check .` and `ruff format --check .` before each push.
 - Never skip, disable or weaken a test to get green. LLMs never produce financial numbers. Every query is point-in-time.
 - Open the PR to `main`, subscribe to its activity, and fix CI failures.

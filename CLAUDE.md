@@ -49,6 +49,16 @@ Work on other tracks continues while a card waits.
 - A bad merge is undone with a revert PR, never by rewriting history.
 - The invariants are tests: runs reproduce to the cent from stored assumptions, no data after `as_of`, property tests on `financial_math.py`. A change that needs to relax one is a decision for the owner.
 
+## Data on cloud runs (owner, oct.31.2026)
+
+`data/` is git-ignored, so a cloud machine starts empty, and a full rebuild takes about 2.5 hours (mostly GDELT news). Never rebuild when a snapshot exists:
+
+1. Before any step that needs data: `python -m shared_kernel.snapshot restore --dir /mnt/project-files/warren-data/`. It checks the SHA-256, unpacks into `data/` and applies newer migrations. Then run the reproduce checks the step relies on (`python -m domains.analysis reproduce --all`, `python -m domains.news rebuild-events` on a stored run) before trusting it.
+2. Only if there is no snapshot, or it fails: rebuild (fundamentals `ingest --all`, market `load`, news `ingest --all-cases`, `events --all-cases`), or only the part that is missing.
+3. After a run adds data worth keeping (new ingests, LLM answers, runs, simulations): `python -m shared_kernel.snapshot save --dir /mnt/project-files/warren-data/`. It keeps the newest two.
+
+The snapshot holds public data only (SEC filings, market prices, GDELT records) and Warren's own outputs; never a key. It stays in the project's shared files, not in git.
+
 ## Skills and where the team runs
 
 The team's procedures are skills in `.claude/skills/`: `warren-run-track` (the Elephant loop), `warren-goldfish-review` (the reviewers), `warren-desk-report` (desk entry, lesson, weekly digest) and `warren-scout` (research scouts and their paper review). They load in Claude Code wherever the repo is open: cloud sessions, scheduled runs, or the owner's VS Code. Local runs read `SEC_USER_AGENT` from `.env`; cloud runs read it from the environment. It is never committed.

@@ -6,12 +6,14 @@ the company's own history as first reported on the case date, and checks it with
 The model's schema has no field for a number, and an answer with an extra field is invalid.
 """
 
+import hashlib
 import json
 import sqlite3
 import warnings
 from dataclasses import dataclass
 from datetime import date
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -21,7 +23,8 @@ from domains.evaluation.harness import ITEMS, _alternative, first_reported
 from domains.fundamentals.facts import get_facts
 from domains.llm import calls, scales
 from domains.llm.client import LLMClient
-from domains.llm.extract import Company, Variant, mask, mask_pattern
+from domains.llm.extract import PROMPT as EXTRACT_PROMPT
+from domains.llm.extract import Company, Variant, choose_events, mask, mask_pattern, window_start
 from domains.llm.taxonomy import NOT_ABOUT
 from domains.news.gdelt import CASE_TZ, known_by
 from domains.news.matching import AliasSet
@@ -155,15 +158,52 @@ def series_for(history: History, driver: str) -> list[float]:
 # -- the call ----------------------------------------------------------------------------------
 
 
-def case_events(conn: sqlite3.Connection, case_id: str, variant: str, model: str) -> list[dict]:
-    """The case's `ok` classifications in this variant, minus not-about-company events."""
-    return conn.execute(
-        "SELECT c.*, e.event_run_id FROM event_classifications c JOIN events e USING (event_id) "
+def current_keys() -> tuple[str, str, str, str]:
+    """(proposal model, proposal prompt hash, extraction model, extraction prompt hash) now."""
+    return (calls.node_model(NODE).model, calls.latest_prompt(PROMPT).sha256,
+            calls.node_model("extract_events").model,
+            calls.latest_prompt(EXTRACT_PROMPT).sha256)  # fmt: skip
+
+
+def case_events(conn: sqlite3.Connection, case_id: str, variant: str, model: str,
+                extract_sha256: str) -> list[dict]:  # fmt: skip
+    """The case's `ok` classifications in this variant by this model and extraction prompt, of the
+    events extraction chooses for the case window now (`extract.choose_events`), minus
+    not-about-company events: one row per event, never one per stored prompt version, and never
+    an event from outside the window that an earlier choice classified."""
+    rows = conn.execute(
+        "SELECT c.*, e.event_run_id, e.source_count, e.first_seen, e.last_seen, r.as_of, r.tz "
+        "FROM event_classifications c JOIN events e USING (event_id) "
+        "JOIN event_runs r ON r.event_run_id = e.event_run_id "
         "JOIN case_llm_status s ON s.event_run_id = e.event_run_id AND s.variant = c.variant "
-        "WHERE s.case_id = ? AND c.variant = ? AND c.model = ? AND c.status = 'ok' "
-        "AND c.event_type != ? ORDER BY e.first_seen, c.event_id",
-        (case_id, variant, model, NOT_ABOUT),
+        "WHERE s.case_id = ? AND c.variant = ? AND c.model = ? AND c.prompt_sha256 = ? "
+        "AND c.status = 'ok' ORDER BY e.first_seen, c.event_id",
+        (case_id, variant, model, extract_sha256),
     ).fetchall()
+    if not rows:
+        return []
+    start = window_start(date.fromisoformat(rows[0]["as_of"]), ZoneInfo(rows[0]["tz"]))
+    chosen = {e["event_id"] for e in choose_events([dict(r) for r in rows], start)}
+    return [r for r in rows if r["event_id"] in chosen and r["event_type"] != NOT_ABOUT]
+
+
+def inputs_sha256(extract_sha256: str, rows: list) -> str:
+    """What a proposal set reads: the extraction prompt and the classifications, by id."""
+    ids = ",".join(str(i) for i in sorted(r["classification_id"] for r in rows))
+    return hashlib.sha256(f"{extract_sha256}|{ids}".encode()).hexdigest()
+
+
+def current_set(conn: sqlite3.Connection, case_id: str, variant: str) -> sqlite3.Row | None:
+    """The stored set the current models, prompts and event choice give for a case, if any."""
+    p_model, p_sha, x_model, x_sha = current_keys()
+    rows = case_events(conn, case_id, variant, x_model, x_sha)
+    if not rows:
+        return None
+    return conn.execute(
+        "SELECT * FROM proposal_sets WHERE case_id = ? AND event_run_id = ? AND variant = ? AND "
+        "model = ? AND prompt_sha256 = ? AND inputs_sha256 = ?",
+        (case_id, rows[0]["event_run_id"], variant, p_model, p_sha, inputs_sha256(x_sha, rows)),
+    ).fetchone()  # fmt: skip
 
 
 def _titles(conn: sqlite3.Connection, about_json: str, as_of: date) -> list[str]:
@@ -223,14 +263,15 @@ def propose_case(
     model = calls.node_model(NODE).model
     extract_model = calls.node_model("extract_events").model
     table = scale_table or scales.load_scales()
-    rows = case_events(conn, case_id, variant, extract_model)
+    extract_sha = calls.latest_prompt(EXTRACT_PROMPT).sha256
+    rows = case_events(conn, case_id, variant, extract_model, extract_sha)
     if not rows:
         return None
     event_run_id = rows[0]["event_run_id"]
-    key = (case_id, event_run_id, variant, model, prompt.sha256)
+    key = (case_id, event_run_id, variant, model, prompt.sha256, inputs_sha256(extract_sha, rows))
     stored = conn.execute(
         "SELECT set_id, status FROM proposal_sets WHERE case_id = ? AND event_run_id = ? AND "
-        "variant = ? AND model = ? AND prompt_sha256 = ?", key,
+        "variant = ? AND model = ? AND prompt_sha256 = ? AND inputs_sha256 = ?", key,
     ).fetchone()  # fmt: skip
     if stored is not None and stored["status"] == "ok":
         return stored["set_id"]
@@ -260,7 +301,8 @@ def propose_case(
     except calls.LLMRejected:
         cur = conn.execute(
             "INSERT INTO proposal_sets (case_id, event_run_id, variant, model, prompt_sha256, "
-            "run_id, status) VALUES (?, ?, ?, ?, ?, ?, 'failed')", (*key, run_id),
+            "inputs_sha256, run_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'failed')",
+            (*key, run_id),
         )  # fmt: skip
         conn.commit()
         return cur.lastrowid
@@ -269,7 +311,8 @@ def propose_case(
     with conn:
         set_id = conn.execute(
             "INSERT INTO proposal_sets (case_id, event_run_id, variant, model, prompt_sha256, "
-            "call_id, run_id, status, no_impact, reason) VALUES (?, ?, ?, ?, ?, ?, ?, 'ok', ?, ?)",
+            "inputs_sha256, call_id, run_id, status, no_impact, reason) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ok', ?, ?)",
             (*key, result.call_id, run_id, int(value.no_material_impact), value.reason),
         ).lastrowid
         for p in value.proposals:

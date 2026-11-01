@@ -55,10 +55,20 @@ def test_labels_are_never_in_a_prompt_and_a_rerun_asks_nothing(conn):  # noqa: F
     rows = [row(n, "about") | {"title": f"Microsoft story {n}", "reason": "SECRET"}
             for n in range(1, 26)]  # fmt: skip
     client = FakeClient(respond)
-    assert headlines.check_headlines(conn, client, rows) == 25
+    assert headlines.check_headlines(conn, client, rows) == (25, 0)
     assert len(client.requests) == 2  # batches of 20 and 5
     for r in client.requests:
         assert "about" not in r["user"].split("Headlines")[1] and "SECRET" not in r["user"]
     assert len(headlines.stored_answers(conn)) == 25
     again = FakeClient(respond)
-    assert headlines.check_headlines(conn, again, rows) == 0 and again.requests == []
+    assert headlines.check_headlines(conn, again, rows) == (0, 0) and again.requests == []
+
+
+def test_a_rejected_batch_is_skipped_and_asked_again(conn):  # noqa: F811
+    rows = [row(n, "about") for n in range(1, 26)]
+    first = FakeClient(lambda system, user: "not json" if "h6 |" in user else respond(system, user))
+    assert headlines.check_headlines(conn, first, rows) == (5, 1)  # the 20-headline batch fails
+    assert len(headlines.stored_answers(conn)) == 5
+    again = FakeClient(respond)
+    assert headlines.check_headlines(conn, again, rows) == (20, 0)
+    assert len(again.requests) == 1 and len(headlines.stored_answers(conn)) == 25

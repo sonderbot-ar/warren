@@ -7,8 +7,9 @@ from datetime import date
 import pytest
 
 from domains.analysis.runs import run_baseline
-from domains.llm import propose, scales
+from domains.llm import calls, propose, scales
 from domains.llm.client import FakeClient
+from domains.llm.extract import PROMPT as EXTRACT_PROMPT
 from domains.llm.extract import company as company_of
 from domains.news.matching import AliasSet
 from tests.analysis.conftest import AS_OF, CHOICES, company  # noqa: F401 - the fixture
@@ -17,7 +18,10 @@ CASE = "TST_2020-06-30"
 NO_ALIASES = AliasSet((), "none")  # Test Corp has no alias rows
 
 
-def add_events(conn, *materialities):
+EXTRACT_SHA = calls.latest_prompt(EXTRACT_PROMPT).sha256
+
+
+def add_events(conn, *materialities, sha=EXTRACT_SHA):
     co = company_of(conn, "TST")
     conn.execute(
         "INSERT INTO event_runs (event_run_id, cik, as_of, tz, params_json, input_sha256, "
@@ -29,14 +33,14 @@ def add_events(conn, *materialities):
             "INSERT INTO events (event_id, event_run_id, cik, first_seen, last_seen, "
             "article_count, source_count, label, themes_json) "
             "VALUES (?, 'run1', ?, ?, ?, 3, 3, 'label', '[]')",
-            (f"ev{n}", co.cik, f"2020-06-2{n}T12:00:00Z", f"2020-06-2{n}T18:00:00Z"),
+            (f"ev{n}", co.cik, f"2020-06-2{n + 4}T12:00:00Z", f"2020-06-2{n + 4}T18:00:00Z"),
         )
         conn.execute(
             "INSERT INTO event_classifications (event_id, variant, model, prompt_sha256, status, "
             "event_type, model_event_type, materiality, reasons, summary, evidence_json, "
-            "about_json) VALUES (?, 'named', 'claude-haiku-5-5', 'p', 'ok', 'guidance', "
+            "about_json) VALUES (?, 'named', 'claude-haiku-5-5', ?, 'ok', 'guidance', "
             "'guidance', ?, '[]', 'Test Corp cuts its revenue outlook.', '[]', '{}')",
-            (f"ev{n}", materiality),
+            (f"ev{n}", sha, materiality),
         )
     conn.execute(
         "INSERT INTO case_llm_status VALUES (?, 'run1', 'named', ?, ?)",
@@ -133,4 +137,68 @@ def test_history_is_point_in_time_and_long_enough(company):  # noqa: F811
     assert before.last_quarter == (2019, 4)  # the Q1 2020 10-Q was filed on 2020-04-30
     assert scales.sigma("revenue_growth", history.revenue_growth, scales.load_scales()).flag == (
         "floored"
+    )
+
+
+def test_a_case_reads_one_classification_per_event_from_the_current_prompt(company):  # noqa: F811
+    # the real run classified each event with prompt v1, v2 and v4; a proposal must see each
+    # event once, from the current prompt, and a set made from older classifications is not reused
+    co = add_events(company, "high")
+    company.execute(
+        "INSERT INTO event_classifications (event_id, variant, model, prompt_sha256, status, "
+        "event_type, model_event_type, materiality, reasons, summary, evidence_json, about_json) "
+        "VALUES ('ev1', 'named', 'claude-haiku-5-5', 'older', 'ok', 'product', 'product', 'low', "
+        "'[]', 'Older answer.', '[]', '{}')"
+    )
+    rows = propose.case_events(company, CASE, "named", "claude-haiku-5-5", EXTRACT_SHA)
+    assert [(r["event_id"], r["event_type"]) for r in rows] == [("ev1", "guidance")]
+    run_id = run_baseline(company, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    company.execute(
+        "INSERT INTO proposal_sets (case_id, event_run_id, variant, model, prompt_sha256, run_id, "
+        "status, no_impact) VALUES (?, 'run1', 'named', ?, ?, ?, 'ok', 1)",
+        (
+            CASE,
+            calls.node_model("propose_shocks").model,
+            calls.latest_prompt(propose.PROMPT).sha256,
+            run_id,
+        ),
+    )  # fmt: skip  (a set stored before 0014: its extraction prompt is not known)
+    client = FakeClient([answer(no_impact=True)])
+    new = propose.propose_case(company, client, CASE, co, AS_OF, run_id, NO_ALIASES, "named", "t")
+    assert len(client.requests) == 1 and client.requests[0]["user"].count("e1 |") <= 1
+    stored = company.execute("SELECT inputs_sha256 FROM proposal_sets WHERE set_id = ?",
+                             (new,)).fetchone()[0]  # fmt: skip
+    assert stored == propose.inputs_sha256(EXTRACT_SHA, rows)
+    assert propose.current_set(company, CASE, "named")["set_id"] == new
+
+
+def test_a_set_is_proposed_again_when_its_events_change(company):  # noqa: F811
+    # the real run first chose events from outside the case window; once the choice changed, the
+    # stored set no longer matched what the case reads and had to be proposed again
+    co = add_events(company, "high")
+    run_id = run_baseline(company, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    first = FakeClient([answer(no_impact=True)])
+    old = propose.propose_case(company, first, CASE, co, AS_OF, run_id, NO_ALIASES, "named", "t")
+    company.execute(
+        "UPDATE events SET first_seen = '2020-06-01T00:00:00Z', last_seen = '2020-06-01T06:00:00Z'"
+    )  # fmt: skip  (ev1 leaves the window)
+    company.execute(
+        "INSERT INTO events (event_id, event_run_id, cik, first_seen, last_seen, article_count, "
+        "source_count, label, themes_json) VALUES ('ev9', 'run1', ?, '2020-06-29T12:00:00Z', "
+        "'2020-06-29T13:00:00Z', 3, 3, 'label', '[]')", (co.cik,),
+    )  # fmt: skip
+    company.execute(
+        "INSERT INTO event_classifications (event_id, variant, model, prompt_sha256, status, "
+        "event_type, model_event_type, materiality, reasons, summary, evidence_json, about_json) "
+        "VALUES ('ev9', 'named', 'claude-haiku-5-5', ?, 'ok', 'guidance', 'guidance', 'high', "
+        "'[]', 'Test Corp cuts again.', '[]', '{}')", (EXTRACT_SHA,),
+    )  # fmt: skip
+    rows = propose.case_events(company, CASE, "named", "claude-haiku-5-5", EXTRACT_SHA)
+    assert [r["event_id"] for r in rows] == ["ev9"]
+    again = FakeClient([answer(no_impact=True)])
+    new = propose.propose_case(company, again, CASE, co, AS_OF, run_id, NO_ALIASES, "named", "t")
+    assert new != old and len(again.requests) == 1
+    assert (
+        "cuts again" in again.requests[0]["user"]
+        and "revenue outlook" not in again.requests[0]["user"]
     )

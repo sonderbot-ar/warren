@@ -22,12 +22,18 @@ from domains.llm import calls
 from domains.llm.client import LLMClient
 from domains.llm.taxonomy import NOT_ABOUT, load_event_types
 from domains.news import cluster
+from domains.news.gdelt import window_bounds
 from domains.news.matching import AliasSet, HeadlineRule
+from domains.news.store import iso
 
 NODE = "extract_events"
 PROMPT = "extract_event"
 MIN_SOURCES = 2  # a single-source event is usually one outlet's angle on a bigger story
 MAX_EVENTS = 15  # per case, the largest by source count
+# a case reads the events of its own window: the 7 New York days ending on its date, as M5 ingests
+# (`domains.news.gdelt.window_bounds`). The store holds every case window of a company, so without
+# this a 2022 case would read 2019 news (M6 Step 8, analyst review of the real run)
+WINDOW_DAYS = 7
 MAX_HEADLINES = 25  # per event
 VARIANTS = ("named", "masked")
 Variant = Literal["named", "masked"]
@@ -73,9 +79,15 @@ def company(conn: sqlite3.Connection, ticker: str) -> Company:
     return Company(row["cik"], row["ticker"], row["name"])
 
 
-def choose_events(events: list[dict]) -> list[dict]:
-    """Events with at least `MIN_SOURCES` sources, the `MAX_EVENTS` largest, earliest on ties."""
-    kept = [e for e in events if e["source_count"] >= MIN_SOURCES]
+def window_start(as_of: date, tz: ZoneInfo = cluster.CASE_TZ) -> str:
+    """The first instant of the case window, as stored timestamps are written."""
+    return iso(window_bounds(as_of, WINDOW_DAYS, tz)[0])
+
+
+def choose_events(events: list[dict], start: str) -> list[dict]:
+    """Events still running at or after `start` (the case window's first instant) with at least
+    `MIN_SOURCES` sources: the `MAX_EVENTS` largest, earliest on ties."""
+    kept = [e for e in events if e["source_count"] >= MIN_SOURCES and e["last_seen"] >= start]
     kept.sort(key=lambda e: (-e["source_count"], e["first_seen"], e["event_id"]))
     return kept[:MAX_EVENTS]
 
@@ -164,6 +176,18 @@ def _stored(conn, event_id, variant, model, prompt_sha):
     ).fetchone()
 
 
+def event_slots(co, as_of, tz, event, items, variant, pattern, types):
+    """The headlines of an event and the prompt's slots for one variant."""
+    headlines = event_headlines(event, items)
+    slots = {
+        "types": "\n".join(f"  - {t}: {d}" for t, d in types.items()),
+        "company": f"{co.name} ({co.ticker})" if variant == "named" else "the Company",
+        "as_of": as_of.isoformat() if variant == "named" else "day 0",
+        "headlines": render_headlines(headlines, as_of, tz, variant, pattern),
+    }
+    return headlines, slots
+
+
 def classify_event(
     conn: sqlite3.Connection,
     client: LLMClient,
@@ -189,18 +213,13 @@ def classify_event(
     if stored is not None:  # a failed answer is tried again
         conn.execute("DELETE FROM event_classifications WHERE classification_id = ?",
                      (stored["classification_id"],))  # fmt: skip
-    headlines = event_headlines(event, items)
-    slots = {
-        "types": "\n".join(f"  - {t}: {d}" for t, d in types.items()),
-        "company": f"{co.name} ({co.ticker})" if variant == "named" else "the Company",
-        "as_of": as_of.isoformat() if variant == "named" else "day 0",
-        "headlines": render_headlines(headlines, as_of, tz, variant, pattern),
-    }
+    headlines, slots = event_slots(co, as_of, tz, event, items, variant, pattern, types)
     key = (event["event_id"], variant, model, prompt.sha256)
     try:
         result = calls.structured_call(
             conn, client, NODE, prompt, slots, EventClassification,
             f"{event['event_id']}:{variant}", batch_id, budget, checker(headlines, types),
+            choices={"event_type": list(types)},
         )  # fmt: skip
     except calls.LLMRejected:
         cur = conn.execute(
@@ -244,7 +263,7 @@ def classify_case(
     co = company(conn, ticker)
     run_id = cluster.run_events(conn, co.cik, as_of, aliases, tz, rule=rule)
     events = cluster.stored_events(conn, run_id)
-    chosen = choose_events(events)
+    chosen = choose_events(events, window_start(as_of, tz))
     items = {i.article_id: i for i in cluster.items_as_of(conn, co.cik, as_of, tz, rule)}
     pattern = mask_pattern(aliases, co)
     prompt, types = calls.latest_prompt(PROMPT), load_event_types()
@@ -274,4 +293,69 @@ def classify_case(
             )  # fmt: skip
             for e in chosen
         ]
+    return out
+
+
+# -- stability (M6 Step 8) ------------------------------------------------------------------------
+
+STABILITY_CASES = 10  # the first ten cases by case id that have a chosen event
+STABILITY_RUNS = 3
+STABILITY_PASS = 9  # of 10 events with the same type in all three runs
+
+
+@dataclass(frozen=True)
+class Stability:
+    case_id: str
+    event_id: str
+    types: tuple[str, ...]  # one per run; "failed" when a run gave no valid answer
+
+    @property
+    def same(self) -> bool:
+        return "failed" not in self.types and len(set(self.types)) == 1
+
+
+def stability(
+    conn: sqlite3.Connection,
+    client: LLMClient,
+    cases: list,
+    aliases: AliasSet,
+    rule: HeadlineRule,
+    batch_id: str,
+    budget: int = calls.DEFAULT_BUDGET,
+    tz: ZoneInfo = cluster.CASE_TZ,
+) -> list[Stability]:
+    """The largest event of each of the first ten cases that have one, classified three times
+    (named variant). Answers are logged as calls, never stored as classifications.
+
+    Current models take no temperature setting, so the runs use the model's default sampling: a
+    harder test than the temperature 0 the design first planned."""
+    prompt, types = calls.latest_prompt(PROMPT), load_event_types()
+    out = []
+    for case in sorted(cases, key=lambda c: c.case_id):
+        if len(out) == STABILITY_CASES:
+            break
+        co = company(conn, case.ticker)
+        run_id = cluster.run_events(conn, co.cik, case.event_date, aliases, tz, rule=rule)
+        chosen = choose_events(cluster.stored_events(conn, run_id),
+                               window_start(case.event_date, tz))  # fmt: skip
+        if not chosen:
+            continue
+        event = chosen[0]
+        items = {i.article_id: i for i in cluster.items_as_of(conn, co.cik, case.event_date, tz,
+                                                              rule)}  # fmt: skip
+        pattern = mask_pattern(aliases, co)
+        headlines, slots = event_slots(co, case.event_date, tz, event, items, "named", pattern,
+                                       types)  # fmt: skip
+        found = []
+        for k in range(1, STABILITY_RUNS + 1):
+            try:
+                result = calls.structured_call(
+                    conn, client, NODE, prompt, slots, EventClassification,
+                    f"{event['event_id']}:stability:{k}", batch_id, budget,
+                    checker(headlines, types), choices={"event_type": list(types)},
+                )  # fmt: skip
+                found.append(result.value.event_type)
+            except calls.LLMRejected:
+                found.append("failed")
+        out.append(Stability(case.case_id, event["event_id"], tuple(found)))
     return out

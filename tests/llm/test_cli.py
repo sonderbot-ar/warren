@@ -32,7 +32,7 @@ def test_classify_then_report_end_to_end(conn, wired, tmp_path, capsys):  # noqa
     text = (tmp_path / "reports" / "llm" / "llm_report.md").read_text()
     assert "| MSFT_2022-06-02 | masked | 1 (1) | 1 / 0 |" in text
     assert "same type: 1" in text and "does not remove it" in text
-    assert "| extract_events | claude-haiku-5-5 | 2 | 2 / 0 / 0 |" in text
+    assert "| extract_events | claude-haiku-5-5 | v4 | 2 | 2 / 0 / 0 |" in text
 
 
 def test_dry_run_calls_nothing_counts_calls_and_leaves_the_database(conn, wired,  # noqa: F811

@@ -72,14 +72,30 @@ def anthropic_base_url() -> str:
 class NodeModel:
     model: str
     training_cutoff: date | None  # from the model card; None until checked (M6 Step 8)
+    effort: str = "low"  # how hard the model thinks: low, medium, high (M6 Step 8)
 
+
+# Training data cutoffs from Anthropic's models overview
+# (platform.claude.com/docs/en/models/overview, read oct.31.2026): "Jun 2026" for both, month
+# only, so the first of the month is stored; every Phase 1 case is dated 2025 or earlier, so each
+# is before either cutoff (M6 Step 8)
+HAIKU_5_5_CUTOFF = date(2026, 6, 1)
+SONNET_5_5_CUTOFF = date(2026, 6, 1)
 
 # one model per LLM node (Decision 1); the model id is stored on every call
 NODE_MODELS: dict[str, NodeModel] = {
-    "extract_events": NodeModel("claude-haiku-5-5", None),
-    "check_headlines": NodeModel("claude-haiku-5-5", None),
-    "propose_shocks": NodeModel("claude-sonnet-5-5", None),
+    "extract_events": NodeModel("claude-haiku-5-5", HAIKU_5_5_CUTOFF),
+    "check_headlines": NodeModel("claude-haiku-5-5", HAIKU_5_5_CUTOFF),
+    "propose_shocks": NodeModel("claude-sonnet-5-5", SONNET_5_5_CUTOFF, effort="medium"),
 }
+
+
+def model_effort(model: str) -> str:
+    """The effort for a model, from the node that uses it (one effort per model)."""
+    efforts = {m.effort for m in NODE_MODELS.values() if m.model == model}
+    if len(efforts) != 1:
+        raise ConfigError(f"model {model!r} needs exactly one effort, has {sorted(efforts)}")
+    return efforts.pop()
 
 
 def node_model(node: str) -> NodeModel:

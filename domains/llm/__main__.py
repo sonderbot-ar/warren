@@ -4,6 +4,7 @@
     python -m domains.llm propose --case MSFT_2022-06-02 | --all-cases [--variant both]
     python -m domains.llm review --case MSFT_2022-06-02 [--auto]
     python -m domains.llm check-headlines
+    python -m domains.llm stability
     python -m domains.llm report
 
 `classify`, `propose` and `check-headlines` call the model (key in WARREN_ANTHROPIC_API_KEY, or
@@ -171,11 +172,11 @@ def _ask(row, shock):
 def cmd_review(args) -> int:
     with get_db_connection() as conn:
         apply_migrations(conn)
-        sets = conn.execute(
-            "SELECT set_id, variant FROM proposal_sets WHERE case_id = ? AND status = 'ok' "
-            "ORDER BY set_id",
-            (args.case,),
-        ).fetchall()
+        sets = [
+            x
+            for v in extract.VARIANTS  # the current set of each variant only
+            if (x := propose.current_set(conn, args.case, v)) is not None and x["status"] == "ok"
+        ]
         if not sets:
             print(f"No proposals for {args.case}")
             return 2
@@ -194,9 +195,29 @@ def cmd_check_headlines(args) -> int:
         return 2
 
     def work(conn, client):
-        added = headlines.check_headlines(conn, client, rows, _batch("check_headlines"),
-                                          args.max_tokens_total)  # fmt: skip
+        added, failed = headlines.check_headlines(conn, client, rows, _batch("check_headlines"),
+                                                  args.max_tokens_total)  # fmt: skip
         print(f"headlines checked: {added}")
+        if failed:
+            print(f"batches with no valid answer: {failed} (run again to retry them)")
+
+    return _with_client(args, work)
+
+
+def cmd_stability(args) -> int:
+    def work(conn, client):
+        aliases = load_aliases(conn)
+        rule = load_headline_rule(conn, aliases)
+        rows = extract.stability(conn, client, load_cases(CASES_PATH), aliases, rule,
+                                 _batch("stability"), args.max_tokens_total)  # fmt: skip
+        for r in rows:
+            print(f"{r.case_id}  {r.event_id}  {' / '.join(r.types)}  "
+                  f"{'same' if r.same else 'DIFFERENT'}")  # fmt: skip
+        same = sum(r.same for r in rows)
+        verdict = "pass" if same >= extract.STABILITY_PASS else "FAIL"
+        print(f"stability: same type in all {extract.STABILITY_RUNS} runs for {same} of "
+              f"{len(rows)} events ({verdict}; the bar is {extract.STABILITY_PASS} of "
+              f"{extract.STABILITY_CASES})")  # fmt: skip
 
     return _with_client(args, work)
 
@@ -232,10 +253,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--auto", action="store_true")
     p.add_argument("--reviewer", default="owner")
     calling(sub.add_parser("check-headlines"))
+    calling(sub.add_parser("stability"))
     sub.add_parser("report")
     args = parser.parse_args(argv)
     commands = {"classify": cmd_classify, "propose": cmd_propose, "review": cmd_review,
-                "check-headlines": cmd_check_headlines, "report": cmd_report}  # fmt: skip
+                "check-headlines": cmd_check_headlines, "stability": cmd_stability,
+                "report": cmd_report}  # fmt: skip
     return commands[args.command](args)
 
 
