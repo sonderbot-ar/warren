@@ -149,3 +149,11 @@ def test_a_limit_strict_mode_drops_is_still_enforced():
         extract.EventClassification.model_validate(
             {"event_type": "other", "materiality": "low", "reasons": ["a", "b", "c", "d"],
              "summary": "s", "evidence": [], "headlines": []})  # fmt: skip
+
+
+def test_the_latest_extraction_prompt_breaks_the_two_ties_the_stability_check_found():
+    # stability at v2: JNJ's FDA actions flipped between regulation and product, and CAT's
+    # results-with-forecast between earnings and guidance (M6 Step 8)
+    system = calls.latest_prompt("extract_event").system
+    assert "acts on a product" in system and "the type is regulation" in system
+    assert "the same release" in system and "the type is earnings" in system
