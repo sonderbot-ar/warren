@@ -207,6 +207,7 @@ def classify_event(
         result = calls.structured_call(
             conn, client, NODE, prompt, slots, EventClassification,
             f"{event['event_id']}:{variant}", batch_id, budget, checker(headlines, types),
+            choices={"event_type": list(types)},
         )  # fmt: skip
     except calls.LLMRejected:
         cur = conn.execute(
@@ -338,7 +339,7 @@ def stability(
                 result = calls.structured_call(
                     conn, client, NODE, prompt, slots, EventClassification,
                     f"{event['event_id']}:stability:{k}", batch_id, budget,
-                    checker(headlines, types),
+                    checker(headlines, types), choices={"event_type": list(types)},
                 )  # fmt: skip
                 found.append(result.value.event_type)
             except calls.LLMRejected:

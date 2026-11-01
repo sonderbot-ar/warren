@@ -94,6 +94,16 @@ def _record(conn, batch_id, node, model, prompt, ref, attempt, inputs, reply, st
     return cur.lastrowid
 
 
+def with_choices(schema: dict, choices: dict[str, list[str]]) -> dict:
+    """A copy of `schema` where each named top-level string field may only take the given values."""
+    out = {**schema, "properties": dict(schema["properties"])}
+    for field, values in choices.items():
+        if out["properties"].get(field, {}).get("type") != "string" or not values:
+            raise ValueError(f"{field!r} is not a top-level string field, or has no values")
+        out["properties"][field] = {**out["properties"][field], "enum": list(values)}
+    return out
+
+
 def structured_call(
     conn: sqlite3.Connection,
     client: LLMClient,
@@ -105,11 +115,16 @@ def structured_call(
     batch_id: str,
     budget: int = DEFAULT_BUDGET,
     check=None,
+    choices: dict[str, list[str]] | None = None,
 ) -> Result:
-    """Ask, validate (with `check(value)` for rules a schema can't hold), retry, log every try."""
+    """Ask, validate (with `check(value)` for rules a schema can't hold), retry, log every try.
+
+    `choices` names the allowed values of a top-level string field that is data, not code (the
+    event taxonomy). They go into the schema the model answers with, as an enum, so the model
+    picks from the list instead of inventing a name; `check` still rejects any other value."""
     model = node_model(node).model
     system, user = prompt.system, prompt.render(**slots)
-    schema = model_cls.model_json_schema()
+    schema = with_choices(model_cls.model_json_schema(), choices or {})
     error = None
     for attempt in range(1, ATTEMPTS + 1):
         if tokens_used(conn, batch_id) >= budget:

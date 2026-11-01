@@ -4,8 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from domains.llm import extract
+from domains.llm import calls, extract
 from domains.llm.client import AnthropicClient, FakeClient
+from domains.llm.taxonomy import load_event_types
 from domains.news import matching
 from shared_kernel import config
 from tests.llm.test_extract import DAY, answer, story
@@ -101,3 +102,25 @@ def test_a_changed_type_or_a_failed_run_is_not_the_same(conn):  # noqa: F811
 
 def test_cases_without_an_event_are_skipped(conn):  # noqa: F811
     assert _stability(conn, FakeClient([]), _cases()) == []  # no news stored
+
+
+def test_the_taxonomy_goes_to_the_model_as_an_enum(conn):  # noqa: F811
+    story(conn)
+    client = FakeClient(answer())
+    _stability(conn, client, _cases())
+    types = list(load_event_types())
+    for r in client.requests:
+        assert r["schema"]["properties"]["event_type"]["enum"] == types
+        assert "exactly as listed" in r["system"]
+    # the schema the model sees is a copy; the Pydantic model's own schema is unchanged
+    assert "enum" not in extract.EventClassification.model_json_schema()["properties"]["event_type"]
+
+
+def test_choices_only_apply_to_a_top_level_string_field():
+    schema = extract.EventClassification.model_json_schema()
+    with pytest.raises(ValueError):
+        calls.with_choices(schema, {"reasons": ["x"]})  # a list, not a string
+    with pytest.raises(ValueError):
+        calls.with_choices(schema, {"event_type": []})
+    with pytest.raises(ValueError):
+        calls.with_choices(schema, {"missing": ["x"]})
