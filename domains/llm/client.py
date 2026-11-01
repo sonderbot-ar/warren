@@ -50,7 +50,8 @@ class AnthropicClient:
         # Current models refuse a forced tool choice and any sampling setting (temperature), so
         # the tool is offered with `auto` and the prompt says to use it; an answer without the
         # tool comes back empty and `calls.structured_call` retries it like any invalid answer
-        # (M6 Step 8). Effort is set per node in `shared_kernel.config`.
+        # (M6 Step 8). The tool is strict, so the answer's shape and enums (the event taxonomy) are
+        # held by the API, not only asked for. Effort is set per node in `shared_kernel.config`.
         from shared_kernel.config import model_effort
 
         start = time.monotonic()
@@ -60,7 +61,14 @@ class AnthropicClient:
                 max_tokens=self.max_tokens,
                 system=f"{system}\n\n{self.USE_TOOL}",
                 messages=[{"role": "user", "content": user}],
-                tools=[{"name": self.TOOL, "description": "The answer.", "input_schema": schema}],
+                tools=[
+                    {
+                        "name": self.TOOL,
+                        "description": "The answer.",
+                        "input_schema": strict_schema(schema),
+                        "strict": True,
+                    }
+                ],  # fmt: skip
                 tool_choice={"type": "auto"},
                 output_config={"effort": model_effort(model)},
             )
@@ -75,6 +83,22 @@ class AnthropicClient:
             msg.usage.output_tokens,
             latency,
         )
+
+
+# JSON-schema limits the API's strict tool mode refuses (found on the real run, M6 Step 8). They are
+# left out of the schema the model is held to and still enforced: every answer is validated
+# against the full Pydantic model in `calls.structured_call`.
+STRICT_UNSUPPORTED = frozenset({"maxItems", "minimum", "maximum", "exclusiveMinimum",
+                                "exclusiveMaximum", "maxLength", "minLength"})  # fmt: skip
+
+
+def strict_schema(schema):
+    """`schema` without the limits strict mode refuses; types, enums and required fields stay."""
+    if isinstance(schema, dict):
+        return {k: strict_schema(v) for k, v in schema.items() if k not in STRICT_UNSUPPORTED}
+    if isinstance(schema, list):
+        return [strict_schema(v) for v in schema]
+    return schema
 
 
 class FakeClient:

@@ -1,11 +1,12 @@
 """M6 Step 8: the real client's request shape, efforts and cutoffs, and the stability check."""
 
+import json
 from types import SimpleNamespace
 
 import pytest
 
 from domains.llm import calls, extract
-from domains.llm.client import AnthropicClient, FakeClient
+from domains.llm.client import STRICT_UNSUPPORTED, AnthropicClient, FakeClient
 from domains.llm.taxonomy import load_event_types
 from domains.news import matching
 from shared_kernel import config
@@ -124,3 +125,27 @@ def test_choices_only_apply_to_a_top_level_string_field():
         calls.with_choices(schema, {"event_type": []})
     with pytest.raises(ValueError):
         calls.with_choices(schema, {"missing": ["x"]})
+
+
+def test_the_tool_is_strict_and_drops_only_the_limits_strict_mode_refuses():
+    # strict mode answered 400 to maxItems and to integer minimum/maximum on the real run
+    client = _client()
+    full = calls.with_choices(extract.EventClassification.model_json_schema(),
+                              {"event_type": list(load_event_types())})  # fmt: skip
+    client.call("claude-haiku-5-5", "S", "U", full)
+    [tool] = client._client.messages.kwargs["tools"]
+    sent = tool["input_schema"]
+    assert tool["strict"] is True
+    text = json.dumps(sent)
+    assert not any(f'"{k}"' in text for k in STRICT_UNSUPPORTED)
+    assert sent["properties"]["event_type"]["enum"] == list(load_event_types())
+    assert sent["required"] == full["required"] and sent["additionalProperties"] is False
+    assert "maxItems" in json.dumps(full)  # the caller's schema is not changed
+
+
+def test_a_limit_strict_mode_drops_is_still_enforced():
+    # reasons allows 1 to 3 items; an answer with 4 comes back invalid from validation
+    with pytest.raises(ValueError):
+        extract.EventClassification.model_validate(
+            {"event_type": "other", "materiality": "low", "reasons": ["a", "b", "c", "d"],
+             "summary": "s", "evidence": [], "headlines": []})  # fmt: skip
