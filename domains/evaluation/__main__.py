@@ -17,6 +17,15 @@ baseline, naive, guidance shocks (with --guidance) and the AI's named and masked
 writes the M3 report and data/reports/eval/<batch_id>_backtest.md. `reproduce` scores a stored
 backtest batch again from stored data and checks every row to the cent; it exits 1 on any
 difference.
+
+    python -m domains.evaluation ranges origins [--ticker T ...] [--from D] [--to D]
+    python -m domains.evaluation ranges test [--batch EVAL_BATCH] [--guidance PATH]
+    python -m domains.evaluation ranges reproduce --build B [--guidance PATH]
+
+M9 (honest ranges): `origins` runs the baseline on the 1st of every month for every company and
+stores each forecast quarter's miss; `test` builds every range from the misses public on its
+date, scores the rolling test and (with --batch) the backtest's cases, and writes
+data/reports/eval/<build_id>_ranges.md; `reproduce` checks a stored build to the cent.
 """
 
 import argparse
@@ -125,6 +134,70 @@ def cmd_reproduce(args: argparse.Namespace) -> int:
     return 0 if check.ok else 1
 
 
+def cmd_ranges_origins(args: argparse.Namespace) -> int:
+    from datetime import date
+
+    from domains.evaluation import ranges
+
+    start = date.fromisoformat(args.start) if args.start else ranges.FIRST_ORIGIN
+    end = date.fromisoformat(args.end) if args.end else ranges.LAST_ORIGIN
+    with get_db_connection() as conn:
+        apply_migrations(conn)
+        counts = ranges.build_origins(conn, args.ticker, start, end)
+        failed = conn.execute(
+            "SELECT origin_id, reason FROM forecast_origins WHERE status = 'failed'"
+        ).fetchall()
+    for f in failed:
+        print(f"{f['origin_id']:18} FAILED: {f['reason']}")
+    print("origins: " + ", ".join(f"{n} {k}" for k, n in sorted(counts.items())))
+    return 0
+
+
+def cmd_ranges_test(args: argparse.Namespace) -> int:
+    from datetime import date
+
+    from domains.evaluation import ranges, ranges_report
+
+    guides, sha = _guides(args)
+    with get_db_connection() as conn:
+        apply_migrations(conn)
+        build_id = ranges.run_build(conn, date.today(), args.batch, guides, sha)
+        text = ranges_report.render(conn, build_id)
+    path = PROJECT_ROOT / "data" / "reports" / "eval" / f"{build_id}_ranges.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    print(f"{build_id}  {_shown(path)}")
+    return 0
+
+
+def cmd_ranges_reproduce(args: argparse.Namespace) -> int:
+    import json
+
+    from domains.evaluation import ranges
+
+    guides, sha = _guides(args)
+    with get_db_connection() as conn:
+        apply_migrations(conn)
+        build = conn.execute(
+            "SELECT notes FROM range_builds WHERE build_id = ?", (args.build,)
+        ).fetchone()
+        if build is None:
+            print(f"no build {args.build}")
+            return 2
+        then = json.loads(build["notes"] or "{}").get("guidance_sha256")
+        if then != sha:
+            print(f"FAILED  guidance file hash {sha}, the build ran {then}")
+            return 1
+        check = ranges.reproduce_build(conn, args.build, guides)
+    for m in check.mismatches[:50]:
+        print(f"MISMATCH {m}")
+    print(f"code {check.code_then} → {check.code_now}")
+    verdict = "OK" if check.ok else f"FAILED ({len(check.mismatches)} mismatches)"
+    print(f"{verdict}  {args.build}: {check.errors_checked} errors and {check.rows_checked} "
+          "ranges checked")  # fmt: skip
+    return 0 if check.ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m domains.evaluation")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -146,6 +219,21 @@ def main(argv: list[str] | None = None) -> int:
     rp.add_argument("--cases-file", default=str(CASES_PATH))
     rp.add_argument("--guidance", help="the guidance file the batch ran with, if any")
     rp.set_defaults(func=cmd_reproduce)
+    rg = commands.add_parser("ranges", help="honest ranges from past errors (M9)")
+    rcmd = rg.add_subparsers(dest="ranges_command", required=True)
+    ro = rcmd.add_parser("origins", help="run the baseline monthly and store its misses")
+    ro.add_argument("--ticker", action="append", help="a ticker (repeatable); default: all")
+    ro.add_argument("--from", dest="start", help="first origin month, YYYY-MM-DD")
+    ro.add_argument("--to", dest="end", help="last origin month, YYYY-MM-DD")
+    ro.set_defaults(func=cmd_ranges_origins)
+    rt = rcmd.add_parser("test", help="build every range and write the report")
+    rt.add_argument("--batch", help="an M8 backtest batch whose cases to range")
+    rt.add_argument("--guidance", help="the guidance file the batch ran with, if any")
+    rt.set_defaults(func=cmd_ranges_test)
+    rr = rcmd.add_parser("reproduce", help="check a stored build to the cent")
+    rr.add_argument("--build", required=True)
+    rr.add_argument("--guidance", help="the guidance file the build ran with, if any")
+    rr.set_defaults(func=cmd_ranges_reproduce)
     args = parser.parse_args(argv)
     return args.func(args)
 

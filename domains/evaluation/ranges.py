@@ -301,3 +301,307 @@ def constant_samples(
 ) -> dict[int, tuple[np.ndarray, np.ndarray]]:
     """The baseline's revenue and EBIT per horizon, as n identical samples."""
     return {h: (np.full(n, r), np.full(n, e)) for h, (r, e) in forecasts.items()}
+
+
+# -- builds: ranges for every origin and case, stored ------------------------------------------
+
+RESULT_COLUMNS = (
+    "subject_kind subject_id run_id as_of variant pool item period period_end horizon forecast "
+    "n_errors n_quarters p10 p50 p90 actual actual_revenue seed status"
+).split()
+MONEY = 0.005  # currency units: to the cent
+RATIO = 1e-9
+
+
+@dataclass(frozen=True)
+class Subject:
+    """What a range is built for: an origin or a case, on one stored run."""
+
+    kind: str  # 'origin' or 'case'
+    subject_id: str
+    ticker: str
+    as_of: date
+    run_id: str
+    quarters: dict[int, dict]  # horizon -> period, period_end, forecasts and actuals by item
+
+
+def _quarter_item(row) -> dict:
+    keys = ("forecast", "actual", "actual_revenue", "status")
+    return {k: row[k] for k in keys}
+
+
+def origin_subjects(conn: sqlite3.Connection) -> list[Subject]:
+    """Every ok origin, with its baseline forecasts and actuals per horizon."""
+    out = []
+    for o in conn.execute(
+        "SELECT * FROM forecast_origins WHERE status = 'ok' ORDER BY origin_id"
+    ).fetchall():
+        quarters: dict[int, dict] = {}
+        for e in conn.execute(
+            "SELECT * FROM baseline_errors WHERE origin_id = ? ORDER BY horizon, item",
+            (o["origin_id"],),
+        ):
+            q = quarters.setdefault(
+                e["horizon"], {"period": e["period"], "period_end": e["period_end"]}
+            )
+            q[e["item"]] = _quarter_item(e)
+        quarters = {h: q for h, q in quarters.items() if "revenue" in q and "ebit" in q}
+        out.append(Subject("origin", o["origin_id"], o["ticker"],
+                           date.fromisoformat(o["as_of"]), o["run_id"], quarters))  # fmt: skip
+    return out
+
+
+def case_subjects(conn: sqlite3.Connection, batch_id: str) -> list[Subject]:
+    """Every case of an M8 batch with baseline rows, on the run the batch scored."""
+    rows = conn.execute(
+        "SELECT r.*, c.ticker, c.event_date FROM eval_results r JOIN eval_cases c "
+        "USING (case_id) WHERE r.batch_id = ? AND r.variant = 'baseline' "
+        "ORDER BY r.case_id, r.horizon, r.item",
+        (batch_id,),
+    ).fetchall()
+    by_case: dict[str, list] = {}
+    for r in rows:
+        by_case.setdefault(r["case_id"], []).append(r)
+    out = []
+    for case_id, rs in by_case.items():
+        quarters: dict[int, dict] = {}
+        for r in rs:
+            q = quarters.setdefault(
+                r["horizon"], {"period": r["period"], "period_end": r["period_end"]}
+            )
+            q[r["item"]] = _quarter_item(r)
+        first = rs[0]
+        out.append(Subject("case", case_id, first["ticker"],
+                           date.fromisoformat(first["event_date"]), first["run_id"],
+                           quarters))  # fmt: skip
+    return out
+
+
+def shocked_samples(
+    conn: sqlite3.Connection, batch_id: str, subject: Subject, guides=None, n: int = DEFAULT_SAMPLES
+) -> dict[str, dict[int, tuple[np.ndarray, np.ndarray]]]:
+    """For a case, the shocked samples of each variant the M8 batch scored, as it drew them."""
+    from domains.analysis.montecarlo import sample_lines
+    from domains.analysis.runs import load_assumptions
+    from domains.evaluation.backtest_batch import _shock_sets, batch_notes
+    from domains.evaluation.guidance import to_shocks
+    from domains.evaluation.harness import case_seed
+
+    notes = batch_notes(conn, batch_id)
+    scored = {
+        r["variant"]
+        for r in conn.execute(
+            "SELECT DISTINCT variant FROM eval_results WHERE batch_id = ? AND case_id = ?",
+            (batch_id, subject.subject_id),
+        )
+    }
+    rows_used = load_assumptions(conn, subject.run_id)
+    shock_sets: dict[str, list] = {}
+    set_ids = notes["sets"].get(subject.subject_id)
+    if set_ids:
+        shock_sets |= _shock_sets(conn, set_ids)
+    case_guides = [g for g in guides or [] if g.case_id == subject.subject_id]
+    if case_guides:
+        shock_sets["with_shocks"] = to_shocks(case_guides, rows_used)
+    out = {}
+    seed = case_seed(subject.subject_id)
+    for variant, shock_list in sorted(shock_sets.items()):
+        if variant not in scored or not shock_list:
+            continue
+        lines = sample_lines(rows_used, shock_list, n, seed)
+        out[variant] = {
+            h: (lines[("revenue", q["period"])], lines[("ebit", q["period"])])
+            for h, q in subject.quarters.items()
+        }
+    return out
+
+
+def subject_rows(
+    subject: Subject,
+    pairs: list[ErrorPair],
+    samples: dict[str, dict[int, tuple[np.ndarray, np.ndarray]]],
+    n: int = DEFAULT_SAMPLES,
+) -> list[dict]:
+    """The range_results rows of one subject: every variant, pool, item and horizon."""
+    rows = []
+    for variant in sorted(samples):
+        for pool in POOLS:
+            seed = range_seed(f"{subject.subject_id}:{variant}", pool)
+            built = ranges(samples[variant], pairs, subject.as_of, pool, subject.ticker, seed, n)
+            for h, r in sorted(built.items()):
+                q = subject.quarters[h]
+                for item, band in (("revenue", r.revenue), ("ebit", r.ebit)):
+                    fc = float(np.median(samples[variant][h][0 if item == "revenue" else 1]))
+                    a = q[item]
+                    status = "no_history" if band is None else (
+                        "ok" if a["status"] == "ok" else "missing")  # fmt: skip
+                    rows.append({
+                        "subject_kind": subject.kind, "subject_id": subject.subject_id,
+                        "run_id": subject.run_id, "as_of": subject.as_of.isoformat(),
+                        "variant": variant, "pool": pool, "item": item, "period": q["period"],
+                        "period_end": q["period_end"], "horizon": h, "forecast": fc,
+                        "n_errors": r.n_errors, "n_quarters": r.n_quarters,
+                        "p10": band[0] if band else None, "p50": band[1] if band else None,
+                        "p90": band[2] if band else None,
+                        "actual": a["actual"] if a["status"] == "ok" else None,
+                        "actual_revenue": a["actual_revenue"] if a["status"] == "ok" else None,
+                        "seed": seed, "status": status,
+                    })  # fmt: skip
+    return rows
+
+
+def baseline_samples(subject: Subject, n: int = DEFAULT_SAMPLES) -> dict:
+    return constant_samples(
+        {h: (q["revenue"]["forecast"], q["ebit"]["forecast"]) for h, q in subject.quarters.items()},
+        n,
+    )
+
+
+def build_rows(
+    conn: sqlite3.Connection,
+    pairs: list[ErrorPair],
+    batch_id: str | None,
+    guides=None,
+    n: int = DEFAULT_SAMPLES,
+) -> list[dict]:
+    """Every range row: origins (baseline only), then the batch's cases (baseline and shocked)."""
+    rows = []
+    for s in origin_subjects(conn):
+        rows += subject_rows(s, pairs, {"baseline": baseline_samples(s, n)}, n)
+    if batch_id:
+        for s in case_subjects(conn, batch_id):
+            samples = {"baseline": baseline_samples(s, n)}
+            samples |= shocked_samples(conn, batch_id, s, guides, n)
+            rows += subject_rows(s, pairs, samples, n)
+    return rows
+
+
+def pairs_as_of(conn: sqlite3.Connection, actuals_as_of: date) -> list[ErrorPair]:
+    """The stored pairs whose actuals were filed by the build's actuals date."""
+    return [p for p in load_pairs(conn) if p.filed_at <= actuals_as_of]
+
+
+def run_build(
+    conn: sqlite3.Connection,
+    actuals_as_of: date,
+    batch_id: str | None = None,
+    guides=None,
+    guidance_sha256: str | None = None,
+    n: int = DEFAULT_SAMPLES,
+    today: date | None = None,
+) -> str:
+    """Build and store every range; the build id, `ranges_<date>_<n>`."""
+    import json
+
+    pairs = pairs_as_of(conn, actuals_as_of)
+    rows = build_rows(conn, pairs, batch_id, guides, n)
+    prefix = f"ranges_{(today or date.today()).isoformat()}_"
+    count = conn.execute(
+        "SELECT COUNT(*) FROM range_builds WHERE build_id LIKE ?", (prefix + "%",)
+    ).fetchone()[0]
+    build_id = f"{prefix}{count + 1}"
+    notes = json.dumps({"n_samples": n, "guidance_sha256": guidance_sha256}, sort_keys=True)
+    with conn:
+        conn.execute(
+            "INSERT INTO range_builds (build_id, code_version, actuals_as_of, errors_sha256, "
+            "eval_batch_id, notes) VALUES (?, ?, ?, ?, ?, ?)",
+            (build_id, code_version(), actuals_as_of.isoformat(), pairs_sha256(pairs), batch_id,
+             notes),
+        )  # fmt: skip
+        conn.executemany(
+            f"INSERT INTO range_results (build_id, {', '.join(RESULT_COLUMNS)}) "
+            f"VALUES (?, {', '.join('?' * len(RESULT_COLUMNS))})",
+            [(build_id, *(r[c] for c in RESULT_COLUMNS)) for r in rows],
+        )
+    return build_id
+
+
+# -- reproduce ---------------------------------------------------------------------------------
+
+
+@dataclass
+class BuildReproduction:
+    build_id: str
+    code_then: str
+    code_now: str
+    errors_checked: int = 0
+    rows_checked: int = 0
+    mismatches: list[str] | None = None
+
+    @property
+    def ok(self) -> bool:
+        return not self.mismatches
+
+
+def _differs(a, b, tolerance: float) -> bool:
+    if a is None or b is None:
+        return a is not b
+    if isinstance(a, str) or isinstance(b, str):
+        return a != b
+    return abs(a - b) > tolerance
+
+
+def reproduce_build(conn: sqlite3.Connection, build_id: str, guides=None) -> BuildReproduction:
+    """Score every stored origin again on its stored run, as of the build's actuals date, and
+    build every range again from those errors and its seed; compare to the cent."""
+    import json
+
+    build = conn.execute("SELECT * FROM range_builds WHERE build_id = ?", (build_id,)).fetchone()
+    if build is None:
+        raise RangeError(f"no build {build_id}")
+    out = BuildReproduction(build_id, build["code_version"], code_version(), mismatches=[])
+    as_of = date.fromisoformat(build["actuals_as_of"])
+    n = json.loads(build["notes"] or "{}").get("n_samples", DEFAULT_SAMPLES)
+    for o in conn.execute(
+        "SELECT * FROM forecast_origins WHERE status = 'ok' ORDER BY origin_id"
+    ).fetchall():
+        d = date.fromisoformat(o["as_of"])
+        try:
+            _, rows = evaluate_case(
+                conn, origin_case(o["ticker"], d), actuals_as_of=as_of, run_id=o["run_id"]
+            )
+        except scoring_errors() as e:
+            out.mismatches.append(f"{o['origin_id']}: {e}")
+            continue
+        now = {
+            (r["horizon"], r["item"]): r for r in error_rows(o["origin_id"], o["ticker"], d, rows)
+        }
+        for e in conn.execute(
+            "SELECT * FROM baseline_errors WHERE origin_id = ?", (o["origin_id"],)
+        ).fetchall():
+            if e["status"] != "ok" or date.fromisoformat(e["actual_filed_at"]) > as_of:
+                continue  # not part of the build
+            r = now.get((e["horizon"], e["item"]))
+            if r is None or r["status"] != "ok":
+                out.mismatches.append(f"{o['origin_id']} h{e['horizon']} {e['item']}: not ok now")
+                continue
+            for col, tol in (("forecast", MONEY), ("actual", MONEY), ("error", RATIO)):
+                if _differs(e[col], r[col], tol):
+                    out.mismatches.append(
+                        f"{o['origin_id']} h{e['horizon']} {e['item']} {col}: stored {e[col]}, "
+                        f"now {r[col]}"
+                    )
+            out.errors_checked += 1
+    pairs = pairs_as_of(conn, as_of)
+    if pairs_sha256(pairs) != build["errors_sha256"]:
+        out.mismatches.append("the errors the build read have changed (errors_sha256)")
+    rows = build_rows(conn, pairs, build["eval_batch_id"], guides, n)
+    now = {(r["subject_kind"], r["subject_id"], r["variant"], r["pool"], r["item"], r["period"]): r
+           for r in rows}  # fmt: skip
+    stored = {
+        (r["subject_kind"], r["subject_id"], r["variant"], r["pool"], r["item"], r["period"]): r
+        for r in conn.execute("SELECT * FROM range_results WHERE build_id = ?", (build_id,))
+    }
+    if set(now) != set(stored):
+        diff = sorted(set(now) ^ set(stored))
+        out.mismatches.append(f"{len(diff)} range rows differ, e.g. {diff[:3]}")
+    for key in sorted(set(now) & set(stored)):
+        a, b = stored[key], now[key]
+        for col in RESULT_COLUMNS:
+            tol = RATIO if col in ("n_errors", "n_quarters", "horizon", "seed") else MONEY
+            if _differs(a[col], b[col], tol):
+                out.mismatches.append(
+                    f"{' '.join(map(str, key))} {col}: stored {a[col]}, now {b[col]}"
+                )
+        out.rows_checked += 1
+    return out
