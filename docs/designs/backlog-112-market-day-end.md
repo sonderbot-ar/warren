@@ -21,7 +21,7 @@ Tests: `tests/market/test_store_day_end.py` (new): a download at 15:00 UTC on th
 
 **Step 2. Telemetry restore failure test and the doc line.** Mirror `test_a_failed_raw_move_keeps_the_old_raw_files_and_says_so` for telemetry: a half-done move that then fails raises `SnapshotError` ("telemetry files were not"), the old telemetry file is still there, the database is the new one and nothing is left in temporary folders. Add one line to `docs/designs/m7-orchestration.md` (Data freshness): the cut-off is New York midnight, not the 16:00 close, so a run between the close and midnight downloads again, or refuses with `--offline`. Exit: suite green.
 
-**Step 3. Real-data check.** On the restored snapshot: `python -m domains.analysis reproduce --all` and `python -m domains.evaluation reproduce --batch` (or the batch command the M8 doc names) still pass, because every stored download was made days or years after its as-of date. Exit: same counts as before the change.
+**Step 3. Real-data check.** On the restored snapshot: `python -m domains.analysis reproduce --all` and `python -m domains.evaluation reproduce --batch eval_2026-11-02_1 --guidance domains/evaluation/guidance.csv` still pass, because every stored download was made days or years after its as-of date. Exit: same counts as before the change.
 
 ## Alternatives considered
 
@@ -41,4 +41,4 @@ Design review not run: the issue is the reviewers' own four-point fix list, with
 
 ## Where the work stopped
 
-- Step 0 written.
+- Steps 0–3 done (nov.02.2026). 659 tests pass; the five new store tests fail on the old code. On the restored snapshot (`warren-20261102T002927Z`): 27 of 27 runs reproduce to the cent, the M8 batch reproduces (728 rows, 39 simulations), and `require_coverage` accepts every stored download for all 27 stored as-of dates (270 checks, 0 refused). PR open; gatekeeper next.
