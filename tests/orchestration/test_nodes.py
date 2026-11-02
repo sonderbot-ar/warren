@@ -180,6 +180,20 @@ def test_a_price_downloaded_during_the_as_of_day_is_not_used(world, state):
     assert set(out["market_fetch_ids"].values()) == {1, 2, 3}
 
 
+def test_the_pipelines_price_cut_off_is_new_york_midnight(world, state):
+    # backlog #112: AS_OF is in summer (EDT), so the day ends at 04:00 UTC the next day
+    offline = state.model_copy(update={"offline": True})
+    world.conn.execute(f"UPDATE market_fetches SET fetched_at = '{AS_OF + timedelta(days=1)}"
+                       "T03:59:59Z'")  # fmt: skip
+    world.conn.commit()
+    with pytest.raises(nodes.PipelineError, match="offline"):
+        nodes.load_market(offline, world.deps())
+    world.conn.execute(f"UPDATE market_fetches SET fetched_at = '{AS_OF + timedelta(days=1)}"
+                       "T04:00:00Z'")  # fmt: skip
+    world.conn.commit()
+    assert set(nodes.load_market(offline, world.deps())["market_fetch_ids"].values()) == {1, 2, 3}
+
+
 def test_a_window_with_no_events_makes_no_call_and_no_proposal(world):
     s = new_state(pipeline_id="TST_2020-05-31_p1", as_of=date(2020, 5, 31))
     register(world.conn, s)

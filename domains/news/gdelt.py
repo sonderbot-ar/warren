@@ -7,7 +7,8 @@ before use. Layout: the GKG 2.1 codebook, tab-separated, 27 columns per row.
 
 The point-in-time rule lives here too, because it is about when GDELT saw an article: a sighting
 counts on an as-of date if GDELT processed it before 24:00 New York time on that date
-(`known_by`), the same day rule as `filed_at <= as_of` for fundamentals.
+(`known_by`, in `shared_kernel.calendar`), the same day rule as `filed_at <= as_of` for
+fundamentals.
 """
 
 import hashlib
@@ -23,8 +24,9 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+from shared_kernel.calendar import CASE_TZ, known_by  # noqa: F401  (re-exported)
+
 MASTER_LIST_URL = "http://data.gdeltproject.org/gdeltv2/masterfilelist.txt"
-CASE_TZ = ZoneInfo("America/New_York")  # the case calendar, a named setting (guardrail 3)
 STEP = timedelta(minutes=15)
 TIMEOUT_SECONDS = 60
 ATTEMPTS = 3  # in all, for a transient failure; the next run reads a failed file again anyway
@@ -68,11 +70,6 @@ class ArticleRecord:
     themes: tuple[str, ...]  # distinct, in first-seen order
     organisations: tuple[str, ...]  # distinct, as GDELT wrote them
     file_url: str
-
-
-def known_by(as_of: date, tz: ZoneInfo = CASE_TZ) -> datetime:
-    """The UTC instant at which `as_of` ends in the case calendar: sightings before it count."""
-    return datetime.combine(as_of + timedelta(days=1), time(0), tzinfo=tz).astimezone(UTC)
 
 
 def window_bounds(

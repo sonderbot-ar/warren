@@ -15,6 +15,8 @@ from datetime import UTC, date, datetime
 from types import MappingProxyType
 from typing import Any
 
+from shared_kernel.calendar import known_by
+
 ROWS_TABLE = {"yahoo": ("prices", "ticker"), "fred": ("yields", "series")}
 
 # (source, symbol) -> fetch_id, set only inside pin_fetches()
@@ -108,15 +110,21 @@ def fetch_with_hash(conn: sqlite3.Connection, source: str, symbol: str, sha256: 
 def require_coverage(
     conn: sqlite3.Connection, source: str, symbol: str, as_of: date
 ) -> sqlite3.Row:
-    """The fetch a query on `as_of` reads from; it must have been downloaded on or after as_of."""
+    """The fetch a query on `as_of` reads from; it must have been downloaded after as_of ended.
+
+    The day ends at New York midnight (`known_by`), so a download made during the as-of day,
+    whose last row may be a mid-session price, is refused like an older one (backlog #112).
+    """
     fetch = selected_fetch(conn, source, symbol)
     if fetch is None:
         raise MarketDataError(f"No {source} data for {symbol}: load it first")
-    fetched_on = date.fromisoformat(fetch["fetched_at"][:10])
-    if fetched_on < as_of:
+    fetched = datetime.fromisoformat(fetch["fetched_at"].replace("Z", "+00:00"))
+    if fetched.tzinfo is None:
+        fetched = fetched.replace(tzinfo=UTC)
+    if fetched < known_by(as_of):
         raise MarketDataError(
-            f"{source} data for {symbol} was fetched {fetched_on}, before the as-of date "
-            f"{as_of}: refresh it"
+            f"{source} data for {symbol} was fetched {fetch['fetched_at']}, before the as-of "
+            f"date {as_of} ended in New York: refresh it"
         )
     return fetch
 
