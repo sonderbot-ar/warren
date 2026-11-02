@@ -436,6 +436,15 @@ load_fundamentals → build_baseline → fetch_news → cluster_events
 
 **Result (batch `eval_2026-11-02_1`, nov.02.2026).** 26 of 26 cases scored in up to five variants (baseline, naive, guidance shocks on 3 cases, the AI's named and masked shocks) on the run each case's shocks were sized on; `reproduce --batch` checks 728 rows and 39 simulations to the cent. Headline (all cases, masked): skill +2.1% revenue and +1.5% EBIT, sign test 8 better / 6 worse (p 0.79) and 10 / 8 (p 0.82); named +5.4% and +2.4%. Not shown to differ from chance. Mergers were the largest losses (deal size and closing date not used); supply-chain, macro and guidance news helped. p10–p90 coverage 12–25% (shock size only). Review: `docs/phase1-review.md`.
 
+## 4b. Phase 2 Direction (owner decision, nov.02.2026)
+
+After the Phase 1 review (`docs/phase1-review.md`), the owner chose Phase 2's first focus: **honest ranges and more test dates**.
+
+1. **A range that includes the baseline's own error**, built point-in-time from the baseline's errors on dates before each case and tested on held-out dates, so Decision 7's 80% coverage check can be met or honestly failed.
+2. **More test dates**, using the one-command pipeline (M7), including dates after the models' training cutoff (June 2026), so a small gain can be told from luck and the model's memory can be tested cleanly.
+
+Merger sizing and timing (backlog #102, #115), the commodity baseline and the teaching platform were the other options; they wait until these two exist. The milestones for this focus are planned by the agent team in their own design docs; a new Accepted decision they need goes to the owner first.
+
 ## 5. Documentation Practice
 
 - `docs/structure-guide.md` is the source of truth for decisions; `docs/build-plan.md` for sequencing and status. Markdown is the working format because coding assistants (Claude Code in VS Code included) read it directly; PDFs are exported copies for reading and sharing. PDFs are never edited and are not committed (except the archived sep.2026 guide); regenerate one when needed, for example with `pandoc docs/structure-guide.md -o structure-guide.pdf` or by asking Claude.
