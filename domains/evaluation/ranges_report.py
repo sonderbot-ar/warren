@@ -184,6 +184,12 @@ def _iv(iv: tuple[float, float] | None) -> str:
     return "n/a" if iv is None else f"{100 * iv[0]:.1f}% to {100 * iv[1]:.1f}%"
 
 
+def _width(item: str, w: float | None) -> str:
+    if w is None:
+        return "n/a"
+    return f"{100 * w:.1f}% of revenue" if item == "revenue" else f"{100 * w:.1f} margin points"
+
+
 def _cover_line(name: str, rows: list[dict]) -> str:
     c = cover(rows)
     return (
@@ -280,11 +286,10 @@ def render(conn: sqlite3.Connection, build_id: str) -> str:
                 lines.append(_cover_line(f"actuals in {y}", g))
             no_hist = sum(r["status"] == "no_history" for r in rs)
             w = widths(rolling(rows, pool))
-            unit = "of revenue" if item == "revenue" else "margin points of revenue"
             lines += [
                 "",
                 f"Quarters with no range (not enough history): {no_hist}. Median width "
-                f"(p90 − p10): {_pct(w[item])} {unit}.",
+                f"(p90 − p10): {_width(item, w[item])}.",
             ]
     warm = [
         r for r in rows if r["subject_kind"] == "origin" and r["as_of"] < ROLLING_FROM.isoformat()
