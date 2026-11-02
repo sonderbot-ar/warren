@@ -2,13 +2,16 @@
 
 The rule is fixed in docs/designs/m10-more-dates.md before any result is seen:
 
-- pre-cutoff: the 1st of January, April, July and October from 2019-04-01, for every date
-  before the first day of the earliest model cutoff month;
+- pre-cutoff: the 15th of February, May, August and November from 2019-05-15 (mid-quarter for
+  seven of the eight companies, just after most of them file their 10-Q, so the next quarter is
+  still running), for every date before the first day of the earliest model cutoff month;
 - post-cutoff: the 1st and the 15th of every month, for every date whose 7-day news window
   starts after the latest model cutoff month has ended;
 - up to an end date (GRID_END), so a later run extends the grid under the same rule.
 
-A company is left out on a date on or after its `history_ends` (universe.csv). The grid file is
+A company whose filings stop here (`history_ends`, universe.csv) gets the longest horizon, up to
+4 quarters, that the coverage guard accepts (`harness.guard_coverage`, as M9's origins), and is
+left out on a date where not even one quarter fits. The grid file is
 written by `write_grid` and checked by `load_grid`, which regenerates it from the rule and fails
 if the file differs, so no date can be added or dropped by hand.
 """
@@ -21,15 +24,17 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from domains.evaluation.cases import CASES_PATH, COLUMNS, Case, CaseError, load_cases
+from domains.evaluation.harness import FILING_LAG_DAYS, QUARTER_DAYS
 from domains.fundamentals.universe import PHASE1_UNIVERSE, UniverseCompany
 from shared_kernel.config import NODE_MODELS
 
 GRID_PATH = Path(__file__).parent / "grid_cases.csv"
-GRID_START = date(2019, 4, 1)  # the first quarter start the engine supports (SUPPORTED_FROM)
+GRID_START = date(2019, 5, 15)  # the first mid-quarter 15th after SUPPORTED_FROM (2019-03-01)
+PRE_MONTHS = (2, 5, 8, 11)
 GRID_END = date(2026, 10, 15)  # the last date with a forecast quarter reported by nov.02.2026
 WINDOW_DAYS = 7  # the news window: the 7 New York days ending on the date (nodes.NEWS_DAYS)
 HORIZON = 4
-PRE = "grid rule: quarter start"
+PRE = "grid rule: mid-quarter 15th"
 POST = "grid rule: post-cutoff 1st/15th"
 DESCRIPTION = "Grid date: no event chosen"
 
@@ -84,14 +89,25 @@ def _months(start: date, end: date):
 def grid_dates(end: date = GRID_END) -> list[GridDate]:
     """Every grid date up to `end`, oldest first."""
     out = []
-    for y, m in _months(GRID_START, end):
-        first = date(y, m, 1)
-        if m in (1, 4, 7, 10) and is_pre_cutoff(first):
-            out.append(GridDate(first, False))
-        for day in (first, date(y, m, 15)):
+    for y, m in _months(GRID_START.replace(day=1), end):
+        first, mid = date(y, m, 1), date(y, m, 15)
+        if m in PRE_MONTHS and GRID_START <= mid <= end and is_pre_cutoff(mid):
+            out.append(GridDate(mid, False))
+        for day in (first, mid):
             if day <= end and is_post_cutoff(day):
                 out.append(GridDate(day, True))
     return out
+
+
+def _horizon(company: UniverseCompany, day: date) -> int:
+    """The longest horizon (up to 4) the coverage guard accepts on this date; 0 if none."""
+    if company.history_ends is None:
+        return HORIZON
+    for h in range(HORIZON, 0, -1):
+        reach = day + timedelta(days=QUARTER_DAYS * (h + 1) + FILING_LAG_DAYS)
+        if reach < company.history_ends:
+            return h
+    return 0
 
 
 def grid_cases(
@@ -103,8 +119,11 @@ def grid_cases(
     for g in grid_dates(end):
         for company in universe:
             case_id = f"{company.ticker}_{g.day.isoformat()}"
-            if company.history_ends and g.day >= company.history_ends:
-                left_out.append((case_id, f"on or after history_ends {company.history_ends}"))
+            horizon = _horizon(company, g.day)
+            if horizon == 0:
+                left_out.append(
+                    (case_id, f"no quarter fits before history_ends {company.history_ends}")
+                )
                 continue
             cases.append(
                 Case(
@@ -113,7 +132,7 @@ def grid_cases(
                     event_date=g.day,
                     event_type="grid",
                     description=DESCRIPTION,
-                    horizon_quarters=HORIZON,
+                    horizon_quarters=horizon,
                     selected_because=POST if g.post_cutoff else PRE,
                     source_url="",
                     scope_change="",
@@ -133,14 +152,18 @@ def render(cases: list[Case]) -> str:
     return buf.getvalue()
 
 
-def _check_collisions(cases: list[Case], events_path: Path) -> None:
+def shared_with_hand_picked(cases: list[Case], events_path: Path = CASES_PATH) -> list[str]:
+    """Grid case ids that are also hand-picked cases (same company and date).
+
+    They stay in the grid (dropping them would be a choice made after looking) and share the
+    hand-picked case's run and AI answers, which are keyed by company and date; storing the grid
+    never overwrites the hand-picked row (`cases.store_cases`).
+    """
     hand_cases = load_cases(events_path)
     if any(c.is_grid for c in hand_cases):
         raise CaseError(f"{events_path.name} holds grid cases: they belong in the grid file only")
     hand = {c.case_id for c in hand_cases}
-    clash = sorted(c.case_id for c in cases if c.case_id in hand)
-    if clash:
-        raise CaseError(f"grid dates collide with hand-picked cases: {', '.join(clash)}")
+    return sorted(c.case_id for c in cases if c.case_id in hand)
 
 
 def write_grid(
@@ -150,7 +173,7 @@ def write_grid(
     events_path: Path = CASES_PATH,
 ) -> list[Case]:
     cases, _ = grid_cases(universe, end)
-    _check_collisions(cases, events_path)
+    shared_with_hand_picked(cases, events_path)
     path.write_text(render(cases))
     return cases
 
@@ -172,5 +195,5 @@ def load_grid(
     cases = load_cases(path, tickers=tickers)
     if any(not c.is_grid for c in cases):
         raise CaseError(f"{path.name} holds a case that is not a grid case")
-    _check_collisions(cases, events_path)
+    shared_with_hand_picked(cases, events_path)
     return cases

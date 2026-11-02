@@ -218,6 +218,10 @@ def cmd_grid(args) -> int:
           f"{len(left_out)} left out by rule")  # fmt: skip
     for case_id, reason in left_out:
         print(f"  left out {case_id}: {reason}")
+    shared = grid.shared_with_hand_picked(cases)
+    short = [c for c in cases if c.horizon_quarters < grid.HORIZON]
+    print(f"{len(short)} with a shorter horizon (coverage guard); {len(shared)} shared with "
+          f"hand-picked cases: {', '.join(shared) or 'none'}")  # fmt: skip
     return 0
 
 

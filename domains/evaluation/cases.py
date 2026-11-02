@@ -159,7 +159,15 @@ def store_cases(conn: sqlite3.Connection, cases: list[Case]) -> None:
                 case.scope_change,
             )
         )
+    # a grid case never overwrites a hand-picked case with the same id (M10, grid.py)
+    grid_rows = [r for r, c in zip(rows, cases, strict=True) if c.is_grid]
+    rows = [r for r, c in zip(rows, cases, strict=True) if not c.is_grid]
     with conn:
+        conn.executemany(
+            "INSERT INTO eval_cases VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT (case_id) DO NOTHING",
+            grid_rows,
+        )
         conn.executemany(
             "INSERT INTO eval_cases VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT (case_id) DO UPDATE SET ticker = excluded.ticker, cik = excluded.cik, "
