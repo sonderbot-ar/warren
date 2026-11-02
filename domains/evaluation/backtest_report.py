@@ -203,7 +203,9 @@ def _direction(rows) -> list[str]:
         "## Direction",
         "",
         "Up, flat or down against the same quarter a year earlier (within ±0.5% is flat). The "
-        'base rate is the share of quarters that rose: the score of always saying "up".',
+        'base rate is the share of quarters that rose: the score of always saying "up". '
+        "The naive forecast repeats last year's quarter, so it always says flat; it is shown "
+        "only as a floor.",
         "",
         "| Variant | Item | Hit rate | Quarters | Base rate | Direction unknown |",
         "|---|---|---|---|---|---|",
@@ -270,8 +272,9 @@ def _groups(rows, info, shocks) -> list[str]:
         "## By event type and by driver (descriptive only)",
         "",
         "One to five cases per type: these tables describe, they can't show anything. Mean d "
-        "over the cases of the group, all cases view; a case with shocks on two drivers is in "
-        "both driver groups.",
+        "over the cases of the group, all cases view. A case's d is the effect of all its "
+        "shocks together, so a case with shocks on two drivers is in both driver groups with "
+        "the same d.",
         "",
         "| Group | Cases | Masked: revenue d | Masked: EBIT d | Named: revenue d | Named: EBIT d |",
         "|---|---|---|---|---|---|",
