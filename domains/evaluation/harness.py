@@ -11,11 +11,12 @@ because EBIT can be near zero or negative and a percentage error then explodes.
 """
 
 import hashlib
+import json
 import re
 import sqlite3
 import warnings
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from domains.analysis.dcf import YEARS
 from domains.analysis.math_engine import CHAINS, EngineError, UserChoice, step_quarter, trace
@@ -26,19 +27,23 @@ from domains.analysis.montecarlo import (
     save_simulation,
 )
 from domains.analysis.runs import code_version, load_assumptions, load_outputs, run_baseline
+from domains.analysis.shocks import Shock, shocks_sha256
 from domains.evaluation.cases import CONTROL_OFFSET_DAYS, Case, store_cases
 from domains.evaluation.guidance import GuidanceError, Guide, guard_source_dates, to_shocks
 from domains.fundamentals.facts import get_facts
 from domains.fundamentals.schemas import Fact
 from domains.fundamentals.universe import get_universe_company
 from domains.market.store import MarketDataError
+from domains.news.gdelt import CASE_TZ
 
 DIRECTION_BAND = 0.005  # a change within ±0.5% of the prior year counts as flat
 ACCESSION = re.compile(r"\b\d{10}-\d{2}-\d{6}\b")
 QUARTER_DAYS = 92
 FILING_LAG_DAYS = 45  # a quarter's 10-Q comes about this long after it ends
 ITEMS = sorted({"revenue", *(item for alt in CHAINS["ebit"] for item in alt)})
-VARIANTS = ("baseline", "naive_srw", "with_shocks")  # with_shocks only where guidance exists
+# with_shocks only where guidance exists (M4); llm_* only where the AI's set holds shocks (M8)
+VARIANTS = ("baseline", "naive_srw", "with_shocks", "llm_named", "llm_masked")
+SHOCKED = ("with_shocks", "llm_named", "llm_masked")
 
 
 class EvaluationError(ValueError):
@@ -223,6 +228,61 @@ def comparative(
     )
 
 
+def guard_run(conn: sqlite3.Connection, run_id: str, case: Case) -> None:
+    """A stored run scores a case only if it is that company's baseline as of the case date."""
+    row = conn.execute("SELECT ticker, as_of FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+    if row is None:
+        raise EvaluationError(f"{case.case_id}: run {run_id} is not stored")
+    if row["ticker"] != case.ticker or row["as_of"] != case.event_date.isoformat():
+        raise EvaluationError(
+            f"{case.case_id}: run {run_id} is {row['ticker']} as of {row['as_of']}, not "
+            f"{case.ticker} as of {case.event_date}"
+        )
+
+
+def guard_event_dates(conn: sqlite3.Connection, shock_ids: list[str], case: Case) -> int:
+    """Every event the AI's shocks cite was last seen on or before the case date in New York.
+
+    Reads all the events each shock's proposal cites (`evidence_json`), not only the shock's
+    first event; times are compared on the New York calendar, never as UTC dates. Returns how
+    many events were checked."""
+    checked = 0
+    for shock_id in shock_ids:
+        row = conn.execute(
+            "SELECT p.evidence_json FROM proposal_shocks ps JOIN shock_proposals p "
+            "USING (proposal_id) WHERE ps.shock_id = ?",
+            (shock_id,),
+        ).fetchone()
+        if row is None:
+            raise EvaluationError(f"{case.case_id}: shock {shock_id} has no stored proposal")
+        for event_id in json.loads(row["evidence_json"]):
+            event = conn.execute(
+                "SELECT last_seen FROM events WHERE event_id = ?", (event_id,)
+            ).fetchone()
+            if event is None:
+                raise EvaluationError(f"{case.case_id}: cited event {event_id} is not stored")
+            seen = datetime.fromisoformat(event["last_seen"].replace("Z", "+00:00"))
+            if seen.astimezone(CASE_TZ).date() > case.event_date:
+                raise EvaluationError(
+                    f"{case.case_id}: shock {shock_id} cites event {event_id}, last seen "
+                    f"{event['last_seen']}, after the case date in New York"
+                )
+            checked += 1
+    return checked
+
+
+def simulation_for(
+    conn: sqlite3.Connection, run_id: str, shock_list: list[Shock], n: int, seed: int
+) -> str:
+    """The stored simulation of these shocks on this run with this seed and size, or a new one."""
+    stored = conn.execute(
+        "SELECT sim_id FROM simulations WHERE run_id = ? AND seed = ? AND n_samples = ? "
+        "AND shocks_sha256 = ? ORDER BY sim_id LIMIT 1",
+        (run_id, seed, n, shocks_sha256(shock_list)),
+    ).fetchone()
+    return stored["sim_id"] if stored else save_simulation(conn, run_id, shock_list, n, seed)
+
+
 # -- scoring -----------------------------------------------------------------------------------
 
 
@@ -246,29 +306,45 @@ def evaluate_case(
     today: date | None = None,
     guides: list[Guide] | None = None,
     n_samples: int = DEFAULT_SAMPLES,
+    run_id: str | None = None,
+    shock_sets: dict[str, list[Shock]] | None = None,
 ) -> tuple[str, list[dict]]:
     """Run the baseline as of the case date and score it and the naive forecast; (run_id, rows).
 
     With guidance for the case, the run is also simulated under the shocks it implies (M4) and
-    the p50 is scored as `with_shocks`, with its p10/p50/p90 and seed."""
+    the p50 is scored as `with_shocks`, with its p10/p50/p90 and seed. With `run_id`, that stored
+    run is scored instead of a new one (M8: the AI's shocks were sized on it), and each entry of
+    `shock_sets` (llm_named, llm_masked) that holds shocks is simulated on it and scored the same
+    way; an empty entry writes no rows. Every simulation of a case uses the case's seed."""
     guard_coverage(case)
     cik = conn.execute("SELECT cik FROM companies WHERE ticker = ?", (case.ticker,)).fetchone()
     if cik is None:
         raise EvaluationError(f"{case.ticker} has not been ingested")
     cik = cik["cik"]
     guard_control_date(conn, cik, case)
-    run_id = run_baseline(conn, case.ticker, case.event_date, choices=choices, today=today)
+    if run_id is None:
+        run_id = run_baseline(conn, case.ticker, case.event_date, choices=choices, today=today)
+    else:
+        guard_run(conn, run_id, case)
     guard_look_ahead(conn, run_id, case.event_date)
 
     outputs = load_outputs(conn, run_id)
     rows_used = load_assumptions(conn, run_id)
-    bands, seed = {}, None
+    seed = case_seed(case.case_id)
+    to_simulate: dict[str, list[Shock]] = {}
     if guides:
         guard_source_dates(guides, case.event_date)
-        shocks = to_shocks(guides, rows_used)
-        seed = case_seed(case.case_id)
-        sim_id = save_simulation(conn, run_id, shocks, n_samples, seed)
-        bands = load_bands(conn, sim_id)
+        to_simulate["with_shocks"] = to_shocks(guides, rows_used)
+    for variant, shock_list in (shock_sets or {}).items():
+        if variant not in SHOCKED or variant == "with_shocks":
+            raise EvaluationError(f"unknown shocked variant {variant!r}")
+        if shock_list:
+            guard_event_dates(conn, [x.shock_id for x in shock_list], case)
+            to_simulate[variant] = shock_list
+    bands = {
+        variant: load_bands(conn, simulation_for(conn, run_id, shock_list, n_samples, seed))
+        for variant, shock_list in to_simulate.items()
+    }
     history = {(a.name, a.period): a for a in rows_used if a.name.startswith("history:")}
     quarters = sorted(p for (n, p) in outputs if n == "revenue" and p not in YEARS)
     actuals = _quarterly(conn, cik, actuals_as_of or date.today(), "first_reported")
@@ -292,8 +368,8 @@ def evaluate_case(
 
         for item, known in (("revenue", known_revenue.value), ("ebit", known_ebit.value)):
             forecasts = {"baseline": outputs[(item, period)], "naive_srw": known}
-            if bands:
-                forecasts["with_shocks"] = bands[(item, period)].p50
+            for variant, band in bands.items():
+                forecasts[variant] = band[(item, period)].p50
             for variant, forecast in forecasts.items():
                 row = {
                     "case_id": case.case_id,
@@ -308,8 +384,8 @@ def evaluate_case(
                     "derived": 0,
                     "status": "missing",
                 }
-                if variant == "with_shocks":
-                    b = bands[(item, period)]
+                if variant in bands:
+                    b = bands[variant][(item, period)]
                     row |= {"p10": b.p10, "p50": b.p50, "p90": b.p90, "seed": seed}
                 if actual is not None:
                     value = actual.revenue.value if item == "revenue" else actual.ebit
