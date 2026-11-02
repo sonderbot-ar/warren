@@ -39,6 +39,8 @@ No design decision changes. No number changes: every stored run's downloads were
 
 Design review not run: the issue is the reviewers' own four-point fix list, with no financial logic. Gatekeeper at the PR stage.
 
+- **Gatekeeper** (GO, no blockers; 659 passed, ruff clean, 27 of 27 runs reproduce; the new tests fail on `main`'s store, 5 failed): the changed `test_prices.py` test is stricter, not weaker; the year-end history calls pass a date before the run's own as-of, so they can't break. Taken: the test count wording above. To backlog: point the remaining `known_by` callers at `shared_kernel.calendar` and drop the re-export, and simplify the pipeline's now-redundant stale check (`nodes.py:143`). `docs/versions.md` and the build plan are updated in the record commit after merge, as usual.
+
 ## Where the work stopped
 
-- Steps 0–3 done (nov.02.2026). 659 tests pass; the five new store tests fail on the old code. On the restored snapshot (`warren-20261102T002927Z`): 27 of 27 runs reproduce to the cent, the M8 batch reproduces (728 rows, 39 simulations), and `require_coverage` accepts every stored download for all 27 stored as-of dates (270 checks, 0 refused). PR open; gatekeeper next.
+- Steps 0–3 done (nov.02.2026). 659 tests pass; the four new store tests and the tightened `test_prices.py` test fail on the old code (the new pipeline boundary test passes on both, since the pipeline already had its own check). On the restored snapshot (`warren-20261102T002927Z`): 27 of 27 runs reproduce to the cent, the M8 batch reproduces (728 rows, 39 simulations), and `require_coverage` accepts every stored download for all 27 stored as-of dates (270 checks, 0 refused). PR open; gatekeeper next.
