@@ -136,7 +136,12 @@ def test_a_row_dated_on_the_download_day_is_dropped(conn):
     load_prices(
         conn, "AAPL", download=FakeYahoo([*AAPL, row("2020-09-03", 120.9)]), now=fixed_clock
     )
-    assert raw_close(conn, "AAPL", date(2020, 9, 3)).date == date(2020, 9, 2)
+    stored = conn.execute("SELECT COUNT(*) FROM prices WHERE date = '2020-09-03'").fetchone()[0]
+    assert stored == 0
+    assert raw_close(conn, "AAPL", date(2020, 9, 2)).date == date(2020, 9, 2)
+    # and since backlog #112 a query on the download day itself is refused outright
+    with pytest.raises(MarketDataError, match="ended in New York"):
+        raw_close(conn, "AAPL", date(2020, 9, 3))
 
 
 def test_queries_read_the_latest_fetch_unless_one_is_pinned(conn):

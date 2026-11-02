@@ -135,6 +135,33 @@ def test_a_failed_raw_move_keeps_the_old_raw_files_and_says_so(data, tmp_path, m
     assert not list(data.glob("tmp*")) and not list(data.rglob(".old-*"))
 
 
+def test_a_failed_telemetry_move_keeps_the_old_telemetry_and_says_so(data, tmp_path, monkeypatch):
+    # backlog #112: the telemetry swap's failure branch, as for the raw files
+    (data / "telemetry").mkdir()
+    (data / "telemetry" / "TST_2020-06-30_p1.jsonl").write_text('{"node": "simulate"}\n')
+    _save(data, tmp_path / "snap")
+    with get_db_connection(data / "warren.db") as conn:
+        conn.execute("INSERT INTO probe VALUES (7)")
+        conn.commit()
+    (data / "telemetry" / "only-local.jsonl").write_text('{"node": "local"}\n')
+    real_move = snapshot.shutil.move
+
+    def failing_move(src, dst, *a, **k):
+        if str(dst).endswith("telemetry"):
+            real_move(src, dst, *a, **k)  # a half-done copy is left behind...
+            raise OSError("disk full")  # ...and then the move fails
+        return real_move(src, dst, *a, **k)
+
+    monkeypatch.setattr(snapshot.shutil, "move", failing_move)
+    with pytest.raises(snapshot.SnapshotError, match="telemetry files were not.*disk full"):
+        snapshot.restore(tmp_path / "snap", data, force=True)
+    assert (data / "telemetry" / "only-local.jsonl").read_text() == '{"node": "local"}\n'
+    assert (data / "telemetry" / "TST_2020-06-30_p1.jsonl").exists()
+    with get_db_connection(data / "warren.db") as conn:  # by design the database is the new one
+        assert sorted(r[0] for r in conn.execute("SELECT x FROM probe")) == [42]
+    assert not list(data.glob("tmp*")) and not list(data.rglob(".old-*"))
+
+
 def test_a_failed_database_move_keeps_the_old_database(data, tmp_path, monkeypatch):
     _save(data, tmp_path / "snap")
     with get_db_connection(data / "warren.db") as conn:
