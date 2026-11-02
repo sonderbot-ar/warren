@@ -53,6 +53,24 @@ def test_a_stored_batch_reproduces_to_the_cent(company):
     assert company.execute("SELECT COUNT(*) FROM simulations").fetchone()[0] == sims  # no writes
 
 
+def test_the_filing_date_is_stored_and_checked_only_where_stored(company):
+    two_sets(company)
+    batch = backtest(company)
+    filed = company.execute(
+        "SELECT COUNT(*) FROM eval_results WHERE batch_id = ? AND status = 'ok' "
+        "AND actual_filed_at IS NULL",
+        (batch,),
+    ).fetchone()[0]
+    assert filed == 0  # every scored row carries its actual's filing date (M10, migration 0018)
+    company.execute("UPDATE eval_results SET actual_filed_at = '2000-01-01' WHERE status = 'ok'")
+    company.commit()
+    check = reproduce_batch(company, batch, [case()])
+    assert any("actual_filed_at: 2000-01-01, now" in m for m in check.mismatches)
+    company.execute("UPDATE eval_results SET actual_filed_at = NULL")  # a batch stored before 0018
+    company.commit()
+    assert reproduce_batch(company, batch, [case()]).ok
+
+
 def test_an_edited_shock_fails_the_reproduce_check(company):
     two_sets(company)
     batch = backtest(company)

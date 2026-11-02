@@ -199,6 +199,9 @@ def reproduce_batch(
                     out.mismatches.append(
                         f"{' '.join(key)} {col}: stored {a[col]}, now {b.get(col)}"
                     )
+            filed = a.get("actual_filed_at")  # stored since migration 0018 (M10)
+            if filed is not None and filed != (now_filed := b.get("actual_filed_at")):
+                out.mismatches.append(f"{' '.join(key)} actual_filed_at: {filed}, now {now_filed}")
             out.rows_checked += 1
         seed = case_seed(case_id)
         for (sim_id,) in conn.execute(
