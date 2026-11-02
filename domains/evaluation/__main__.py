@@ -225,6 +225,53 @@ def cmd_grid(args) -> int:
     return 0
 
 
+def cmd_run_grid(args) -> int:
+    """Run the grid cases through the pipeline (M10), under one spending cap."""
+    from datetime import date
+
+    from domains.evaluation import grid, grid_run
+
+    cases = grid.load_grid()
+    if args.ticker:
+        cases = [c for c in cases if c.ticker in {t.upper() for t in args.ticker}]
+    if args.start:
+        cases = [c for c in cases if c.event_date >= date.fromisoformat(args.start)]
+    if args.end:
+        cases = [c for c in cases if c.event_date <= date.fromisoformat(args.end)]
+    with get_db_connection() as conn:
+        apply_migrations(conn)
+        todo, done = grid_run.pending(conn, cases)
+        if args.dry_run:
+            dates = len({c.event_date for c in todo})
+            print(f"{len(done)} grid cases done, {len(todo)} to run on {dates} dates; about "
+                  f"${grid_run.estimate_usd(conn, len(todo)):.2f} of AI calls "
+                  f"(${grid_run.ESTIMATE_USD:.2f} a case, the measured M7 date)")  # fmt: skip
+            for c in todo[:10]:
+                print(f"  next {c.case_id}")
+            return 0
+        from domains.orchestration import graph
+        from domains.orchestration.__main__ import FOLDERS, make_deps
+        from shared_kernel.config import anthropic_api_key
+
+        anthropic_api_key()  # before anything runs, so a missing key costs nothing
+        deps = make_deps(conn)
+
+        def start(ticker, as_of, seed, budget):
+            return graph.start(deps, FOLDERS, ticker, as_of, variants=["named", "masked"],
+                               review="auto", seed=seed, budget=budget)  # fmt: skip
+
+        def resume(pipeline_id, budget):
+            return graph.resume(deps, FOLDERS, pipeline_id, budget=budget)
+
+        summary = grid_run.run_grid(conn, cases, args.max_usd, start, resume)
+    print(f"{len(summary.done)} done now, {len(summary.done_before)} before, "
+          f"{len(summary.failed)} failed, {len(summary.not_run)} not run; "
+          f"${summary.spent_usd:.2f} spent")  # fmt: skip
+    if summary.stopped:
+        print(f"stopped: {summary.stopped}")
+    return 0 if not summary.failed else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m domains.evaluation")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -265,6 +312,13 @@ def main(argv: list[str] | None = None) -> int:
     gr.add_argument("--write", action="store_true", help="regenerate the file from the rule")
     gr.add_argument("--end", help="the last grid date, YYYY-MM-DD; default: grid.GRID_END")
     gr.set_defaults(func=cmd_grid)
+    rgr = commands.add_parser("run-grid", help="run the grid cases through the pipeline (M10)")
+    rgr.add_argument("--max-usd", type=float, required=True, help="the spending cap for AI calls")
+    rgr.add_argument("--ticker", action="append", help="a ticker (repeatable); default: all")
+    rgr.add_argument("--from", dest="start", help="first grid date, YYYY-MM-DD")
+    rgr.add_argument("--to", dest="end", help="last grid date, YYYY-MM-DD")
+    rgr.add_argument("--dry-run", action="store_true", help="list what would run and its cost")
+    rgr.set_defaults(func=cmd_run_grid)
     args = parser.parse_args(argv)
     return args.func(args)
 
