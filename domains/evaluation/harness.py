@@ -272,15 +272,25 @@ def guard_event_dates(conn: sqlite3.Connection, shock_ids: list[str], case: Case
 
 
 def simulation_for(
-    conn: sqlite3.Connection, run_id: str, shock_list: list[Shock], n: int, seed: int
+    conn: sqlite3.Connection,
+    run_id: str,
+    shock_list: list[Shock],
+    n: int,
+    seed: int,
+    stored_only: bool = False,
 ) -> str:
-    """The stored simulation of these shocks on this run with this seed and size, or a new one."""
+    """The stored simulation of these shocks on this run with this seed and size, or a new one
+    (with `stored_only`, a missing one is an error: a reproduce check never writes)."""
     stored = conn.execute(
         "SELECT sim_id FROM simulations WHERE run_id = ? AND seed = ? AND n_samples = ? "
         "AND shocks_sha256 = ? ORDER BY sim_id LIMIT 1",
         (run_id, seed, n, shocks_sha256(shock_list)),
     ).fetchone()
-    return stored["sim_id"] if stored else save_simulation(conn, run_id, shock_list, n, seed)
+    if stored:
+        return stored["sim_id"]
+    if stored_only:
+        raise EvaluationError(f"{run_id}: no stored simulation of these shocks with seed {seed}")
+    return save_simulation(conn, run_id, shock_list, n, seed)
 
 
 # -- scoring -----------------------------------------------------------------------------------
@@ -308,6 +318,7 @@ def evaluate_case(
     n_samples: int = DEFAULT_SAMPLES,
     run_id: str | None = None,
     shock_sets: dict[str, list[Shock]] | None = None,
+    stored_only: bool = False,
 ) -> tuple[str, list[dict]]:
     """Run the baseline as of the case date and score it and the naive forecast; (run_id, rows).
 
@@ -315,7 +326,8 @@ def evaluate_case(
     the p50 is scored as `with_shocks`, with its p10/p50/p90 and seed. With `run_id`, that stored
     run is scored instead of a new one (M8: the AI's shocks were sized on it), and each entry of
     `shock_sets` (llm_named, llm_masked) that holds shocks is simulated on it and scored the same
-    way; an empty entry writes no rows. Every simulation of a case uses the case's seed."""
+    way; an empty entry writes no rows. Every simulation of a case uses the case's seed. With
+    `stored_only`, every simulation must already be stored (reproduce)."""
     guard_coverage(case)
     cik = conn.execute("SELECT cik FROM companies WHERE ticker = ?", (case.ticker,)).fetchone()
     if cik is None:
@@ -342,7 +354,9 @@ def evaluate_case(
             guard_event_dates(conn, [x.shock_id for x in shock_list], case)
             to_simulate[variant] = shock_list
     bands = {
-        variant: load_bands(conn, simulation_for(conn, run_id, shock_list, n_samples, seed))
+        variant: load_bands(
+            conn, simulation_for(conn, run_id, shock_list, n_samples, seed, stored_only)
+        )
         for variant, shock_list in to_simulate.items()
     }
     history = {(a.name, a.period): a for a in rows_used if a.name.startswith("history:")}
@@ -426,6 +440,58 @@ def case_seed(case_id: str) -> int:
     return int(hashlib.sha256(case_id.encode()).hexdigest()[:15], 16)
 
 
+def scoring_errors() -> tuple[type[Exception], ...]:
+    """The errors that fail one case without stopping a batch."""
+    return (
+        EvaluationError,
+        EngineError,
+        MarketDataError,
+        GuidanceError,
+        SimulationError,
+        ValueError,
+    )
+
+
+def new_batch(
+    conn: sqlite3.Connection,
+    cases: list[Case],
+    cases_sha256: str,
+    notes: str | None,
+    today: date | None = None,
+) -> str:
+    """Store the cases and a new batch row; its id, `eval_<date>_<n>`."""
+    store_cases(conn, cases)
+    prefix = f"eval_{(today or date.today()).isoformat()}_"
+    count = conn.execute(
+        "SELECT COUNT(*) FROM eval_batches WHERE batch_id LIKE ?", (prefix + "%",)
+    ).fetchone()[0]
+    batch_id = f"{prefix}{count + 1}"
+    with conn:
+        conn.execute(
+            "INSERT INTO eval_batches (batch_id, code_version, cases_sha256, notes) "
+            "VALUES (?, ?, ?, ?)",
+            (batch_id, code_version(), cases_sha256, notes),
+        )
+    return batch_id
+
+
+def record_failure(conn: sqlite3.Connection, batch_id: str, case_id: str, reason: str) -> None:
+    with conn:
+        conn.execute(
+            "INSERT INTO eval_failures (batch_id, case_id, reason) VALUES (?, ?, ?)",
+            (batch_id, case_id, reason),
+        )
+
+
+def insert_rows(conn: sqlite3.Connection, batch_id: str, rows: list[dict]) -> None:
+    with conn:
+        conn.executemany(
+            f"INSERT INTO eval_results (batch_id, {', '.join(COLUMNS)}) "
+            f"VALUES (?, {', '.join('?' * len(COLUMNS))})",
+            [(batch_id, *(row.get(c) for c in COLUMNS)) for row in rows],
+        )
+
+
 def run_batch(
     conn: sqlite3.Connection,
     cases: list[Case],
@@ -439,47 +505,16 @@ def run_batch(
 ) -> str:
     """Score every case; returns the batch id. A case that can't be scored is recorded, with
     its reason, in eval_failures and never silently dropped."""
-    store_cases(conn, cases)
-    prefix = f"eval_{(today or date.today()).isoformat()}_"
-    count = conn.execute(
-        "SELECT COUNT(*) FROM eval_batches WHERE batch_id LIKE ?", (prefix + "%",)
-    ).fetchone()[0]
-    batch_id = f"{prefix}{count + 1}"
-    with conn:
-        conn.execute(
-            "INSERT INTO eval_batches (batch_id, code_version, cases_sha256, notes) "
-            "VALUES (?, ?, ?, ?)",
-            (
-                batch_id,
-                code_version(),
-                cases_sha256,
-                f"guidance_sha256={guidance_sha256}" if guides else None,
-            ),
-        )
+    notes = f"guidance_sha256={guidance_sha256}" if guides else None
+    batch_id = new_batch(conn, cases, cases_sha256, notes, today)
     for case in cases:
         try:
             case_guides = [g for g in guides or [] if g.case_id == case.case_id]
             _, rows = evaluate_case(
                 conn, case, choices, actuals_as_of, today, case_guides, n_samples
             )
-        except (
-            EvaluationError,
-            EngineError,
-            MarketDataError,
-            GuidanceError,
-            SimulationError,
-            ValueError,
-        ) as e:
-            with conn:
-                conn.execute(
-                    "INSERT INTO eval_failures (batch_id, case_id, reason) VALUES (?, ?, ?)",
-                    (batch_id, case.case_id, str(e)),
-                )
+        except scoring_errors() as e:
+            record_failure(conn, batch_id, case.case_id, str(e))
             continue
-        with conn:
-            conn.executemany(
-                f"INSERT INTO eval_results (batch_id, {', '.join(COLUMNS)}) "
-                f"VALUES (?, {', '.join('?' * len(COLUMNS))})",
-                [(batch_id, *(row.get(c) for c in COLUMNS)) for row in rows],
-            )
+        insert_rows(conn, batch_id, rows)
     return batch_id
