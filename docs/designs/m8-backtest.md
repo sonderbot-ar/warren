@@ -1,6 +1,6 @@
 # M8 design: full backtest and Phase 1 review
 
-Status: In progress (nov.02.2026) · Elephant: agent team · Branch `m8-backtest`
+Status: In progress (nov.02.2026; Steps 0–4 done, PR open) · Elephant: agent team · Branch `m8-backtest`
 Implements Structure Guide Decision 7 (evaluation: error with and without shocks, direction, calibration of the ranges) and Build Plan M8.
 
 ## Problem
@@ -106,6 +106,19 @@ Changed: `domains/evaluation/{harness,__main__}.py`, `docs/{build-plan,structure
 - **Analyst** (2 blockers, both accepted; GO once fixed): the event guard read only each shock's first event, and must compare in New York time (now every cited event, in New York, with a near-midnight test); common random numbers was claimed but z is keyed by shock position and the lists differ in 6 cases (claim withdrawn, explained under Seeds). Ideas taken: "moved" per item; with and without scope changes; named-vs-masked direction flips; d by horizon; `with_shocks` can't be significant; Step 4 makes the first stored batch.
 - **Professor** (GO, no blockers): ideas taken: the headline population fixed before results; citations (FPP3 §5.8–5.9, Murphy on MSE, G&R §6.2 sign); interval score on matched quarters with the width-0 reading; a Wilson interval on coverage; the bootstrap's small-cluster caveat; naive's direction hit rate. To backlog: Wilcoxon signed-rank and Pesaran–Timmermann as sensitivity checks, a BCa interval, Christoffersen's coverage test, a worked example for students.
 
+## Result (nov.02.2026)
+
+Batch `eval_2026-11-02_1` (code `9befb04`, case file `0cfe9ab36773`, guidance `domains/evaluation/guidance.csv`, actuals as first reported to nov.02.2026): 26 of 26 cases, 0 failed, 728 rows. `reproduce --batch` passes: 728 rows and 39 simulations to the cent. No download and no LLM call. Snapshot `warren-20261102T002927Z` (schema 16) saved after the batch.
+
+- **Headline (all cases):** masked revenue skill +2.1% (median −4.1%), 8 better / 6 worse / 12 unchanged, p = 0.79; EBIT +1.5% (median +10.4%), 10 / 8 / 8, p = 0.82. Named: revenue +5.4%, 7 / 4 / 15, p = 0.55; EBIT +2.4%, 9 / 8 / 9, p = 1.00. Every 90% interval of mean d includes zero. Guidance (3 cases): revenue 2 / 1, EBIT 0 / 3.
+- **Without deal cases:** named revenue's interval excludes zero (−2.78 to −0.18 points); masked's does not. A secondary view, not read as the answer.
+- **Direction:** revenue 61% → 65% (masked), 71% (named), base rate 74%; EBIT 62% → 66%, base rate 52%.
+- **Coverage:** 12–25% for the AI variants, 0 of 12 for guidance (shock size only, as expected).
+- **Largest losses:** MSFT_2023-10-13 and XOM_2023-10-11 (mergers sized from σ, not the deal, and started before the close). Largest gains: CAT_2019-10-23, KO_2021-11-01, AAPL_2022-11-06, XOM_2020-03-09.
+- **Named vs masked:** 3 opposite moves (PG_2019-07-30 both items, WMT_2022-11-15 EBIT); 0 cases after the models' cutoff.
+
+The review is `docs/phase1-review.md`.
+
 ## Where the work stopped
 
-- nov.02.2026: Step 0 written; design review done (explainer, analyst, professor), all blockers answered in the doc. Step 1 next.
+- nov.02.2026: Steps 0–4 done; the PR is open for the gatekeeper.

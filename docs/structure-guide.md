@@ -54,8 +54,8 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 | 3 | Data processing: SQLite only, no vector database | **Accepted** (replaces ChromaDB) | oct.14.2026 |
 | 4 | Deterministic math engine with explicit, sourced assumptions | **Accepted** (strengthened; equity risk premium and terminal growth computed from market data, M2; terminal value with new investment earning WACC, owner decision before M4; it too needs g < WACC, owner decision) | oct.31.2026 |
 | 5 | Telemetry: local JSON log file | **Accepted** (details settled in M7 as the Build Plan lists them: per node start and end, status, error, timing, and per model the LLM calls and input and output tokens; cost in dollars left out; timestamp bug fixed) | nov.01.2026 |
-| 6 | Shock model: event taxonomy, time-shaped and probabilistic shocks | **Accepted** | oct.14.2026 |
-| 7 | Evaluation harness on point-in-time data | **Accepted** | oct.14.2026 |
+| 6 | Shock model: event taxonomy, time-shaped and probabilistic shocks | **Accepted** (measured in M8: on 26 cases the AI's shocks cut error a little, not shown to differ from chance; mergers are mis-sized; `docs/phase1-review.md`) | nov.02.2026 |
+| 7 | Evaluation harness on point-in-time data | **Accepted** (M8 backtest: skill score, per-case sign test, direction and p10–p90 coverage, reproducible to the cent; today's bands cover shock size only, so coverage is 12–25%, not 80%) | nov.02.2026 |
 | 8 | Data sources: SEC EDGAR, Yahoo Finance, FRED, GDELT | **Accepted** (EDGAR coverage limits noted, M1; FRED added for the risk-free rate, M2) | oct.26.2026 |
 | 9 | LLM usage limited to judgment-over-text steps | **Accepted** | oct.14.2026 |
 | 10 | Development workflow: Claude agent teams plan, review, merge and report; owner sets goals | **Accepted** (replaces owner-approved plans and owner merges) | oct.30.2026 |
