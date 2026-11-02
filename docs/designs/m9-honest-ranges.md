@@ -1,6 +1,6 @@
 # M9 design: honest ranges from the baseline's own past errors
 
-Status: Built, in review (nov.02.2026) · Elephant: agent team · Branch `m9-honest-ranges`
+Status: Done (nov.02.2026, v0.9, PR #124, merge `b3ebff6`) · Elephant: agent team · Branch `m9-honest-ranges`
 Implements the first item of the Phase 2 direction (Build Plan §4b, owner decision nov.02.2026) and the calibration check of Structure Guide Decision 7 ("do roughly 80% of outcomes fall inside the p10–p90 band?").
 
 ## Problem
