@@ -1,6 +1,6 @@
 # M8 design: full backtest and Phase 1 review
 
-Status: In progress (nov.02.2026; Steps 0–4 done, PR open) · Elephant: agent team · Branch `m8-backtest`
+Status: Done (nov.02.2026, v0.8) · Elephant: agent team · Branch `m8-backtest`
 Implements Structure Guide Decision 7 (evaluation: error with and without shocks, direction, calibration of the ranges) and Build Plan M8.
 
 ## Problem
@@ -122,4 +122,4 @@ The review is `docs/phase1-review.md`.
 
 ## Where the work stopped
 
-- nov.02.2026: Steps 0–4 done; the PR is open for the gatekeeper.
+- Done. Merged in #114 (`d770614`, v0.8) after green CI and GO from the gatekeeper and analyst (650 tests). Review ideas: backlog #115, #116. Data: snapshot `warren-20261102T002927Z`.
