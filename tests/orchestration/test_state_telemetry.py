@@ -147,7 +147,7 @@ def test_migration_0015_applies_to_a_v14_database(db_path, tmp_path):
             "'[]', 0.01, -0.02, -0.01, 0, 8, 0.7, 0, 'auto_approved')"
         )
         conn.commit()
-        assert apply_migrations(conn) == [15]
+        assert apply_migrations(conn) == [15, 16]
         kept = conn.execute("SELECT * FROM proposal_sets WHERE set_id = 7").fetchone()
         assert kept["run_id"] == "TST_2019-06-30_1" and kept["inputs_sha256"] == "x"
         assert kept["scales_sha256"] == scales.scales_sha256()  # the file is unchanged since M6

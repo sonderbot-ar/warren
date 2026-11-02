@@ -44,7 +44,7 @@ Durations are indicative, assuming part-time work (roughly 8–12 hours a week).
 | M5 | News ingestion (GDELT) and event clustering | 2.5 | dec.14 – jan.03 | M1 | Done (oct.30.2026, v0.5; design in `docs/designs/m5-news-ingestion.md`; all 26 case windows ingested and clustered; with the headline rule, `org_exact` precision 0.72 pooled, 0.52–0.90 per company, accepted by the owner; PRs #41, #43, #48, #51, #65, #66, #67) |
 | M6 | LLM steps: event extraction and shock proposal | 2 | jan.04 – jan.17 | M4, M5 | **Done** (nov.01.2026, v0.6; design in `docs/designs/m6-llm-steps.md`; Steps 1–7 in PR #72, the real run in PR #101, merged by the agent team after gatekeeper and analyst GO; all 26 cases classified from their own week's news, proposed and auto-reviewed in both variants; stability 9 of 10; about $5.81) |
 | M7 | LangGraph orchestration and telemetry | 1.5 | jan.18 – jan.27 | M6 | Done (nov.01.2026; v0.7, PR #109, merge `b08bfda`; design in `docs/designs/m7-orchestration.md`; the entry point is `python main.py run`) |
-| M8 | Full backtest and Phase 1 review | 1.5 | jan.28 – feb.07.2027 | M3, M7 | Not started |
+| M8 | Full backtest and Phase 1 review | 1.5 | jan.28 – feb.07.2027 | M3, M7 | In progress (nov.02.2026; design in `docs/designs/m8-backtest.md`; batch `eval_2026-11-02_1` run and reproduced; review in `docs/phase1-review.md`; PR open) |
 
 **Why this order.** The numbers come first (M1–M2), then the ruler that measures them (M3), so every later step is judged against a known baseline. Shocks are built and tested by hand (M4) before any LLM produces them (M6), so a bad result can be traced to either the math or the LLM, never both at once. News ingestion (M5) only depends on M1 and can run in parallel with M2–M4 if time allows.
 
@@ -433,6 +433,8 @@ load_fundamentals → build_baseline → fetch_news → cluster_events
 - Update the Structure Guide decision log with anything learned.
 
 **Exit criterion:** the review exists and the results are reproducible from stored seeds and code version. A negative result (shocks do not help yet) is a valid outcome; the harness exists to tell the truth.
+
+**Result (batch `eval_2026-11-02_1`, nov.02.2026).** 26 of 26 cases scored in up to five variants (baseline, naive, guidance shocks on 3 cases, the AI's named and masked shocks) on the run each case's shocks were sized on; `reproduce --batch` checks 728 rows and 39 simulations to the cent. Headline (all cases, masked): skill +2.1% revenue and +1.5% EBIT, sign test 8 better / 6 worse (p 0.79) and 10 / 8 (p 0.82); named +5.4% and +2.4%. Not shown to differ from chance. Mergers were the largest losses (deal size and closing date not used); supply-chain, macro and guidance news helped. p10–p90 coverage 12–25% (shock size only). Review: `docs/phase1-review.md`.
 
 ## 5. Documentation Practice
 
