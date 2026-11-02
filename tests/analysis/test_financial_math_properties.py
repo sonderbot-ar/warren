@@ -93,3 +93,30 @@ def test_both_terminal_rules_refuse_growth_at_or_above_the_rate(cf, r, extra):
         with pytest.raises(fm.FinancialMathError) as caught:
             formula(cf, r, r + extra)
         assert caught.value.reason == "growth_not_below_rate"
+
+
+# -- M9: forecast errors and ranges ------------------------------------------------------------
+
+money = st.floats(min_value=1.0, max_value=1e12)
+signed_money = st.floats(min_value=-1e11, max_value=1e11)
+
+
+@given(money, money)
+def test_revenue_error_round_trips_to_the_actual(actual, forecast):
+    error = fm.log_ratio(actual, forecast)
+    assert fm.apply_revenue_error(forecast, error) == pytest.approx(actual, rel=1e-9)
+
+
+@given(signed_money, signed_money, money, money)
+def test_margin_error_round_trips_to_the_actual(actual_ebit, forecast_ebit, actual_rev, fc_rev):
+    error = fm.margin_error(actual_ebit, forecast_ebit, actual_rev)
+    revenue = fm.apply_revenue_error(fc_rev, fm.log_ratio(actual_rev, fc_rev))
+    back = fm.apply_margin_error(forecast_ebit, error, revenue)
+    assert back == pytest.approx(actual_ebit, rel=1e-9, abs=1e-3)
+
+
+@given(money, st.floats(min_value=-5.0, max_value=5.0), st.floats(min_value=0.001, max_value=1.0))
+def test_revenue_range_is_positive_and_monotone_in_the_error(forecast, error, step):
+    low = fm.apply_revenue_error(forecast, error)
+    assert low > 0
+    assert fm.apply_revenue_error(forecast, error + step) > low

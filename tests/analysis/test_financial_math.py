@@ -1,5 +1,7 @@
 """Every formula against values small enough to check by hand (the comment shows the arithmetic)."""
 
+import math
+
 import pytest
 
 from domains.analysis import financial_math as fm
@@ -202,3 +204,34 @@ def test_other_checks_say_invalid_input_and_unknown_codes_are_refused():
     assert _reason(lambda: fm.discount_factors([0.1], [0])) == "invalid_input"
     with pytest.raises(ValueError, match="unknown"):
         FinancialMathError("x", "made_up")
+
+
+# -- M9: forecast errors -----------------------------------------------------------------------
+
+
+def test_log_ratio_and_margin_error_by_hand():
+    assert fm.log_ratio(110.0, 100.0) == pytest.approx(0.0953101798, rel=1e-9)
+    # actual EBIT 20 on revenue 110, forecast 25: 5 points of margin too high
+    assert fm.margin_error(20.0, 25.0, 110.0) == pytest.approx(-5 / 110)
+    assert fm.apply_margin_error(25.0, -5 / 110, 110.0) == pytest.approx(20.0)
+
+
+@pytest.mark.parametrize("actual, forecast", [(0.0, 1.0), (1.0, 0.0), (-3.0, 2.0)])
+def test_log_ratio_needs_positive_values(actual, forecast):
+    with pytest.raises(fm.FinancialMathError):
+        fm.log_ratio(actual, forecast)
+
+
+def test_margin_error_needs_a_revenue():
+    with pytest.raises(fm.FinancialMathError):
+        fm.margin_error(1.0, 2.0, 0.0)
+
+
+def test_errors_apply_to_sample_arrays():
+    import numpy as np
+
+    revenue = fm.apply_revenue_error(100.0, np.array([0.0, math.log(1.1)]))
+    assert revenue == pytest.approx([100.0, 110.0])
+    assert fm.apply_margin_error(10.0, np.array([0.01, -0.02]), revenue) == pytest.approx(
+        [11.0, 7.8]
+    )

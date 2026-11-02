@@ -334,3 +334,37 @@ def split_normal(low: float, base: float, high: float, z: Number) -> Number:
 
         return base + z * np.where(z < 0, sigma_low, sigma_high)
     return base + z * (sigma_low if z < 0 else sigma_high)
+
+
+# -- forecast errors and ranges (M9) -------------------------------------------------------------
+
+
+def log_ratio(actual: float, forecast: float) -> float:
+    """ln(actual / forecast): a revenue miss as a multiplicative error (M9). Needs both > 0."""
+    if not (actual > 0 and forecast > 0):
+        raise FinancialMathError(f"log ratio needs positive values, got {actual} and {forecast}")
+    return math.log(actual / forecast)
+
+
+def margin_error(actual_ebit: float, forecast_ebit: float, actual_revenue: float) -> float:
+    """(actual EBIT − forecast EBIT) / actual revenue: an EBIT miss in margin points (M9)."""
+    if actual_revenue == 0:
+        raise FinancialMathError("cannot scale an EBIT error by a zero revenue")
+    return (actual_ebit - forecast_ebit) / abs(actual_revenue)
+
+
+def apply_revenue_error(forecast: Number, error: Number) -> Number:
+    """A revenue forecast with a past log-ratio error applied: F · exp(e) (M9)."""
+    if hasattr(forecast, "shape") or hasattr(error, "shape"):
+        import numpy as np
+
+        return forecast * np.exp(error)
+    return forecast * math.exp(error)
+
+
+def apply_margin_error(forecast_ebit: Number, error: Number, revenue: Number) -> Number:
+    """An EBIT forecast with a past margin-point error applied: F + e · |R| (M9).
+
+    `revenue` is the revenue drawn with the same error, so an origin's own error applied to its
+    own forecast gives back its actual."""
+    return forecast_ebit + error * abs(revenue)
