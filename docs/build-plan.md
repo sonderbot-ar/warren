@@ -45,6 +45,8 @@ Durations are indicative, assuming part-time work (roughly 8–12 hours a week).
 | M6 | LLM steps: event extraction and shock proposal | 2 | jan.04 – jan.17 | M4, M5 | **Done** (nov.01.2026, v0.6; design in `docs/designs/m6-llm-steps.md`; Steps 1–7 in PR #72, the real run in PR #101, merged by the agent team after gatekeeper and analyst GO; all 26 cases classified from their own week's news, proposed and auto-reviewed in both variants; stability 9 of 10; about $5.81) |
 | M7 | LangGraph orchestration and telemetry | 1.5 | jan.18 – jan.27 | M6 | Done (nov.01.2026; v0.7, PR #109, merge `b08bfda`; design in `docs/designs/m7-orchestration.md`; the entry point is `python main.py run`) |
 | M8 | Full backtest and Phase 1 review | 1.5 | jan.28 – feb.07.2027 | M3, M7 | **Done** (nov.02.2026; v0.8, PR #114, merge `d770614`, merged by the agent team after gatekeeper and analyst GO; design in `docs/designs/m8-backtest.md`; review in `docs/phase1-review.md`) |
+| M9 | Honest ranges: the baseline's own past errors in the p10–p90 band (Phase 2) | 1.5 | nov.2026 | M8 | In progress (nov.02.2026; design in `docs/designs/m9-honest-ranges.md`) |
+| M10 | More test dates, including after the models' training cutoff (Phase 2) | 2 | nov.2026 | M7, M8 | Planned (design to come; runs in parallel with M9) |
 
 **Why this order.** The numbers come first (M1–M2), then the ruler that measures them (M3), so every later step is judged against a known baseline. Shocks are built and tested by hand (M4) before any LLM produces them (M6), so a bad result can be traced to either the math or the LLM, never both at once. News ingestion (M5) only depends on M1 and can run in parallel with M2–M4 if time allows.
 
@@ -444,6 +446,11 @@ After the Phase 1 review (`docs/phase1-review.md`), the owner chose Phase 2's fi
 2. **More test dates**, using the one-command pipeline (M7), including dates after the models' training cutoff (June 2026), so a small gain can be told from luck and the model's memory can be tested cleanly.
 
 Merger sizing and timing (backlog #102, #115), the commodity baseline and the teaching platform were the other options; they wait until these two exist. The milestones for this focus are planned by the agent team in their own design docs; a new Accepted decision they need goes to the owner first.
+
+**Phase 2 milestones** (planned by the agent team, nov.02.2026):
+
+- **M9 — Honest ranges.** Run the baseline on the 1st of every month since 2019-04 for every company, store how far each forecast quarter was from the actual first reported, and build each forecast's p10–p90 range from the errors that were public on its date (pooled across companies; company-only beside it), alone and combined with the shock simulation. Tested on held-out dates (every origin from 2021, and the 26 cases). Exit criterion: the report states, per item, whether Decision 7's 80% coverage is met (cluster bootstrap 90% interval includes 80%) or failed, and `ranges reproduce` passes. Design: `docs/designs/m9-honest-ranges.md`.
+- **M10 — More test dates.** New case dates through the one-command pipeline (M7), including dates after the models' training cutoff, scored as in M8 and with M9's ranges. Design to come.
 
 ## 5. Documentation Practice
 
