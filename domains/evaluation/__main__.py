@@ -198,6 +198,29 @@ def cmd_ranges_reproduce(args: argparse.Namespace) -> int:
     return 0 if check.ok else 1
 
 
+def cmd_grid(args) -> int:
+    """Write or check the grid file (M10): every company on every rule-picked date."""
+    from datetime import date
+
+    from domains.evaluation import grid
+
+    end = date.fromisoformat(args.end) if args.end else grid.GRID_END
+    if args.write:
+        cases = grid.write_grid(end=end)
+        print(f"wrote {len(cases)} grid cases to {grid.GRID_PATH}")
+    else:
+        cases = grid.load_grid(end=end)
+        print(f"OK  {grid.GRID_PATH.name}: {len(cases)} grid cases match the rule")
+    _, left_out = grid.grid_cases(end=end)
+    post = sum(grid.is_post_cutoff(c.event_date) for c in cases)
+    dates = len({c.event_date for c in cases})
+    print(f"{dates} dates; {len(cases) - post} pre-cutoff, {post} post-cutoff cases; "
+          f"{len(left_out)} left out by rule")  # fmt: skip
+    for case_id, reason in left_out:
+        print(f"  left out {case_id}: {reason}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m domains.evaluation")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -234,6 +257,10 @@ def main(argv: list[str] | None = None) -> int:
     rr.add_argument("--build", required=True)
     rr.add_argument("--guidance", help="the guidance file the build ran with, if any")
     rr.set_defaults(func=cmd_ranges_reproduce)
+    gr = commands.add_parser("grid", help="write or check the rule-dated grid cases (M10)")
+    gr.add_argument("--write", action="store_true", help="regenerate the file from the rule")
+    gr.add_argument("--end", help="the last grid date, YYYY-MM-DD; default: grid.GRID_END")
+    gr.set_defaults(func=cmd_grid)
     args = parser.parse_args(argv)
     return args.func(args)
 
