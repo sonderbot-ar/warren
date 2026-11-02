@@ -2,6 +2,7 @@
 
 from datetime import date
 
+import numpy as np
 import pytest
 
 from domains.evaluation import ranges as R
@@ -122,3 +123,91 @@ def test_an_edited_error_fails_the_reproduce_check(built):
         )
     mismatches = R.reproduce_build(conn, build_id).mismatches
     assert any("error: stored" in m for m in mismatches)
+
+
+# -- the backtest's cases and the command line -------------------------------------------------
+
+
+def test_case_ranges_carry_the_m8_shocked_samples(company, monkeypatch):
+    from tests.evaluation.test_backtest_batch import N, backtest, two_sets
+
+    monkeypatch.setattr(R, "MIN_ERRORS", {"pooled": 2, "own": 2})
+    # the case (2019-06-30) predates every Test Corp error, so this test lets a range use any
+    # error at its horizon: it checks the pairing with M8's samples, not the point-in-time rule
+    monkeypatch.setattr(R, "known", lambda pairs, on, h, pool, ticker: [
+        p for p in pairs if p.horizon == h])  # fmt: skip
+    two_sets(company)
+    batch = backtest(company)
+    R.build_origins(company, ["TST"], date(2019, 4, 1), date(2020, 3, 1), TODAY, CHOICES, TODAY)
+    build_id = R.run_build(company, TODAY, batch, n=N, today=TODAY)
+    m8 = RR.m8_rows(company, batch)
+    rows = [dict(r) for r in company.execute(
+        "SELECT * FROM range_results WHERE build_id = ? AND subject_kind = 'case' AND "
+        "pool = 'pooled' AND status != 'no_history'", (build_id,))]  # fmt: skip
+    assert {r["variant"] for r in rows} == {"baseline", "llm_named", "llm_masked"}
+    shocked = [r for r in rows if r["variant"] != "baseline"]
+    assert shocked
+    # Test Corp's past errors are all zero, so each range is exactly the M8 band
+    for r in shocked:
+        old = m8[(r["subject_id"], r["variant"], r["item"], r["period"])]
+        assert (r["p10"], r["p50"], r["p90"]) == pytest.approx(
+            (old["p10"], old["p50"], old["p90"]), rel=1e-9
+        )
+        assert r["forecast"] == pytest.approx(old["p50"], rel=1e-9)
+    assert R.reproduce_build(company, build_id).ok
+
+
+def test_sample_lines_give_the_simulated_bands(company):
+    from domains.analysis.montecarlo import sample_lines, simulate
+    from domains.analysis.runs import load_assumptions
+    from domains.analysis.shocks import Shock
+
+    R.build_origin(company, "TST", date(2019, 7, 1), TODAY, CHOICES, TODAY)
+    run_id = company.execute("SELECT run_id FROM forecast_origins").fetchone()[0]
+    rows = load_assumptions(company, run_id)
+    shock = Shock(
+        shock_id="s1", driver="revenue_growth", low=-0.05, base=-0.02, high=0.01,
+        start_period=1, horizon=2, decay=0.5, source="user", rationale="test",
+    )  # fmt: skip
+    bands = simulate(rows, [shock], 500, 9)
+    lines = sample_lines(rows, [shock], 500, 9)
+    for (line, period), values in lines.items():
+        b = bands[(line, period)]
+        assert tuple(np.percentile(values, [10, 50, 90])) == pytest.approx((b.p10, b.p50, b.p90))
+
+
+def test_the_ranges_commands_end_to_end(company, monkeypatch, tmp_path, capsys):
+    from domains.evaluation import __main__ as cli
+
+    class Same:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return company
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(cli, "get_db_connection", Same)
+    monkeypatch.setattr(cli, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(R, "MIN_ERRORS", {"pooled": 2, "own": 2})
+    build_origins, run_build = R.build_origins, R.run_build
+    monkeypatch.setattr(R, "build_origins", lambda conn, tickers, start, end: build_origins(
+        conn, tickers, start, end, TODAY, CHOICES, TODAY))  # fmt: skip
+    monkeypatch.setattr(R, "run_build", lambda conn, _d, batch, guides, sha: run_build(
+        conn, TODAY, batch, guides, sha, n=300, today=TODAY))  # fmt: skip
+    args = ["ranges", "origins", "--ticker", "TST", "--from", "2019-04-01", "--to", "2020-03-01"]
+    assert cli.main(args) == 0
+    assert "12 built" in capsys.readouterr().out
+    assert cli.main(["ranges", "test"]) == 0
+    build_id = capsys.readouterr().out.split()[0]
+    assert (tmp_path / "data" / "reports" / "eval" / f"{build_id}_ranges.md").exists()
+    assert cli.main(["ranges", "reproduce", "--build", build_id]) == 0
+    assert "OK" in capsys.readouterr().out
+    with company:
+        company.execute(
+            "UPDATE range_results SET p10 = p10 - 1 WHERE rowid = (SELECT MIN(rowid) FROM "
+            "range_results WHERE status = 'ok')"
+        )
+    assert cli.main(["ranges", "reproduce", "--build", build_id]) == 1

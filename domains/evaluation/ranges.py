@@ -575,6 +575,11 @@ def reproduce_build(conn: sqlite3.Connection, build_id: str, guides=None) -> Bui
             if r is None or r["status"] != "ok":
                 out.mismatches.append(f"{o['origin_id']} h{e['horizon']} {e['item']}: not ok now")
                 continue
+            if e["actual_filed_at"] != r["actual_filed_at"]:
+                out.mismatches.append(
+                    f"{o['origin_id']} h{e['horizon']} {e['item']} actual_filed_at: stored "
+                    f"{e['actual_filed_at']}, now {r['actual_filed_at']}"
+                )
             for col, tol in (("forecast", MONEY), ("actual", MONEY), ("error", RATIO)):
                 if _differs(e[col], r[col], tol):
                     out.mismatches.append(
