@@ -241,3 +241,10 @@ def test_0016_keeps_stored_results_on_a_v15_database(db_path, tmp_path):
                 "'FY2019Q3', 1, 100.0, 'missing')"
             )
         assert conn.execute("PRAGMA foreign_key_check").fetchone() is None
+
+
+def test_a_shock_whose_proposal_cites_no_event_is_refused(company):
+    run_id, shocks = stored_set(company, answer(proposal()))
+    company.execute("UPDATE shock_proposals SET evidence_json = '[]'")
+    with pytest.raises(EvaluationError, match="cites no event"):
+        guard_event_dates(company, [s.shock_id for s in shocks], case())

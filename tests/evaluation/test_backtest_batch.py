@@ -92,6 +92,7 @@ def test_the_report_holds_the_headline_the_band_caveat_and_every_case(company):
     assert "covers only the uncertainty in the size of the shocks" in text
     assert f"| {case().case_id} | guidance | margin up | revenue down |" in text
     assert "Cases dated after the models' training cutoff (2026-06-01): 0 of 1" in text
+    assert "without deals" in text and "Items moved in opposite directions" in text
 
 
 def test_the_cli_runs_the_backtest_and_reproduces_it(company, monkeypatch, tmp_path, capsys):

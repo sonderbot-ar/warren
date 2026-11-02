@@ -434,7 +434,7 @@ load_fundamentals → build_baseline → fetch_news → cluster_events
 
 **Exit criterion:** the review exists and the results are reproducible from stored seeds and code version. A negative result (shocks do not help yet) is a valid outcome; the harness exists to tell the truth.
 
-**Result (batch `eval_2026-11-02_1`, nov.02.2026).** 26 of 26 cases scored in five variants (baseline, naive, guidance shocks on 3 cases, the AI's named and masked shocks) on the run each case's shocks were sized on; `reproduce --batch` checks 728 rows and 39 simulations to the cent. Headline (all cases, masked): skill +2.1% revenue and +1.5% EBIT, sign test 8 better / 6 worse (p 0.79) and 10 / 8 (p 0.82); named +5.4% and +2.4%. Not shown to differ from chance. Mergers were the largest losses (deal size and closing date not used); supply-chain, macro and guidance news helped. p10–p90 coverage 12–25% (shock size only). Review: `docs/phase1-review.md`.
+**Result (batch `eval_2026-11-02_1`, nov.02.2026).** 26 of 26 cases scored in up to five variants (baseline, naive, guidance shocks on 3 cases, the AI's named and masked shocks) on the run each case's shocks were sized on; `reproduce --batch` checks 728 rows and 39 simulations to the cent. Headline (all cases, masked): skill +2.1% revenue and +1.5% EBIT, sign test 8 better / 6 worse (p 0.79) and 10 / 8 (p 0.82); named +5.4% and +2.4%. Not shown to differ from chance. Mergers were the largest losses (deal size and closing date not used); supply-chain, macro and guidance news helped. p10–p90 coverage 12–25% (shock size only). Review: `docs/phase1-review.md`.
 
 ## 5. Documentation Practice
 

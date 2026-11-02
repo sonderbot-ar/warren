@@ -255,7 +255,10 @@ def guard_event_dates(conn: sqlite3.Connection, shock_ids: list[str], case: Case
         ).fetchone()
         if row is None:
             raise EvaluationError(f"{case.case_id}: shock {shock_id} has no stored proposal")
-        for event_id in json.loads(row["evidence_json"]):
+        cited = json.loads(row["evidence_json"])
+        if not cited:
+            raise EvaluationError(f"{case.case_id}: shock {shock_id} cites no event")
+        for event_id in cited:
             event = conn.execute(
                 "SELECT last_seen FROM events WHERE event_id = ?", (event_id,)
             ).fetchone()

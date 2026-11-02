@@ -162,15 +162,18 @@ def render(conn: sqlite3.Connection, batch_id: str) -> str:
     ]
     for v in SHOCKED[:2]:
         out += _headline(rows, v, "no_scope", scope_cases, naive)
-    base_ps = bt.pairs(rows, "baseline")
+
+    def reference(population: str) -> str:
+        ps = bt.pairs(rows, "baseline", population, scope_cases)
+        return "; ".join(
+            f"{ITEM_NAMES[i]} {_pct(bt.skill_against(q, naive))}"
+            for i, q in sorted(bt.by_item(ps).items(), key=lambda kv: ITEMS.index(kv[0]))
+        )
+
     out += [
         "",
-        "For reference, the baseline against the naive forecast on the same quarters: skill "
-        + "; ".join(
-            f"{ITEM_NAMES[i]} {_pct(bt.skill_against(ps, naive))}"
-            for i, ps in sorted(bt.by_item(base_ps).items(), key=lambda kv: ITEMS.index(kv[0]))
-        )
-        + ".",
+        f"For reference, the baseline's skill against the naive forecast: all cases "
+        f"{reference('all')}; without deals {reference('no_scope')}.",
         "",
         "## By horizon",
         "",
@@ -271,7 +274,7 @@ def _groups(rows, info, shocks) -> list[str]:
         "",
         "## By event type and by driver (descriptive only)",
         "",
-        "One to five cases per type: these tables describe, they can't show anything. Mean d "
+        "One to eight cases per type: these tables describe, they can't show anything. Mean d "
         "over the cases of the group, all cases view. A case's d is the effect of all its "
         "shocks together, so a case with shocks on two drivers is in both driver groups with "
         "the same d.",
@@ -327,7 +330,8 @@ def _named_masked(rows, scored) -> list[str]:
         "between the two mixes the model's memory of what happened next with the distraction "
         "of the name itself, so it is not a clean measure of look-ahead.",
         "",
-        f"- Cases where the two variants moved an item in opposite directions: {len(flips)}"
+        f"- Items moved in opposite directions by the two variants: {len(flips)}, in "
+        f"{len({c for c, _ in flips})} cases"
         + (" (" + ", ".join(f"{c} {ITEM_NAMES[i]}" for c, i in flips) + ")" if flips else "")
         + ".",
         f"- Cases dated after the models' training cutoff ({first or 'not recorded'}): "
