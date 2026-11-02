@@ -422,6 +422,7 @@ def evaluate_case(
                         "direction_actual": direction(value, reference),
                         "derived": int(actual.derived),
                         "actual_method": actual.method,
+                        "actual_filed_at": actual.filed_at.isoformat(),  # M9, not stored here
                     }
                 rows.append(row)
     if not rows:

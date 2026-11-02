@@ -225,7 +225,7 @@ def test_0016_keeps_stored_results_on_a_v15_database(db_path, tmp_path):
         )
         conn.commit()
         before_rows = conn.execute("SELECT * FROM eval_results").fetchall()
-        assert apply_migrations(conn) == [16]
+        assert apply_migrations(conn) == [16, 17]
         assert [tuple(r) for r in conn.execute("SELECT * FROM eval_results")] == [
             tuple(r) for r in before_rows
         ]

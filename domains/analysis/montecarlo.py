@@ -167,6 +167,21 @@ def simulate_checked(
     return out, rate_warnings(shocked, n)
 
 
+def sample_lines(
+    rows, shock_list: list[Shock], n: int = DEFAULT_SAMPLES, seed: int = 0
+) -> dict[tuple[str, str], np.ndarray]:
+    """Every sample's revenue and EBIT per forecast period, as `simulate` draws them (M9 applies
+    the baseline's past errors to each sample). No shocks gives the baseline n times."""
+    _, shocked = _shocked(rows, shock_list, n, seed)
+    _check_samples(shocked, n)
+    valuation = dcf.compute(shocked)
+    return {
+        (line, period): np.broadcast_to(np.asarray(valuation.lines[line][i], dtype=float), (n,))
+        for line in ("revenue", "ebit")
+        for i, period in enumerate(valuation.periods)
+    }
+
+
 def simulate(
     rows, shock_list: list[Shock], n: int = DEFAULT_SAMPLES, seed: int = 0
 ) -> dict[tuple[str, str], Band]:
