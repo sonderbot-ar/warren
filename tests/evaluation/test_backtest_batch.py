@@ -141,3 +141,24 @@ def test_the_cli_runs_the_backtest_and_reproduces_it(company, monkeypatch, tmp_p
     assert (tmp_path / f"{batch}_backtest.md").exists()
     assert main(["reproduce", "--batch", batch, "--cases-file", str(cases_file)]) == 0
     assert "OK" in capsys.readouterr().out
+
+
+def test_a_grid_batch_gets_the_grid_sections_and_an_event_batch_does_not(company):
+    import dataclasses
+
+    two_sets(company)
+    gridded = dataclasses.replace(case(), event_type="grid", selected_because="grid rule: test",
+                                  source_url="")  # fmt: skip
+    batch = run_backtest(company, [gridded], "sha", actuals_as_of=TODAY, today=TODAY, n_samples=N)
+    text = backtest_report.render(company, batch)
+    headings = (
+        "## Grid cases: the test read for the answer",
+        "### Before and after",
+        "### The memory test (h1 only)",
+        "### First quarter",
+        "### Quiet weeks",
+    )
+    assert all(h in text for h in headings)
+    assert "1 grid cases in the batch" in text and "1 scored" in text
+    plain = backtest_report.render(company, backtest(company))  # the event row replaces it
+    assert "## Grid cases" not in plain
