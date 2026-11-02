@@ -44,3 +44,4 @@ Design review not run: the issue is the reviewers' own four-point fix list, with
 ## Where the work stopped
 
 - Steps 0–3 done (nov.02.2026). 659 tests pass; the four new store tests and the tightened `test_prices.py` test fail on the old code (the new pipeline boundary test passes on both, since the pipeline already had its own check). On the restored snapshot (`warren-20261102T002927Z`): 27 of 27 runs reproduce to the cent, the M8 batch reproduces (728 rows, 39 simulations), and `require_coverage` accepts every stored download for all 27 stored as-of dates (270 checks, 0 refused). PR open; gatekeeper next.
+- Done. Merged in #118 (`0b917ed`, v0.8.1) after green CI and a gatekeeper GO.
