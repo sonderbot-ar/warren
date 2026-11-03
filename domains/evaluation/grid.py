@@ -2,7 +2,8 @@
 
 The rule is fixed in docs/designs/m10-more-dates.md before any result is seen:
 
-- pre-cutoff: the 15th of February, May, August and November from 2019-05-15 (mid-quarter for
+- pre-cutoff: every other 15th of February, May, August and November from 2019-05-15 (May and
+  November in odd years, February and August in even years) (mid-quarter for
   seven of the eight companies, just after most of them file their 10-Q, so the next quarter is
   still running), for every date before the first day of the earliest model cutoff month;
 - post-cutoff: the 1st and the 15th of every month, for every date whose 7-day news window
@@ -86,12 +87,20 @@ def _months(start: date, end: date):
         y, m = (y + 1, 1) if m == 12 else (y, m + 1)
 
 
+def _kept(day: date) -> bool:
+    """Every other mid-quarter date (owner, nov.03.2026: an AI budget of $10, about half the
+    pre-cutoff dates): kept when year + the month's position in PRE_MONTHS is even, so the kept
+    months alternate between May/November and February/August from one year to the next and no
+    season is left out."""
+    return (day.year + PRE_MONTHS.index(day.month)) % 2 == 0
+
+
 def grid_dates(end: date = GRID_END) -> list[GridDate]:
     """Every grid date up to `end`, oldest first."""
     out = []
     for y, m in _months(GRID_START.replace(day=1), end):
         first, mid = date(y, m, 1), date(y, m, 15)
-        if m in PRE_MONTHS and GRID_START <= mid <= end and is_pre_cutoff(mid):
+        if m in PRE_MONTHS and _kept(mid) and GRID_START <= mid <= end and is_pre_cutoff(mid):
             out.append(GridDate(mid, False))
         for day in (first, mid):
             if day <= end and is_post_cutoff(day):

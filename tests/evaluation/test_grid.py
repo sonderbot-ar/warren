@@ -26,11 +26,14 @@ def test_the_dates_are_the_rule():
     assert found[-1] == date(2026, 10, 15)
     pre = [g.day for g in grid.grid_dates() if not g.post_cutoff]
     post = [g.day for g in grid.grid_dates() if g.post_cutoff]
-    assert len(pre) == 29 and pre[-1] == date(2026, 5, 15)
+    assert len(pre) == 15 and pre[-1] == date(2026, 2, 15)
     assert all(d.day == 15 and d.month in (2, 5, 8, 11) for d in pre)
+    # every other quarter, alternating seasons: May/Nov in odd years, Feb/Aug in even years
+    assert {d.month for d in pre if d.year % 2} == {5, 11}
+    assert {d.month for d in pre if not d.year % 2} == {2, 8}
     assert post == [date(2026, 7, 15), date(2026, 8, 1), date(2026, 8, 15), date(2026, 9, 1),
                     date(2026, 9, 15), date(2026, 10, 1), date(2026, 10, 15)]  # fmt: skip
-    assert found == sorted(found) and len(found) == len(set(found)) == 36
+    assert found == sorted(found) and len(found) == len(set(found)) == 22
 
 
 def test_a_date_in_the_cutoff_month_or_its_window_is_on_neither_grid():
@@ -69,14 +72,13 @@ def test_an_end_date_cuts_the_grid():
 def test_a_company_gets_the_horizon_the_coverage_guard_accepts():
     cases, left_out = grid.grid_cases(UNIVERSE)
     xom = {c.event_date: c.horizon_quarters for c in cases if c.ticker == "XOM"}
-    assert xom[date(2025, 2, 15)] == 4
+    assert xom[date(2024, 8, 15)] == 4
     assert xom[date(2025, 5, 15)] == 3
-    assert xom[date(2025, 8, 15)] == 2
     assert xom[date(2025, 11, 15)] == 1
     assert max(xom) == date(2025, 11, 15)
     assert [c for c, _ in left_out] == [f"XOM_{d.isoformat()}" for d in days()
                                         if d > date(2025, 11, 15)]  # fmt: skip
-    assert len(cases) == 36 * 2 - 9
+    assert len(cases) == 22 * 2 - 8
     for case in cases:  # every horizon passes the harness's own guard, and one more would not
         guard_coverage(case)
         if case.ticker == "XOM" and case.horizon_quarters < 4:
@@ -124,12 +126,12 @@ def test_a_hand_edited_grid_is_refused(tmp_path, events):
 def test_a_grid_date_shared_with_a_hand_picked_case_stays_and_is_listed(tmp_path, events):
     events.write_text(
         ",".join(COLUMNS) + "\n"
-        "AAPL_2020-05-15,AAPL,2020-05-15,guidance,Something,4,event rule: company announcement,"
+        "AAPL_2020-02-15,AAPL,2020-02-15,guidance,Something,4,event rule: company announcement,"
         "https://example.com/,\n"
     )
     cases = grid.write_grid(tmp_path / "grid.csv", UNIVERSE, events_path=events)
-    assert "AAPL_2020-05-15" in {c.case_id for c in cases}
-    assert grid.shared_with_hand_picked(cases, events) == ["AAPL_2020-05-15"]
+    assert "AAPL_2020-02-15" in {c.case_id for c in cases}
+    assert grid.shared_with_hand_picked(cases, events) == ["AAPL_2020-02-15"]
 
 
 def test_storing_a_grid_case_never_overwrites_a_hand_picked_one(company, tmp_path):
@@ -160,5 +162,5 @@ def test_a_grid_row_needs_the_grid_rule(tmp_path):
 
 def test_the_checked_in_grid_matches_the_rule():
     cases = grid.load_grid()
-    assert len({c.event_date for c in cases}) == 36
+    assert len({c.event_date for c in cases}) == 22
     assert all(c.is_grid for c in cases)
