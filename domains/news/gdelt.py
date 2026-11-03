@@ -24,7 +24,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-from shared_kernel.calendar import CASE_TZ, known_by  # noqa: F401  (re-exported)
+from shared_kernel.calendar import CASE_TZ, known_by
 
 MASTER_LIST_URL = "http://data.gdeltproject.org/gdeltv2/masterfilelist.txt"
 STEP = timedelta(minutes=15)

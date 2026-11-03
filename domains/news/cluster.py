@@ -24,9 +24,9 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from domains.analysis.runs import code_version
-from domains.news.gdelt import CASE_TZ, known_by
 from domains.news.matching import AliasSet, HeadlineRule, about_headline
 from domains.news.store import iso
+from shared_kernel.calendar import CASE_TZ, known_by
 
 STOPWORDS = frozenset(
     line.strip()

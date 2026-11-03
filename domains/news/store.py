@@ -20,8 +20,9 @@ from urllib.parse import parse_qsl, urlencode, urlsplit
 import requests
 
 from domains.news import gdelt
-from domains.news.gdelt import CASE_TZ, ArticleRecord, FileGone, GdeltError, MasterEntry
+from domains.news.gdelt import ArticleRecord, FileGone, GdeltError, MasterEntry
 from domains.news.matching import AliasSet, match
+from shared_kernel.calendar import CASE_TZ
 
 FILE_URL = "http://data.gdeltproject.org/gdeltv2/{ts:%Y%m%d%H%M%S}.gkg.csv.zip"
 TRACKING = re.compile(r"^(utm_.*|fbclid|ocid|gclid)$")
