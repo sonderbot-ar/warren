@@ -36,6 +36,7 @@ from domains.news import cluster, gdelt, store
 from domains.news.matching import load_aliases, load_headline_rule
 from domains.orchestration.state import PipelineState, SimSummary
 from domains.orchestration.telemetry import batch_id
+from shared_kernel.calendar import known_by
 
 NEWS_DAYS = 7  # the case window: the 7 New York days ending on the as-of date (M5)
 
@@ -82,7 +83,7 @@ def _parse(ts: str | None) -> datetime | None:
 
 def check_closed(as_of: date, now: datetime) -> None:
     """The as-of day must have ended in New York, so news and prices never cover part of it."""
-    if gdelt.known_by(as_of) > now:
+    if known_by(as_of) > now:
         raise PipelineError(
             f"{as_of} has not ended in New York yet; run it after midnight New York time"
         )
@@ -107,7 +108,7 @@ def load_fundamentals(state: PipelineState, deps: Deps) -> dict:
         else None
     )
     fetched = _parse(ingest["companyfacts_fetched_at"]) if ingest else None
-    fresh = fetched is not None and fetched >= gdelt.known_by(state.as_of)
+    fresh = fetched is not None and fetched >= known_by(state.as_of)
     if state.refresh:
         fresh = fresh and fetched >= state.started_at
     if not fresh:
@@ -139,10 +140,9 @@ def load_market(state: PipelineState, deps: Deps) -> dict:
         try:
             fetch = require_coverage(conn, source, symbol, state.as_of)
             fetched = _parse(fetch["fetched_at"])
-            # a download made before the day ended in New York has an intraday "close"
-            stale = fetched < gdelt.known_by(state.as_of) or (
-                state.refresh and fetched < state.started_at
-            )
+            # require_coverage already refuses a download made before the as-of day ended in
+            # New York (backlog #112); only a --refresh run can still find one stale
+            stale = state.refresh and fetched < state.started_at
         except MarketDataError:
             fetch, stale = None, True
         if stale:
