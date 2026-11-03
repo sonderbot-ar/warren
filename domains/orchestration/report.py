@@ -214,8 +214,8 @@ def hindsight(conn: sqlite3.Connection, state: PipelineState) -> list[str]:
         return [*lines, text.HINDSIGHT_NONE.format(actuals_on=on)]
     unit = reported[0].items[0].unit
     lines += [
-        f"| Quarter | Ends | Revenue forecast | Revenue reported | Miss | EBIT forecast | "
-        f"EBIT reported | Miss | Filings ({unit} millions) |",
+        f"| Quarter | Ends | Revenue forecast ({unit} m) | Revenue reported | Miss | "
+        f"EBIT forecast ({unit} m) | EBIT reported | Miss | Filings |",
         "|---|---|---|---|---|---|---|---|---|",
     ]
     notes = []
