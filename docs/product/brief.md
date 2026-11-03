@@ -32,12 +32,12 @@ Every question is read first, and the reading is shown to the student **before a
 
 **Ambiguous questions** are sorted *evento*, and the reading offers the *cambios de supuesto* the student may mean ("¿quieres bajar el margen operativo o el crecimiento de ingresos?"). Warren never quietly turns an event into an input.
 
-**Who sorts.** Decided by the owner on nov.03.2026: the AI reader, with menus first (Decision 9). The two ways:
+**Who sorts.** Decided by the owner on nov.03.2026: the AI reader, built from the start, with menus only as a fallback when it is unsure or unavailable ("no menus first"; Decision 9). The two ways:
 
 1. **An AI reader** (proposed). An AI model reads the question and returns only structured fields: the kind, the company, the date, and the inputs it names. A value is filled in only when it is copied word for word from the student's question, and code checks that it appears there; otherwise the field stays blank for the student to fill in. Code checks the rest against the input list and the transmission list; the student sees the reading as an editable card, confirms or fixes it, and only then does code compute. The AI's output is a label, never a financial number (standing rule). It is a new AI step under Decision 9, so it is built only once the owner accepts it and Decision 9 records it, and it is measured first on a labelled set of student questions (these fifteen and more).
 2. **Menus only.** The student picks the kind, then the company, date and input from menus, and types the value. No AI, works with today's engine, and the reading card is the same. The cost: a student cannot simply type a question.
 
-Either way the reading card is the same screen, so F2 can start with menus and add the AI reader later.
+Either way the reading card is the same screen. F2 builds the reader with the first screens; the menus are its fallback, never the main way in.
 
 **Point in time.** Every query behind an answer uses only what was public on the *fecha de corte*. The default is the last day that has ended in New York (the engine refuses a day still in progress). Asking about a past date is an explicit choice, and then what happened afterwards is shown beside the estimate (#128).
 
