@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 from domains.evaluation import backtest_report
 from domains.evaluation.__main__ import main
 from domains.evaluation.backtest_batch import reproduce_batch, run_backtest
@@ -162,3 +164,56 @@ def test_a_grid_batch_gets_the_grid_sections_and_an_event_batch_does_not(company
     assert "1 grid cases in the batch" in text and "1 scored" in text
     plain = backtest_report.render(company, backtest(company))  # the event row replaces it
     assert "## Grid cases" not in plain
+
+
+def _quiet(conn, variant, run="run_quiet"):
+    """The case classified in `variant` with no event left to propose from (an empty week)."""
+    from tests.evaluation.test_llm_variants import CASE_DATE, company_of
+
+    conn.execute(
+        "INSERT OR IGNORE INTO event_runs (event_run_id, cik, as_of, tz, params_json, "
+        "input_sha256, code_version) VALUES (?, ?, ?, 'America/New_York', '{}', 'x', 'test')",
+        (run, company_of(conn, "TST").cik, CASE_DATE.isoformat()),
+    )
+    conn.execute(
+        "INSERT INTO case_llm_status VALUES (?, ?, ?, 0, 0)", (case().case_id, run, variant)
+    )
+    conn.commit()
+
+
+def test_a_variant_with_nothing_to_propose_scores_as_no_shock(company):
+    from domains.evaluation.backtest_batch import current_sets
+
+    run_id, _ = stored_set(company, answer(proposal()))  # named has a set
+    _quiet(company, "masked")
+    run, sets = current_sets(company, case())
+    assert run == run_id and set(sets) == {"named"}
+    batch = backtest(company)
+    variants = {r[0] for r in company.execute(
+        "SELECT DISTINCT variant FROM eval_results WHERE batch_id = ?", (batch,))}  # fmt: skip
+    assert variants == {"baseline", "naive_srw", "llm_named"}  # masked: no rows, the baseline
+    assert reproduce_batch(company, batch, [case()]).ok
+
+
+def test_a_quiet_case_uses_its_pipeline_run_and_an_unclassified_one_still_fails(company):
+    from domains.analysis.runs import run_baseline
+    from domains.evaluation.backtest_batch import current_sets
+    from domains.evaluation.harness import EvaluationError
+    from tests.evaluation.test_harness import CHOICES
+    from tests.evaluation.test_llm_variants import CASE_DATE
+
+    _quiet(company, "named")
+    with pytest.raises(EvaluationError, match="no current masked proposal set"):
+        current_sets(company, case())  # masked was never classified: a gap, not an answer
+    _quiet(company, "masked")
+    with pytest.raises(EvaluationError, match="no finished pipeline run"):
+        current_sets(company, case())
+    run_id = run_baseline(company, "TST", CASE_DATE, choices=CHOICES, today=TODAY)
+    company.execute(
+        "INSERT INTO pipeline_runs (pipeline_id, ticker, as_of, variants, review, seed, "
+        "n_samples, status, run_id, telemetry_path, code_version) VALUES ('p', 'TST', ?, "
+        "'named,masked', 'auto', 1, 100, 'done', ?, 't', 'c')",
+        (CASE_DATE.isoformat(), run_id),
+    )
+    company.commit()
+    assert current_sets(company, case()) == (run_id, {})

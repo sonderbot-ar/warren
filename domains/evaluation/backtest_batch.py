@@ -37,19 +37,48 @@ MONEY_COLUMNS = ("forecast", "actual", "actual_revenue", "comparative", "prior_y
                  "p10", "p50", "p90")  # fmt: skip
 
 
+def _nothing_to_propose(conn: sqlite3.Connection, case_id: str, variant: str) -> bool:
+    """The case was classified in this variant, but no event about the company is left, so the
+    pipeline made no proposal call (`nodes.propose_shocks`): the AI's answer is "no shock"."""
+    if propose.latest_event_run(conn, case_id, variant) is None:
+        return False  # never classified: a missing set is a gap, not an answer
+    keys = propose.current_keys()
+    return not propose.case_events(conn, case_id, variant, keys[2], keys[3])
+
+
+def _pipeline_run(conn: sqlite3.Connection, case: Case) -> str | None:
+    row = conn.execute(
+        "SELECT run_id FROM pipeline_runs WHERE ticker = ? AND as_of = ? AND status = 'done' "
+        "AND run_id IS NOT NULL ORDER BY started_at DESC, pipeline_id DESC LIMIT 1",
+        (case.ticker, case.event_date.isoformat()),
+    ).fetchone()
+    return row["run_id"] if row else None
+
+
 def current_sets(conn: sqlite3.Connection, case: Case) -> tuple[str, dict[str, int]]:
     """The run and the current set id per variant for a case; refused when a set is missing or
-    the two sit on different runs."""
+    the two sit on different runs.
+
+    A variant with nothing to propose from (no events in the week, or none about the company;
+    common on grid dates, M10) has no set and no shocks: it is left out of the dict, so it
+    writes no rows and the all-cases view gives it the baseline (the M4/M8 rule). Its run is
+    the other variant's set's run, or the run of the case's finished pipeline."""
     sets = {v: propose.current_set(conn, case.case_id, v) for v in LLM_VARIANTS}
-    missing = [v for v, s in sets.items() if s is None]
+    quiet = {v for v, s in sets.items() if s is None and _nothing_to_propose(conn, case.case_id, v)}
+    missing = [v for v, s in sets.items() if s is None and v not in quiet]
     if missing:
         raise EvaluationError(f"{case.case_id}: no current {' or '.join(missing)} proposal set")
-    runs = {s["run_id"] for s in sets.values()}
+    runs = {s["run_id"] for s in sets.values() if s is not None}
+    if not runs:
+        run = _pipeline_run(conn, case)
+        if run is None:
+            raise EvaluationError(f"{case.case_id}: no proposal set and no finished pipeline run")
+        runs = {run}
     if len(runs) != 1:
         raise EvaluationError(
             f"{case.case_id}: the named and masked sets sit on runs {sorted(runs)}"
         )
-    return runs.pop(), {v: s["set_id"] for v, s in sets.items()}
+    return runs.pop(), {v: s["set_id"] for v, s in sets.items() if s is not None}
 
 
 def _shock_sets(conn: sqlite3.Connection, set_ids: dict[str, int]) -> dict:
