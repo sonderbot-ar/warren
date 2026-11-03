@@ -1,0 +1,217 @@
+"""A stored run's forecast against what was reported afterwards (backlog #128).
+
+For each forecast quarter of a run, its revenue and EBIT next to the value as first reported in
+the filings public by `actuals_on`, and the miss, scored as the M3 harness scores it. This is
+hindsight by design: it reads filings dated after the run's as-of date, only to compare, and never
+feeds a run. Gaps are coded (`Coded`, as in backlog #140), never raised, so a report or a screen
+always gets an answer. Design: docs/designs/backlog-128-latest-day.md.
+"""
+
+import sqlite3
+from dataclasses import asdict, dataclass, field
+from datetime import date
+
+from domains.analysis.dcf import YEARS
+from domains.analysis.math_engine import CHAINS, step_quarter
+from domains.analysis.reported import Coded, Filing
+from domains.analysis.reported import _Filings as Filings
+from domains.analysis.runs import load_assumptions, load_outputs
+from domains.evaluation.harness import (
+    EvaluationError,
+    _alternative,
+    _quarterly,
+    comparative,
+    label,
+    parse_label,
+    score,
+)
+from domains.fundamentals.schemas import Fact
+
+# a prior-year figure in the actual's filing that differs from the run's own by more than this
+# means the filing recast the year (a disposal, a segment change): the miss is not shown
+BASIS_TOLERANCE = 0.005
+MISS_UNITS = {"revenue": "fraction_of_actual", "ebit": "fraction_of_actual_revenue"}
+ITEMS = ("revenue", "ebit")
+
+
+@dataclass(frozen=True)
+class Item:
+    name: str  # revenue or ebit
+    unit: str | None  # the fact's unit, e.g. USD; values are raw, not in millions
+    forecast: float
+    actual: float | None
+    miss: float | None  # |signed_miss|
+    signed_miss: float | None  # (forecast − actual) ÷ scale; positive: the forecast was high
+    miss_unit: str  # fraction_of_actual (revenue) or fraction_of_actual_revenue (EBIT)
+    derived: bool = False
+    filings: list[Filing] = field(default_factory=list)
+    missing: Coded | None = None
+
+
+@dataclass(frozen=True)
+class Quarter:
+    period: str  # the run's label, e.g. FY2019Q3
+    fiscal_year: int
+    fiscal_period: str
+    horizon: int  # 1 for the run's first forecast quarter
+    period_end: date | None  # None until the quarter is reported
+    days: int | None
+    items: list[Item]
+
+    @property
+    def reported(self) -> bool:
+        return self.items[0].actual is not None
+
+
+@dataclass(frozen=True)
+class Hindsight:
+    run_id: str
+    ticker: str
+    as_of: date
+    actuals_on: date
+    quarters: list[Quarter]
+
+    def to_dict(self) -> dict:
+        return _plain(asdict(self))
+
+
+def _plain(value):
+    if isinstance(value, dict):
+        return {k: _plain(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_plain(v) for v in value]
+    if isinstance(value, date):
+        return value.isoformat()
+    return value
+
+
+def _not_reported(period: str, actuals_on: date, item: str) -> Coded:
+    return Coded(
+        "not_reported",
+        {"period": period, "item": item, "actuals_on": actuals_on.isoformat()},
+        f"{item} for {period} was not yet in a 10-Q or 10-K by {actuals_on}",
+    )
+
+
+def _filings(facts: list[Fact], filings: Filings) -> list[Filing]:
+    out, seen = [], set()
+    for f in facts:
+        for accession in f.inputs if f.derived else [f.accession_no]:
+            if accession and accession not in seen:
+                seen.add(accession)
+                out.append(filings.get(accession))
+    return out
+
+
+def _gap(name: str, forecast: float, code: Coded, unit: str | None = None, **kw) -> Item:
+    return Item(name, unit, forecast, kw.pop("actual", None), None, None, MISS_UNITS[name],
+                missing=code, **kw)  # fmt: skip
+
+
+def against_actuals(conn: sqlite3.Connection, run_id: str, actuals_on: date) -> Hindsight:
+    """Each forecast quarter of `run_id` against what was first reported by `actuals_on`."""
+    run = conn.execute("SELECT ticker, cik, as_of FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+    if run is None:
+        raise EvaluationError(f"run {run_id} is not stored")
+    cik = run["cik"]
+    outputs = load_outputs(conn, run_id)
+    history = {(a.name, a.period): a for a in load_assumptions(conn, run_id)
+               if a.name.startswith("history:")}  # fmt: skip
+    periods = sorted(p for (n, p) in outputs if n == "revenue" and p not in YEARS)
+    facts = _quarterly(conn, cik, actuals_on, "first_reported")
+    at_filing: dict[date, dict] = {}
+    filings = Filings(conn, cik)
+
+    quarters = []
+    for horizon, period in enumerate(periods, start=1):
+        year, q = parse_label(period)
+        prior = label(*step_quarter(year, q, -4))
+        forecasts = {item: outputs[(item, period)] for item in ITEMS}
+        revenue = facts.get(("revenue", year, f"Q{q}"))
+        if revenue is None:
+            items = [_gap(i, forecasts[i], _not_reported(period, actuals_on, i)) for i in ITEMS]
+            quarters.append(Quarter(period, year, f"Q{q}", horizon, None, None, items))
+            continue
+
+        known = history.get(("history:ebit", prior))
+        ebit_facts, ebit_gap = None, None
+        if known is None:
+            ebit_gap = Coded(
+                "no_definition",
+                {"period": period},
+                f"the run has no EBIT row for {prior}, so its definition is unknown",
+            )
+        else:
+            alternative = _alternative(known.method)
+            chain = CHAINS["ebit"][alternative]
+            chosen = [facts.get((n, year, f"Q{q}")) for n in chain]
+            if all(chosen):
+                ebit_facts = chosen
+            else:
+                others = [
+                    " + ".join(alt)
+                    for i, alt in enumerate(CHAINS["ebit"])
+                    if i != alternative and all(facts.get((n, year, f"Q{q}")) for n in alt)
+                ]
+                ebit_gap = (
+                    Coded(
+                        "other_ebit_definition",
+                        {"period": period, "definition": " + ".join(chain), "reported_as": others},
+                        f"EBIT for {period} is reported only as {', '.join(others)}, not on the "
+                        f"run's definition ({' + '.join(chain)})",
+                    )  # fmt: skip
+                    if others
+                    else _not_reported(period, actuals_on, "ebit")
+                )
+
+        filed = max(f.filed_at for f in [revenue, *(ebit_facts or [])])
+        if filed not in at_filing:
+            at_filing[filed] = _quarterly(conn, cik, filed, "latest")
+        comp = (
+            comparative(at_filing[filed], year, q, _alternative(known.method))
+            if known is not None
+            else (None, None)
+        )
+        actuals = {"revenue": ([revenue], revenue.value)}
+        if ebit_facts:
+            actuals["ebit"] = (ebit_facts, sum(f.value for f in ebit_facts))
+        items = []
+        for idx, name in enumerate(ITEMS):
+            if name not in actuals:
+                items.append(_gap(name, forecasts[name], ebit_gap, revenue.unit))
+                continue
+            used, value = actuals[name]
+            extra = {"actual": value, "derived": any(f.derived for f in used),
+                     "filings": _filings(used, filings)}  # fmt: skip
+            run_prior = history.get((f"history:{name}", prior))
+            filing_prior = comp[idx]
+            if (
+                run_prior is not None
+                and filing_prior is not None
+                and run_prior.value
+                and abs(filing_prior - run_prior.value) / abs(run_prior.value) > BASIS_TOLERANCE
+            ):
+                code = Coded(
+                    "restated_basis",
+                    {"period": period, "prior_period": prior, "run_value": run_prior.value,
+                     "filing_value": filing_prior},
+                    f"the filing that reported {period} restates {prior} {name} from "
+                    f"{run_prior.value:,.0f} to {filing_prior:,.0f}: the basis changed, so the "
+                    "gap is not a forecast miss",
+                )  # fmt: skip
+                items.append(_gap(name, forecasts[name], code, revenue.unit, **extra))
+                continue
+            try:
+                _, signed, _ = score(name, forecasts[name], value, revenue.value)
+            except EvaluationError:
+                code = Coded("zero_base", {"period": period},
+                             f"{period}: the actual is zero, so the miss has no scale")  # fmt: skip
+                items.append(_gap(name, forecasts[name], code, revenue.unit, **extra))
+                continue
+            extra.pop("actual")
+            items.append(Item(name, revenue.unit, forecasts[name], value, abs(signed), signed,
+                              MISS_UNITS[name], **extra))  # fmt: skip
+        start = revenue.period_start
+        days = (revenue.period_end - start).days + 1 if start else None
+        quarters.append(Quarter(period, year, f"Q{q}", horizon, revenue.period_end, days, items))
+    return Hindsight(run_id, run["ticker"], date.fromisoformat(run["as_of"]), actuals_on, quarters)
