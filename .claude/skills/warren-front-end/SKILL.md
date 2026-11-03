@@ -29,7 +29,7 @@ Before any sign-off, the `design-critic` must say READY FOR OWNER and the `stude
 
 While a card waits, keep working on what it doesn't block (the next mockup, engine needs). A changes-needed answer goes back one step, not to the start.
 
-**The owner's taste is the team's memory.** Every comment the owner makes on look, feel, wording or flow goes into `docs/product/owner-notes.md`, dated, in the owner's words where possible, with what changed because of it. Read it before every design step; never make the owner say the same thing twice.
+**The owner's taste is the team's memory.** Every comment the owner makes on look, feel, wording or flow goes into `docs/product/owner-notes.md` (comments only; no personal data such as an email address), dated, in the owner's words where possible, with what changed because of it. Read it before every design step; never make the owner say the same thing twice.
 
 **Reporting:**
 
@@ -82,7 +82,6 @@ Same as `CLAUDE.md`: design doc in `docs/designs/f<n>-<short-name>.md` (the brie
 ## Escalate to the owner (one decision card, with a recommendation)
 
 - The sign-off points above.
-
 - The app's stack.
 - Hosting the app, or adding logins and multiple users.
 - Each new Accepted decision the team proposes, including the literal and hypothetical rule.
