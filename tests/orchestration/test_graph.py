@@ -2,7 +2,7 @@
 resume after a failure, the review pause, and the report."""
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
@@ -124,7 +124,8 @@ def test_the_report_has_every_section_and_renders_the_same_twice(world, folders)
     path = folders.reports / f"{out.pipeline_id}.md"
     written = path.read_text()
     headings = ("## 1. Value per share", "## 2. Paths", "## 3. Shocks and their evidence",
-                "## 4. News used", "## 5. Assumptions with sources", "## 6. Trace")  # fmt: skip
+                "## 4. News used", "## 5. Assumptions with sources",
+                f"## {text.HINDSIGHT_HEADING}", "## 7. Trace")  # fmt: skip
     for heading in headings:
         assert heading in written
     assert text.RANGE in written and "not a forecast of the share price" in written
@@ -174,3 +175,45 @@ def test_a_day_not_yet_ended_is_refused_before_a_pipeline_starts(world, folders)
     with pytest.raises(nodes.PipelineError, match="not ended"):
         go(world, folders)
     assert world.conn.execute("SELECT COUNT(*) FROM pipeline_runs").fetchone()[0] == 0
+
+
+def test_the_hindsight_section_reads_filings_to_the_day_the_download_had_ended(world, folders):
+    out = go(world, folders)
+    final = graph.resume(world.deps(), folders, out.pipeline_id).state
+    # the clock says oct.31 had ended (2026-11-01 20:00 UTC), but the filings were downloaded on
+    # 2026-10-26 at 12:00 UTC (08:00 New York), when only oct.25 had ended
+    assert final.actuals_on == date(2026, 10, 25)
+    body = report.body(folders.reports / f"{out.pipeline_id}.md")
+    assert text.HINDSIGHT_INTRO.format(actuals_on="2026-10-25") in body
+    assert "No forecast quarter was in a 10-Q or 10-K by 2026-10-25." in body  # data ends 2020Q1
+    world.now = datetime(2026, 10, 24, 12, 0, tzinfo=UTC)  # a clock before the download
+    assert graph.actuals_on(final, world.deps()) == date(2026, 10, 23)
+    old = world.conn.execute("SELECT MAX(run_id) FROM ingest_runs").fetchone()[0]
+    world.conn.execute("UPDATE ingest_runs SET companyfacts_fetched_at = '2020-07-01T03:00:00Z' "
+                       "WHERE run_id = ?", (old,))  # fmt: skip
+    # 03:00 UTC on jul.01 is 23:00 on jun.30 in New York: only jun.29 had ended
+    assert graph.actuals_on(final, world.deps()) == date(2020, 6, 29)
+
+
+def test_a_pipeline_written_before_backlog_128_renders_as_it_did(world, folders):
+    out = go(world, folders)
+    final = graph.resume(world.deps(), folders, out.pipeline_id).state
+    old = final.model_copy(update={"actuals_on": None})
+    body = report.render(world.conn, old)
+    assert text.HINDSIGHT_HEADING not in body
+    assert "## 6. Trace" in report.trace(old, folders.telemetry / "x.jsonl")
+
+
+def test_the_hindsight_section_shows_reported_quarters_and_their_misses(world, folders):
+    from domains.analysis.runs import run_baseline
+    from tests.analysis.conftest import CHOICES
+
+    out = go(world, folders)
+    final = graph.resume(world.deps(), folders, out.pipeline_id).state
+    run_id = run_baseline(world.conn, "TST", date(2019, 6, 30), choices=CHOICES,
+                          today=date(2020, 6, 30))  # fmt: skip
+    past = final.model_copy(update={"run_id": run_id, "actuals_on": date(2020, 6, 30)})
+    section = "\n".join(report.hindsight(world.conn, past))
+    assert "| FY2019Q3 | 2019-09-30 |" in section and "+0.0%" in section and "+0.00 pts" in section
+    assert "(derived)" in section and "10-K 2020-02-15" in section
+    assert "| FY2020Q2 | |" in section and "not yet" in section

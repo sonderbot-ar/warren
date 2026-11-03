@@ -1,14 +1,18 @@
 """Command line for the DCF engine.
 
-    python -m domains.analysis dcf --ticker AAPL --as-of 2024-03-31 [--as-of 2026-09-30 ...]
-    python -m domains.analysis dcf --all --as-of 2024-03-31
+    python -m domains.analysis dcf --ticker AAPL [--as-of 2024-03-31 --as-of 2026-09-30 ...]
+    python -m domains.analysis dcf --all [--as-of 2024-03-31]
     python -m domains.analysis reproduce --run-id AAPL_2024-03-31_1
     python -m domains.analysis reproduce --all [--rebuild]
     python -m domains.analysis fallbacks [--as-of 2026-10-26]
     python -m domains.analysis simulate --run-id AAPL_2024-03-31_1 --shocks FILE [--n] [--seed]
     python -m domains.analysis reproduce-sim --sim-id AAPL_2024-03-31_1_sim1
-    python -m domains.analysis reported --ticker AAPL --period latest-quarter --as-of 2026-11-02
+    python -m domains.analysis reported --ticker AAPL --period latest-quarter [--as-of 2026-11-02]
         [--period FY2024 ...] [--json]
+
+Without `--as-of`, `dcf` and `reported` use the last day that has ended in New York (backlog #128)
+and say so, with the date of the company's last EDGAR download and a warning when that download
+is older than the end of the day (filings after it may be missing).
 
 `dcf` stores each run and writes data/reports/dcf/<TICKER>_<as_of>.md; it exits 1 if any run
 fails. `reproduce` values stored runs again from their assumptions and exits 1 on any mismatch; with
@@ -24,7 +28,7 @@ known on the as-of date (backlog #140); `--json` prints the same for the app. No
 import argparse
 import json
 import sys
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from domains.analysis import sim_report
@@ -42,8 +46,40 @@ from domains.analysis.reported import ReportedError, ReportedPeriod, reported_pe
 from domains.analysis.runs import rebuild, reproduce, run_baseline
 from domains.fundamentals.universe import PHASE1_UNIVERSE, get_universe_company
 from domains.market.store import MarketDataError
+from shared_kernel.calendar import known_by, last_ended_day
 from shared_kernel.config import PROJECT_ROOT
 from shared_kernel.database import apply_migrations, get_db_connection
+
+
+def now() -> datetime:
+    """The clock; tests replace it."""
+    return datetime.now(UTC)
+
+
+def chosen_day_notes(conn, tickers: list[str], as_of: date) -> list[str]:
+    """What a user should know when the date was chosen for them (backlog #128): the day, and
+    each company's last EDGAR download, with a warning when it is older than the day's end."""
+    notes = [f"as of {as_of} (the latest day that has ended in New York)"]
+    for ticker in tickers:
+        row = conn.execute(
+            "SELECT i.companyfacts_fetched_at AS fetched, i.ingested_at AS ingested "
+            "FROM ingest_runs i JOIN companies c USING (cik) WHERE c.ticker = ? "
+            "ORDER BY i.run_id DESC LIMIT 1",
+            (ticker.upper(),),
+        ).fetchone()
+        stamp = row and (row["fetched"] or row["ingested"])
+        if not stamp:
+            notes.append(f"WARNING: {ticker}: no EDGAR download is stored")
+            continue
+        fetched = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+        fetched = fetched if fetched.tzinfo else fetched.replace(tzinfo=UTC)
+        notes.append(f"{ticker}: filings as downloaded from EDGAR on {stamp[:10]}")
+        if fetched < known_by(as_of):
+            notes.append(
+                f"WARNING: {ticker}: filings after {stamp[:10]} may be missing: run "
+                f"python -m domains.fundamentals ingest --ticker {ticker}"
+            )
+    return notes
 
 
 def cmd_dcf(args: argparse.Namespace) -> int:
@@ -55,7 +91,11 @@ def cmd_dcf(args: argparse.Namespace) -> int:
     failed = 0
     with get_db_connection() as conn:
         apply_migrations(conn)
-        for as_of in [date.fromisoformat(d) for d in args.as_of]:
+        days = [date.fromisoformat(d) for d in args.as_of or []]
+        if not days:
+            days = [last_ended_day(now())]
+            print("\n".join(chosen_day_notes(conn, tickers, days[0])))
+        for as_of in days:
             for ticker in tickers:
                 try:
                     run_id = run_baseline(conn, ticker, as_of)
@@ -226,10 +266,12 @@ def render_reported(r: ReportedPeriod) -> str:
 
 
 def cmd_reported(args: argparse.Namespace) -> int:
-    as_of = date.fromisoformat(args.as_of)
+    as_of = date.fromisoformat(args.as_of) if args.as_of else last_ended_day(now())
     results = []
     with get_db_connection() as conn:
         apply_migrations(conn)
+        if not args.as_of:  # to standard error, so --json output stays plain JSON
+            print("\n".join(chosen_day_notes(conn, [args.ticker], as_of)), file=sys.stderr)
         try:
             results = [reported_period(conn, args.ticker, p, as_of) for p in args.period]
         except ReportedError as e:
@@ -250,7 +292,11 @@ def main(argv: list[str] | None = None) -> int:
     target = dcf.add_mutually_exclusive_group(required=True)
     target.add_argument("--ticker")
     target.add_argument("--all", action="store_true", help="the Phase 1 universe")
-    dcf.add_argument("--as-of", action="append", required=True, help="YYYY-MM-DD, repeatable")
+    dcf.add_argument(
+        "--as-of",
+        action="append",
+        help="YYYY-MM-DD, repeatable (default: the last day that has ended in New York)",
+    )
     dcf.set_defaults(func=cmd_dcf)
 
     rep = commands.add_parser("reproduce", help="value stored runs again and compare")
@@ -285,7 +331,10 @@ def main(argv: list[str] | None = None) -> int:
         required=True,
         help="FY2025, FY2025Q4, latest-quarter or latest-year; repeatable",
     )
-    rp.add_argument("--as-of", required=True, help="YYYY-MM-DD: only filings public by then")
+    rp.add_argument(
+        "--as-of",
+        help="YYYY-MM-DD: only filings public by then (default: the last day ended in New York)",
+    )
     rp.add_argument("--json", action="store_true", help="print JSON for the app")
     rp.set_defaults(func=cmd_reported)
 

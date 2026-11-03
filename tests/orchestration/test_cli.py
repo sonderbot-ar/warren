@@ -66,3 +66,13 @@ def test_a_missing_key_exits_2_before_anything_runs(wired, monkeypatch, capsys):
 
 def test_a_bad_date_exits_2(wired):
     assert cli.main(["run", "--ticker", "TST", "--as-of", "jun.30.2020"]) == 2
+
+
+def test_run_without_a_date_takes_the_last_day_ended_in_new_york(wired, capsys):
+    # the world's clock is 2026-11-01 20:00 UTC; offline, the old download stops the run early
+    assert cli.main(["run", "--ticker", "TST", "--offline", "--seed", "7"]) == 1
+    out = capsys.readouterr().out
+    assert "as of 2026-10-31 (the latest day that has ended in New York)" in out
+    row = wired.conn.execute("SELECT pipeline_id, as_of FROM pipeline_runs").fetchone()
+    assert tuple(row) == ("TST_2026-10-31_p1", "2026-10-31")
+    assert "no EDGAR download from after 2026-10-31" in out
