@@ -146,3 +146,18 @@ def test_every_configured_model_has_a_price():
     from shared_kernel.config import NODE_MODELS
 
     assert {m.model for m in NODE_MODELS.values()} <= set(grid_run.PRICES_USD_PER_MTOK)
+
+
+def test_since_counts_what_an_earlier_run_spent(company):
+    with company:
+        company.execute(
+            "INSERT INTO llm_calls (batch_id, node, model, prompt_name, prompt_version, "
+            "prompt_sha256, ref, attempt, input_json, status, input_tokens, output_tokens, "
+            "created_at) VALUES ('first', 'propose_shocks', 'claude-sonnet-5-5', 'p', 1, 'x', "
+            "'r', 1, '{}', 'ok', 300000, 0, '2026-11-20T09:00:00Z')"
+        )  # $0.60 spent by a run that started at 09:00 and was cut off
+    fake = FakeGraph(company, tokens=0)
+    summary = grid_run.run_grid(company, CASES, 1.0, fake.start, fake.resume, now=lambda: NOW,
+                                log=lambda _: None, since="2026-11-20T09:00:00Z")  # fmt: skip
+    assert summary.spent_usd == pytest.approx(0.60)
+    assert summary.stopped.startswith("cap: $0.60 spent of $1.00") and fake.started == []

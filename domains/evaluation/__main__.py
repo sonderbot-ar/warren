@@ -263,7 +263,7 @@ def cmd_run_grid(args) -> int:
         def resume(pipeline_id, budget):
             return graph.resume(deps, FOLDERS, pipeline_id, budget=budget)
 
-        summary = grid_run.run_grid(conn, cases, args.max_usd, start, resume)
+        summary = grid_run.run_grid(conn, cases, args.max_usd, start, resume, since=args.since)
     print(f"{len(summary.done)} done now, {len(summary.done_before)} before, "
           f"{len(summary.failed)} failed, {len(summary.not_run)} not run; "
           f"${summary.spent_usd:.2f} spent")  # fmt: skip
@@ -318,6 +318,8 @@ def main(argv: list[str] | None = None) -> int:
     rgr.add_argument("--from", dest="start", help="first grid date, YYYY-MM-DD")
     rgr.add_argument("--to", dest="end", help="last grid date, YYYY-MM-DD")
     rgr.add_argument("--dry-run", action="store_true", help="list what would run and its cost")
+    rgr.add_argument("--since", help="count AI spend from this UTC time (YYYY-MM-DDTHH:MM:SSZ), so "
+                     "a restarted run stays under the same cap; default: now")  # fmt: skip
     rgr.set_defaults(func=cmd_run_grid)
     args = parser.parse_args(argv)
     return args.func(args)

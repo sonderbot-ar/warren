@@ -4,7 +4,8 @@ Date by date, so each GDELT week is read once and then serves every company on t
 (`nodes.fetch_news` downloads a window only when it isn't fully read). Post-cutoff dates run
 first, newest first, then the pre-cutoff grid from the newest date back, so a stop leaves a dated,
 usable subset. A case already done is skipped; a failed one is resumed. One spending cap covers
-the whole command: before each case the cost of every AI call made since the command started is
+the whole command: before each case the cost of every AI call made since the command started (or
+since `--since`, so a restarted run still counts what the first one spent) is
 added up from `llm_calls`, and the command stops cleanly when the next case could pass the cap.
 """
 
@@ -102,12 +103,13 @@ def run_grid(
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
     budget: int = calls.DEFAULT_BUDGET,
     log: Callable[[str], None] = print,
+    since: str | None = None,
 ) -> GridSummary:
     """Run every pending case until done or the cap would be passed.
 
     `start(ticker, as_of, seed, budget)` and `resume(pipeline_id, budget)` return a
     `graph.Outcome`; the command line binds them to the real graph."""
-    since = now().strftime("%Y-%m-%dT%H:%M:%SZ")
+    since = since or now().strftime("%Y-%m-%dT%H:%M:%SZ")
     todo, summary_done = pending(conn, cases)
     summary = GridSummary(done_before=summary_done)
     for i, case in enumerate(todo):
