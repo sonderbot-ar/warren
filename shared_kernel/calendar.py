@@ -15,3 +15,13 @@ CASE_TZ = ZoneInfo("America/New_York")  # the case calendar, a named setting (gu
 def known_by(as_of: date, tz: ZoneInfo = CASE_TZ) -> datetime:
     """The UTC instant at which `as_of` ends in the case calendar: what is known before counts."""
     return datetime.combine(as_of + timedelta(days=1), time(0), tzinfo=tz).astimezone(UTC)
+
+
+def last_ended_day(now: datetime, tz: ZoneInfo = CASE_TZ) -> date:
+    """The newest date that has ended in the case calendar at `now`: the default as-of date.
+
+    `known_by(last_ended_day(now)) <= now < known_by(last_ended_day(now) + 1 day)` (backlog #128).
+    """
+    if now.tzinfo is None:
+        raise ValueError("now must carry a time zone")
+    return now.astimezone(tz).date() - timedelta(days=1)
