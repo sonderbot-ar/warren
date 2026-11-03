@@ -2,7 +2,7 @@
 
 Status: Draft for review (F1, nov.03.2026; revised after design review) · Owner sign-off: waiting · Owner: front-end team (Structure Guide Decision 13)
 
-> **What you are approving.** Fifteen questions a finance student would ask Warren, in Spanish, and what Warren answers to each. Questions come in four kinds: a reported figure (*dato*), a model estimate (*estimación*), a changed assumption (*cambio de supuesto*) and an event (*evento*). Warren shows how it read the question before computing anything. Changed assumptions are recomputed by tested code. Events are answered only with similar past cases, how many there are, and what to watch: never a number an AI made up. Warren never predicts prices or gives advice. Two questions work today, eight in part and five not yet; what is missing is six requests to the engine team (section 5).
+> **What you are approving.** Fifteen questions a finance student would ask Warren, in Spanish, and what Warren answers to each. Questions come in four kinds: a reported figure (*dato*), a model estimate (*estimación*), a changed assumption (*cambio de supuesto*) and an event (*evento*). Warren shows how it read the question before computing anything. Changed assumptions are recomputed by tested code. Events are answered only with similar past cases, how many there are, and what to watch: never a number an AI made up. Warren never predicts prices or gives advice. Two questions work today, eight in part and five not yet; what is missing is eight requests to the engine team (section 5). Not part of this approval: whether an AI or menus sort the question (a separate card, #130), and how screens look (later, with mockups).
 
 This brief says which questions Warren must answer for a finance student, how each kind is answered, and what the engine still needs. Engine design docs check their *Product impact* against it (`docs/team-sync.md`). Screens come later (F2, after M10); this brief decides what they must hold, not how they look.
 
@@ -10,7 +10,7 @@ This brief says which questions Warren must answer for a finance student, how ea
 
 - **The student.** An undergraduate or master's student in finance or business at a Latin American university, in or after a first corporate finance course: knows the three statements, DCF and WACC, and has built them in a spreadsheet.
 - **The professor.** Sets a company and a date for the class, and wants to show where every number came from and what really happened afterwards. The owner wants both student and professor served (oct.30.2026).
-- **Language.** Spanish first, with an English toggle (owner, oct.30.2026); the informal *tú*. Terms as Latin American courses use them: *ingresos* (or *ventas*), *margen operativo*, *flujo de caja libre*, *costo promedio ponderado de capital (WACC; CPPC en algunos cursos)*, *tasa libre de riesgo*, *prima de riesgo de mercado*, *valor intrínseco por acción*, *puntos básicos (pb)*, *fecha de corte* (as-of date), *rango p10–p90* glossed as "8 de cada 10 resultados deberían caer aquí". Money in *millones de US$*. Filing names (10-K, 10-Q, XBRL tag) stay in English with a one-line gloss. Portuguese later (Decision 11). All reader-facing text lives apart from logic (Decision 11, guardrail 5).
+- **Language.** Spanish first, with an English toggle (owner, oct.30.2026); the informal *tú*, chosen as a neutral form (Argentina and Uruguay use *vos*, Colombia often *usted*; a regional setting can change it later). Terms as Latin American courses use them: *ingresos* (or *ventas*), *margen operativo*, *flujo de caja libre*, *costo promedio ponderado de capital (WACC; CPPC en algunos cursos)*, *tasa libre de riesgo*, *prima de riesgo de mercado*, *valor intrínseco por acción*, *puntos básicos (pb)*, *fecha de corte* (as-of date), *rango p10–p90* glossed as "8 de cada 10 resultados deberían caer aquí". Money in *millones de US$*. Number format and spreadsheet formulas follow a **region** setting, apart from the language: Mexico and Central America write 1,234.5 and `=SUMA(A1,B1)`; most of South America writes 1.234,5 and `=SUMA(A1;B1)`. Filing names (10-K, 10-Q, XBRL tag) stay in English with a one-line gloss. Portuguese later (Decision 11). All reader-facing text lives apart from logic (Decision 11, guardrail 5).
 - **Companies.** The Phase 1 universe only: Apple, Microsoft, Walmart, Coca-Cola, Procter & Gamble, Johnson & Johnson, Caterpillar, ExxonMobil (`domains/fundamentals/universe.csv`). US GAAP, US dollars. Exxon's filings in Warren stop in August 2026 because the company changed its legal entity (#126); every Exxon answer says so. Latin American companies under IFRS are Phase 2 (Decision 11).
 
 ## 2. How Warren sorts a question (backlog #130; goes to the owner)
@@ -20,13 +20,13 @@ Every question is read first, and the reading is shown to the student **before a
 | Kind (shown to the student) | #130 term | What it names | How Warren answers | Example |
 |---|---|---|---|---|
 | **Dato** | literal | A line item or ratio for a company and a reported period | The number as filed, with its filing, tag, period and filing date; flagged when a later filing changed it (#128) | "¿Cuánto vendió Apple el último trimestre?" |
-| **Estimación** | literal | A model output for a company on a date: a forecast, a value, WACC, the model's track record | The engine's run as of that date, every assumption with its source, and the uncertainty the engine measures for that output | "¿Cuánto vale Microsoft por acción?" |
+| **Estimación** | literal | A model output for a company on a date: a forecast, a value, WACC, or the model's past forecasts against what happened | The engine's run as of that date, every assumption with its source, and the uncertainty the engine measures for that output | "¿Cuánto vale Microsoft por acción?" |
 | **Cambio de supuesto** | literal | A model input and a new value, directly or through a listed transmission | Tested code recomputes with the input changed and shows before, after and the ripple | "¿Y si la Fed sube 25 pb por sorpresa?" |
-| **Evento** | hypothetical | An event that is not a model input and has no listed transmission | Similar past cases chosen by a rule, what followed against what Warren expected then, how many cases there are, how close each is, and the metrics to watch. **Never a number an AI made up** | "¿Y si los demócratas ganan las elecciones legislativas?" |
+| **Evento** | hypothetical | An event, past or future, that is not a model input and has no listed transmission | Similar past cases chosen by a rule, what followed against what Warren expected then, how many cases there are, how close each is, and the metrics to watch. **Never a number an AI made up** | "¿Y si los demócratas ganan las elecciones intermedias?" |
 
-**The rule.** A question is a *cambio de supuesto* when every change it asks for is one of the model's inputs with a value, or reaches one through a transmission on the **list of transmissions**. Otherwise it is an *evento*. A question with no change is a *dato* when the period is reported and an *estimación* when it is not.
+**The rule.** A question is a *cambio de supuesto* when every change it asks for is one of the model's inputs with a value, or reaches one through a transmission on the **list of transmissions**. A question that names an event, past or future, is an *evento*. A question with no change and no event is a *dato* when it names a filed line item or ratio, and an *estimación* when it names a model output (a forecast, a value, WACC, or the model's past forecasts).
 
-- **Model inputs** (`domains/analysis/dcf.py`, `DRIVERS` and `SINGLE_VALUES`): revenue growth, operating margin, tax rate, depreciation and amortisation, capex, working capital (each as a share of revenue, by period); risk-free rate, beta, equity risk premium, cost of debt, terminal growth, debt, cash, shares.
+- **Model inputs** (`domains/analysis/dcf.py`, `DRIVERS` and `SINGLE_VALUES`): revenue growth, operating margin, tax rate, depreciation and amortisation, capex, working capital (each as a share of revenue, by period); risk-free rate, beta, equity risk premium, cost of debt, the tax rate on interest, terminal growth, debt, cash, minority interest, shares. Two teaching overrides are inputs too: WACC set directly (it then bypasses its parts, and the reading says so) and the terminal value method (Warren's, or Gordon's for contrast). Never inputs: the market value of equity (it comes from the share price, and Warren never edits a price) and the roll-forward years (bookkeeping).
 - **List of transmissions** (checked into the engine; adding one is an engine change with review and an owner card, because it is a new method under Decision 4). Proposed first and only entry: *an unexpected change in the Fed's policy rate → the 10-year Treasury yield*, Warren's risk-free rate, with a sourced range from the monetary-policy literature (Kuttner 2001; Gürkaynak, Sack & Swanson 2005). An expected move is already in the yield on the as-of date, so it changes nothing; the reading says so.
 - So "¿y si el dólar se fortalece?" and "¿y si sube la inflación?" are *eventos* today: neither the exchange rate nor inflation is an input, and no transmission is listed for them.
 
@@ -34,14 +34,14 @@ Every question is read first, and the reading is shown to the student **before a
 
 **Who sorts.** Two ways, for the owner to choose:
 
-1. **An AI reader** (proposed). An AI model reads the question and returns only structured fields: the kind, the inputs it names and their values. Code checks them against the input list and the transmission list; the student sees the reading as an editable card, confirms or fixes it, and only then does code compute. The AI's output is a label, never a financial number (standing rule). It is a new AI step under Decision 9, so it is built only once the owner accepts it and Decision 9 records it, and it is measured first on a labelled set of student questions (these fifteen and more).
+1. **An AI reader** (proposed). An AI model reads the question and returns only structured fields: the kind, the company, the date, and the inputs it names. A value is filled in only when it is copied word for word from the student's question, and code checks that it appears there; otherwise the field stays blank for the student to fill in. Code checks the rest against the input list and the transmission list; the student sees the reading as an editable card, confirms or fixes it, and only then does code compute. The AI's output is a label, never a financial number (standing rule). It is a new AI step under Decision 9, so it is built only once the owner accepts it and Decision 9 records it, and it is measured first on a labelled set of student questions (these fifteen and more).
 2. **Menus only.** The student picks the kind, then the company, date and input from menus, and types the value. No AI, works with today's engine, and the reading card is the same. The cost: a student cannot simply type a question.
 
 Either way the reading card is the same screen, so F2 can start with menus and add the AI reader later.
 
 **Point in time.** Every query behind an answer uses only what was public on the *fecha de corte*. The default is the last day that has ended in New York (the engine refuses a day still in progress). Asking about a past date is an explicit choice, and then what happened afterwards is shown beside the estimate (#128).
 
-**Which uncertainty each answer shows.** Revenue and operating income forecasts: the p10–p90 range from Warren's own past misses (M9), with that company's measured coverage. Value per share: the values at the equity risk premium ± one standard error, and, when news shocks are applied, the simulation's p10–p90. A reported figure: none, but a flag when it was revised. An event: the number of cases and the thin-evidence flag.
+**Which uncertainty each answer shows.** Revenue and operating income forecasts: the p10–p90 range from Warren's own past misses (M9), with that company's measured coverage. Value per share: the values at the equity risk premium ± one standard error, labelled "sensibilidad a la prima de riesgo, no un rango de resultados", and, when news shocks are applied, the simulation's p10–p90. WACC, cost of equity and beta: point values, labelled as estimates with their method, and the cost of equity also at the risk premium ± one standard error. A reported figure: none, but a flag when it was revised. An event: the number of cases and the thin-evidence flag.
 
 ## 3. The questions
 
@@ -78,7 +78,7 @@ Fifteen questions, written as a student would ask them, with an English gloss. "
 **5. ¿Cuánto venderá Apple en los próximos cuatro trimestres, y qué tan seguro es ese pronóstico?**
 *How much will Apple sell in the next four quarters, and how sure is that forecast?*
 - Kind: Estimación.
-- Returns: the baseline revenue path, quarter by quarter, with its p10–p90 range from Warren's own past misses known on that date (M9), and how often such ranges held: across all companies 83%, and Apple's own figure beside it, since coverage differs by company (4 of 8 fell outside 65–95%, v0.9).
+- Returns: the baseline revenue path, quarter by quarter, with its p10–p90 range from Warren's own past misses known on that date (M9), and how often such ranges held: across all companies 83% (a p10–p90 range should hold about 8 times in 10), and Apple's own figure beside it, since coverage differs by company (4 of the 8 companies fell outside 65–95%, the band the team set as acceptable for an 80% range; v0.9).
 - Hoy: **En parte**. Ranges exist for the stored M9 origins and backtest cases, not for a new run. Request R3 (#144).
 
 **6. ¿Qué tan bien ha pronosticado Warren a Procter & Gamble en el pasado?**
@@ -93,7 +93,7 @@ Fifteen questions, written as a student would ask them, with an English gloss. "
 *What happens to Caterpillar's WACC and value if the Fed unexpectedly raises rates by 25 bps?*
 - Kind: Cambio de supuesto, through the listed transmission.
 - Reading shown first: "Cambio: tasa libre de riesgo, por una subida inesperada de la Fed. Traslado a la tasa a 10 años: entre A y B pb por cada 25 pb (fuente). Si la subida ya se esperaba, la tasa de hoy ya la incluye y no cambia nada." A and B come from the engine's sourced range (R2c), never from the app.
-- Returns: before and after for the risk-free rate, cost of equity, WACC, terminal growth and value per share, at the low and the high end of the transmission range, with the reason for each move. It names the run's terminal value method and what follows from it. Warren's method (new investment earns its cost of capital) makes terminal value NOPAT × (1 + g) ÷ WACC, so growth barely matters and the higher WACC drives the change. In Warren, terminal growth is set equal to the risk-free rate, the usual ceiling (Damodaran), so it moves too, and the answer shows that it changes little.
+- Returns: before and after for the risk-free rate, cost of equity, WACC, terminal growth and value per share, at the low and the high end of the transmission range, with the reason for each move. It names the run's terminal value method and what follows from it. Two of Warren's own choices, not general rules, shape the answer, and the screen says so: terminal growth is set equal to the risk-free rate (the usual ceiling, Damodaran), and new investment after year five earns exactly its cost of capital, which makes terminal value NOPAT × (1 + g) ÷ WACC. So growth moves with the rate but barely matters, and the higher cost of equity, hence WACC, drives the change. The cost of debt does not move: Warren takes it from past interest over average debt.
 - Hoy: **No**. A manual shock can move the risk premium inside a simulation, not the risk-free rate or growth. Requests R2a, R2c (#141, #143).
 
 **8. Si el margen operativo de Walmart baja un punto porcentual, ¿cuánto cambia su valor por acción?**
@@ -105,7 +105,7 @@ Fifteen questions, written as a student would ask them, with an English gloss. "
 **9. ¿Qué tan sensible es el valor de Coca-Cola al WACC y al crecimiento terminal?**
 *How sensitive is Coca-Cola's value to WACC and terminal growth?*
 - Kind: Cambio de supuesto (two inputs over a grid).
-- Returns: value per share over a grid of WACC and terminal growth, with the run's own point marked. The lesson the screen states: under Warren's terminal method the table is almost flat along growth and steep along WACC, unlike the textbook Gordon model, which is shown beside it for contrast. Cells where growth reaches WACC say "no definido: el crecimiento terminal alcanza el WACC" (the formula's guard, v0.5.4), never zero.
+- Returns: value per share over a grid of WACC (set directly, a teaching override) and terminal growth, with the run's own point marked. The lesson the screen states: under Warren's terminal method the table is almost flat along growth and steep along WACC, unlike the textbook Gordon model, which is shown beside it for contrast. Cells where growth reaches WACC say "no definido: el crecimiento terminal alcanza el WACC", never zero, under both methods: Warren's short formula comes from the same perpetuity as Gordon's, and that perpetuity has a value only while growth stays below WACC (v0.5.4).
 - Hoy: **En parte** (only the ERP ± 1 standard error values). Request R2b (#142).
 
 ### Eventos: answered from past cases
@@ -122,31 +122,31 @@ Every event answer shows, for each case: the company and date with its source, w
 *What would happen to Coca-Cola if the dollar strengthens against Latin American currencies?*
 - Kind: Evento (the exchange rate is not an input and has no listed transmission).
 - Returns: today the library has one currency case, and it is another company (Microsoft cut its guidance for currency in June 2022: same mechanism, different company), so the answer is n = 1, thin evidence. Then the metrics to watch (share of revenue outside the US, the currency note in the 10-K), and the *cambio de supuesto* the student may mean: lower revenue growth.
-- Hoy: **No**. Requests R5, R6 (#146, #147).
+- Hoy: **No**. The nearest case is stored, but choosing cases by rule needs the theme tags of R6 (it is filed as a guidance case, not a currency case). Requests R5, R6 (#146, #147).
 
 **12. Si Apple vuelve a tener problemas de producción en China como en 2022, ¿cuánto bajarían sus ventas?**
 *If Apple has production problems in China again, as in 2022, how much would its sales fall?*
 - Kind: Evento (it asks for a number, but names an event).
-- Returns: the two Apple cases (February 2020 and November 2022, same company, same mechanism): what Warren expected then, what was reported, the gap by quarter beside Apple's usual miss. It says plainly that these are past outcomes, not a forecast, and that two cases are thin evidence.
+- Returns: the two Apple cases (February 2020 and November 2022, same company; the 2022 case is the same mechanism, the 2020 case is close, as it mixed supply problems with lower demand): what Warren expected then, what was reported, the gap by quarter beside Apple's usual miss. It says plainly that these are past outcomes, not a forecast, and that two cases are thin evidence.
 - Hoy: **En parte** (the cases and their scores are stored). Request R5 (#146).
 
-**13. ¿Qué le pasa a Johnson & Johnson si los demócratas ganan las elecciones legislativas de medio término en Estados Unidos?**
+**13. ¿Qué le pasa a Johnson & Johnson si los demócratas ganan las elecciones intermedias en Estados Unidos?**
 *What happens to J&J if the Democrats win the US midterm elections?*
 - Kind: Evento (the owner's example in #130).
 - Returns: "No hay casos parecidos en la biblioteca" first, n = 0. Then only the metrics to watch (US share of pharmaceutical sales, drug-pricing risk in the 10-K's risk factors). No number, and no weak analogy dressed up as a close one.
-- Hoy: **No**. Requests R5, R6 (#146, #147).
+- Hoy: **No**. There is no election or policy case yet. Requests R5, R6 (#146, #147).
 
 **14. ¿Qué le pasa a ExxonMobil si la OPEP recorta su producción?**
 *What happens to ExxonMobil if OPEC cuts production?*
 - Kind: Evento.
 - Returns: the nearest case (March 2020, the oil price war, marked "dirección opuesta": supply rose and prices fell) and what followed; the metrics to watch (realised oil price, upstream earnings); and that Exxon's filings in Warren stop in August 2026 (#126).
-- Hoy: **No**. Requests R5, R6 (#146, #147), and #126.
+- Hoy: **No**. The nearest case is stored, but choosing it by rule needs R6's tags. Requests R5, R6 (#146, #147), and #126.
 
 **15. ¿Qué le pasa a Walmart si sube la inflación?**
 *What happens to Walmart if inflation rises?*
 - Kind: Evento, ambiguous (tests the rule's edge: inflation is not an input and has no listed transmission).
 - Reading shown first: "Lo leo como un evento (inflación más alta), no como un cambio de supuesto." Then the nearest case (July 2022, Walmart cut its profit outlook as inflation pushed shoppers to groceries: same company, same mechanism, n = 1) and what followed; and two *cambios de supuesto* to choose from: lower operating margin, or different revenue growth.
-- Hoy: **No**. Requests R5, R6 (#146, #147).
+- Hoy: **No**. The nearest case is stored, but choosing cases by rule needs the theme tags of R6 (it is filed as a guidance case, not an inflation case). Requests R5, R6 (#146, #147).
 
 ## 4. Out of scope, and how Warren says so
 

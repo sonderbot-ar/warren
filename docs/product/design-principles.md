@@ -15,12 +15,12 @@ Like a good teaching assistant: plain, exact, calm. Short sentences in natural L
 ## What "intuitive" means here
 
 1. **One question per screen.** Each screen answers one of the brief's questions and says which in its title.
-2. **Every number is a door.** Any number opens a side panel, a separate layer over the screen, with five tabs (owner, oct.30.2026): *Fuente* (filing, tag, period, filing date), *Fórmula* (the steps, and the spreadsheet formula a student would write), *Concepto* (what it means, for example net debt), *¿Y si…?* and *Para leer* (headlines from before the *fecha de corte*, related companies). *¿Y si…?* edits only model inputs (brief §2); on a reported figure or an output it says "Este número sale de X" and links to the inputs that move it. Labels and column headings open *Concepto* only; buttons open nothing.
+2. **Every figure is a door.** Any financial figure (an amount, a rate, a ratio, a per-share value) opens a side panel, a separate layer over the screen, with five tabs (owner, oct.30.2026): *Fuente* (filing, tag, period, filing date), *Fórmula* (the steps, and the spreadsheet formula a student would write), *Concepto* (what it means, for example net debt), *¿Y si…?* and *Para leer* (headlines from before the *fecha de corte*, related companies). *¿Y si…?* edits only model inputs (brief §2); on a reported figure or an output it says "Este número sale de X" and links to the inputs that move it. Labels and column headings open *Concepto* only. Buttons do what they say and open no panel. Both narrow the owner's "every cell (or button)" and "edit the current number" (oct.30.2026) on purpose, and the sign-off card says so.
 3. **Nothing from the future.** Every screen shows its *fecha de corte*. Nothing on it was public after that date. Looking back is an explicit choice, and then what really happened is shown beside the estimate.
-4. **Uncertainty, honestly labelled.** Each output shows the uncertainty the engine measures for it, as the brief lists (§2, "Which uncertainty each answer shows"), with a plain sentence on what it means. Never a range the engine did not compute, and never a lone number made to look certain.
-5. **The spreadsheet becomes the explanation.** Warren does the arithmetic; the formula a student would type is shown beside it, in the spreadsheet language of the chosen toggle (Spanish: `=SUMA(A1;B1)`; English: `=SUM(A1,B1)`) (owner, oct.30.2026).
+4. **Uncertainty, honestly labelled.** Each output shows the uncertainty the engine measures for it, as the brief lists (§2, "Which uncertainty each answer shows"), with a plain sentence on what it means. A sensitivity (one input moved) is never labelled as a range of outcomes. An output with no measured range, such as WACC, is shown as a point value marked "estimación" with its method. Never a range the engine did not compute.
+5. **The spreadsheet becomes the explanation.** Warren does the arithmetic; the formula a student would type is shown beside it, in the spreadsheet language of the chosen language and region (Spanish: `=SUMA(A1;B1)` or `=SUMA(A1,B1)` by region; English: `=SUM(A1,B1)`) (owner, oct.30.2026).
 6. **The reading comes first.** Before computing, Warren shows how it read the question (kind, company, date, inputs and values) on one editable card, whether the reading came from menus or from the AI reader.
-7. **Events are never numbers.** An event shows past cases, how close each is, how many there are, and what to watch. Never an AI's estimate of an impact.
+7. **An event never gets an estimated impact.** An event shows past cases and what followed, how close each is, how many there are, and what to watch. Never an AI's estimate of an impact.
 8. **Change shows its ripple.** When an input changes, everything it moves is marked with before and after, a one-line reason, and a mark that does not rely on colour alone (an arrow and the signed change).
 
 ## How Warren looks
@@ -28,9 +28,11 @@ Like a good teaching assistant: plain, exact, calm. Short sentences in natural L
 The exact type, colours and layout are chosen once, at the visual direction (F2), and then hold everywhere. Fixed now:
 
 - **Tokens.** One type scale and one spacing scale, defined as tokens; no screen sets its own sizes or colours.
-- **Numbers.** Right-aligned, tabular figures, units in the column header (*millones de US$*, %, pb). One decimal for percentages, none for millions, two for per-share values. Negatives with a minus sign; in financial statements, in parentheses as the filings show them. The decimal and thousands separators follow the chosen language (Spanish: 1.234,5; English: 1,234.5); dates as *15 nov 2026*.
+- **Numbers.** Right-aligned, tabular figures, units in the column header (*millones de US$*, %, pb). One decimal for percentages, none for millions, two for per-share values and beta, one for multiples (12,3× or 12.3× by region), whole basis points (25 pb). Negatives with a minus sign; in financial statements, in parentheses as the filings show them. Separators follow the region setting (Mexico: 1,234.5; most of South America: 1.234,5; English: 1,234.5). Dates as *15 nov 2026* in Spanish and *Nov 15, 2026* in English.
 - **States.** Every screen has a designed loading, empty, error and thin-evidence state; none is a blank or a spinner alone.
 - **Focus.** Every control has a visible keyboard focus.
+- **Narrow screens.** A wide table (a sensitivity grid, two companies' series) scrolls sideways inside its own frame with the first column fixed, or becomes a list; the page itself never scrolls sideways.
+- **Still to set at the visual direction (F2):** measurable rules for hierarchy, density and white space, so "pristine" can be checked, not only felt.
 
 ## The bar a screen must clear
 
