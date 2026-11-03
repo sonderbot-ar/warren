@@ -1,6 +1,6 @@
 # Warren versions
 
-One row per merged version, newest first. A version is a milestone (minor number) or a backlog item (patch number). To restore a version, revert the merges after its commit with a revert PR; never rewrite `main`.
+One row per merged version, newest first. A version is a milestone (minor number) or a backlog item or front-end item F<n> (patch number). To restore a version, revert the merges after its commit with a revert PR; never rewrite `main`.
 
 The owner's desk, with an entry and a lesson for each version: https://claude.ai/artifact/5BGLYAQEjkqQHugGWpzKut
 

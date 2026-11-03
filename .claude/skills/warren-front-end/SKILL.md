@@ -18,22 +18,22 @@ The front-end team builds Warren's student web app and owns the product decision
 1. **Now: the product brief (F1).** Cheap now, expensive to retrofit.
    - 10–15 real questions a finance student would ask, in Spanish with an English gloss. Mix the kinds: a company's actual numbers, a forecast for periods not yet reported (backlog #128), "what if this input changes", "what did a past event do", "what happens if this event happens".
    - For each: literal or hypothetical, what Warren returns, which engine inputs, outputs or cases it needs, and whether the engine answers it today.
-   - The sorting rule (backlog #130). **Literal**: names a model input and gives it a value ("WACC if the Fed adds 25 bps"). Deterministic code recomputes; any pass-through assumption (the Fed funds rate to the 10-year yield) is stated and can be changed. **Hypothetical**: names an event, not an input ("if the Democrats win the midterms"). Answered by a curated query of the case library: analogous past events, what followed in sales and margins, and the metrics to watch. No invented numbers. The LLM's reading of the question is shown to the user before anything is computed.
+   - The sorting rule (backlog #130). **Literal**: names a model input and gives it a value ("WACC if the Fed adds 25 bps"). Deterministic code recomputes; any pass-through assumption (the Fed funds rate to the 10-year yield) is stated and can be changed. **Hypothetical**: names an event, not an input ("if the Democrats win the midterms"). Answered by a curated query of the case library: analogous past events, what followed in sales and margins, and the metrics to watch. No invented numbers. Proposed: an LLM sorts the question and its reading is shown to the user before anything is computed (a new LLM step, so it goes to the owner; see Rules).
    - Language and audience: Spanish first, finance students in Latin America, terms as their courses use them.
 2. **Always: engine needs.** Each gap between a brief question and today's engine becomes a GitHub issue labelled `backlog` and `front-end`: what to expose (a named input, an output, a stored field), the brief questions it serves, and why. An engine Elephant builds it through the normal loop. Check new engine design docs against the brief and comment on the issue, not the code, when one misses a question it should serve.
 3. **Later: the web app (F2).** Start only after M10 merges, so screens are not redone while the engine's outputs change. The owner chose (nov.03.2026) a web app that runs locally first: it runs on the owner's Mac and opens in the browser, nothing hosted, no cost. Compare free stacks in the design doc that can be hosted later without a rewrite, and send the owner one decision card with a recommendation. Then build screens one at a time, each from a brief question.
 
 ## The loop
 
-Same as `CLAUDE.md`: design doc in `docs/designs/f<n>-<short-name>.md` (the brief itself lives in `docs/product/brief.md`), Goldfish review, build, PR, gatekeeper, merge with a merge commit, record. Front-end items are F<n> in `docs/build-plan.md`, branches `f<n>-<short-name>`; versions follow `docs/versions.md` (a merged F item gets a patch version, as a backlog item does). Reporters write the desk entry and lesson as for any version.
+Same as `CLAUDE.md`: design doc in `docs/designs/f<n>-<short-name>.md` (the brief itself lives in `docs/product/brief.md`), Goldfish review, build, PR, gatekeeper, merge with a merge commit, record. Front-end items are F<n> in `docs/build-plan.md`, branches `f<n>-<short-name>`; versions follow `docs/versions.md` (a merged F item gets a patch version, as a backlog item does; see `docs/versions.md`). Reporters write the desk entry and lesson as for any version.
 
 - **Design review:** `explainer`, `student-reviewer` and `professor` in parallel; add the `analyst` when the brief says how a number should be computed or compared.
 - **PR review:** CI green, then the `gatekeeper`; add the `student-reviewer` for any reader-facing text or screen.
 
 ## Rules
 
-- Never edit `domains/`, `shared_kernel/`, `main.py` or `migrations/`. The app calls the engine as a library (Decision 11, guardrail 4). App code lives in its own top-level folder, chosen with the stack.
-- Every number on screen comes from the engine and shows its source (filing, tag, period, as-of date). An LLM may only sort a question and map it to inputs.
+- Never edit `domains/`, `shared_kernel/`, or `main.py`. The app calls the engine as a library (Decision 11, guardrail 4). App code lives in its own top-level folder, chosen with the stack.
+- Every number on screen comes from the engine and shows its source (filing, tag, period, as-of date). No LLM produces a financial number. An LLM that sorts a question and maps it to inputs is a new LLM step under Decision 9: propose it to the owner with the sorting rule, and build it only once Decision 9 records it.
 - Every query behind an answer is point-in-time.
 - Reader-facing text stays apart from logic, ready for Spanish and Portuguese (Decision 11, guardrail 5).
 - Free tools only. A library or stack needs a licence that allows a paid product (the rule of Decision 12) and must run on the owner's 16 GB Apple Silicon MacBook.
