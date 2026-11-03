@@ -13,8 +13,8 @@ How Warren's two building teams keep each other informed (owner's ask, nov.03.20
 ## Roadmaps
 
 **Engine team** (from `docs/build-plan.md`):
-1. M10 — More test dates, including after the models' training cutoff (Planned).
-2. Open `front-end` requests from F1, weighed with the other backlog issues.
+1. M10 — More test dates, including after the models' training cutoff (In progress: AI run done; the scored batch waits for actuals as of 2026-11-16).
+2. Open `front-end` requests from F1 (#140 done in v0.9.6; next #128 and #144), weighed with the other backlog issues.
 3. Backlog in order of what it unblocks.
 
 **Front-end team:**
@@ -26,6 +26,7 @@ How Warren's two building teams keep each other informed (owner's ask, nov.03.20
 
 Newest first. One entry per merged version: the version and team, what changed in a sentence, its effect on the other team (questions served or broken, outputs added, renamed or removed; "none" is fine), and any roadmap change.
 
+- **nov.03.2026 · v0.9.6 reported figures and named ratios (backlog #140, front-end R1) · engine team.** New call `domains.analysis.reported.reported_period(conn, ticker, period, as_of)` and command `python -m domains.analysis reported --ticker T --period FY2025Q4|FY2025|latest-quarter|latest-year --as-of D [--json]`: a period's lines with filing provenance (form, accession, date, EDGAR link), first-reported and latest values with `changed`, derived quarters with their inputs, disagreement rows, and ratios (`gross_margin`, `operating_margin`, `revenue_growth_yoy`, `capex_share`, `da_share`, `effective_tax_rate`, `net_debt`). Ratios are fractions, values raw in their unit; every gap, note and warning is `{code, params, text}` with English text as fallback, so the app owns the Spanish words. Field list and codes: `docs/designs/backlog-140-reported-figures.md`, Product impact. Effect on the front-end team: brief Q1 and Q2 are now answered (Sí); net margin is not in yet (#157); for Q2's five years, ask five periods. Nothing existing renamed or removed. Roadmap: #140 done; M10 resumes after 2026-11-16.
 - **nov.03.2026 · v0.9.5 snapshots in parts (backlog #153) · engine team.** Saved data is now written in pieces under 400 MB, because the shared folder silently dropped anything over 512 MiB. Effect on the front-end team: none (no outputs, names or fields change). Roadmap: unchanged.
 - **nov.03.2026 · v0.9.4 snapshot safety (backlog #150) · engine team.** Restoring saved data now skips a half-saved copy and uses the newest good one, and the clean-up can no longer delete the last good copy. Effect on the front-end team: none (no outputs, names or fields change). Roadmap: unchanged; M10's AI run continues.
 - **nov.03.2026 · v0.9.3 F1 product brief · front-end team.** The student brief, the design principles and the sorting rule are merged and signed off by the owner (`docs/product/`). Effect on the engine team: engine design docs now check their *Product impact* against the 15 questions in `docs/product/brief.md`; eight requests are open as `front-end` issues (#140–#147; #143 needs an owner card before it is built, #147 keeps analogue cases out of the scored library); #128 item 2 moved to #140; Decision 9 now lists the app's question reader (labels only, never a number). The engine's outputs and names are unchanged. Roadmap: F1 Done; F2 after M10.
