@@ -264,3 +264,20 @@ def test_an_orphan_never_pushes_the_last_good_archive_out(data, tmp_path):
     _save(data, folder, 4)  # now three good ones: the oldest good one goes
     assert not (folder / "warren-20261031T230100Z.tar.gz").exists()
     assert not (folder / "warren-20261031T230100Z.json").exists()
+
+
+@pytest.mark.parametrize("bad", ["not json", "[]", "corrupt archive"])
+def test_restore_skips_an_unreadable_manifest_or_a_corrupt_archive(data, tmp_path, bad):
+    folder = tmp_path / "snap"
+    _save(data, folder, 1)
+    newest = _save(data, folder, 2)
+    if bad == "corrupt archive":
+        archive = folder / json.loads(newest.read_text())["archive"]
+        archive.write_bytes(archive.read_bytes()[:-10])
+    else:
+        newest.write_text(bad)
+    restored = snapshot.restore(folder, tmp_path / "fresh")
+    assert restored["archive"] == "warren-20261031T230100Z.tar.gz"
+    assert restored["skipped"][0].startswith(newest.name)
+    _save(data, folder, 3)  # the bad one never counts toward the two kept
+    assert (folder / "warren-20261031T230100Z.tar.gz").exists()

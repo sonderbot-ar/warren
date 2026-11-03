@@ -137,7 +137,7 @@ def _landed(manifest_path: Path) -> bool:
         manifest = json.loads(manifest_path.read_text())
         archive = _archive_path(manifest_path, manifest)
         return archive.exists() and archive.stat().st_size == manifest["bytes"]
-    except (SnapshotError, ValueError, KeyError, OSError):
+    except (SnapshotError, ValueError, KeyError, TypeError, AttributeError, OSError):
         return False
 
 
@@ -180,7 +180,7 @@ def save(folder: Path, db_path: Path = DB_PATH, raw_dir: Path = RAW_EDGAR_DIR,
     for old in [m for m in manifests(folder) if _landed(m)][KEEP:]:
         try:
             _archive_path(old, json.loads(old.read_text())).unlink(missing_ok=True)
-        except (SnapshotError, ValueError):
+        except (SnapshotError, ValueError, AttributeError):
             continue  # an unreadable or odd manifest is left alone, and so is what it names
         old.unlink()
     return path
@@ -199,7 +199,7 @@ def restore(folder: Path, data_dir: Path = DATA_DIR, force: bool = False) -> dic
         try:
             manifest = json.loads(path.read_text())
             archive = _archive_path(path, manifest)
-        except (SnapshotError, ValueError) as e:
+        except (SnapshotError, ValueError, AttributeError) as e:  # AttributeError: not an object
             skipped.append(f"{path.name} ({e})")
             continue
         if archive.exists() and _sha256(archive) == manifest.get("sha256"):
