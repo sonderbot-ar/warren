@@ -21,11 +21,14 @@ difference.
     python -m domains.evaluation ranges origins [--ticker T ...] [--from D] [--to D]
     python -m domains.evaluation ranges test [--batch EVAL_BATCH] [--guidance PATH]
     python -m domains.evaluation ranges reproduce --build B [--guidance PATH]
+    python -m domains.evaluation ranges run --run-id R [--json]
 
 M9 (honest ranges): `origins` runs the baseline on the 1st of every month for every company and
 stores each forecast quarter's miss; `test` builds every range from the misses public on its
 date, scores the rolling test and (with --batch) the backtest's cases, and writes
-data/reports/eval/<build_id>_ranges.md; `reproduce` checks a stored build to the cent.
+data/reports/eval/<build_id>_ranges.md; `reproduce` checks a stored build to the cent. `run`
+(backlog #144) gives any stored run its range and the range's track record, as of the run's date;
+`--json` prints it for the app. It writes nothing.
 """
 
 import argparse
@@ -198,6 +201,26 @@ def cmd_ranges_reproduce(args: argparse.Namespace) -> int:
     return 0 if check.ok else 1
 
 
+def cmd_ranges_run(args: argparse.Namespace) -> int:
+    import json
+
+    from domains.evaluation import run_ranges
+    from domains.evaluation.harness import EvaluationError
+
+    with get_db_connection() as conn:
+        apply_migrations(conn)
+        try:
+            result = run_ranges.run_ranges(conn, args.run_id)
+        except EvaluationError as e:
+            print(f"FAILED: {e}")
+            return 1
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2, ensure_ascii=False))
+    else:
+        print(run_ranges.render(result), end="")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m domains.evaluation")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -234,6 +257,10 @@ def main(argv: list[str] | None = None) -> int:
     rr.add_argument("--build", required=True)
     rr.add_argument("--guidance", help="the guidance file the build ran with, if any")
     rr.set_defaults(func=cmd_ranges_reproduce)
+    rn = rcmd.add_parser("run", help="a stored run's range and the range's track record")
+    rn.add_argument("--run-id", required=True)
+    rn.add_argument("--json", action="store_true", help="print JSON for the app")
+    rn.set_defaults(func=cmd_ranges_run)
     args = parser.parse_args(argv)
     return args.func(args)
 

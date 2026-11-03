@@ -1,0 +1,405 @@
+"""The error range and its track record on any stored run (backlog #144, front-end R3).
+
+M9 (`ranges.py`) gives a forecast quarter a p10–p90 range from the baseline's own past misses,
+but only for its stored origins and backtest cases. This gives one to any run, as of the run's
+own date D, by M9's method unchanged: the misses whose actual was filed by D, both pools, the
+same seeding rule. Beside it, how M9's ranges have done so far: the share of past quarters that
+fell inside their range, over all companies and over this company, counting only origins dated
+before D whose actual was filed by D. Nothing is written; gaps are coded, never raised.
+Design: docs/designs/backlog-144-run-ranges.md.
+"""
+
+import sqlite3
+from dataclasses import asdict, dataclass, field
+from datetime import date
+
+from domains.analysis import financial_math as fm
+from domains.analysis.dcf import YEARS
+from domains.analysis.montecarlo import DEFAULT_SAMPLES, _currency
+from domains.analysis.reported import Coded
+from domains.analysis.runs import load_outputs
+from domains.evaluation import ranges as R
+from domains.evaluation import ranges_report as RR
+from domains.evaluation.harness import EvaluationError
+from domains.evaluation.ranges_report import cover
+
+BASIS = "baseline"
+METHOD = "resampled_misses"
+ITEMS = ("revenue", "ebit")
+MAX_HORIZON = max(R.HORIZONS)
+MIN_QUARTERS = 12  # distinct target quarters in a coverage cell, else `few_scored` (M9's own min)
+SCOPES = ("all", "company")
+TARGET = RR.TARGET
+ACCEPTABLE = RR.COMPANY_BAND
+
+
+@dataclass(frozen=True)
+class Band:
+    pool: str  # pooled (all companies' misses) or own (this company's)
+    n_errors: int
+    n_quarters: int
+    revenue: dict | None  # {p10, p50, p90}, in the run's currency; None when no band
+    ebit: dict | None
+    revenue_vs_forecast: dict | None  # the band is forecast × (1 + x)
+    ebit_vs_forecast: dict | None  # (band − EBIT forecast) / revenue forecast: margin points
+    basis_changes: int | None  # known misses that are a change of basis; None when unchecked
+    method: str = METHOD
+    missing: Coded | None = None
+    notes: list[Coded] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class Quarter:
+    period: str  # the run's label, e.g. FY2026Q3
+    horizon: int  # 1 for the run's first forecast quarter
+    revenue_forecast: float
+    ebit_forecast: float
+    bands: list[Band]
+
+
+@dataclass(frozen=True)
+class Cell:
+    """How M9's range has done so far, for one pool, scope and item."""
+
+    pool: str
+    scope: str  # all (every company) or company (this run's company)
+    item: str
+    inside: int
+    below: int
+    above: int
+    n: int  # rows: origin × horizon; one target quarter is scored by several origins
+    n_quarters: int  # distinct company and fiscal quarter
+    n_clusters: int  # distinct calendar quarters, the bootstrap's clusters
+    share: float | None
+    interval: list[float] | None  # 90% cluster bootstrap by calendar quarter (M9's)
+    target: float
+    acceptable: list[float]
+    verdict: str | None  # held, too_narrow, too_wide; None with a gap
+    target_in_interval: bool | None
+    differs_from_all: bool | None  # company cells only
+    width: float | None  # median (p90 − p10) / p50; EBIT over the revenue p50
+    basis_changes: int | None  # company cells; None when unchecked
+    basis_changes_outside: int | None
+    origins_from: date
+    missing: Coded | None = None
+    notes: list[Coded] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class RunRanges:
+    run_id: str
+    ticker: str
+    as_of: date
+    currency: str
+    basis: str
+    n_samples: int
+    errors_sha256: str
+    errors_filed_to: date | None
+    quarters: list[Quarter]
+    coverage: list[Cell]
+    notes: list[Coded]
+
+    def to_dict(self) -> dict:
+        return _plain(asdict(self))
+
+
+def _plain(value):
+    if isinstance(value, dict):
+        return {k: _plain(v) for k, v in value.items()}
+    if isinstance(value, list | tuple):
+        return [_plain(v) for v in value]
+    if isinstance(value, date):
+        return value.isoformat()
+    return value
+
+
+KEYS = ("p10", "p50", "p90")
+
+
+def _pcts(band: tuple[float, float, float] | None) -> dict | None:
+    return None if band is None else dict(zip(KEYS, band, strict=True))
+
+
+def vs_forecast(
+    revenue: dict | None, ebit: dict | None, revenue_forecast: float, ebit_forecast: float
+) -> tuple[dict | None, dict | None]:
+    """A band as a change from the forecast: revenue as a growth (band = forecast × (1 + x)),
+    EBIT in margin points of forecast revenue."""
+    if revenue is None or ebit is None:
+        return None, None
+    return (
+        {k: fm.growth(revenue[k], revenue_forecast) for k in KEYS},
+        {k: fm.ratio(ebit[k] - ebit_forecast, revenue_forecast) for k in KEYS},
+    )
+
+
+def _no_history(h: int, pool: str, n_errors: int) -> Coded:
+    need = R.MIN_ERRORS[pool]
+    return Coded(
+        "no_history",
+        {"horizon": h, "pool": pool, "n_errors": n_errors, "min_errors": need},
+        f"quarter {h}: {n_errors} past misses known in the {pool} pool, fewer than the {need} "
+        "a range needs",
+    )
+
+
+def _beyond(h: int) -> Coded:
+    return Coded(
+        "beyond_horizon",
+        {"horizon": h, "max_horizon": MAX_HORIZON},
+        f"quarter {h}: past misses are measured for the first {MAX_HORIZON} quarters only",
+    )
+
+
+def _unchecked(ticker: str) -> Coded:
+    return Coded(
+        "basis_unchecked",
+        {"checked": ticker},
+        f"changes of reporting basis are counted for {ticker} only; other companies' misses may "
+        "include some, scored as misses (backlog #162)",
+    )
+
+
+BASELINE_ONLY = Coded(
+    "baseline_only",
+    {"basis": BASIS},
+    "the range shows how far the baseline forecast has missed before; it does not include news "
+    "or other shocks, so it is not the whole uncertainty",
+)
+HORIZONS_POOLED = Coded(
+    "horizons_pooled",
+    {"horizons": list(R.HORIZONS)},
+    "the track record counts quarters 1 to 4 together; M9 found it about the same at each",
+)
+
+
+def bands(
+    forecasts: dict[int, tuple[float, float]],
+    pairs: list[R.ErrorPair],
+    on: date,
+    ticker: str,
+    subject_id: str,
+    n: int = DEFAULT_SAMPLES,
+    flags: set[tuple[str, str, str]] | None = None,
+) -> dict[int, list[Band]]:
+    """Both pools' bands per horizon 1–4, as M9 builds a subject's (`ranges.subject_rows`).
+    `flags` holds this company's basis changes as (origin id, period, item)."""
+    samples = R.constant_samples(forecasts, n)
+    out: dict[int, list[Band]] = {h: [] for h in forecasts}
+    for pool in R.POOLS:
+        seed = R.range_seed(f"{subject_id}:{BASIS}", pool)
+        for h, r in sorted(R.ranges(samples, pairs, on, pool, ticker, seed, n).items()):
+            revenue, ebit = _pcts(r.revenue), _pcts(r.ebit)
+            rev_vs, ebit_vs = vs_forecast(revenue, ebit, *forecasts[h])
+            changes, notes = None, []
+            if pool == "own" and flags is not None:
+                changes = sum(
+                    any((p.origin_id, p.period, i) in flags for i in ITEMS)
+                    for p in R.known(pairs, on, h, pool, ticker)
+                )
+            else:
+                notes.append(_unchecked(ticker))
+            out[h].append(Band(pool, r.n_errors, r.n_quarters, revenue, ebit, rev_vs, ebit_vs,
+                               changes, METHOD, None if r.ok else _no_history(h, pool, r.n_errors),
+                               notes))  # fmt: skip
+    return out
+
+
+def basis_flags(conn: sqlite3.Connection, ticker: str, on: date) -> set[tuple[str, str, str]]:
+    """This company's origin quarters whose reporting filing recast the year before
+    (`hindsight` `restated_basis`, v0.9.7), with the filings public by `on`: (origin, period,
+    item)."""
+    from domains.evaluation.hindsight import against_actuals
+
+    out = set()
+    for o in conn.execute(
+        "SELECT origin_id, run_id FROM forecast_origins WHERE ticker = ? AND status = 'ok' "
+        "AND as_of < ? ORDER BY origin_id",
+        (ticker, on.isoformat()),
+    ).fetchall():
+        for q in against_actuals(conn, o["run_id"], on).quarters[:MAX_HORIZON]:
+            for item in q.items:
+                if item.missing is not None and item.missing.code == "restated_basis":
+                    out.add((o["origin_id"], q.period, item.name))
+    return out
+
+
+def scored_origin_rows(
+    conn: sqlite3.Connection, on: date, pairs: list[R.ErrorPair], n: int = DEFAULT_SAMPLES
+) -> list[dict]:
+    """M9's rolling-test rows cut at `on`: baseline ranges of the origins dated ROLLING_FROM or
+    later and before `on`, each from the misses known on its own date, scored only where the
+    item's actual was filed by `on`. Each row gains `ticker`."""
+    query = "SELECT origin_id, horizon, item, actual_filed_at FROM baseline_errors"
+    filed = {(r["origin_id"], r["horizon"], r["item"]): r["actual_filed_at"]
+             for r in conn.execute(query)}  # fmt: skip
+    out = []
+    for s in R.origin_subjects(conn):
+        if not (R.ROLLING_FROM <= s.as_of < on):
+            continue
+        for row in R.subject_rows(s, pairs, {BASIS: R.baseline_samples(s, n)}, n):
+            when = filed.get((s.subject_id, row["horizon"], row["item"]))
+            if row["status"] == "ok" and when and date.fromisoformat(when) <= on:
+                out.append(row | {"ticker": s.ticker})
+    return out
+
+
+def verdict(share: float | None) -> str | None:
+    if share is None:
+        return None
+    if share < ACCEPTABLE[0]:
+        return "too_narrow"
+    return "too_wide" if share > ACCEPTABLE[1] else "held"
+
+
+def coverage_cells(
+    rows: list[dict], ticker: str, on: date, flags: set[tuple[str, str, str]] | None = None
+) -> list[Cell]:
+    """Inside, below and above p10–p90, per pool, scope (all companies, this one) and item."""
+    cells: list[Cell] = []
+    for pool in R.POOLS:
+        alls: dict[str, float | None] = {}
+        for scope in SCOPES:
+            mine = [r for r in rows if r["pool"] == pool
+                    and (scope == "all" or r["ticker"] == ticker)]  # fmt: skip
+            width = RR.widths(mine)
+            for item in ITEMS:
+                rs = [r for r in mine if r["item"] == item]
+                c = cover(rs)
+                quarters = len({(r["ticker"], r["period"]) for r in rs})
+                clusters = len({RR.calendar_quarter(r["period_end"]) for r in rs})
+                missing = None
+                if on <= R.ROLLING_FROM:
+                    missing = Coded(
+                        "no_coverage_history",
+                        {"origins_from": R.ROLLING_FROM.isoformat(), "as_of": on.isoformat()},
+                        f"the range's track record starts with forecasts made from "
+                        f"{R.ROLLING_FROM}; none was made before {on}",
+                    )
+                elif quarters < MIN_QUARTERS:
+                    missing = Coded(
+                        "few_scored",
+                        {"n": c.n, "n_quarters": quarters, "min_quarters": MIN_QUARTERS},
+                        f"only {quarters} past quarters to check the range on, fewer than "
+                        f"{MIN_QUARTERS}: the share means little",
+                    )
+                iv = RR.cluster_bootstrap(rs)
+                share = c.share
+                if scope == "all":
+                    alls[item] = share
+                differs = None
+                judged = not missing and iv is not None
+                if scope == "company" and judged and alls.get(item) is not None:
+                    differs = not (iv[0] <= alls[item] <= iv[1])
+                changes = outside = None
+                notes = []
+                if scope == "company" and flags is not None:
+                    hit = [r for r in rs if (r["subject_id"], r["period"], item) in flags]
+                    changes = len(hit)
+                    outside = sum(not RR.is_inside(r) for r in hit)
+                elif scope == "all":
+                    notes.append(_unchecked(ticker))
+                cells.append(Cell(
+                    pool, scope, item, c.inside, c.below, c.above, c.n, quarters, clusters,
+                    share, list(iv) if iv else None, TARGET, list(ACCEPTABLE),
+                    None if missing else verdict(share),
+                    None if missing or iv is None else iv[0] <= TARGET <= iv[1],
+                    differs, width[item], changes, outside, R.ROLLING_FROM, missing, notes,
+                ))  # fmt: skip
+    return cells
+
+
+def run_ranges(
+    conn: sqlite3.Connection, run_id: str, n: int = DEFAULT_SAMPLES, check_basis: bool = True
+) -> RunRanges:
+    """The range of each forecast quarter of `run_id` and the range's track record, as of the
+    run's own date. `check_basis` runs the change-of-basis count on the run's company."""
+    run = conn.execute(
+        "SELECT ticker, as_of, code_version FROM runs WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    if run is None:
+        raise EvaluationError(f"run {run_id} is not stored")
+    ticker, on = run["ticker"], date.fromisoformat(run["as_of"])
+    outputs = load_outputs(conn, run_id)
+    periods = sorted(p for (name, p) in outputs if name == "revenue" and p not in YEARS)
+    pairs = R.load_pairs(conn)
+    known = [p for p in pairs if p.filed_at <= on]
+    flags = basis_flags(conn, ticker, on) if check_basis else None
+    forecasts = {
+        h: (outputs[("revenue", p)], outputs[("ebit", p)])
+        for h, p in enumerate(periods, start=1)
+        if h <= MAX_HORIZON
+    }
+    by_h = bands(forecasts, known, on, ticker, run_id, n, flags)
+    quarters = []
+    for h, p in enumerate(periods, start=1):
+        bs = by_h.get(h) or [
+            Band(pool, 0, 0, None, None, None, None, None, METHOD, _beyond(h)) for pool in R.POOLS
+        ]
+        quarters.append(Quarter(p, h, outputs[("revenue", p)], outputs[("ebit", p)], bs))
+    cells = coverage_cells(scored_origin_rows(conn, on, pairs, n), ticker, on, flags)
+    notes = [BASELINE_ONLY, HORIZONS_POOLED]
+    versions = sorted({r[0] for r in conn.execute(
+        "SELECT DISTINCT code_version FROM forecast_origins WHERE status = 'ok'")})  # fmt: skip
+    if versions and run["code_version"] not in versions:
+        notes.append(Coded(
+            "code_differs",
+            {"run_code_version": run["code_version"], "origins_code_versions": versions},
+            f"the run was made with code {run['code_version']}; the past misses are those of the "
+            f"baseline built with {', '.join(versions)}",
+        ))  # fmt: skip
+    return RunRanges(
+        run_id, ticker, on, _currency(conn), BASIS, n, R.pairs_sha256(known),
+        max((p.filed_at for p in known), default=None), quarters, cells, notes,
+    )  # fmt: skip
+
+
+# -- text --------------------------------------------------------------------------------------
+
+
+def _m(value: float | None) -> str:
+    return "–" if value is None else f"{value / 1e6:,.0f}"
+
+
+def _p(value: float | None) -> str:
+    return "–" if value is None else f"{value * 100:.0f}%"
+
+
+def render(r: RunRanges) -> str:
+    """The call as text: a table per pool, the track record and the notes."""
+    out = [
+        f"{r.ticker} run {r.run_id} as of {r.as_of}: p10–p90 range of the {r.basis} forecast "
+        f"from past misses filed by {r.as_of} (newest {r.errors_filed_to}); {r.currency} millions",
+    ]
+    for i, pool in enumerate(R.POOLS):
+        whose = "every company" if pool == "pooled" else f"{r.ticker} only"
+        out += ["", f"{pool} pool (past misses of {whose})",
+                "| Quarter | Revenue | p10 | p50 | p90 | EBIT | p10 | p50 | p90 | Misses |",
+                "|---|---|---|---|---|---|---|---|---|---|"]  # fmt: skip
+        for q in r.quarters:
+            b = q.bands[i]
+            rev, ebit = b.revenue or {}, b.ebit or {}
+            out.append(
+                f"| {q.period} | {_m(q.revenue_forecast)} | "
+                + " | ".join(_m(rev.get(k)) for k in KEYS)
+                + f" | {_m(q.ebit_forecast)} | "
+                + " | ".join(_m(ebit.get(k)) for k in KEYS)
+                + f" | {b.n_errors if b.missing is None else b.missing.code} |"
+            )
+    out += ["", f"Track record: share of past quarters inside their p10–p90 (target "
+            f"{TARGET:.0%}, acceptable {ACCEPTABLE[0]:.0%}–{ACCEPTABLE[1]:.0%}), forecasts made "
+            f"from {R.ROLLING_FROM} to before {r.as_of}"]  # fmt: skip
+    for c in r.coverage:
+        who = "all companies" if c.scope == "all" else r.ticker
+        iv = f"{_p(c.interval[0])}–{_p(c.interval[1])}" if c.interval else "–"
+        line = (f"- {c.pool} range, {c.item}, {who}: {_p(c.share)} inside ({c.inside} of {c.n} "
+                f"rows, {c.n_quarters} quarters; {c.below} below, {c.above} above), 90% interval "
+                f"{iv}, {c.missing.code if c.missing else c.verdict}")  # fmt: skip
+        if c.basis_changes:
+            line += (f"; {c.basis_changes} rows are changes of basis "
+                     f"({c.basis_changes_outside} outside)")  # fmt: skip
+        out.append(line)
+    out += ["", *[f"Note: {n.text}" for n in r.notes]]
+    if any(n.code == "basis_unchecked" for c in r.coverage for n in c.notes):
+        out.append(f"Note: {_unchecked(r.ticker).text}")
+    return "\n".join(out) + "\n"
