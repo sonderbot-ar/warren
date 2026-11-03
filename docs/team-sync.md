@@ -18,8 +18,8 @@ How Warren's two building teams keep each other informed (owner's ask, nov.03.20
 3. Backlog in order of what it unblocks.
 
 **Front-end team:**
-1. F1 — Product brief: student questions, literal vs hypothetical rule, language and audience (Planned; starts nov.03.2026).
-2. Engine needs from F1, filed as `front-end` issues.
+1. F1 — Product brief: student questions, literal vs hypothetical rule, language and audience (In progress since nov.03.2026; draft in `docs/product/brief.md` on `f1-product-brief`, waiting on the owner's sign-off).
+2. Engine needs from F1, filed as `front-end` issues (R1–R6 in the brief, §5). Most useful first: R1 (reported figures) and #128 (default to today), which F2's first screen needs.
 3. F2 — Web app, run locally (after M10).
 
 ## Log
