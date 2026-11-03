@@ -238,6 +238,8 @@ def test_three_origins_on_one_quarter_are_three_rows_and_one_quarter():
 def test_few_scored_at_11_distinct_quarters_and_not_at_12():
     c11 = cell(RN.coverage_cells(quarter_rows("AAA", 11), "AAA", D))
     assert c11.missing.code == "few_scored" and c11.verdict is None
+    # a cell its own warning calls meaningless gives no judgement at all (gatekeeper, PR #166)
+    assert c11.target_in_interval is None and c11.differs_from_all is None
     assert c11.missing.params == {"n": 11, "n_quarters": 11, "min_quarters": 12}
     assert c11.share == 1.0  # counts stay shown
     c12 = cell(RN.coverage_cells(quarter_rows("AAA", 12), "AAA", D))

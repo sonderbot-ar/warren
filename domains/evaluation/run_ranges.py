@@ -288,7 +288,8 @@ def coverage_cells(
                 if scope == "all":
                     alls[item] = share
                 differs = None
-                if scope == "company" and iv is not None and alls.get(item) is not None:
+                judged = not missing and iv is not None
+                if scope == "company" and judged and alls.get(item) is not None:
                     differs = not (iv[0] <= alls[item] <= iv[1])
                 changes = outside = None
                 notes = []
@@ -302,7 +303,7 @@ def coverage_cells(
                     pool, scope, item, c.inside, c.below, c.above, c.n, quarters, clusters,
                     share, list(iv) if iv else None, TARGET, list(ACCEPTABLE),
                     None if missing else verdict(share),
-                    None if iv is None else iv[0] <= TARGET <= iv[1],
+                    None if missing or iv is None else iv[0] <= TARGET <= iv[1],
                     differs, width[item], changes, outside, R.ROLLING_FROM, missing, notes,
                 ))  # fmt: skip
     return cells
