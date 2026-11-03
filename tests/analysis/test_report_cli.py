@@ -1,4 +1,7 @@
+import json
 from contextlib import contextmanager
+from datetime import UTC, date, datetime
+from pathlib import Path
 
 import pytest
 
@@ -104,3 +107,47 @@ def test_cli_runs_reproduces_and_reports(company, tmp_path, monkeypatch, capsys)
     # the real rebuild, with the choices the run stored (not today's user_assumptions.csv)
     assert cli.main(["reproduce", "--all", "--rebuild"]) == 0
     assert "1 of 1 runs rebuilt to identical rows" in capsys.readouterr().out
+
+
+def _wire(company, monkeypatch, at):
+    @contextmanager
+    def same_connection(*args):
+        yield company
+
+    monkeypatch.setattr(cli, "get_db_connection", same_connection)
+    monkeypatch.setattr(cli, "get_universe_company", lambda t: type("C", (), {"ticker": t}))
+    monkeypatch.setattr(cli, "now", lambda: at)
+
+
+def test_dcf_without_a_date_takes_the_last_day_ended_in_new_york(company, monkeypatch, capsys):
+    # 2020-07-01 03:59 UTC is 23:59 on jun.30 in New York: jun.29 is the last day ended
+    _wire(company, monkeypatch, datetime(2020, 7, 1, 3, 59, tzinfo=UTC))
+    days = []
+    monkeypatch.setattr(cli, "run_baseline", lambda conn, t, d: days.append(d) or run(conn))
+    monkeypatch.setattr(cli, "write_report", lambda conn, r: Path("r.md"))
+    assert cli.main(["dcf", "--ticker", "TST"]) == 0
+    out = capsys.readouterr().out
+    assert days == [date(2020, 6, 29)]
+    assert "as of 2020-06-29 (the latest day that has ended in New York)" in out
+    assert "TST: filings as downloaded from EDGAR on 2026-10-26" in out and "WARNING" not in out
+
+
+def test_dcf_without_a_date_warns_of_an_old_download_and_old_prices(company, monkeypatch, capsys):
+    company.execute("UPDATE ingest_runs SET companyfacts_fetched_at = '2020-06-01T12:00:00Z'")
+    # jul.01 has ended; prices were downloaded at 12:00 UTC that day, before it ended
+    _wire(company, monkeypatch, datetime(2020, 7, 2, 5, 0, tzinfo=UTC))
+    assert cli.main(["dcf", "--ticker", "TST"]) == 1
+    out = capsys.readouterr().out
+    assert "as of 2020-07-01" in out
+    assert "WARNING: TST: filings after 2020-06-01 may be missing" in out
+    assert "domains.fundamentals ingest --ticker TST" in out
+    assert "FAILED" in out and "before the as-of date 2020-07-01 ended in New York" in out
+
+
+def test_reported_without_a_date_keeps_the_json_clean(company, monkeypatch, capsys):
+    _wire(company, monkeypatch, datetime(2020, 7, 1, 5, 0, tzinfo=UTC))
+    assert cli.main(["reported", "--ticker", "TST", "--period", "latest-quarter", "--json"]) == 0
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert data[0]["as_of"] == "2020-06-30" and data[0]["period"] == "FY2020Q1"
+    assert "as of 2020-06-30 (the latest day that has ended in New York)" in captured.err
