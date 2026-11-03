@@ -194,6 +194,24 @@ def test_the_pipelines_price_cut_off_is_new_york_midnight(world, state):
     assert set(nodes.load_market(offline, world.deps())["market_fetch_ids"].values()) == {1, 2, 3}
 
 
+def test_every_market_fetch_the_pipeline_keeps_passed_the_day_end_rule(world, state, monkeypatch):
+    # backlog #133: load_market has no day-end check of its own since #119; it relies on
+    # require_coverage, so every fetch id it returns must be one require_coverage handed back
+    passed, original = [], nodes.require_coverage
+
+    def spy(conn, source, symbol, as_of):
+        fetch = original(conn, source, symbol, as_of)
+        passed.append((source, symbol, as_of, fetch["fetch_id"]))
+        return fetch
+
+    monkeypatch.setattr(nodes, "require_coverage", spy)
+    offline = state.model_copy(update={"offline": True})
+    ids = nodes.load_market(offline, world.deps())["market_fetch_ids"]
+    assert {p[2] for p in passed} == {state.as_of}
+    assert sorted(ids.values()) == sorted(p[3] for p in passed)
+    assert len(passed) == len(nodes.MARKET_SERIES)
+
+
 def test_a_window_with_no_events_makes_no_call_and_no_proposal(world):
     s = new_state(pipeline_id="TST_2020-05-31_p1", as_of=date(2020, 5, 31))
     register(world.conn, s)

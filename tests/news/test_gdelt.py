@@ -11,6 +11,7 @@ import requests
 
 from domains.news import gdelt
 from domains.news.gdelt import GdeltError, MasterEntry
+from shared_kernel import calendar
 
 FIXTURES = Path(__file__).parent / "fixtures"
 GKG = FIXTURES / "20220602150000.gkg.csv"
@@ -95,11 +96,11 @@ def test_a_missing_slot_is_reported_not_skipped():
     ],
 )
 def test_known_by_is_the_end_of_the_day_in_new_york(as_of, cutoff):
-    assert gdelt.known_by(as_of) == cutoff
+    assert calendar.known_by(as_of) == cutoff
 
 
 def test_a_sighting_late_in_the_new_york_evening_counts_and_the_next_morning_does_not():
-    cutoff = gdelt.known_by(date(2022, 6, 2))
+    cutoff = calendar.known_by(date(2022, 6, 2))
     assert utc(2022, 6, 3, 1) < cutoff  # 21:00 on jun.02 in New York
     assert not utc(2022, 6, 3, 4) < cutoff  # 00:00 on jun.03 in New York
 
