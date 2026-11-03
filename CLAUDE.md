@@ -62,7 +62,7 @@ The snapshot holds public data only (SEC filings, market prices, GDELT records) 
 
 ## Skills and where the team runs
 
-The team's procedures are skills in `.claude/skills/`: `warren-run-track` (the Elephant loop), `warren-goldfish-review` (the reviewers), `warren-desk-report` (desk entry, lesson, weekly digest) `warren-scout` (research scouts and their paper review) and `warren-front-end` (the front-end team). They load in Claude Code wherever the repo is open: cloud sessions, scheduled runs, or the owner's VS Code. Local runs read `SEC_USER_AGENT` from `.env`; cloud runs read it from the environment. It is never committed.
+The team's procedures are skills in `.claude/skills/`: `warren-run-track` (the Elephant loop), `warren-goldfish-review` (the reviewers), `warren-desk-report` (desk entry, lesson, weekly digest), `warren-scout` (research scouts and their paper review) and `warren-front-end` (the front-end team). They load in Claude Code wherever the repo is open: cloud sessions, scheduled runs, or the owner's VS Code. Local runs read `SEC_USER_AGENT` from `.env`; cloud runs read it from the environment. It is never committed.
 
 The team's members are defined agents in `.claude/agents/`, each with its own model and only the tools its job needs:
 
