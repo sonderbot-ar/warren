@@ -224,3 +224,43 @@ def test_a_failed_rollback_keeps_the_old_files_aside_and_names_the_folder(tmp_pa
     [aside] = folder.glob(".old-db-*")
     assert (aside / "warren.db").read_text() == "old"
     assert (aside / "warren.db-wal").read_text() == "wal"
+
+
+def _orphan(data, folder, minute):
+    """A save whose archive never reached the folder (#150): only the manifest landed."""
+    path = _save(data, folder, minute)
+    (folder / json.loads(path.read_text())["archive"]).unlink()
+    return path
+
+
+def test_restore_skips_a_manifest_whose_archive_never_landed(data, tmp_path):
+    # nov.03.2026: the newest manifest's 934 MB archive was missing and restore stopped there
+    folder = tmp_path / "snap"
+    _save(data, folder, 1)
+    with get_db_connection(data / "warren.db") as conn:
+        conn.execute("INSERT INTO probe VALUES (7)")
+        conn.commit()
+    orphan = _orphan(data, folder, 2)
+    restored = snapshot.restore(folder, tmp_path / "fresh")
+    assert restored["archive"] == "warren-20261031T230100Z.tar.gz"
+    assert restored["row_counts"]["probe"] == 1
+    assert restored["skipped"] == [f"{orphan.name} (archive missing or does not match its SHA-256)"]
+
+
+def test_restore_with_only_orphans_is_refused_and_names_them(data, tmp_path):
+    _orphan(data, tmp_path / "snap", 1)
+    with pytest.raises(snapshot.SnapshotError, match="no good snapshot.*230100Z.json"):
+        snapshot.restore(tmp_path / "snap", tmp_path / "fresh")
+
+
+def test_an_orphan_never_pushes_the_last_good_archive_out(data, tmp_path):
+    folder = tmp_path / "snap"
+    _save(data, folder, 1)
+    orphan = _orphan(data, folder, 2)
+    _save(data, folder, 3)  # good + orphan + good: both good ones stay, the orphan is left alone
+    assert (folder / "warren-20261031T230100Z.tar.gz").exists()
+    assert (folder / "warren-20261031T230300Z.tar.gz").exists()
+    assert orphan.exists()
+    _save(data, folder, 4)  # now three good ones: the oldest good one goes
+    assert not (folder / "warren-20261031T230100Z.tar.gz").exists()
+    assert not (folder / "warren-20261031T230100Z.json").exists()
