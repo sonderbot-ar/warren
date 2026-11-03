@@ -43,4 +43,4 @@ Under 100 words, three short parts:
 
 - **Shipped:** one line per version, with a link to its desk entry. "Nothing shipped" is fine; then say why.
 - **Next:** what the team is working on now.
-- **Need from you:** decisions waiting and anything that blocked work (usage limits, a failing check), or "nothing".
+- **Need from you:** decisions waiting (including front-end sign-offs, with the studio link) and anything that blocked work (usage limits, a failing check), or "nothing".

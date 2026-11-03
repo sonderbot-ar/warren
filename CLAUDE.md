@@ -17,7 +17,7 @@ Warren is built by Claude agent teams that plan, review, merge and report on the
 
 - **Elephant (developers).** One long-running thread per track (a milestone, or a backlog item). It writes the design doc, the code and the tests, opens the PR, fixes failing checks and merges.
 - **Goldfish (reviewers).** Subagents that start with no memory of the design discussion and see only the design doc or the PR. Roles: *explainer* (restates the design to prove it is clear), *analyst* (would a practitioner compute it this way, where does it break on real companies), *professor* (is the method defensible in the literature, can a student learn from it), *gatekeeper* (final go or no-go). Every objection cites a test, a file and line, a filing, a source or a doc section.
-- **Front-end team (product).** Builds the student web app (run locally first, hosted later) and owns the product decisions that shape the engine (Structure Guide Decision 13): which questions Warren must answer, the literal vs hypothetical rule and what each returns, language and audience. Every UX and UI choice goes through it. The two teams talk through `docs/team-sync.md`. It files what it needs from the engine as issues labelled `backlog` and `front-end`; engine Elephants build them. It never edits engine code. Product brief now (F1); screens after M10 (F2).
+- **Front-end team (product).** Builds the student web app (run locally first, hosted later) and owns the product decisions that shape the engine (Structure Guide Decision 13): which questions Warren must answer, the literal vs hypothetical rule and what each returns, language and audience. Every UX and UI choice goes through it. The two teams talk through `docs/team-sync.md`. It files what it needs from the engine as issues labelled `backlog` and `front-end`; engine Elephants build them. It never edits engine code. Product brief now (F1); screens after M10 (F2). Unlike the engine team, it gets the owner's sign-off on what students see (the brief, the design principles, the visual direction, each screen's mockup and built screen), reports on a studio page, and records the owner's taste in `docs/product/owner-notes.md` (owner, nov.03.2026).
 - **Reporters.** Write the desk entry and the lesson for each merged version, on a lighter model.
 - **Scouts (research).** Search GitHub and Hugging Face for open-source repos and models that could help Warren (Structure Guide Decision 12): four in parallel at kickoff, then one every 3 days, at most 5 candidates per run, filed as issues labelled `scout`. The Goldfish `analyst` and `gatekeeper` judge each on paper; a GO from both adds the `backlog` label. Scouts never change code.
 
@@ -36,6 +36,7 @@ Warren is built by Claude agent teams that plan, review, merge and report on the
 - Any change to the Phase 1 goal, the company universe, or what is in or out of Phase 1.
 - Changing or dropping an Accepted decision in the Structure Guide, or adding a new decision.
 - Anything that costs money (paid API keys or services). Default is free tools only.
+- Front-end sign-off points (the `warren-front-end` skill): the brief, the design principles, the visual direction, and each screen's mockup and built screen.
 - Anything that cannot be undone: rewriting `main`'s history, force-pushing to `main`, deleting branches with unmerged work, making the repository public.
 
 Work on other tracks continues while a card waits.
@@ -81,6 +82,7 @@ The team's members are defined agents in `.claude/agents/`, each with its own mo
 | `scout` | Haiku | read, web, GitHub search | Research: finds open-source repos and models, checks licence and upkeep |
 | `product-lead` | Opus | all | Front-end Elephant: runs one front-end track (product brief, web app); never edits engine code |
 | `student-reviewer` | Sonnet | read | Goldfish: reads the brief or a screen as a finance student in Latin America |
+| `design-critic` | Opus | read, shell (screenshots) | Goldfish: judges mockups and screens for clarity, polish and accessibility before the owner sees them |
 
 Tools named `mcp__github__*` assume the GitHub MCP server is registered as `github`. Add an agent when a job recurs and needs different tools or a different model, not for each task.
 
