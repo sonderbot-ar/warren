@@ -108,6 +108,35 @@ def _gap(name: str, forecast: float, code: Coded, unit: str | None = None, **kw)
                 missing=code, **kw)  # fmt: skip
 
 
+def _basis_change(
+    name: str,
+    period: str,
+    prior: str,
+    expected: float | None,
+    filing: float | None,
+    inherited: bool,
+) -> Coded | None:
+    """`restated_basis` when the actual's own filing gives the year-earlier quarter a value other
+    than the run's basis (beyond BASIS_TOLERANCE), or when that quarter's basis had changed."""
+    params = {"period": period, "prior_period": prior, "run_value": expected,
+              "filing_value": filing}  # fmt: skip
+    if inherited:
+        return Coded("restated_basis", params,
+                     f"the basis of {name} changed at {prior}, so the gap for {period} is not a "
+                     "forecast miss")  # fmt: skip
+    if expected is None or filing is None or not expected:
+        return None
+    if abs(filing - expected) / abs(expected) <= BASIS_TOLERANCE:
+        return None
+    return Coded(
+        "restated_basis",
+        params,
+        f"the filing that reported {period} gives {prior} {name} as {filing / 1e6:,.0f} million, "
+        f"where the run had {expected / 1e6:,.0f} million: the basis changed (a restatement or "
+        "another line), so the gap is not a forecast miss",
+    )
+
+
 def against_actuals(conn: sqlite3.Connection, run_id: str, actuals_on: date) -> Hindsight:
     """Each forecast quarter of `run_id` against what was first reported by `actuals_on`."""
     run = conn.execute("SELECT ticker, cik, as_of FROM runs WHERE run_id = ?", (run_id,)).fetchone()
@@ -122,6 +151,12 @@ def against_actuals(conn: sqlite3.Connection, run_id: str, actuals_on: date) -> 
     at_filing: dict[date, dict] = {}
     filings = Filings(conn, cik)
 
+    # what each prior-year figure should be on the run's basis: the run's own history rows, then
+    # (for quarters 5-8, whose year-earlier quarter was itself forecast) that quarter's actual
+    basis = {(a.name.removeprefix("history:"), p): a.value for (n, p), a in history.items()}
+    changed: set[tuple[str, str]] = set()  # items whose basis already changed: so do later ones
+    ebit_rows = sorted(p for (n, p) in history if n == "history:ebit")
+
     quarters = []
     for horizon, period in enumerate(periods, start=1):
         year, q = parse_label(period)
@@ -133,13 +168,16 @@ def against_actuals(conn: sqlite3.Connection, run_id: str, actuals_on: date) -> 
             quarters.append(Quarter(period, year, f"Q{q}", horizon, None, None, items))
             continue
 
-        known = history.get(("history:ebit", prior))
-        ebit_facts, ebit_gap = None, None
+        # the run's EBIT definition: its row a year earlier, else its newest history row
+        known = history.get(("history:ebit", prior)) or (
+            history[("history:ebit", ebit_rows[-1])] if ebit_rows else None
+        )
+        ebit_facts, ebit_gap, alternative = None, None, None
         if known is None:
             ebit_gap = Coded(
                 "no_definition",
                 {"period": period},
-                f"the run has no EBIT row for {prior}, so its definition is unknown",
+                f"the run has no EBIT history row, so its EBIT definition for {period} is unknown",
             )
         else:
             alternative = _alternative(known.method)
@@ -159,7 +197,7 @@ def against_actuals(conn: sqlite3.Connection, run_id: str, actuals_on: date) -> 
                         {"period": period, "definition": " + ".join(chain), "reported_as": others},
                         f"EBIT for {period} is reported only as {', '.join(others)}, not on the "
                         f"run's definition ({' + '.join(chain)})",
-                    )  # fmt: skip
+                    )
                     if others
                     else _not_reported(period, actuals_on, "ebit")
                 )
@@ -168,8 +206,8 @@ def against_actuals(conn: sqlite3.Connection, run_id: str, actuals_on: date) -> 
         if filed not in at_filing:
             at_filing[filed] = _quarterly(conn, cik, filed, "latest")
         comp = (
-            comparative(at_filing[filed], year, q, _alternative(known.method))
-            if known is not None
+            comparative(at_filing[filed], year, q, alternative)
+            if alternative is not None
             else (None, None)
         )
         actuals = {"revenue": ([revenue], revenue.value)}
@@ -183,22 +221,11 @@ def against_actuals(conn: sqlite3.Connection, run_id: str, actuals_on: date) -> 
             used, value = actuals[name]
             extra = {"actual": value, "derived": any(f.derived for f in used),
                      "filings": _filings(used, filings)}  # fmt: skip
-            run_prior = history.get((f"history:{name}", prior))
-            filing_prior = comp[idx]
-            if (
-                run_prior is not None
-                and filing_prior is not None
-                and run_prior.value
-                and abs(filing_prior - run_prior.value) / abs(run_prior.value) > BASIS_TOLERANCE
-            ):
-                code = Coded(
-                    "restated_basis",
-                    {"period": period, "prior_period": prior, "run_value": run_prior.value,
-                     "filing_value": filing_prior},
-                    f"the filing that reported {period} restates {prior} {name} from "
-                    f"{run_prior.value:,.0f} to {filing_prior:,.0f}: the basis changed, so the "
-                    "gap is not a forecast miss",
-                )  # fmt: skip
+            code = _basis_change(name, period, prior, basis.get((name, prior)), comp[idx],
+                                 (name, prior) in changed)  # fmt: skip
+            basis[(name, period)] = value
+            if code is not None:
+                changed.add((name, period))
                 items.append(_gap(name, forecasts[name], code, revenue.unit, **extra))
                 continue
             try:

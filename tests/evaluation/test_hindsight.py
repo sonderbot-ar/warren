@@ -121,3 +121,28 @@ def test_to_dict_round_trips_through_json(company):
     q = d["quarters"][1]
     assert q["period"] == "FY2019Q3" and q["items"][0]["filings"][0]["form"] == "10-Q"
     assert d["quarters"][-1]["items"][0]["missing"]["code"] == "not_reported"
+
+
+def test_quarters_past_the_first_year_use_the_run_s_definition_and_basis(make_company):
+    # as of 2019-03-31 the forecast starts at FY2019Q1, so FY2020Q1 is quarter 5: its year-earlier
+    # quarter was forecast, not history
+    def recast(tag, row):
+        # the Q1 2019 10-Q restates the year-earlier quarter's revenue by 5%
+        if tag == "Revenues" and row["end"] == "2018-03-31" and row["fy"] == 2019:
+            row = row | {"val": row["val"] * 1.05}
+        return row
+
+    for conn, flagged in ((make_company(None), False), (make_company(recast), True)):
+        run_id = run_baseline(conn, "TST", date(2019, 3, 31), choices=CHOICES, today=TODAY)
+        h = against_actuals(conn, run_id, TODAY)
+        q5, it = items(h, "FY2020Q1")
+        assert q5.horizon == 5 and it["ebit"].missing is None
+        assert it["ebit"].actual == pytest.approx(0.2 * it["revenue"].actual)
+        assert it["ebit"].miss is not None  # on the run's own definition, from its newest row
+        _, first = items(h, "FY2019Q1")
+        if flagged:  # the basis changed at FY2019Q1, so FY2020Q1 is not a miss either
+            assert first["revenue"].missing.code == "restated_basis"
+            assert it["revenue"].missing.code == "restated_basis"
+            assert "changed at FY2019Q1" in it["revenue"].missing.text
+        else:
+            assert it["revenue"].missing is None and it["revenue"].miss is not None
