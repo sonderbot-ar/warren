@@ -18,12 +18,12 @@ The front-end team builds Warren's student web app and owns the product decision
 A scheduled run starts every 12 hours (owner's ask, nov.03.2026). Each run:
 
 1. Reads `docs/team-sync.md` entries since the last run, the open `front-end` issues and the engine's open design docs and PRs.
-2. Reviews the *Product impact* section of any new engine design doc against the brief, and answers engine questions.
+2. Reviews the *Product impact* section of any new engine design doc against the brief, and answers issues titled "Question for front-end:".
 3. Advances the current front-end item one step (below), on its branch.
 4. Adds a `docs/team-sync.md` entry for anything it merged and updates the front-end roadmap there.
 5. Ends with a short summary: what changed, what it asked the engine team for, anything waiting on the owner.
 
-Skip step 3 when nothing is ready and say why. Never work on a branch with a commit pushed in the last 3 hours unless a cloud run made it.
+Skip step 3 when nothing is ready and say why. Never work on a branch with a commit pushed in the last 3 hours unless a cloud run made it (its commit messages end with a `Claude-Session:` line).
 
 ## What to work on, and when
 

@@ -61,7 +61,7 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 | 10 | Development workflow: Claude agent teams plan, review, merge and report; owner sets goals | **Accepted** (replaces owner-approved plans and owner merges) | oct.30.2026 |
 | 11 | Product direction: teaching platform for LatAm finance schools; Phase 1 unchanged, scale guardrails for new code | **Accepted** (detailed by 13, nov.03.2026: the web interface runs locally first, hosted later) | oct.30.2026 |
 | 12 | Research scouts: find open-source repos and models, judged on paper by the Goldfish reviewers | **Accepted** (amended: GGUF weights allowed, owner decision) | oct.30.2026 |
-| 13 | Front-end team: owns the student web app (local first, hosted later) and the product decisions that shape the engine | **Accepted** (owner decision) | nov.03.2026 |
+| 13 | Front-end team: owns the student web app (local first, hosted later) and the product decisions that shape the engine | **Accepted** (owner decision; amended nov.03.2026: the teams talk through `docs/team-sync.md`, front-end run every 12 hours) | nov.03.2026 |
 | — | Entity-Attribute-Value (EAV) metrics table | Superseded by 2 | sep.24.2026 |
 | — | Passing only database IDs between graph nodes | Superseded by 2 | sep.24.2026 |
 | — | ChromaDB vector store for documents | Superseded by 3 | sep.24.2026 |

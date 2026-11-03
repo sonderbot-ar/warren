@@ -10,7 +10,7 @@ The owner has delegated building and merging to the agent team (Structure Guide 
 ## 1. Pick
 
 - Read `CLAUDE.md`, `docs/build-plan.md` (Section 2 has the status), `docs/versions.md`, and the entries in `docs/team-sync.md` since your last run.
-- Open issues labelled `front-end` are the front-end team's requests and questions. Answer a question in your run; weigh a request like any backlog issue.
+- Open issues labelled `front-end` are the front-end team's requests, and its questions titled "Question for engine:". Answer those questions in your run; weigh a request like any backlog issue.
 - List the open PRs and the open issues labelled `backlog`. Finish an open track before starting a new one.
 - Take the next milestone whose dependencies are Done. If none is ready, take the backlog issue that unblocks the most. Independent milestones may run in parallel threads, but only one thread per track.
 
