@@ -11,7 +11,7 @@ The engine answers questions an analyst asks from the command line. Nobody has w
 
 **Step 0. Owner notes and studio.** `docs/product/owner-notes.md` with every owner comment so far on what students see (from the project threads, oct.14 to nov.03.2026) and a sign-off table; the "Warren studio" page, its URL recorded there. Test: every note has a date and what changed. Exit: notes merged in this PR; studio published.
 
-**Step 1. The brief.** `docs/product/brief.md`: audience and language; the sorting rule (dato, pronóstico, supuesto, hipotético) with its edge case; 15 questions in Spanish with an English gloss, each with its kind, what Warren returns, what the engine needs and whether it answers today; out-of-scope questions and Warren's answer to each. Test: every question's "Today" claim cites a command, a file or an issue; a reviewer can check each. Exit: student-reviewer, professor and analyst raise no blocker.
+**Step 1. The brief.** `docs/product/brief.md`: audience and language; the sorting rule (dato, estimación, cambio de supuesto, evento) with its edge case; 15 questions in Spanish with an English gloss, each with its kind, what Warren returns, what the engine needs and whether it answers today; out-of-scope questions and Warren's answer to each. Test: every question's "Today" claim cites a command, a file or an issue; a reviewer can check each. Exit: student-reviewer, professor and analyst raise no blocker.
 
 **Step 2. Design principles.** `docs/product/design-principles.md`, one page: the student, the tone, what "intuitive" means, the bar. Test: each principle traces to an owner note or a standing rule. Exit: design critic says READY FOR OWNER.
 
@@ -24,7 +24,7 @@ The engine answers questions an analyst asks from the command line. Nobody has w
 ## Alternatives considered
 
 - **Questions by the engine team, from the engine's outputs.** Faster, but it would list what Warren can already do, not what a student asks; the gaps would never show.
-- **A two-way rule (literal or hypothetical) only.** The #130 wording. Splitting literal into dato, pronóstico and supuesto costs nothing and tells the engine which of three different outputs a question needs.
+- **A two-way rule (literal or hypothetical) only.** The #130 wording. Splitting literal into dato, estimación and cambio de supuesto costs nothing and tells the engine which of three different outputs a question needs.
 - **An AI that answers event questions with an estimated impact.** Ruled out by the standing rule (LLMs never produce financial numbers) and the owner's #130 text.
 - **Menus only, no AI reader.** Works today and needs no Decision 9 change; kept as the fallback in the brief and as an option on the card.
 
