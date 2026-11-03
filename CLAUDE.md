@@ -17,19 +17,19 @@ Warren is built by Claude agent teams that plan, review, merge and report on the
 
 - **Elephant (developers).** One long-running thread per track (a milestone, or a backlog item). It writes the design doc, the code and the tests, opens the PR, fixes failing checks and merges.
 - **Goldfish (reviewers).** Subagents that start with no memory of the design discussion and see only the design doc or the PR. Roles: *explainer* (restates the design to prove it is clear), *analyst* (would a practitioner compute it this way, where does it break on real companies), *professor* (is the method defensible in the literature, can a student learn from it), *gatekeeper* (final go or no-go). Every objection cites a test, a file and line, a filing, a source or a doc section.
-- **Front-end team (product).** Builds the student web app (run locally first, hosted later) and owns the product decisions that shape the engine (Structure Guide Decision 13): which questions Warren must answer, the literal vs hypothetical rule and what each returns, language and audience. Every UX and UI choice goes through it. It files what it needs from the engine as issues labelled `backlog` and `front-end`; engine Elephants build them. It never edits engine code. Product brief now (F1); screens after M10 (F2).
+- **Front-end team (product).** Builds the student web app (run locally first, hosted later) and owns the product decisions that shape the engine (Structure Guide Decision 13): which questions Warren must answer, the literal vs hypothetical rule and what each returns, language and audience. Every UX and UI choice goes through it. The two teams talk through `docs/team-sync.md`. It files what it needs from the engine as issues labelled `backlog` and `front-end`; engine Elephants build them. It never edits engine code. Product brief now (F1); screens after M10 (F2).
 - **Reporters.** Write the desk entry and the lesson for each merged version, on a lighter model.
 - **Scouts (research).** Search GitHub and Hugging Face for open-source repos and models that could help Warren (Structure Guide Decision 12): four in parallel at kickoff, then one every 3 days, at most 5 candidates per run, filed as issues labelled `scout`. The Goldfish `analyst` and `gatekeeper` judge each on paper; a GO from both adds the `backlog` label. Scouts never change code.
 
 **The loop, for each item**
 
-1. **Pick.** The next milestone in the Build Plan whose dependencies are Done, or the next backlog issue. Independent milestones (e.g. M3, M4, M5) may run as parallel tracks.
-2. **Design doc.** On the track branch, in `docs/designs/<milestone>-<short-name>.md`: problem, plan as numbered steps (Step 0, Step 1, …) with tests and an exit criterion, alternatives considered, files to change.
-3. **Design review.** Explainer, analyst and professor review in parallel. The Elephant accepts, rejects with a reason, or escalates.
+1. **Pick.** Read the entries in `docs/team-sync.md` added since your last run, and any open issue labelled `front-end`. Then take the next milestone in the Build Plan whose dependencies are Done, or the next backlog issue. Independent milestones (e.g. M3, M4, M5) may run as parallel tracks.
+2. **Design doc.** On the track branch, in `docs/designs/<milestone>-<short-name>.md`: problem, plan as numbered steps (Step 0, Step 1, …) with tests and an exit criterion, alternatives considered, files to change, and *Product impact* (engine) or *Engine needs* (front-end) as `docs/team-sync.md` says.
+3. **Design review.** Explainer, analyst and professor review in parallel, plus the other team's lead on the *Product impact* or *Engine needs* section. The Elephant accepts, rejects with a reason, or escalates.
 4. **Escalate only on a trigger** (below). Otherwise continue without waiting.
 5. **Build.** One focused commit per step, tests with every step. Open a PR to `main`.
 6. **PR review.** CI must be green. The gatekeeper gives go or no-go; a no-go goes back to step 5. New ideas become GitHub issues labelled `backlog`, not additions to the PR.
-7. **Merge, record, report.** Merge to `main` with a merge commit (so each step's commit stays visible), add the version to `docs/versions.md` (one minor version per milestone, patch versions for backlog items and front-end items, each with its merge commit), update the Build Plan status, and post the desk entry and the lesson.
+7. **Merge, record, report.** Merge to `main` with a merge commit (so each step's commit stays visible), add the version to `docs/versions.md` (one minor version per milestone, patch versions for backlog items and front-end items, each with its merge commit), update the Build Plan status, add an entry to `docs/team-sync.md` (what changed and its effect on the other team), and post the desk entry and the lesson.
 
 **What goes to the owner (decision card with a recommendation)**
 

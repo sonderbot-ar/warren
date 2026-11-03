@@ -9,15 +9,16 @@ The owner has delegated building and merging to the agent team (Structure Guide 
 
 ## 1. Pick
 
-- Read `CLAUDE.md`, `docs/build-plan.md` (Section 2 has the status) and `docs/versions.md`.
+- Read `CLAUDE.md`, `docs/build-plan.md` (Section 2 has the status), `docs/versions.md`, and the entries in `docs/team-sync.md` since your last run.
+- Open issues labelled `front-end` are the front-end team's requests and questions. Answer a question in your run; weigh a request like any backlog issue.
 - List the open PRs and the open issues labelled `backlog`. Finish an open track before starting a new one.
 - Take the next milestone whose dependencies are Done. If none is ready, take the backlog issue that unblocks the most. Independent milestones may run in parallel threads, but only one thread per track.
 
 ## 2. Design
 
 - Create the branch: `m<n>-<short-name>` for a milestone, `backlog-<issue>-<short-name>` for a backlog item.
-- Write `docs/designs/<milestone>-<name>.md` with: the problem; the plan as Step 0, Step 1 and so on, each with its tests and exit criterion; the alternatives considered; and the files to change. Mark the milestone "In progress" in the build plan.
-- Run the `warren-goldfish-review` skill (design review). Fix gaps, or reject an objection with a reason.
+- Write `docs/designs/<milestone>-<name>.md` with: the problem; the plan as Step 0, Step 1 and so on, each with its tests and exit criterion; the alternatives considered; the files to change; and *Product impact*: the brief questions in `docs/product/brief.md` it serves, changes or breaks, and any output it adds, renames or removes ("none" is fine). Mark the milestone "In progress" in the build plan.
+- Run the `warren-goldfish-review` skill (design review), and give the `product-lead` agent the *Product impact* section with the brief. Fix gaps, or reject an objection with a reason.
 - If a trigger in `CLAUDE.md` is hit, send the owner one decision card with a recommendation. Keep working on the parts the card doesn't affect.
 
 ## 3. Build
@@ -30,7 +31,7 @@ The owner has delegated building and merging to the agent team (Structure Guide 
 ## 4. Review and merge
 
 - When CI is green, run the gatekeeper with `warren-goldfish-review`. A NO-GO goes back to step 3.
-- On GO: merge with a merge commit. Add the version to `docs/versions.md`, mark the build plan status Done and record any decision changes, all in a small follow-up commit or the next PR.
+- On GO: merge with a merge commit. Add the version to `docs/versions.md`, mark the build plan status Done, add the version's entry to `docs/team-sync.md` and update the engine roadmap there, record any decision changes, all in a small follow-up commit or the next PR.
 - Run `warren-desk-report` for the desk entry and the lesson.
 
 ## 5. Next
