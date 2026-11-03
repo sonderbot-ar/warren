@@ -81,7 +81,7 @@ Fifteen questions, written as a student would ask them, with an English gloss. "
 *How much will Apple sell in the next four quarters, and how sure is that forecast?*
 - Kind: Estimación.
 - Returns: the baseline revenue path, quarter by quarter, with its p10–p90 range from Warren's own past misses known on that date (M9), and how often such ranges held: across all companies 83% (a p10–p90 range should hold about 8 times in 10), and Apple's own figure beside it, since coverage differs by company (4 of the 8 companies fell outside 65–95%, the band the team set as acceptable for an 80% range; v0.9). So the screen says plainly when Apple's own ranges held less or more often than the pooled 83%.
-- Hoy: **En parte**. Ranges exist for the stored M9 origins and backtest cases, not for a new run. Request R3 (#144).
+- Hoy: **Sí** for the baseline's range (v0.9.8, #144): any run gets its p10–p90 per quarter, how often such ranges held across all companies and for the company, and a coded verdict against 65–95%. The range on top of news shocks still waits (#167).
 
 **6. ¿Qué tan bien ha pronosticado Warren a Procter & Gamble en el pasado?**
 *How well has Warren forecast P&G in the past?*
