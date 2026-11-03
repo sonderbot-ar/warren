@@ -10,7 +10,7 @@ The owner's comments on what students see, kept so the owner never says the same
 |---|---|---|---|
 | Product brief (`docs/product/brief.md`) | nov.03.2026 | Waiting | |
 | Design principles (`docs/product/design-principles.md`) | nov.03.2026 | Waiting | |
-| Literal and hypothetical sorting rule (backlog #130) | nov.03.2026 | Waiting | |
+| Literal and hypothetical sorting rule (backlog #130): AI reader or menus only | nov.03.2026 | Waiting | |
 
 ## Notes
 
