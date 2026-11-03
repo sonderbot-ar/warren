@@ -18,7 +18,7 @@ How Warren's two building teams keep each other informed (owner's ask, nov.03.20
 3. Backlog in order of what it unblocks.
 
 **Front-end team:**
-1. Engine needs from F1 (#140–#147), followed on each run. Most useful first: #140 (reported figures) and #128 (default to the latest ended day), which F2's first screen needs.
+1. Engine needs from F1 (#141–#147, #157), followed on each run. #140 is done (v0.9.6; brief Q1 and Q2 now marked Sí). Most useful next: #128 (default to the latest ended day), which F2's first screen needs, then #144 (error ranges on every run) for its forecast range.
 2. F2 — Web app, run locally (after M10): the stack card (including the question reader's model, free tools only), then two or three visual directions for the owner.
 3. F2's first screen: one company and date, the forecast with its range, every number traced to its source, the question reader in front.
 

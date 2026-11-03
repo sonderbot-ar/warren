@@ -2,6 +2,8 @@
 
 Status: Accepted (F1, nov.03.2026) · Owner sign-off: approved nov.03.2026, with the sorting rule · Owner: front-end team (Structure Guide Decision 13)
 
+Since sign-off: v0.9.6 (nov.03.2026, backlog #140) answers questions 1 and 2, so four questions work today, six in part and five not yet. The questions and answers below are unchanged; only their "Hoy" lines and section 5 move as the engine delivers.
+
 > **What you are approving.** Fifteen questions a finance student would ask Warren, in Spanish, and what Warren answers to each. Questions come in four kinds: a reported figure (*dato*), a model estimate (*estimación*), a changed assumption (*cambio de supuesto*) and an event (*evento*). Warren shows how it read the question before computing anything. Changed assumptions are recomputed by tested code. Events are answered only with similar past cases, how many there are, and what to watch: never a number an AI made up. Warren never predicts prices or gives advice. Two questions work today, eight in part and five not yet; what is missing is eight requests to the engine team (section 5). Signing commits Warren's first screens to these questions. How questions are sorted was decided on its own card (an AI reader, built from the start). How screens look comes later, with mockups.
 
 This brief says which questions Warren must answer for a finance student, how each kind is answered, and what the engine still needs. Engine design docs check their *Product impact* against it (`docs/team-sync.md`). Screens come later (F2, after M10); this brief decides what they must hold, not how they look.
@@ -53,13 +55,13 @@ Fifteen questions, written as a student would ask them, with an English gloss. "
 *How much did Apple sell last quarter, and which filing does that number come from?*
 - Kind: Dato.
 - Returns: revenue for the last reported quarter, its 10-Q or 10-K (accession), the XBRL tag, the period end and the filing date; the first-reported and the latest figure, flagged when they differ (the engine knows *that* it changed, not *why*). Apple's fiscal fourth quarter has no 10-Q: it is the year in the 10-K minus the first nine months, and is marked as derived.
-- Hoy: **En parte**. Facts are stored point in time with their provenance since M1; no command returns one. Request R1 (#140).
+- Hoy: **Sí** (since v0.9.6): `python -m domains.analysis reported --ticker AAPL --period latest-quarter --as-of <fecha> --json`, or the call `domains.analysis.reported.reported_period`. Returns the filing (form, accession, date, EDGAR link), first-reported and latest with `changed`, and the derived fiscal Q4 with its inputs. Request R1 (#140), done.
 
 **2. ¿Cómo ha cambiado el margen operativo de Coca-Cola en los últimos cinco años frente al de Procter & Gamble?**
 *How has Coca-Cola's operating margin changed over five years compared with P&G's?*
 - Kind: Dato (two companies, a ratio).
 - Returns: operating margin by fiscal year for both, as reported (one-off charges included, and said so), each year traced to its filing, the formula, and the fiscal-year ends side by side (Coca-Cola: December; P&G: June, so the "same" year is six months apart).
-- Hoy: **En parte**. A valuation run holds the history it used; there is no stand-alone query, and the app never computes a ratio itself. Request R1 (#140).
+- Hoy: **Sí** (since v0.9.6): the `reported` command once per fiscal year and company (`operating_margin`, with its formula, the lines it uses and their filings; fiscal-year labels are each company's own). The app asks five periods per company, and builds the spreadsheet formula a student would type from `uses` (design principle 5); it never computes the ratio. Request R1 (#140), done.
 
 ### Estimaciones: what the model says
 
@@ -157,11 +159,12 @@ Every event answer shows, for each case: the company and date with its source, w
 
 ## 5. What this brief asks of the engine
 
-Each is an issue labelled `backlog` and `front-end` (`docs/team-sync.md`, rule 4). The engine team weighs them with its backlog. F2's first screen needs R1 and #128; the rest serve later screens.
+Each is an issue labelled `backlog` and `front-end` (`docs/team-sync.md`, rule 4). The engine team weighs them with its backlog. F2's first screen needs R1 (done in v0.9.6) and #128; the rest serve later screens.
 
 | Id | Ask | Questions | Size (engine lead) | Issue |
 |---|---|---|---|---|
-| R1 | Reported figures and named ratios for a company and period, with provenance, first reported and latest, revision flag (takes over #128 item 2) | 1, 2 | M | #140 |
+| R1 | Reported figures and named ratios for a company and period, with provenance, first reported and latest, revision flag (takes over #128 item 2) | 1, 2 | M | #140 (done, v0.9.6) |
+| R1b | Net margin on net income to the parent (left out of #140; no brief question needs it yet) | — | — | #157 |
 | R2a | What-if revaluation: a stored run revalued with named inputs changed, deterministic, stored as a linked child run that reproduces to the cent | 7, 8 | L | #141 |
 | R2b | Two-input sensitivity grid on R2a | 9 | S | #142 |
 | R2c | The list of transmissions, starting with an unexpected policy-rate move → 10-year yield, as a sourced range (owner card: a new method) | 7 | M | #143 |
