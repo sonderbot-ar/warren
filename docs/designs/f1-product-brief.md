@@ -1,6 +1,6 @@
 # F1 design: the product brief
 
-Status: In progress (nov.03.2026) · Elephant: front-end team (`product-lead`) · Branch `f1-product-brief`
+Status: Done (nov.03.2026; owner signed off the brief, the principles and the sorting rule) · Elephant: front-end team (`product-lead`) · Branch `f1-product-brief`
 Implements F1 of the front-end track (Build Plan §4, Structure Guide Decision 13).
 
 ## Problem

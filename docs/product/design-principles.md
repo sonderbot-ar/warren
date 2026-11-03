@@ -1,6 +1,6 @@
 # Warren design principles
 
-Status: Draft for review (F1, nov.03.2026; revised after design review) · Owner sign-off: waiting
+Status: Accepted (F1, nov.03.2026) · Owner sign-off: approved nov.03.2026
 
 > **What you are approving.** The tone, eight rules for what "intuitive" means, the fixed parts of how Warren looks, and the bar every screen must pass before you see it. Two deliberate narrowings of your prototype notes: the side panel opens on financial figures (labels open only the concept, buttons open nothing), and *¿Y si…?* changes model inputs, not reported figures. Exact colours and type come later, with the visual direction.
 

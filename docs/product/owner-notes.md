@@ -10,10 +10,11 @@ The owner's comments on what students see, kept so the owner never says the same
 |---|---|---|---|
 | Product brief (`docs/product/brief.md`) | nov.03.2026 | Approved (card) | nov.03.2026 |
 | Design principles (`docs/product/design-principles.md`) | nov.03.2026 | Approved (card), including the side-panel narrowing and the Mexico number format | nov.03.2026 |
-| Literal and hypothetical sorting rule (backlog #130): AI reader or menus only | nov.03.2026 | Waiting | |
+| Literal and hypothetical sorting rule (backlog #130): AI reader or menus only | nov.03.2026 | AI reader, menus first (card) | nov.03.2026 |
 
 ## Notes
 
+- **nov.03.2026 · No tagging by students.** On the sorting card: "I am not too fond of users having to tag their type of question — maybe we get a decision model in this part of the process?" Then chose the AI reader, menus first. *Changed:* Decision 9 records the question reader; menus are a stopgap until the reader is measured, never the end state, and when the reader is live the student only confirms its reading. Students should not have to classify their own question.
 - **nov.03.2026 · Pristine and intuitive.** "I want the aesthetics and functionality of Warren to be pristine and intuitive." "This front-end team will need a lot of coordination and reporting with me." *Changed:* the owner signs off the brief, the design principles, the visual direction and each screen (mockup and built); a design critic passes everything first; this file and the studio page exist.
 - **nov.03.2026 · A web app, run locally first.** Asked whether a desktop app was overkill, and chose a web app that runs on the owner's Mac first and is hosted later. *Changed:* Decision 13; F2 compares free stacks that can be hosted without a rewrite.
 - **nov.03.2026 · Side by side with the engine team.** "The front-end team should work side to side with the back-end team … establish a mean of effective communication to understand the implications of each update." *Changed:* `docs/team-sync.md`; every front-end design doc has an *Engine needs* section.

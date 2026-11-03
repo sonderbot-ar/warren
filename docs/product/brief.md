@@ -1,6 +1,6 @@
 # Warren product brief: the questions a student asks
 
-Status: Draft for review (F1, nov.03.2026; revised after design review) · Owner sign-off: waiting · Owner: front-end team (Structure Guide Decision 13)
+Status: Accepted (F1, nov.03.2026) · Owner sign-off: approved nov.03.2026, with the sorting rule · Owner: front-end team (Structure Guide Decision 13)
 
 > **What you are approving.** Fifteen questions a finance student would ask Warren, in Spanish, and what Warren answers to each. Questions come in four kinds: a reported figure (*dato*), a model estimate (*estimación*), a changed assumption (*cambio de supuesto*) and an event (*evento*). Warren shows how it read the question before computing anything. Changed assumptions are recomputed by tested code. Events are answered only with similar past cases, how many there are, and what to watch: never a number an AI made up. Warren never predicts prices or gives advice. Two questions work today, eight in part and five not yet; what is missing is eight requests to the engine team (section 5). Signing commits Warren's first screens to these questions. Not part of this approval: whether an AI or menus sort the question (the sorting-method card), and how screens look (later, with mockups).
 
@@ -32,7 +32,7 @@ Every question is read first, and the reading is shown to the student **before a
 
 **Ambiguous questions** are sorted *evento*, and the reading offers the *cambios de supuesto* the student may mean ("¿quieres bajar el margen operativo o el crecimiento de ingresos?"). Warren never quietly turns an event into an input.
 
-**Who sorts.** Two ways, for the owner to choose:
+**Who sorts.** Decided by the owner on nov.03.2026: the AI reader, with menus first (Decision 9). The two ways:
 
 1. **An AI reader** (proposed). An AI model reads the question and returns only structured fields: the kind, the company, the date, and the inputs it names. A value is filled in only when it is copied word for word from the student's question, and code checks that it appears there; otherwise the field stays blank for the student to fill in. Code checks the rest against the input list and the transmission list; the student sees the reading as an editable card, confirms or fixes it, and only then does code compute. The AI's output is a label, never a financial number (standing rule). It is a new AI step under Decision 9, so it is built only once the owner accepts it and Decision 9 records it, and it is measured first on a labelled set of student questions (these fifteen and more).
 2. **Menus only.** The student picks the kind, then the company, date and input from menus, and types the value. No AI, works with today's engine, and the reading card is the same. The cost: a student cannot simply type a question.
