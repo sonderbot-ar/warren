@@ -2,6 +2,7 @@
 
 import json
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -351,3 +352,45 @@ def test_an_older_single_file_snapshot_still_restores_and_prunes(data, tmp_path)
     _save(data, folder, 2)
     _save(data, folder, 3)
     assert not single.exists() and not path.exists()
+
+
+def test_prune_deletes_every_part_of_an_old_multi_part_snapshot(data, tmp_path, monkeypatch):
+    monkeypatch.setattr(snapshot, "PART_BYTES", 20_000)
+    _bulk(data)
+    folder = tmp_path / "snap"
+    first = json.loads(_save(data, folder, 1).read_text())
+    _save(data, folder, 2)
+    _save(data, folder, 3)
+    assert len(first["parts"]) >= 3
+    assert not list(folder.glob("warren-20261031T230100Z*"))
+
+
+def test_a_save_that_fails_partway_leaves_no_parts_behind(data, tmp_path, monkeypatch):
+    monkeypatch.setattr(snapshot, "PART_BYTES", 20_000)
+    _bulk(data)
+    folder = tmp_path / "snap"
+    real, calls = Path.rename, []
+
+    def flaky(self, target):
+        calls.append(self)
+        if len(calls) == 2:  # the second part's rename fails, e.g. the folder went away
+            raise OSError("disk gone")
+        return real(self, target)
+
+    monkeypatch.setattr(Path, "rename", flaky)
+    with pytest.raises(OSError, match="disk gone"):
+        _save(data, folder)
+    assert list(folder.iterdir()) == []
+
+
+def test_a_corrupt_middle_part_is_skipped(data, tmp_path, monkeypatch):
+    monkeypatch.setattr(snapshot, "PART_BYTES", 20_000)
+    _bulk(data)
+    folder = tmp_path / "snap"
+    _save(data, folder, 1)
+    newest = _save(data, folder, 2)
+    middle = folder / json.loads(newest.read_text())["parts"][1]["name"]
+    middle.write_bytes(b"x" * middle.stat().st_size)  # same size, wrong bytes
+    restored = snapshot.restore(folder, tmp_path / "fresh")
+    assert restored["archive"] == "warren-20261031T230100Z.tar.gz"
+    assert restored["skipped"][0].startswith(newest.name)

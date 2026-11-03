@@ -16,6 +16,8 @@ On nov.03.2026 four snapshot archives (759 MB to 1.12 GB) never reached the proj
 - **Leave rebuildable rows out** (events from `news rebuild-events`). Smaller, but a restore would then need a rebuild step and the snapshot would hold less than the database; it changes what a restore means. Parts fix the limit without that.
 - **Wait for the upload before returning.** Doesn't help: an archive over the limit never uploads.
 
+Disk: `save` needs about twice the archive size free on local disk (the database copy plus the archive, both in the system temp folder) before copying parts out.
+
 ## Files
 
 `shared_kernel/snapshot.py`, `tests/shared_kernel/test_snapshot.py`.

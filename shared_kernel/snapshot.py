@@ -10,8 +10,7 @@ included), the raw EDGAR files and the pipelines' telemetry (M7), next to a JSON
 archive's SHA-256 and size, each part's, the schema version, the code commit and row counts.
 `restore` picks the newest manifest whose parts are all there and match their hashes (#150),
 unpacks into `data/` and applies newer migrations. Nothing in a snapshot changes point-in-time
-reads: every row keeps its
-own filing, fetch and seen dates.
+reads: every row keeps its own filing, fetch and seen dates.
 Callers still run the reproduce checks before trusting the data (the warren-run-track skill).
 
 The SHA-256 proves the archive is the one its manifest describes (integrity), not who made it
@@ -220,18 +219,25 @@ def save(folder: Path, db_path: Path = DB_PATH, raw_dir: Path = RAW_EDGAR_DIR,
                 tar.add(telemetry, arcname=TELEMETRY_NAME)
         whole_sha, whole_bytes = _sha256(local), local.stat().st_size
         parts = []
-        with open(local, "rb") as src:
-            for i in range(max(1, -(-whole_bytes // PART_BYTES))):
-                part = folder / f"{archive.name}.part{i:03d}"
-                partial = part.with_name(part.name + ".partial")
-                with open(partial, "wb") as dst:
-                    left = PART_BYTES
-                    while left and (block := src.read(min(left, 1 << 20))):
-                        dst.write(block)
-                        left -= len(block)
-                partial.rename(part)  # a reader never sees a half-written part
-                parts.append({"name": part.name, "bytes": part.stat().st_size,
-                              "sha256": _sha256(part)})  # fmt: skip
+        written: list[Path] = []
+        try:
+            with open(local, "rb") as src:
+                for i in range(max(1, -(-whole_bytes // PART_BYTES))):
+                    part = folder / f"{archive.name}.part{i:03d}"
+                    partial = part.with_name(part.name + ".partial")
+                    written += [partial, part]
+                    with open(partial, "wb") as dst:
+                        left = PART_BYTES
+                        while left and (block := src.read(min(left, 1 << 20))):
+                            dst.write(block)
+                            left -= len(block)
+                    partial.rename(part)  # a reader never sees a half-written part
+                    parts.append({"name": part.name, "bytes": part.stat().st_size,
+                                  "sha256": _sha256(part)})  # fmt: skip
+        except BaseException:  # no manifest names these, so nothing would ever prune them
+            for path in written:
+                path.unlink(missing_ok=True)
+            raise
     manifest = {
         "archive": archive.name,
         "sha256": whole_sha,
