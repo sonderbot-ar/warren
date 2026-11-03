@@ -193,6 +193,33 @@ def value_per_share(equity: Number, shares: Number) -> Number:
     return equity / shares
 
 
+# -- reported ratios (backlog #140) -------------------------------------------------------------
+
+
+def ratio(numerator: Number, denominator: Number) -> Number:
+    """A share or margin, as a fraction (0.2 = 20%): numerator ÷ a positive denominator.
+
+    A zero or negative base (revenue, pretax income) makes a margin or a rate meaningless, so it
+    raises instead of returning infinity or a sign-flipped share."""
+    if _any(denominator <= 0):
+        raise FinancialMathError(f"a ratio needs a positive base, got {denominator}")
+    return numerator / denominator
+
+
+def growth(current: Number, prior: Number) -> Number:
+    """Growth as a fraction: current ÷ prior − 1, over a positive prior value."""
+    if _any(prior <= 0):
+        raise FinancialMathError(f"growth needs a positive prior value, got {prior}")
+    return current / prior - 1
+
+
+def net_debt(debt: Number, cash_and_investments: Number) -> Number:
+    """Debt − cash and investments; negative means net cash."""
+    if _any(debt < 0) or _any(cash_and_investments < 0):
+        raise FinancialMathError("debt and cash must be non-negative")
+    return debt - cash_and_investments
+
+
 # -- cost of capital --------------------------------------------------------------------------
 
 

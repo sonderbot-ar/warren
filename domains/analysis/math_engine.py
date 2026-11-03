@@ -89,6 +89,13 @@ BALANCE_ITEMS = (
     "finance_lease_liabilities",
     "minority_interest",
 )
+# What D3 subtracts from debt: cash and every marketable security, current and non-current.
+CASH_ITEMS = (
+    "cash",
+    "marketable_securities_current",
+    "marketable_securities_noncurrent",
+    "other_short_term_investments",
+)
 REQUIRED_BALANCE = {"current_assets", "current_liabilities", "cash"}
 SHARE_ITEMS = ("shares_outstanding", "diluted_shares")
 ITEMS = sorted({n for chain in CHAINS.values() for alt in chain for n in alt})
@@ -422,7 +429,7 @@ def _lease_inclusive(*facts: Fact | None) -> bool:
     )
 
 
-def _debt(get: Callable[[str], Fact | None]) -> tuple[float, list[Fact], list[str], str]:
+def debt_parts(get: Callable[[str], Fact | None]) -> tuple[float, list[Fact], list[str], str]:
     """Debt (D3): long-term debt, current and non-current, short-term borrowings (or commercial
     paper when there are none), and finance leases unless a debt tag already includes them.
     Returns (total, facts used, items counted as zero, notes)."""
@@ -487,7 +494,7 @@ def _balance(history: History, base_date: date, result: EngineResult) -> date:
             f"{result.ticker}: cash and current securities exceed current assets at {balance_date}"
         )
 
-    debt, used, zero, notes = _debt(get)
+    debt, used, zero, notes = debt_parts(get)
     for fact in used:
         result.add(f"balance:{fact.canonical_name}", fact.value, trace(fact))
     result.add(
@@ -495,20 +502,14 @@ def _balance(history: History, base_date: date, result: EngineResult) -> date:
         debt,
         "D3 debt = " + " + ".join(f.canonical_name for f in used) + (f"; {notes}" if notes else ""),
     )
-    cash_items = (
-        "cash",
-        "marketable_securities_current",
-        "marketable_securities_noncurrent",
-        "other_short_term_investments",
-    )
-    for item in cash_items:
+    for item in CASH_ITEMS:
         if facts[item] is not None:
             result.add(f"balance:{item}", facts[item].value, trace(facts[item]))
         else:
             zero.append(item)
     result.add(
         "cash_and_investments",
-        sum(val(i) for i in cash_items),
+        sum(val(i) for i in CASH_ITEMS),
         "cash + marketable securities (current, non-current) + other short-term investments",
     )
     minority = facts["minority_interest"]
@@ -645,8 +646,8 @@ def _cost_of_debt(history: History, fiscal_years: list[int], result: EngineResul
             interest = resolve("interest", history.year(year), f"FY{year}")
         except EngineError:
             continue
-        end, _, _, _ = _debt(history.year(year))
-        start, start_used, _, _ = _debt(history.year(year - 1))
+        end, _, _, _ = debt_parts(history.year(year))
+        start, start_used, _, _ = debt_parts(history.year(year - 1))
         average = (start + end) / 2 if start_used else end
         if average <= 0:
             continue
