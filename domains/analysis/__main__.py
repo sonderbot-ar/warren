@@ -7,6 +7,8 @@
     python -m domains.analysis fallbacks [--as-of 2026-10-26]
     python -m domains.analysis simulate --run-id AAPL_2024-03-31_1 --shocks FILE [--n] [--seed]
     python -m domains.analysis reproduce-sim --sim-id AAPL_2024-03-31_1_sim1
+    python -m domains.analysis reported --ticker AAPL --period latest-quarter --as-of 2026-11-02
+        [--period FY2024 ...] [--json]
 
 `dcf` stores each run and writes data/reports/dcf/<TICKER>_<as_of>.md; it exits 1 if any run
 fails. `reproduce` values stored runs again from their assumptions and exits 1 on any mismatch; with
@@ -15,9 +17,12 @@ fails. `reproduce` values stored runs again from their assumptions and exits 1 o
 `fallbacks` compares every fallback with its primary item across the universe.
 `simulate` runs a stored baseline under hand-entered shocks (M4), stores the simulation and writes
 data/reports/sim/<sim_id>.md; `reproduce-sim` runs it again from its seed and compares to the cent.
+`reported` prints a fiscal period's reported lines, with their filings, and the named ratios, as
+known on the as-of date (backlog #140); `--json` prints the same for the app. Nothing is stored.
 """
 
 import argparse
+import json
 import sys
 from datetime import date
 from pathlib import Path
@@ -33,6 +38,7 @@ from domains.analysis.montecarlo import (
     save_simulation,
 )
 from domains.analysis.report import write_report
+from domains.analysis.reported import ReportedError, ReportedPeriod, reported_period
 from domains.analysis.runs import rebuild, reproduce, run_baseline
 from domains.fundamentals.universe import PHASE1_UNIVERSE, get_universe_company
 from domains.market.store import MarketDataError
@@ -176,6 +182,66 @@ def cmd_reproduce_sim(args: argparse.Namespace) -> int:
     return 0 if result.ok else 1
 
 
+def _fmt(value: float | None, unit: str) -> str:
+    if value is None:
+        return "—"
+    return f"{value:.1%}" if unit == "fraction" else f"{value:,.0f} {unit}"
+
+
+def render_reported(r: ReportedPeriod) -> str:
+    """A period's lines, ratios and disagreements as plain text, for the terminal."""
+    out = [
+        f"{r.ticker} {r.company_name} · {r.period} ({r.period_start} to {r.period_end}) · "
+        f"as of {r.as_of}"
+    ]
+    out.append("Lines (latest known; first reported where it differs):")
+    for x in r.lines:
+        source = x.latest.filing
+        where = (
+            f"{source.form} {source.accession_no} filed {source.filed_at}"
+            if source
+            else "derived from " + ", ".join(f"{i.form} {i.accession_no}" for i in x.latest.inputs)
+        )
+        line = f"  {x.name:32} {_fmt(x.value, x.unit):>26}  {x.latest.xbrl_concept}  {where}"
+        if x.changed:
+            line += f"  (first reported {_fmt(x.first_reported.value, x.unit)})"
+        out.append(line)
+    out.append("Ratios (" + r.as_reported_note.text + "):")
+    for ratio in r.ratios:
+        out.append(f"  {ratio.name:20} {_fmt(ratio.value, ratio.unit):>22}  {ratio.formula}")
+        for coded in [*([ratio.missing] if ratio.missing else []), *ratio.notes]:
+            out.append(f"  {'':20} {'':>22}  note: {coded.text}")
+    if r.disagreements:
+        out.append("Newest filing disagrees with the selected value:")
+        for d in r.disagreements:
+            out.append(
+                f"  {d.name} {d.period_start or ''}–{d.period_end}: "
+                f"selected {d.selected.value:,.0f}"
+                f" ({d.selected.xbrl_concept}), newest {d.newest.value:,.0f}"
+                f" ({d.newest.xbrl_concept})"
+            )
+    for w in r.warnings:
+        out.append(f"WARNING: {w.text}")
+    return "\n".join(out)
+
+
+def cmd_reported(args: argparse.Namespace) -> int:
+    as_of = date.fromisoformat(args.as_of)
+    results = []
+    with get_db_connection() as conn:
+        apply_migrations(conn)
+        try:
+            results = [reported_period(conn, args.ticker, p, as_of) for p in args.period]
+        except ReportedError as e:
+            print(f"FAILED: {e}")
+            return 1
+    if args.json:
+        print(json.dumps([r.to_dict() for r in results], indent=2, ensure_ascii=False))
+    else:
+        print("\n\n".join(render_reported(r) for r in results))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m domains.analysis")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -210,6 +276,18 @@ def main(argv: list[str] | None = None) -> int:
     rsim = commands.add_parser("reproduce-sim", help="run a stored simulation again and compare")
     rsim.add_argument("--sim-id", required=True)
     rsim.set_defaults(func=cmd_reproduce_sim)
+
+    rp = commands.add_parser("reported", help="a period's reported figures and named ratios")
+    rp.add_argument("--ticker", required=True)
+    rp.add_argument(
+        "--period",
+        action="append",
+        required=True,
+        help="FY2025, FY2025Q4, latest-quarter or latest-year; repeatable",
+    )
+    rp.add_argument("--as-of", required=True, help="YYYY-MM-DD: only filings public by then")
+    rp.add_argument("--json", action="store_true", help="print JSON for the app")
+    rp.set_defaults(func=cmd_reported)
 
     args = parser.parse_args(argv)
     return args.func(args)

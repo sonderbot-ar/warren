@@ -1,0 +1,244 @@
+"""Reported figures and named ratios (backlog #140), on Test Corp, whose ratios are known by
+construction (tests/analysis/conftest.py): operating margin 20%, tax 25% of pretax, D&A 5% and
+capex 6% of revenue, revenue +10% a year; debt 20 + 180, cash 60. There is no Q4 10-Q, so every
+fiscal Q4 is derived from the 10-K year less the three 10-Q quarters."""
+
+import json
+from datetime import date
+
+import pytest
+
+from domains.analysis import __main__ as cli
+from domains.analysis.reported import (
+    LENGTH_NOTE_DAYS,
+    Period,
+    ReportedError,
+    filing_url,
+    parse_period,
+    reported_period,
+)
+from tests.analysis.conftest import AS_OF, revenue
+
+Q1_2020_10Q = "0000000123-20-000016"  # filed 2020-04-30, holds Q1 2019 as its comparative
+FY2019_10K = "0000000123-20-000015"  # filed 2020-02-15
+
+
+def test_parse_period():
+    assert parse_period("FY2025Q4") == Period(2025, "Q4")
+    assert parse_period("fy2024") == Period(2024, "FY")
+    assert Period(2024, "FY").label == "FY2024"
+    for bad in ("2025Q4", "FY2025Q5", "FY25", "latest"):
+        with pytest.raises(ReportedError, match="FY2025Q4"):
+            parse_period(bad)
+
+
+def test_a_fiscal_year_gives_the_engine_ratios(company):
+    r = reported_period(company, "TST", "FY2019", AS_OF)
+    assert (r.period, r.period_start, r.period_end) == (
+        "FY2019",
+        date(2019, 1, 1),
+        date(2019, 12, 31),
+    )
+    assert r.company_name == "Test Corp" and r.fiscal_year_end == "1231"
+    rev = r.line("revenue")
+    assert rev.value == pytest.approx(sum(revenue(2019, q) for q in (1, 2, 3, 4)))
+    assert rev.latest.filing.accession_no == FY2019_10K
+    assert rev.latest.filing.form == "10-K"
+    assert rev.latest.filing.url == filing_url("0000000123", FY2019_10K)
+    assert not rev.derived and not rev.changed
+    assert r.ratio("operating_margin").value == pytest.approx(0.20)
+    assert r.ratio("effective_tax_rate").value == pytest.approx(0.25)
+    assert r.ratio("da_share").value == pytest.approx(0.05)
+    assert r.ratio("capex_share").value == pytest.approx(0.06)
+    assert r.ratio("revenue_growth_yoy").value == pytest.approx(0.10)
+    assert r.ratio("effective_tax_rate").notes == []  # the interim note is for quarters only
+    assert r.as_reported_note.code == "as_reported"
+
+
+def test_a_derived_fourth_quarter_names_its_filings(company):
+    r = reported_period(company, "TST", "FY2019Q4", AS_OF)
+    rev = r.line("revenue")
+    assert rev.derived and rev.latest.filing is None
+    assert rev.value == pytest.approx(revenue(2019, 4))
+    forms = {i.form for i in rev.latest.inputs}
+    assert forms == {"10-K", "10-Q"}
+    assert FY2019_10K in {i.accession_no for i in rev.latest.inputs}
+    assert r.ratio("revenue_growth_yoy").value == pytest.approx(0.10)
+    assert r.ratio("operating_margin").value == pytest.approx(0.20)
+    assert [n.code for n in r.ratio("effective_tax_rate").notes] == ["interim_tax_rate"]
+    # the balance at a Q4 is the year-end one, from the 10-K
+    assert r.line("cash").period_end == date(2019, 12, 31)
+
+
+def test_net_debt_follows_the_valuation_rule(company):
+    r = reported_period(company, "TST", "FY2019Q3", AS_OF)
+    net_debt = r.ratio("net_debt")
+    assert net_debt.value == pytest.approx(20 + 180 - 60)
+    assert net_debt.unit == "USD"
+    codes = {n.code: n.params for n in net_debt.notes}
+    assert "finance_lease_liabilities" in codes["counted_as_zero"]["items"]
+    assert "net_cash" not in codes
+    assert {u["line"] for u in net_debt.uses} == {"debt_current", "debt_noncurrent", "cash"}
+
+
+def test_items_not_reported_give_a_coded_gap(company):
+    r = reported_period(company, "TST", "FY2019", AS_OF)
+    gross = r.ratio("gross_margin")
+    assert gross.value is None
+    assert (gross.missing.code, gross.missing.params) == (
+        "not_reported",
+        {"items": ["cost_of_revenue"]},
+    )
+    assert r.line("cost_of_revenue") is None  # a line the period doesn't report is left out
+    assert "net_margin" not in {x.name for x in r.ratios}  # waits for net income to the parent
+
+
+def test_latest_quarter_is_point_in_time(company):
+    before = reported_period(company, "TST", "latest-quarter", date(2020, 4, 29))
+    assert before.period == "FY2019Q4"
+    on_the_day = reported_period(company, "TST", "latest-quarter", date(2020, 4, 30))
+    assert on_the_day.period == "FY2020Q1"
+    with pytest.raises(ReportedError, match="FY2020Q1: revenue not reported"):
+        reported_period(company, "TST", "FY2020Q1", date(2020, 4, 29))
+    assert reported_period(company, "TST", "latest-year", AS_OF).period == "FY2019"
+    with pytest.raises(ReportedError, match="not been ingested"):
+        reported_period(company, "NOPE", "FY2019", AS_OF)
+
+
+def _restate_q1_2019(tag, row):
+    if row["accn"] == Q1_2020_10Q and row["end"] == "2019-03-31" and tag == "Revenues":
+        return {**row, "val": row["val"] + 5}
+    return row
+
+
+def test_a_restated_comparative_shows_both_versions(make_company):
+    conn = make_company(_restate_q1_2019)
+    first = revenue(2019, 1)
+    before = reported_period(conn, "TST", "FY2019Q1", date(2020, 4, 29)).line("revenue")
+    assert not before.changed and before.value == pytest.approx(first)
+    r = reported_period(conn, "TST", "FY2019Q1", AS_OF)
+    rev = r.line("revenue")
+    assert rev.changed
+    assert rev.value == pytest.approx(first + 5)
+    assert rev.first_reported.value == pytest.approx(first)
+    assert rev.latest.filing.accession_no == Q1_2020_10Q
+    assert rev.first_reported.filed_at < rev.latest.filed_at
+    margin_notes = {n.code: n.params for n in r.ratio("operating_margin").notes}
+    assert margin_notes["uses_changed_line"]["items"] == ["revenue"]
+    growth_notes = {n.code: n.params for n in r.ratio("revenue_growth_yoy").notes}
+    assert growth_notes["uses_changed_line"]["periods"] == ["FY2019Q1"]
+
+
+def test_disagreement_rows_sit_on_their_own_period(company):
+    # the Q1 2020 10-Q repeats Q1 2019 only under a lower-ranked revenue tag, with another value
+    company.execute(
+        "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, fiscal_year, "
+        "fiscal_period, value, unit, form, accession_no, filed_at) VALUES (?, ?, ?, ?, ?, ?, ?, "
+        "'USD', '10-Q', ?, '2020-04-30')",
+        (
+            "0000000123",
+            "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+            "2019-01-01",
+            "2019-03-31",
+            2019,
+            "Q1",
+            revenue(2019, 1) + 7,
+            "0000000123-20-000099",
+        ),
+    )
+    hit = reported_period(company, "TST", "FY2019Q1", AS_OF)
+    assert [(d.name, d.period_end) for d in hit.disagreements] == [("revenue", date(2019, 3, 31))]
+    assert hit.disagreements[0].newest.value == pytest.approx(revenue(2019, 1) + 7)
+    assert reported_period(company, "TST", "FY2019Q2", AS_OF).disagreements == []
+    # a derived Q4 is built from the year's quarters, so it lists the row too
+    assert len(reported_period(company, "TST", "FY2019Q4", AS_OF).disagreements) == 1
+
+
+def test_operating_margin_through_the_pretax_fallback_says_so(make_company):
+    conn = make_company(lambda tag, row: None if tag == "OperatingIncomeLoss" else row)
+    margin = reported_period(conn, "TST", "FY2019", AS_OF).ratio("operating_margin")
+    assert margin.formula_id == "pretax_plus_interest_over_revenue"
+    assert margin.value == pytest.approx(0.20)  # pretax + interest = operating income here
+    assert [n.code for n in margin.notes] == ["ebit_from_pretax_plus_interest"]
+    assert {u["line"] for u in margin.uses} == {"pretax_income", "interest_expense", "revenue"}
+
+
+def test_a_loss_before_tax_has_no_tax_rate(make_company):
+    pretax = "IncomeLossFromContinuingOperationsBeforeIncomeTaxes"  # the fixture tag starts so
+
+    def loss(tag, row):
+        if (
+            tag.startswith(pretax)
+            and row["end"] == "2019-12-31"
+            and row.get("start") == "2019-01-01"
+        ):
+            return {**row, "val": -10}
+        return row
+
+    tax = reported_period(make_company(loss), "TST", "FY2019", AS_OF).ratio("effective_tax_rate")
+    assert tax.value is None
+    assert tax.missing.code == "base_not_positive"
+
+
+def test_growth_flags_periods_a_week_apart_in_length(company):
+    # a 14-week quarter: 97 days against 90, exactly LENGTH_NOTE_DAYS longer
+    company.execute(
+        "UPDATE financial_facts SET period_start = '2018-12-25' WHERE period_start = '2019-01-01' "
+        "AND period_end = '2019-03-31'"
+    )
+    growth = reported_period(company, "TST", "FY2019Q1", AS_OF).ratio("revenue_growth_yoy")
+    notes = {n.code: n.params for n in growth.notes}
+    assert notes["period_length_differs"] == {"days": 97, "prior_days": 90}
+    assert 97 - 90 == LENGTH_NOTE_DAYS
+    plain = reported_period(company, "TST", "FY2019Q2", AS_OF).ratio("revenue_growth_yoy")
+    assert plain.notes == []
+
+
+def test_the_first_year_has_no_growth(company):
+    r = reported_period(company, "TST", "FY2014", AS_OF)  # the 10-K of 2016 holds 2014
+    assert r.prior_lines == []
+    growth = r.ratio("revenue_growth_yoy")
+    assert growth.value is None and growth.missing.code == "not_reported"
+
+
+def test_to_dict_is_plain_json(company):
+    r = reported_period(company, "TST", "FY2019Q4", AS_OF)
+    data = json.loads(json.dumps(r.to_dict()))
+    assert data["period_end"] == "2019-12-31"
+    assert data["lines"][0]["latest"]["filed_at"] >= "2016"
+    ratio = next(x for x in data["ratios"] if x["name"] == "operating_margin")
+    assert ratio["value"] == pytest.approx(0.20)  # a fraction, unrounded
+    assert set(data) >= {"ticker", "cik", "company_name", "lines", "ratios", "warnings"}
+
+
+def _cli(company, monkeypatch, capsys, *args):
+    class Same:
+        def __enter__(self):
+            return company
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(cli, "get_db_connection", lambda: Same())
+    code = cli.main(["reported", "--ticker", "TST", "--as-of", AS_OF.isoformat(), *args])
+    return code, capsys.readouterr().out
+
+
+def test_cli_text_and_json(company, monkeypatch, capsys):
+    code, out = _cli(company, monkeypatch, capsys, "--period", "FY2019Q4")
+    assert code == 0
+    assert "FY2019Q4 (2019-10-01 to 2019-12-31)" in out
+    assert "derived from 10-K" in out and "operating_margin" in out and "20.0%" in out
+
+    code, out = _cli(
+        company, monkeypatch, capsys, "--period", "FY2018", "--period", "FY2019", "--json"
+    )
+    assert code == 0
+    data = json.loads(out)
+    assert [d["period"] for d in data] == ["FY2018", "FY2019"]
+
+
+def test_cli_refuses_an_unknown_period(company, monkeypatch, capsys):
+    code, out = _cli(company, monkeypatch, capsys, "--period", "2019Q4")
+    assert code == 1
+    assert "FAILED: unknown period" in out and "latest-quarter" in out
