@@ -69,7 +69,7 @@ Fifteen questions, written as a student would ask them, with an English gloss. "
 *What is Microsoft worth per share on a DCF, and what assumptions does it use?*
 - Kind: Estimación.
 - Returns: value per share with its values at the equity risk premium ± one standard error; the five-year drivers; WACC; the terminal value method; every assumption with its source. The market price appears only as an input to the capital weights, never as a target.
-- Hoy: **Sí**, with a date: `python -m domains.analysis dcf --ticker MSFT --as-of <fecha>` (no AI, free). The default to the latest date is #128 item 1.
+- Hoy: **Sí**: `python -m domains.analysis dcf --ticker MSFT` (no AI, free). Without `--as-of` it uses the last day that has ended in New York and says so, with the date of the last EDGAR download (since v0.9.7, #128). A past date is asked with `--as-of <fecha>`; the full run (`python main.py run`) then also shows the forecast against what was reported afterwards.
 
 **4. ¿Cuál es el WACC de Walmart y de dónde sale cada parte?**
 *What is Walmart's WACC, and where does each part come from?*
@@ -159,7 +159,7 @@ Every event answer shows, for each case: the company and date with its source, w
 
 ## 5. What this brief asks of the engine
 
-Each is an issue labelled `backlog` and `front-end` (`docs/team-sync.md`, rule 4). The engine team weighs them with its backlog. F2's first screen needs R1 (done in v0.9.6) and #128; the rest serve later screens.
+Each is an issue labelled `backlog` and `front-end` (`docs/team-sync.md`, rule 4). The engine team weighs them with its backlog. F2's first screen needs R1 (done in v0.9.6) and #128 (done in v0.9.7); the rest serve later screens.
 
 | Id | Ask | Questions | Size (engine lead) | Issue |
 |---|---|---|---|---|
@@ -172,5 +172,5 @@ Each is an issue labelled `backlog` and `front-end` (`docs/team-sync.md`, rule 4
 | R4 | Track record per company from the stored batches | 6 | S | #145 |
 | R5 | Past-event query: cases by rule, closeness, n and a thin-evidence flag, the usual-miss comparison, scope-change warning, and a sourced "metrics to watch" table | 10–15 | M | #146 |
 | R6 | Analogue cases for currency, inflation, commodity supply and elections, in a separate, unscored file | 11, 13, 14, 15 | M | #147 |
-| — | Runs default to the latest ended day | 3 | | #128 |
+| — | Runs default to the latest ended day; a past date shows what was reported afterwards | 3, 5 | | #128 (done, v0.9.7) |
 | — | The sorting rule and the AI reader (owner decision) | all | | #130 |
