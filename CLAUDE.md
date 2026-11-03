@@ -17,6 +17,7 @@ Warren is built by Claude agent teams that plan, review, merge and report on the
 
 - **Elephant (developers).** One long-running thread per track (a milestone, or a backlog item). It writes the design doc, the code and the tests, opens the PR, fixes failing checks and merges.
 - **Goldfish (reviewers).** Subagents that start with no memory of the design discussion and see only the design doc or the PR. Roles: *explainer* (restates the design to prove it is clear), *analyst* (would a practitioner compute it this way, where does it break on real companies), *professor* (is the method defensible in the literature, can a student learn from it), *gatekeeper* (final go or no-go). Every objection cites a test, a file and line, a filing, a source or a doc section.
+- **Front-end team (product).** Builds the student web app (run locally first, hosted later) and owns the product decisions that shape the engine (Structure Guide Decision 13): which questions Warren must answer, the literal vs hypothetical rule and what each returns, language and audience. Every UX and UI choice goes through it. It files what it needs from the engine as issues labelled `backlog` and `front-end`; engine Elephants build them. It never edits engine code. Product brief now (F1); screens after M10 (F2).
 - **Reporters.** Write the desk entry and the lesson for each merged version, on a lighter model.
 - **Scouts (research).** Search GitHub and Hugging Face for open-source repos and models that could help Warren (Structure Guide Decision 12): four in parallel at kickoff, then one every 3 days, at most 5 candidates per run, filed as issues labelled `scout`. The Goldfish `analyst` and `gatekeeper` judge each on paper; a GO from both adds the `backlog` label. Scouts never change code.
 
@@ -61,7 +62,7 @@ The snapshot holds public data only (SEC filings, market prices, GDELT records) 
 
 ## Skills and where the team runs
 
-The team's procedures are skills in `.claude/skills/`: `warren-run-track` (the Elephant loop), `warren-goldfish-review` (the reviewers), `warren-desk-report` (desk entry, lesson, weekly digest) and `warren-scout` (research scouts and their paper review). They load in Claude Code wherever the repo is open: cloud sessions, scheduled runs, or the owner's VS Code. Local runs read `SEC_USER_AGENT` from `.env`; cloud runs read it from the environment. It is never committed.
+The team's procedures are skills in `.claude/skills/`: `warren-run-track` (the Elephant loop), `warren-goldfish-review` (the reviewers), `warren-desk-report` (desk entry, lesson, weekly digest) `warren-scout` (research scouts and their paper review) and `warren-front-end` (the front-end team). They load in Claude Code wherever the repo is open: cloud sessions, scheduled runs, or the owner's VS Code. Local runs read `SEC_USER_AGENT` from `.env`; cloud runs read it from the environment. It is never committed.
 
 The team's members are defined agents in `.claude/agents/`, each with its own model and only the tools its job needs:
 
@@ -78,6 +79,8 @@ The team's members are defined agents in `.claude/agents/`, each with its own mo
 | `reporter` | Sonnet | read, git, web | Desk entry, lesson, weekly digest |
 | `triager` | Haiku | GitHub issue tools | Turns review notes into `backlog` issues |
 | `scout` | Haiku | read, web, GitHub search | Research: finds open-source repos and models, checks licence and upkeep |
+| `product-lead` | Opus | all | Front-end Elephant: runs one front-end track (product brief, web app); never edits engine code |
+| `student-reviewer` | Sonnet | read | Goldfish: reads the brief or a screen as a finance student in Latin America |
 
 Tools named `mcp__github__*` assume the GitHub MCP server is registered as `github`. Add an agent when a job recurs and needs different tools or a different model, not for each task.
 

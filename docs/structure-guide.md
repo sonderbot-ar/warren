@@ -32,7 +32,7 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 
 - **When does sentiment matter?** Trace *when* sentiment from a given source (outlet, region, topic) has historically preceded a material change in fundamentals, as opposed to noise.
 - **A learning environment for finance students.** An interactive tool that shows *when* and *why* a change in beta, capital structure or book value propagates to other lines of a company's financial statements and valuation, and that helps track and forecast performance as those inputs change.
-- **A teaching platform for finance schools in Latin America** that replaces spreadsheets in the classroom (Decision 11): IFRS companies, a web interface, Spanish and Portuguese.
+- **A teaching platform for finance schools in Latin America** that replaces spreadsheets in the classroom (Decision 11): IFRS companies, a web app (Decision 13), Spanish and Portuguese.
 - **Broader driver coverage.** Modelling every link between capital structure, risk and the three statements, beyond the Phase 1 driver set.
 
 ## 2. Guiding Principles
@@ -59,8 +59,9 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 | 8 | Data sources: SEC EDGAR, Yahoo Finance, FRED, GDELT | **Accepted** (EDGAR coverage limits noted, M1; FRED added for the risk-free rate, M2) | oct.26.2026 |
 | 9 | LLM usage limited to judgment-over-text steps | **Accepted** | oct.14.2026 |
 | 10 | Development workflow: Claude agent teams plan, review, merge and report; owner sets goals | **Accepted** (replaces owner-approved plans and owner merges) | oct.30.2026 |
-| 11 | Product direction: teaching platform for LatAm finance schools; Phase 1 unchanged, scale guardrails for new code | **Accepted** | oct.30.2026 |
+| 11 | Product direction: teaching platform for LatAm finance schools; Phase 1 unchanged, scale guardrails for new code | **Accepted** (detailed by 13, nov.03.2026: the web interface runs locally first, hosted later) | oct.30.2026 |
 | 12 | Research scouts: find open-source repos and models, judged on paper by the Goldfish reviewers | **Accepted** (amended: GGUF weights allowed, owner decision) | oct.30.2026 |
+| 13 | Front-end team: owns the student web app (local first, hosted later) and the product decisions that shape the engine | **Accepted** (owner decision) | nov.03.2026 |
 | — | Entity-Attribute-Value (EAV) metrics table | Superseded by 2 | sep.24.2026 |
 | — | Passing only database IDs between graph nodes | Superseded by 2 | sep.24.2026 |
 | — | ChromaDB vector store for documents | Superseded by 3 | sep.24.2026 |
@@ -170,10 +171,10 @@ These goals shape the design so the Phase 1 build does not block them, but none 
   1. *Sources behind adapters.* Analysis code never calls a data source directly. A new source (IFRS filings, a local regulator, a licensed price feed) is a new adapter plus a concept map. Concepts stay taxonomy-qualified (`us-gaap:…`, later `ifrs-full:…`).
   2. *Companies are data.* No new code hardcodes tickers. The Phase 1 list moves out of `universe.py` before Phase 2 (done oct.30.2026: it is `domains/fundamentals/universe.csv`, backlog #18).
   3. *Currency and calendars explicit.* New tables that hold money carry a currency; no new code assumes US dollars or a December year-end.
-  4. *Engine as a library.* Logic lives in the domain modules. The command line, and later a web app, only call it.
+  4. *Engine as a library.* Logic lives in the domain modules. The command line, and later the web app (Decision 13), only call it.
   5. *Reader-facing text apart from logic,* so reports can later be translated into Spanish and Portuguese. Phase 1 stays in English.
   6. *Licensed data before deployment.* Every source must allow use in a product before Warren is deployed to a school. Yahoo Finance is for research only; replacing it costs money and goes to the owner.
-- **Not in Phase 1:** IFRS data, a web interface, multiple users, translation, hosting. A likely Phase 2 starts with one LatAm company from its IFRS 20-F and a read-only web view of one valuation in Spanish.
+- **Not in Phase 1:** IFRS data, a web interface (Decision 13), multiple users, translation, hosting. A likely Phase 2 starts with one LatAm company from its IFRS 20-F and a read-only view of one valuation in Spanish.
 - **Reasoning:** keeping Phase 1 intact proves the engine is right, which a school will ask first. The guardrails cost little now; retrofitting a second accounting standard, a second currency or multiple users later costs much more.
 
 ### Decision 12 — Research Scouts · *Accepted (oct.30.2026)*
@@ -184,6 +185,18 @@ These goals shape the design so the Phase 1 build does not block them, but none 
 - **Still goes to the owner:** any cost, forking a project into a new repository, and any candidate that would change an Accepted decision.
 - **Reasoning:** existing open-source work can save build time, and open models may cut the M6 LLM cost (about $1–3 per analysis on a paid API). Scouts on a light model with a cap per run keep it free and keep the backlog readable. Paper review is cheaper than a trial; the Elephant's design review still tests a candidate before it is used.
 - **Considered:** a weekly single scout (too slow for the owner); a hands-on *trialist* that tests each candidate on Warren's evaluation cases before approval (more proof, more cost; the owner chose paper review).
+
+### Decision 13 — Front-end Team and the Student Web App · *Accepted (nov.03.2026)*
+
+- **Decision (owner, nov.03.2026):** a *front-end team* builds Warren's student-facing app and owns the product decisions that shape the engine. Every UX and UI choice is discussed with this team. The app is a **web app, run locally first**: it runs on the owner's Mac and opens in the browser, with nothing hosted and no cost. When a school is ready, the same app is hosted; hosting costs money and goes to the owner as its own decision. This details Decision 11's web interface. Procedure: the `warren-front-end` skill; agents: `product-lead` (the team's Elephant) and `student-reviewer` (a Goldfish who reads as a finance student).
+- **What it owns:**
+  1. *Product decisions that shape the engine* (start now): which questions Warren must answer, the rule that sorts a question into **literal** (it names a model input and gives it a value, e.g. "WACC if the Fed adds 25 bps": deterministic code recomputes, and any pass-through assumption is stated and can be changed) or **hypothetical** (it names an event, e.g. "if the Democrats win the midterms": answered from a curated query of the case library, analogous past events and the metrics to watch, never a number an LLM made up), what each kind returns, language and audience (Spanish first, finance students in Latin America), and a brief of 10–15 real student questions (backlog #130).
+  2. *The web app* (later): the stack, the screens, the chat flow, charts and wording. This waits until the engine's outputs settle (after M10), so mockups are not redone each milestone.
+- **Working with the engine team:** the front-end team states what it needs from the engine as GitHub issues labelled `backlog` and `front-end` (a named input, an output, a stored field), with the brief questions it serves. An engine Elephant builds them through the normal loop. The front-end team never edits engine code (`domains/`, `shared_kernel/`, `main.py`); the app calls the engine as a library (Decision 11, guardrail 4). Engine design docs check themselves against the question brief once it exists.
+- **Rules it keeps:** every number on screen comes from the engine (Decision 4); an LLM may sort a question and map it to inputs, because that output is a label, and its reading is shown to the user before anything is computed (Decision 9); every query behind an answer is point-in-time; reader-facing text stays apart from logic (Decision 11, guardrail 5). Free tools only: the stack must be free, with a licence that allows a paid product (the rule of Decision 12), run on the owner's 16 GB Apple Silicon MacBook, and be hostable later without a rewrite.
+- **Still goes to the owner:** the app's stack (one decision card with a recommendation, when F2 starts), hosting the app or adding logins and multiple users (both cost money or change scope), each new Accepted decision it proposes (the literal and hypothetical rule among them), anything that costs money, and any change to Phase 1's goal or scope.
+- **Reasoning:** the questions a student asks decide which inputs and outputs the engine must expose and what the case library must store; that is cheap to settle now and expensive to retrofit. Screens depend on outputs that still change, so they wait. A separate team keeps product judgment from being made one milestone at a time by engine developers.
+- **Considered:** waiting until the engine is done before any product decision (cheaper now, but the engine would be built without knowing which questions it must answer); a desktop app (every student needs an install and a copy of Warren's data, about 400 MB today, and school machines are mixed and locked down); a web app hosted from the start (a paid server and logins from the first screen); letting the front-end team change engine code directly (faster, but splits ownership of the invariants).
 
 ## 4. Project Structure
 
