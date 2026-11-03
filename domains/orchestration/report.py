@@ -11,6 +11,7 @@ from pathlib import Path
 
 from domains.analysis import report as dcf_report
 from domains.analysis.montecarlo import BAND_NOTE, LINES, RATES_CLEAN, load_bands
+from domains.evaluation.hindsight import against_actuals
 from domains.news.store import iso
 from domains.orchestration import text
 from domains.orchestration.state import PipelineState
@@ -190,7 +191,53 @@ def render(conn: sqlite3.Connection, state: PipelineState) -> str:
     ]
     baseline = dcf_report.render(conn, state.run_id).splitlines()
     lines += ["#" + ln if ln.startswith("#") else ln for ln in baseline[1:]]
+    if state.actuals_on is not None:  # pipelines written before backlog #128 have none
+        lines += ["", *hindsight(conn, state)]
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _miss(item) -> str:
+    if item.miss is None:
+        return "–"
+    if item.name == "revenue":
+        return f"{item.signed_miss * 100:+.1f}%"
+    return f"{item.signed_miss * 100:+.2f} pts"
+
+
+def hindsight(conn: sqlite3.Connection, state: PipelineState) -> list[str]:
+    """Section 6 (backlog #128): the forecast against what was first reported by actuals_on."""
+    h = against_actuals(conn, state.run_id, state.actuals_on)
+    on = state.actuals_on.isoformat()
+    lines = [f"## {text.HINDSIGHT_HEADING}", "", text.HINDSIGHT_INTRO.format(actuals_on=on), ""]
+    reported = [q for q in h.quarters if q.reported]
+    if not reported:
+        return [*lines, text.HINDSIGHT_NONE.format(actuals_on=on)]
+    unit = reported[0].items[0].unit
+    lines += [
+        f"| Quarter | Ends | Revenue forecast | Revenue reported | Miss | EBIT forecast | "
+        f"EBIT reported | Miss | Filings ({unit} millions) |",
+        "|---|---|---|---|---|---|---|---|---|",
+    ]
+    notes = []
+    for q in h.quarters:
+        rev, ebit = q.items
+        if not q.reported:
+            lines.append(f"| {q.period} | | {_m(rev.forecast)} | not yet | | {_m(ebit.forecast)} "
+                         "| not yet | | |")  # fmt: skip
+            continue
+        filings = sorted({f"{f.form} {f.filed_at}" for i in q.items for f in i.filings})
+        length = f" ({q.days} days)" if q.days and abs(q.days - 91) >= 7 else ""
+        lines.append(
+            f"| {q.period} | {q.period_end}{length} | {_m(rev.forecast)} | {_m(rev.actual)}"
+            f"{' (derived)' if rev.derived else ''} | {_miss(rev)} | {_m(ebit.forecast)} | "
+            + (f"{_m(ebit.actual)} | {_miss(ebit)}" if ebit.actual is not None else "– | –")
+            + f" | {'; '.join(filings)} |"
+        )
+        notes += [f"- {i.missing.text}" for i in q.items if i.missing is not None]
+    if any(q.items[0].derived for q in reported):
+        notes.append("- derived: a fourth quarter is the year in the 10-K minus the nine months "
+                     "in the 10-Qs; the company does not report it on its own")  # fmt: skip
+    return [*lines, *([""] if notes else []), *notes]
 
 
 def trace(state: PipelineState, telemetry_path: Path) -> str:
@@ -198,7 +245,7 @@ def trace(state: PipelineState, telemetry_path: Path) -> str:
         "",
         text.TRACE_MARKER,
         "",
-        "## 6. Trace",
+        f"## {7 if state.actuals_on is not None else 6}. Trace",
         "",
         f"- checkpoints: table `checkpoints` in the database, thread `{state.pipeline_id}` "
         f"(`python main.py show --pipeline-id {state.pipeline_id}`)",
