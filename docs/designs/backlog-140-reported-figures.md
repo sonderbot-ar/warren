@@ -94,7 +94,7 @@ Explainer, analyst, professor and the front-end `product-lead` (on *Product impa
 
 ## Results (nov.03.2026)
 
-On the restored snapshot of nov.03 (filings ingested to 2026-07-31; as-of 2026-11-02 unless said):
+On the restored snapshot of nov.03 (Apple's filings to 2026-07-31, the newest filing Microsoft's of 2026-10-28; as-of 2026-11-02 unless said):
 
 - **Match with the valuation.** For each company's newest stored run (seven on 2026-10-15, Exxon on 2025-12-01), the operating margin, capex share, D&A share and effective tax rate of each of its three history years equal this call's for the same year and as-of date: **96 of 96 equal** (to 1e-12).
 - **Apple fiscal Q4 2025** (Q1 of the brief): revenue $102,466m, derived from the FY2025 10-K and the 10-Q of 2026-07-31 (which repeats the nine months as a comparative), both named with form, accession and link; operating margin 31.6%, growth 7.9%; net cash $32.5bn (non-current securities $77.7bn included).
@@ -104,4 +104,4 @@ On the restored snapshot of nov.03 (filings ingested to 2026-07-31; as-of 2026-1
 
 ## Where the work stopped
 
-- nov.03.2026: Steps 0–4 done; PR next.
+- nov.03.2026: Steps 0–4 done; PR #156, gatekeeper GO (review fixes: a tax line listed once in `uses`, a test for the carried-forward note). Ideas filed as a backlog issue.

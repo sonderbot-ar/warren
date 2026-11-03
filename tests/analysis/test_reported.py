@@ -242,3 +242,28 @@ def test_cli_refuses_an_unknown_period(company, monkeypatch, capsys):
     code, out = _cli(company, monkeypatch, capsys, "--period", "2019Q4")
     assert code == 1
     assert "FAILED: unknown period" in out and "latest-quarter" in out
+
+
+def test_net_debt_carries_a_balance_tagged_only_at_year_end(make_company):
+    # current debt tagged only in the 10-K: the Q3 balance takes the year-end one, and says so
+    conn = make_company(
+        lambda tag, row: None if tag == "LongTermDebtCurrent" and row["form"] == "10-Q" else row
+    )
+    r = reported_period(conn, "TST", "FY2019Q3", AS_OF)
+    net_debt = r.ratio("net_debt")
+    assert net_debt.value == pytest.approx(20 + 180 - 60)
+    notes = {n.code: n.params for n in net_debt.notes}
+    assert notes["carried_forward"] == {"items": {"debt_current": "2018-12-31"}}
+    assert r.line("debt_current") is None  # not a line of this period
+
+
+def test_a_line_used_twice_is_listed_once(company):
+    # under the third pretax rule (net income + tax) the tax line is in both terms of the rate
+    from domains.analysis.reported import _uses
+
+    r = reported_period(company, "TST", "FY2019", AS_OF)
+    tax = next(x for x in r.lines if x.name == "income_tax_expense")
+    fact = type("F", (), {"canonical_name": tax.name})
+    assert _uses([fact, fact], Period(2019, "FY")) == [
+        {"line": "income_tax_expense", "period": "FY2019"}
+    ]

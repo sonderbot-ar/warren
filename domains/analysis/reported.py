@@ -425,7 +425,9 @@ def _base_not_positive(item: str, value: float) -> Coded:
 
 
 def _uses(facts: list[Fact], period: Period) -> list[dict]:
-    return [{"line": f.canonical_name, "period": period.label} for f in facts]
+    """Each line a ratio used, once (tax appears in both terms under the third pretax rule)."""
+    names = dict.fromkeys(f.canonical_name for f in facts)
+    return [{"line": name, "period": period.label} for name in names]
 
 
 def _changed_note(facts: list[Fact], lines: list[Line]) -> list[Coded]:
