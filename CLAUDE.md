@@ -17,24 +17,26 @@ Warren is built by Claude agent teams that plan, review, merge and report on the
 
 - **Elephant (developers).** One long-running thread per track (a milestone, or a backlog item). It writes the design doc, the code and the tests, opens the PR, fixes failing checks and merges.
 - **Goldfish (reviewers).** Subagents that start with no memory of the design discussion and see only the design doc or the PR. Roles: *explainer* (restates the design to prove it is clear), *analyst* (would a practitioner compute it this way, where does it break on real companies), *professor* (is the method defensible in the literature, can a student learn from it), *gatekeeper* (final go or no-go). Every objection cites a test, a file and line, a filing, a source or a doc section.
+- **Front-end team (product).** Builds the student web app (run locally first, hosted later) and owns the product decisions that shape the engine (Structure Guide Decision 13): which questions Warren must answer, the literal vs hypothetical rule and what each returns, language and audience. Every UX and UI choice goes through it. The two teams talk through `docs/team-sync.md`. It files what it needs from the engine as issues labelled `backlog` and `front-end`; engine Elephants build them. It never edits engine code. Product brief now (F1); screens after M10 (F2). Unlike the engine team, it gets the owner's sign-off on what students see (the brief, the design principles, the visual direction, each screen's mockup and built screen), reports on a studio page, and records the owner's taste in `docs/product/owner-notes.md` (owner, nov.03.2026).
 - **Reporters.** Write the desk entry and the lesson for each merged version, on a lighter model.
 - **Scouts (research).** Search GitHub and Hugging Face for open-source repos and models that could help Warren (Structure Guide Decision 12): four in parallel at kickoff, then one every 3 days, at most 5 candidates per run, filed as issues labelled `scout`. The Goldfish `analyst` and `gatekeeper` judge each on paper; a GO from both adds the `backlog` label. Scouts never change code.
 
 **The loop, for each item**
 
-1. **Pick.** The next milestone in the Build Plan whose dependencies are Done, or the next backlog issue. Independent milestones (e.g. M3, M4, M5) may run as parallel tracks.
-2. **Design doc.** On the track branch, in `docs/designs/<milestone>-<short-name>.md`: problem, plan as numbered steps (Step 0, Step 1, …) with tests and an exit criterion, alternatives considered, files to change.
-3. **Design review.** Explainer, analyst and professor review in parallel. The Elephant accepts, rejects with a reason, or escalates.
+1. **Pick.** Read the entries in `docs/team-sync.md` added since your last run, and any open issue labelled `front-end`. Then take the next milestone in the Build Plan whose dependencies are Done, or the next backlog issue. Independent milestones (e.g. M3, M4, M5) may run as parallel tracks.
+2. **Design doc.** On the track branch, in `docs/designs/<milestone>-<short-name>.md`: problem, plan as numbered steps (Step 0, Step 1, …) with tests and an exit criterion, alternatives considered, files to change, and *Product impact* (engine) or *Engine needs* (front-end) as `docs/team-sync.md` says.
+3. **Design review.** Explainer, analyst and professor review in parallel, plus the other team's lead on the *Product impact* or *Engine needs* section. The Elephant accepts, rejects with a reason, or escalates.
 4. **Escalate only on a trigger** (below). Otherwise continue without waiting.
 5. **Build.** One focused commit per step, tests with every step. Open a PR to `main`.
 6. **PR review.** CI must be green. The gatekeeper gives go or no-go; a no-go goes back to step 5. New ideas become GitHub issues labelled `backlog`, not additions to the PR.
-7. **Merge, record, report.** Merge to `main` with a merge commit (so each step's commit stays visible), add the version to `docs/versions.md` (one minor version per milestone, patch versions for backlog items, each with its merge commit), update the Build Plan status, and post the desk entry and the lesson.
+7. **Merge, record, report.** Merge to `main` with a merge commit (so each step's commit stays visible), add the version to `docs/versions.md` (one minor version per milestone, patch versions for backlog items and front-end items, each with its merge commit), update the Build Plan status, add an entry to `docs/team-sync.md` (what changed and its effect on the other team), and post the desk entry and the lesson.
 
 **What goes to the owner (decision card with a recommendation)**
 
 - Any change to the Phase 1 goal, the company universe, or what is in or out of Phase 1.
 - Changing or dropping an Accepted decision in the Structure Guide, or adding a new decision.
 - Anything that costs money (paid API keys or services). Default is free tools only.
+- Front-end sign-off points (the `warren-front-end` skill): the brief, the design principles, the visual direction, and each screen's mockup and built screen.
 - Anything that cannot be undone: rewriting `main`'s history, force-pushing to `main`, deleting branches with unmerged work, making the repository public.
 
 Work on other tracks continues while a card waits.
@@ -61,7 +63,7 @@ The snapshot holds public data only (SEC filings, market prices, GDELT records) 
 
 ## Skills and where the team runs
 
-The team's procedures are skills in `.claude/skills/`: `warren-run-track` (the Elephant loop), `warren-goldfish-review` (the reviewers), `warren-desk-report` (desk entry, lesson, weekly digest) and `warren-scout` (research scouts and their paper review). They load in Claude Code wherever the repo is open: cloud sessions, scheduled runs, or the owner's VS Code. Local runs read `SEC_USER_AGENT` from `.env`; cloud runs read it from the environment. It is never committed.
+The team's procedures are skills in `.claude/skills/`: `warren-run-track` (the Elephant loop), `warren-goldfish-review` (the reviewers), `warren-desk-report` (desk entry, lesson, weekly digest), `warren-scout` (research scouts and their paper review) and `warren-front-end` (the front-end team). They load in Claude Code wherever the repo is open: cloud sessions, scheduled runs, or the owner's VS Code. Local runs read `SEC_USER_AGENT` from `.env`; cloud runs read it from the environment. It is never committed.
 
 The team's members are defined agents in `.claude/agents/`, each with its own model and only the tools its job needs:
 
@@ -78,6 +80,9 @@ The team's members are defined agents in `.claude/agents/`, each with its own mo
 | `reporter` | Sonnet | read, git, web | Desk entry, lesson, weekly digest |
 | `triager` | Haiku | GitHub issue tools | Turns review notes into `backlog` issues |
 | `scout` | Haiku | read, web, GitHub search | Research: finds open-source repos and models, checks licence and upkeep |
+| `product-lead` | Opus | all | Front-end Elephant: runs one front-end track (product brief, web app); never edits engine code |
+| `student-reviewer` | Sonnet | read | Goldfish: reads the brief or a screen as a finance student in Latin America |
+| `design-critic` | Opus | read, shell (screenshots) | Goldfish: judges mockups and screens for clarity, polish and accessibility before the owner sees them |
 
 Tools named `mcp__github__*` assume the GitHub MCP server is registered as `github`. Add an agent when a job recurs and needs different tools or a different model, not for each task.
 

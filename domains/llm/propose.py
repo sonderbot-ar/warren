@@ -26,9 +26,9 @@ from domains.llm.client import LLMClient
 from domains.llm.extract import PROMPT as EXTRACT_PROMPT
 from domains.llm.extract import Company, Variant, choose_events, mask, mask_pattern, window_start
 from domains.llm.taxonomy import NOT_ABOUT
-from domains.news.gdelt import CASE_TZ, known_by
 from domains.news.matching import AliasSet
 from domains.news.store import iso
+from shared_kernel.calendar import CASE_TZ, known_by
 
 NODE = "propose_shocks"
 PROMPT = "propose_shocks"

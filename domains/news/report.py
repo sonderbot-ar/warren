@@ -20,9 +20,10 @@ from collections import Counter, defaultdict
 from datetime import date, datetime
 from pathlib import Path
 
-from domains.news.gdelt import CASE_TZ, window_bounds
+from domains.news.gdelt import window_bounds
 from domains.news.matching import HeadlineRule, about_headline
 from domains.news.store import iso
+from shared_kernel.calendar import CASE_TZ
 
 SAMPLE_PATH = Path(__file__).parent / "match_sample.csv"
 SAMPLE_FIELDS = (

@@ -11,11 +11,11 @@ from pathlib import Path
 
 from domains.analysis import report as dcf_report
 from domains.analysis.montecarlo import BAND_NOTE, LINES, RATES_CLEAN, load_bands
-from domains.news.gdelt import known_by
 from domains.news.store import iso
 from domains.orchestration import text
 from domains.orchestration.state import PipelineState
 from domains.orchestration.telemetry import Emitter
+from shared_kernel.calendar import known_by
 
 HEADLINES_PER_EVENT = 5
 

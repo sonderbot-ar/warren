@@ -25,6 +25,7 @@ from domains.news import cluster
 from domains.news.gdelt import window_bounds
 from domains.news.matching import AliasSet, HeadlineRule
 from domains.news.store import iso
+from shared_kernel.calendar import CASE_TZ
 
 NODE = "extract_events"
 PROMPT = "extract_event"
@@ -79,7 +80,7 @@ def company(conn: sqlite3.Connection, ticker: str) -> Company:
     return Company(row["cik"], row["ticker"], row["name"])
 
 
-def window_start(as_of: date, tz: ZoneInfo = cluster.CASE_TZ) -> str:
+def window_start(as_of: date, tz: ZoneInfo = CASE_TZ) -> str:
     """The first instant of the case window, as stored timestamps are written."""
     return iso(window_bounds(as_of, WINDOW_DAYS, tz)[0])
 
@@ -257,7 +258,7 @@ def classify_case(
     variants: tuple[str, ...] = VARIANTS,
     batch_id: str = "classify",
     budget: int = calls.DEFAULT_BUDGET,
-    tz: ZoneInfo = cluster.CASE_TZ,
+    tz: ZoneInfo = CASE_TZ,
 ) -> dict[str, list[int]]:
     """Classify a case's chosen events in each variant; returns classification ids per variant."""
     co = company(conn, ticker)
@@ -322,7 +323,7 @@ def stability(
     rule: HeadlineRule,
     batch_id: str,
     budget: int = calls.DEFAULT_BUDGET,
-    tz: ZoneInfo = cluster.CASE_TZ,
+    tz: ZoneInfo = CASE_TZ,
 ) -> list[Stability]:
     """The largest event of each of the first ten cases that have one, classified three times
     (named variant). Answers are logged as calls, never stored as classifications.

@@ -34,7 +34,7 @@ from domains.fundamentals.facts import get_facts
 from domains.fundamentals.schemas import Fact
 from domains.fundamentals.universe import get_universe_company
 from domains.market.store import MarketDataError
-from domains.news.gdelt import CASE_TZ
+from shared_kernel.calendar import CASE_TZ
 
 DIRECTION_BAND = 0.005  # a change within ±0.5% of the prior year counts as flat
 ACCESSION = re.compile(r"\b\d{10}-\d{2}-\d{6}\b")

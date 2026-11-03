@@ -130,6 +130,17 @@ def manifests(folder: Path) -> list[Path]:
     return sorted(folder.glob("warren-*.json"), reverse=True)
 
 
+def _landed(manifest_path: Path) -> bool:
+    """True when the manifest's archive sits beside it at the size it states (a cheap check; the
+    SHA-256 is checked on restore). A manifest whose archive never landed is an orphan (#150)."""
+    try:
+        manifest = json.loads(manifest_path.read_text())
+        archive = _archive_path(manifest_path, manifest)
+        return archive.exists() and archive.stat().st_size == manifest["bytes"]
+    except (SnapshotError, ValueError, KeyError, TypeError, AttributeError, OSError):
+        return False
+
+
 def save(folder: Path, db_path: Path = DB_PATH, raw_dir: Path = RAW_EDGAR_DIR,
          now: datetime | None = None, telemetry_dir: Path | None = None) -> Path:  # fmt: skip
     """Write a snapshot and its manifest to `folder`; returns the manifest's path."""
@@ -164,24 +175,38 @@ def save(folder: Path, db_path: Path = DB_PATH, raw_dir: Path = RAW_EDGAR_DIR,
     }
     path = folder / f"warren-{stamp}.json"
     path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
-    for old in manifests(folder)[KEEP:]:
+    # Only snapshots whose archive landed count toward KEEP, so an orphaned manifest (#150) never
+    # pushes the last good archive out; orphans are left for a person to look at.
+    for old in [m for m in manifests(folder) if _landed(m)][KEEP:]:
         try:
             _archive_path(old, json.loads(old.read_text())).unlink(missing_ok=True)
-        except (SnapshotError, ValueError):
+        except (SnapshotError, ValueError, AttributeError):
             continue  # an unreadable or odd manifest is left alone, and so is what it names
         old.unlink()
     return path
 
 
 def restore(folder: Path, data_dir: Path = DATA_DIR, force: bool = False) -> dict:
-    """Unpack the newest good snapshot into `data_dir`; returns its manifest."""
+    """Unpack the newest good snapshot into `data_dir`; returns its manifest.
+
+    Manifests are tried newest first; one whose archive is missing or fails its SHA-256 is skipped
+    and named in the result's `skipped` (#150)."""
     found = manifests(folder)
     if not found:
         raise SnapshotError(f"no snapshot in {folder}")
-    manifest = json.loads(found[0].read_text())
-    archive = _archive_path(found[0], manifest)
-    if not archive.exists() or _sha256(archive) != manifest["sha256"]:
-        raise SnapshotError(f"{archive.name} is missing or does not match its SHA-256")
+    skipped: list[str] = []
+    for path in found:
+        try:
+            manifest = json.loads(path.read_text())
+            archive = _archive_path(path, manifest)
+        except (SnapshotError, ValueError, AttributeError) as e:  # AttributeError: not an object
+            skipped.append(f"{path.name} ({e})")
+            continue
+        if archive.exists() and _sha256(archive) == manifest.get("sha256"):
+            break
+        skipped.append(f"{path.name} (archive missing or does not match its SHA-256)")
+    else:
+        raise SnapshotError("no good snapshot in the folder: " + "; ".join(skipped))
     db_path = data_dir / DB_NAME
     if db_path.exists() and not force:
         raise SnapshotError(f"{db_path} exists; pass --force to replace it")
@@ -213,6 +238,7 @@ def restore(folder: Path, data_dir: Path = DATA_DIR, force: bool = False) -> dic
         if current_schema_version(conn) > manifest["schema_version"]:
             raise SnapshotError("the restored database is newer than its manifest")
         manifest["migrations_applied"] = apply_migrations(conn)
+    manifest["skipped"] = skipped
     return manifest
 
 
@@ -231,6 +257,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             m = restore(args.dir, force=args.force)
             applied = m["migrations_applied"] or "none"
+            for name in m["skipped"]:
+                print(f"skipped {name}")
             print(f"restored {m['archive']} (schema {m['schema_version']}, commit "
                   f"{m['commit'][:7]}; migrations applied: {applied})")  # fmt: skip
     except SnapshotError as e:

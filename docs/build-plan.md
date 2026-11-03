@@ -47,6 +47,8 @@ Durations are indicative, assuming part-time work (roughly 8–12 hours a week).
 | M8 | Full backtest and Phase 1 review | 1.5 | jan.28 – feb.07.2027 | M3, M7 | **Done** (nov.02.2026; v0.8, PR #114, merge `d770614`, merged by the agent team after gatekeeper and analyst GO; design in `docs/designs/m8-backtest.md`; review in `docs/phase1-review.md`) |
 | M9 | Honest ranges: the baseline's own past errors in the p10–p90 band (Phase 2) | 1.5 | nov.2026 | M8 | **Done** (nov.02.2026; v0.9, PR #124, merge `b3ebff6`, merged by the agent team after gatekeeper and analyst GO; design and results in `docs/designs/m9-honest-ranges.md`; revenue range met on average, EBIT range too wide on average, not calibrated per company) |
 | M10 | More test dates, including after the models' training cutoff (Phase 2) | 2 | nov.2026 | M7, M8 | In progress (nov.02.2026; design in `docs/designs/m10-more-dates.md`: 168 grid cases on rule-picked dates, 49 after the models' cutoff; AI spend capped at $10 by the owner, nov.03.2026) |
+| F1 | Product brief (front-end team, Decision 13): the student questions, the literal and hypothetical rule, language and audience, and what the engine must expose | 1 | nov.2026 | — | **Done** (nov.03.2026; v0.9.3, PR #148, merge `1da2432`; brief in `docs/product/brief.md`, principles in `docs/product/design-principles.md`, design in `docs/designs/f1-product-brief.md`; owner signed off the brief, the principles and the sorting rule, and chose a question reader built from the start; engine requests #140–#147) |
+| F2 | Web app, run locally: stack and the first screen | 2 | after M10 | F1, M10 | Planned (waits until the engine's outputs settle; builds the question reader with the first screens, Decision 9, and its model choice goes on the stack card) |
 
 **Why this order.** The numbers come first (M1–M2), then the ruler that measures them (M3), so every later step is judged against a known baseline. Shocks are built and tested by hand (M4) before any LLM produces them (M6), so a bad result can be traced to either the math or the LLM, never both at once. News ingestion (M5) only depends on M1 and can run in parallel with M2–M4 if time allows.
 
@@ -69,6 +71,7 @@ M0 ─ M1 ─┬─ M2 ─┬─ M3 ──────────────�
 | 7 Evaluation harness | M3 (baseline), M8 (with shocks) |
 | 8 Data sources | M1 (EDGAR), M2 (Yahoo Finance), M5 (GDELT) |
 | 9 LLM usage limited to text judgment | M6 |
+| 13 Front-end team and the student web app | F1 (product brief), F2 (web app) |
 
 ## 4. Milestones in Detail
 
@@ -451,6 +454,11 @@ Merger sizing and timing (backlog #102, #115), the commodity baseline and the te
 
 - **M9 — Honest ranges.** Run the baseline on the 1st of every month since 2019-04 for every company, store how far each forecast quarter was from the actual first reported, and build each forecast's p10–p90 range from the errors that were public on its date (pooled across companies; company-only beside it), alone and combined with the shock simulation. Tested on held-out dates (every origin from 2021, and the 26 cases). Exit criterion: the report states, per item, whether Decision 7's 80% coverage is met (cluster bootstrap 90% interval includes 80%) or failed, and `ranges reproduce` passes. Design: `docs/designs/m9-honest-ranges.md`.
 - **M10 — More test dates.** New case dates through the one-command pipeline (M7), including dates after the models' training cutoff, scored as in M8 and with M9's ranges. Design: `docs/designs/m10-more-dates.md`.
+
+**Front-end track** (owner decision, nov.03.2026; Structure Guide Decision 13). Run by the front-end team with the `warren-front-end` skill, in parallel with the engine milestones. Its items are named F<n> and its branches `f<n>-<short-name>`.
+
+- **F1 — Product brief.** Write `docs/product/brief.md`: 10–15 real questions a finance student in Latin America would ask, in Spanish with an English gloss; for each, whether it is literal or hypothetical, what Warren should return, and which engine inputs, outputs or cases it needs; the sorting rule for literal and hypothetical questions (backlog #130); language and audience; and `docs/product/design-principles.md`, one page on the tone and the bar every screen must clear. Every gap between the brief and today's engine becomes an issue labelled `backlog` and `front-end`. Exit criterion: the brief is merged after a review by the `student-reviewer`, `analyst` and `professor`; each question is marked answerable today or linked to its issue; the owner has signed off the brief and the design principles; the sorting rule goes to the owner as one decision card.
+- **F2 — Web app, run locally.** Starts after M10 merges. A web app that runs on the owner's Mac and opens in the browser, with nothing hosted and no cost. The team compares free stacks in its design doc and sends its pick to the owner as one decision card; then two or three visual directions for the owner to choose from; then the first screen, mockup and built screen each signed off by the owner: one company and date, the forecast with its range, every number traced to its source. Design to come.
 
 ## 5. Documentation Practice
 
