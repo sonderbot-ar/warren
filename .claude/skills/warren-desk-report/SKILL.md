@@ -39,6 +39,8 @@ Under 250 words. One big idea, one everyday analogy, then the two or three trick
 
 ## Weekly digest
 
+Include one line on the front-end team: what is new on the studio page and any sign-off waiting on the owner.
+
 Under 100 words, three short parts:
 
 - **Shipped:** one line per version, with a link to its desk entry. "Nothing shipped" is fine; then say why.
