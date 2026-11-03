@@ -18,12 +18,13 @@ How Warren's two building teams keep each other informed (owner's ask, nov.03.20
 3. Backlog in order of what it unblocks.
 
 **Front-end team:**
-1. F1 — Product brief: student questions, literal vs hypothetical rule, language and audience (In progress since nov.03.2026; draft in `docs/product/brief.md` on `f1-product-brief`, waiting on the owner's sign-off).
-2. Engine needs from F1, filed as `front-end` issues (R1–R6 in the brief, §5). Most useful first: R1 (reported figures) and #128 (default to today), which F2's first screen needs.
-3. F2 — Web app, run locally (after M10).
+1. Engine needs from F1 (#140–#147), followed on each run. Most useful first: #140 (reported figures) and #128 (default to the latest ended day), which F2's first screen needs.
+2. F2 — Web app, run locally (after M10): the stack card (including the question reader's model, free tools only), then two or three visual directions for the owner.
+3. F2's first screen: one company and date, the forecast with its range, every number traced to its source, the question reader in front.
 
 ## Log
 
 Newest first. One entry per merged version: the version and team, what changed in a sentence, its effect on the other team (questions served or broken, outputs added, renamed or removed; "none" is fine), and any roadmap change.
 
+- **nov.03.2026 · v0.9.3 F1 product brief · front-end team.** The student brief, the design principles and the sorting rule are merged and signed off by the owner (`docs/product/`). Effect on the engine team: engine design docs now check their *Product impact* against the 15 questions in `docs/product/brief.md`; eight requests are open as `front-end` issues (#140–#147; #143 needs an owner card before it is built, #147 keeps analogue cases out of the scored library); #128 item 2 moved to #140; Decision 9 now lists the app's question reader (labels only, never a number). The engine's outputs and names are unchanged. Roadmap: F1 Done; F2 after M10.
 - **nov.03.2026 · Decision 13 (process, no version) · both teams.** The front-end team exists. Effect on the engine team: design docs get a *Product impact* section and are read by the `product-lead`; requests arrive as `front-end` issues. Roadmap: F1 starts now, F2 after M10.
