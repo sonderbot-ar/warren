@@ -13,6 +13,18 @@ The front-end team builds Warren's student web app and owns the product decision
 - **Student reviewer** (`student-reviewer`, Goldfish): reads the brief or a screen as a finance student in Latin America would.
 - The existing Goldfish: `explainer`, `analyst` (would a practitioner answer the question this way), `professor` (is it teachable and defensible), `gatekeeper` (final GO or NO-GO on a PR).
 
+## Each run
+
+A scheduled run starts every 12 hours (owner's ask, nov.03.2026). Each run:
+
+1. Reads `docs/team-sync.md` entries since the last run, the open `front-end` issues and the engine's open design docs and PRs.
+2. Reviews the *Product impact* section of any new engine design doc against the brief, and answers issues titled "Question for front-end:".
+3. Advances the current front-end item one step (below), on its branch.
+4. Adds a `docs/team-sync.md` entry for anything it merged and updates the front-end roadmap there.
+5. Ends with a short summary: what changed, what it asked the engine team for, anything waiting on the owner.
+
+Skip step 3 when nothing is ready and say why. Never work on a branch with a commit pushed in the last 3 hours unless a cloud run made it (its commit messages end with a `Claude-Session:` line).
+
 ## What to work on, and when
 
 1. **Now: the product brief (F1).** Cheap now, expensive to retrofit.
@@ -25,9 +37,9 @@ The front-end team builds Warren's student web app and owns the product decision
 
 ## The loop
 
-Same as `CLAUDE.md`: design doc in `docs/designs/f<n>-<short-name>.md` (the brief itself lives in `docs/product/brief.md`), Goldfish review, build, PR, gatekeeper, merge with a merge commit, record. Front-end items are F<n> in `docs/build-plan.md`, branches `f<n>-<short-name>`; versions follow `docs/versions.md` (a merged F item gets a patch version, as a backlog item does; see `docs/versions.md`). Reporters write the desk entry and lesson as for any version.
+Same as `CLAUDE.md`: design doc in `docs/designs/f<n>-<short-name>.md` (the brief itself lives in `docs/product/brief.md`; the doc has an *Engine needs* section, see `docs/team-sync.md`), Goldfish review, build, PR, gatekeeper, merge with a merge commit, record. Front-end items are F<n> in `docs/build-plan.md`, branches `f<n>-<short-name>`; versions follow `docs/versions.md` (a merged F item gets a patch version, as a backlog item does; see `docs/versions.md`). Reporters write the desk entry and lesson as for any version, and the version gets its `docs/team-sync.md` entry.
 
-- **Design review:** `explainer`, `student-reviewer` and `professor` in parallel; add the `analyst` when the brief says how a number should be computed or compared.
+- **Design review:** `explainer`, `student-reviewer` and `professor` in parallel, and a `track-lead` on the *Engine needs* section; add the `analyst` when the brief says how a number should be computed or compared.
 - **PR review:** CI green, then the `gatekeeper`; add the `student-reviewer` for any reader-facing text or screen.
 
 ## Rules
