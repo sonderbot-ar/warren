@@ -69,3 +69,23 @@ Explainer, analyst, professor and the front-end product-lead (on *Product impact
 - **Professor.** (B1) Wilson drops M9's own fix: the cluster bootstrap is the interval. (B2) `few_scored` on distinct quarters, with `n_quarters` shown. Ideas taken: the width beside coverage (Gneiting et al. 2007); p50 against the forecast as typical bias; the horizon-pooling note; plainer `baseline_only` text.
 - **Explainer.** The seed key for a run that is not an origin (the run id), which horizons a run gets (1–4; Step 3 compares the origin's own), `few_scored`'s unit (distinct quarters), and the point-in-time claim scoped to say method choices are fixed by design: all fixed above. Ideas taken: Step 3's equality covers every status and says how its runs are made; a cache keyed by run and `errors_sha256` is allowed.
 - **Product-lead.** (1) A coded verdict with the target and the acceptable band, and `differs_from_all`, so the app judges nothing. (2) Which band pairs with which cell, written above. (3) Each band as a change from the forecast, computed by the engine, and a `method` code. Ideas taken: units stated; params on every code; how the app gets a run id; Exxon pointer.
+
+## Results on real data (Step 3, nov.03.2026)
+
+On the restored snapshot (schema 18, saved nov.03 07:05Z):
+
+- **Same numbers as M9.** On all 718 stored origins, the band helper with the origin id as seed key gives exactly the `ranges_2026-11-02_1` rows: 11,416 of 11,416 (every status), the forecasts equal the stored ones, and the misses' `errors_sha256` cut at 2026-11-02 equals the build's. Coverage cut at 2026-11-02 equals M9's rolling test in every pool and item (revenue pooled 1,690 inside / 181 below / 162 above, as stored). `ranges reproduce --build ranges_2026-11-02_1` still passes (5,410 errors and 12,456 ranges).
+- **One run per company as of 2026-10-30** (`analysis dcf --all --as-of 2026-10-30`; 2026-11-02 was refused because the stored prices were downloaded on oct.31, the #112 rule working as meant). Each call took 9–14 seconds.
+
+| Company | h1 revenue band, pooled | h1 revenue band, own | Pooled range's record on the company (revenue) | Own range's record on the company (revenue) | Pooled range's record (EBIT) | Basis changes in the company's rows (revenue / EBIT) |
+|---|---|---|---|---|---|---|
+| AAPL | −15.6% to +17.3% | −15.1% to +21.0% | 82% of 23 quarters (71–92%), held | 71% (57–85%), held | 91%, held | 0 / 0 |
+| MSFT | −15.1% to +14.8% | −5.0% to +6.0% | 100% of 24 (100–100%), too wide | 77% (62–90%), held | 94%, held | 0 / 0 |
+| WMT | −17.0% to +15.1% | −1.3% to +4.5% | 100% of 23, too wide | 80% (67–91%), held | 100%, too wide | 0 / 0 |
+| KO | −17.6% to +15.3% | −7.8% to +30.6% | 90% of 24 (82–98%), held | 78% (65–90%), held | 75%, held | 0 / 0 |
+| PG | −17.0% to +14.8% | −4.8% to +5.4% | 100% of 24, too wide | 58% (43–73%), too narrow | 94%, held | 0 / 0 |
+| JNJ | −15.8% to +15.3% | −14.6% to +7.5% | 89% of 24 (80–97%), held | 72% (57–86%), held | 82%, held | 41 / 46 |
+| CAT | −17.6% to +15.3% | −29.6% to +24.4% | 71% of 23 (58–83%), held | 85% (75–93%), held | 100%, too wide | 0 / 0 |
+| XOM | −17.6% to +15.1% | −34.9% to +72.6% | 23% of 21 (10–38%), too narrow | 83% (71–93%), held | 38%, too narrow | 0 / 0 |
+
+What it shows: the pooled range is about ±16% for every company, which is far too wide for steady MSFT, WMT and PG (every quarter inside) and far too narrow for XOM (fewer than a quarter inside). The company's own range fits better almost everywhere but is skewed where a change of basis sits in its history: KO's own band reaches +30.6% because of its 2019 recast (12 of the 91 known h1 misses are basis changes), JNJ's is skewed down by Kenvue (10 of 91). Those are counted on the band, as designed, and their removal stays #162. When every quarter is inside, the cluster interval is 100–100%: there is no miss to resample, so the interval says nothing about how sure that is; the verdict (`too_wide`) and `n_quarters` carry the message.
