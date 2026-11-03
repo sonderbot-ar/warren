@@ -46,7 +46,7 @@ def test_a_corrupt_archive_or_an_empty_folder_is_refused(data, tmp_path):
     with pytest.raises(snapshot.SnapshotError, match="no snapshot"):
         snapshot.restore(tmp_path / "none", tmp_path / "fresh")
     manifest = json.loads(_save(data, tmp_path / "snap").read_text())
-    archive = tmp_path / "snap" / manifest["archive"]
+    archive = tmp_path / "snap" / manifest["parts"][0]["name"]
     archive.write_bytes(archive.read_bytes()[:-10])
     with pytest.raises(snapshot.SnapshotError, match="SHA-256"):
         snapshot.restore(tmp_path / "snap", tmp_path / "fresh")
@@ -66,7 +66,7 @@ def test_only_the_newest_two_are_kept_and_the_newest_is_restored(data, tmp_path)
             conn.execute("INSERT INTO probe VALUES (?)", (minute,))
             conn.commit()
         _save(data, folder, minute)
-    assert len(snapshot.manifests(folder)) == 2 and len(list(folder.glob("*.tar.gz"))) == 2
+    assert len(snapshot.manifests(folder)) == 2 and len(list(folder.glob("*.tar.gz.part*"))) == 2
     assert snapshot.restore(folder, tmp_path / "fresh")["row_counts"]["probe"] == 4
 
 
@@ -108,7 +108,7 @@ def test_prune_never_deletes_a_file_an_odd_manifest_names(data, tmp_path):
     _save(data, folder, 3)
     assert victim.read_text() == "precious"
     assert first.exists()  # left alone for a person to look at
-    assert (folder / "warren-20261031T230100Z.tar.gz").exists()
+    assert (folder / "warren-20261031T230100Z.tar.gz.part000").exists()
 
 
 def test_a_failed_raw_move_keeps_the_old_raw_files_and_says_so(data, tmp_path, monkeypatch):
@@ -229,7 +229,7 @@ def test_a_failed_rollback_keeps_the_old_files_aside_and_names_the_folder(tmp_pa
 def _orphan(data, folder, minute):
     """A save whose archive never reached the folder (#150): only the manifest landed."""
     path = _save(data, folder, minute)
-    (folder / json.loads(path.read_text())["archive"]).unlink()
+    (folder / json.loads(path.read_text())["parts"][0]["name"]).unlink()
     return path
 
 
@@ -258,11 +258,11 @@ def test_an_orphan_never_pushes_the_last_good_archive_out(data, tmp_path):
     _save(data, folder, 1)
     orphan = _orphan(data, folder, 2)
     _save(data, folder, 3)  # good + orphan + good: both good ones stay, the orphan is left alone
-    assert (folder / "warren-20261031T230100Z.tar.gz").exists()
-    assert (folder / "warren-20261031T230300Z.tar.gz").exists()
+    assert (folder / "warren-20261031T230100Z.tar.gz.part000").exists()
+    assert (folder / "warren-20261031T230300Z.tar.gz.part000").exists()
     assert orphan.exists()
     _save(data, folder, 4)  # now three good ones: the oldest good one goes
-    assert not (folder / "warren-20261031T230100Z.tar.gz").exists()
+    assert not (folder / "warren-20261031T230100Z.tar.gz.part000").exists()
     assert not (folder / "warren-20261031T230100Z.json").exists()
 
 
@@ -272,7 +272,7 @@ def test_restore_skips_an_unreadable_manifest_or_a_corrupt_archive(data, tmp_pat
     _save(data, folder, 1)
     newest = _save(data, folder, 2)
     if bad == "corrupt archive":
-        archive = folder / json.loads(newest.read_text())["archive"]
+        archive = folder / json.loads(newest.read_text())["parts"][0]["name"]
         archive.write_bytes(archive.read_bytes()[:-10])
     else:
         newest.write_text(bad)
@@ -280,4 +280,74 @@ def test_restore_skips_an_unreadable_manifest_or_a_corrupt_archive(data, tmp_pat
     assert restored["archive"] == "warren-20261031T230100Z.tar.gz"
     assert restored["skipped"][0].startswith(newest.name)
     _save(data, folder, 3)  # the bad one never counts toward the two kept
-    assert (folder / "warren-20261031T230100Z.tar.gz").exists()
+    assert (folder / "warren-20261031T230100Z.tar.gz.part000").exists()
+
+
+def _bulk(data):
+    """Raw files that don't compress, so a small PART_BYTES gives several parts."""
+    import os
+
+    (data / "raw" / "edgar" / "noise.bin").write_bytes(os.urandom(50_000))
+
+
+def test_a_big_archive_is_saved_in_parts_below_the_limit_and_restores_exactly(
+    data, tmp_path, monkeypatch
+):
+    # #153: the shared folder never kept a file over 512 MiB, so no file may exceed PART_BYTES
+    monkeypatch.setattr(snapshot, "PART_BYTES", 20_000)
+    _bulk(data)
+    folder = tmp_path / "snap"
+    manifest = json.loads(_save(data, folder).read_text())
+    assert len(manifest["parts"]) >= 3
+    assert all(p.stat().st_size <= 20_000 for p in folder.glob("*.part*"))
+    assert sum(p["bytes"] for p in manifest["parts"]) == manifest["bytes"]
+    assert not list(folder.glob("*.partial"))
+    fresh = tmp_path / "fresh"
+    snapshot.restore(folder, fresh)
+    noise = data / "raw" / "edgar" / "noise.bin"
+    assert (fresh / "raw" / "edgar" / "noise.bin").read_bytes() == noise.read_bytes()
+    with get_db_connection(fresh / "warren.db") as conn:
+        assert conn.execute("SELECT x FROM probe").fetchone()[0] == 42
+
+
+def test_a_missing_middle_part_makes_the_snapshot_an_orphan(data, tmp_path, monkeypatch):
+    monkeypatch.setattr(snapshot, "PART_BYTES", 20_000)
+    _bulk(data)
+    folder = tmp_path / "snap"
+    _save(data, folder, 1)
+    newest = _save(data, folder, 2)
+    (folder / json.loads(newest.read_text())["parts"][1]["name"]).unlink()
+    restored = snapshot.restore(folder, tmp_path / "fresh")
+    assert restored["archive"] == "warren-20261031T230100Z.tar.gz"
+    assert restored["skipped"] == [f"{newest.name} (archive missing or does not match its SHA-256)"]
+    _save(data, folder, 3)  # the orphan doesn't count toward the two kept
+    assert (folder / "warren-20261031T230100Z.tar.gz.part000").exists()
+
+
+@pytest.mark.parametrize("name", ["../outside.part000", "warren-20261031T230000Z.tar.gz.part001"])
+def test_a_part_with_another_name_is_refused(data, tmp_path, name):
+    folder = tmp_path / "snap"
+    path = _save(data, folder)
+    manifest = json.loads(path.read_text())
+    manifest["parts"][0]["name"] = name
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(
+        snapshot.SnapshotError, match="expected 'warren-20261031T230000Z.tar.gz.part000'"
+    ):
+        snapshot.restore(folder, tmp_path / "fresh")
+
+
+def test_an_older_single_file_snapshot_still_restores_and_prunes(data, tmp_path):
+    folder = tmp_path / "snap"
+    path = _save(data, folder, 1)
+    manifest = json.loads(path.read_text())
+    single = folder / manifest["archive"]
+    with open(single, "wb") as out:
+        for part in manifest.pop("parts"):
+            out.write((folder / part["name"]).read_bytes())
+            (folder / part["name"]).unlink()
+    path.write_text(json.dumps(manifest))  # as v0.9.4 and earlier wrote it
+    assert snapshot.restore(folder, tmp_path / "fresh")["row_counts"]["probe"] == 1
+    _save(data, folder, 2)
+    _save(data, folder, 3)
+    assert not single.exists() and not path.exists()
