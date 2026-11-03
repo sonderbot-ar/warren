@@ -8,7 +8,7 @@ The owner's comments on what students see, kept so the owner never says the same
 
 | Item | Sent | Answer | Date |
 |---|---|---|---|
-| Product brief (`docs/product/brief.md`) | nov.03.2026 | Waiting | |
+| Product brief (`docs/product/brief.md`) | nov.03.2026 | Approved (card) | nov.03.2026 |
 | Design principles (`docs/product/design-principles.md`) | nov.03.2026 | Waiting | |
 | Literal and hypothetical sorting rule (backlog #130): AI reader or menus only | nov.03.2026 | Waiting | |
 
