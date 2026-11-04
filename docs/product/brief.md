@@ -2,7 +2,7 @@
 
 Status: Accepted (F1, nov.03.2026) · Owner sign-off: approved nov.03.2026, with the sorting rule · Owner: front-end team (Structure Guide Decision 13)
 
-Since sign-off: v0.9.6 (nov.03.2026, backlog #140) answers questions 1 and 2, so four questions work today, six in part and five not yet. The questions and answers below are unchanged; only their "Hoy" lines and section 5 move as the engine delivers.
+Since sign-off: v0.9.6 (backlog #140) answers questions 1 and 2, v0.9.8 (#144) question 5, and v0.9.9 (#141) question 8 and part of 7, so six questions work today, five in part and four not yet. The questions and answers below are unchanged; only their "Hoy" lines and section 5 move as the engine delivers.
 
 > **What you are approving.** Fifteen questions a finance student would ask Warren, in Spanish, and what Warren answers to each. Questions come in four kinds: a reported figure (*dato*), a model estimate (*estimación*), a changed assumption (*cambio de supuesto*) and an event (*evento*). Warren shows how it read the question before computing anything. Changed assumptions are recomputed by tested code. Events are answered only with similar past cases, how many there are, and what to watch: never a number an AI made up. Warren never predicts prices or gives advice. Two questions work today, eight in part and five not yet; what is missing is eight requests to the engine team (section 5). Signing commits Warren's first screens to these questions. How questions are sorted was decided on its own card (an AI reader, built from the start). How screens look comes later, with mockups.
 
@@ -96,13 +96,13 @@ Fifteen questions, written as a student would ask them, with an English gloss. "
 - Kind: Cambio de supuesto, through the listed transmission.
 - Reading shown first: "Cambio: tasa libre de riesgo, por una subida inesperada de la Fed. Traslado a la tasa a 10 años: entre A y B pb por cada 25 pb (fuente). Si la subida ya se esperaba, la tasa de hoy ya la incluye y no cambia nada." A and B come from the engine's sourced range (R2c), never from the app.
 - Returns: before and after for the risk-free rate, cost of equity, WACC, terminal growth and value per share, at the low and the high end of the transmission range, with the reason for each move. It names the run's terminal value method and what follows from it. Two of Warren's own choices, not general rules, shape the answer, and the screen says so: terminal growth is set equal to the risk-free rate (the usual ceiling, Damodaran), and new investment after year five earns exactly its cost of capital (RONIC = WACC: the return on new invested capital equals its cost, so growth adds no value), which makes terminal value NOPAT × (1 + g) ÷ WACC. So growth moves with the rate but barely matters, and the higher cost of equity, hence WACC, drives the change. The cost of debt does not move: Warren takes it from past interest over average debt.
-- Hoy: **No**. A manual shock can move the risk premium inside a simulation, not the risk-free rate or terminal growth. Requests R2a, R2c (#141, #143).
+- Hoy: **En parte** (since v0.9.9, #141): `python -m domains.analysis whatif --run-id R --add risk_free=0.0025 --json` (or `domains.analysis.whatif.revalue`) moves the risk-free rate and shows cost of equity, WACC and value per share before and after, with terminal growth and the growth fade following it and each moved line's cause. The app must label it "if the 10-year yield moved by 25 bp": the Fed's surprise to the 10-year transmission, with its low and high ends, is R2c (#143).
 
 **8. Si el margen operativo de Walmart baja un punto porcentual, ¿cuánto cambia su valor por acción?**
 *If Walmart's operating margin falls by one percentage point, how much does its value per share change?*
 - Kind: Cambio de supuesto.
 - Returns: before and after value per share, the free cash flow path both ways, and the ripple: operating income, taxes, free cash flow, terminal value.
-- Hoy: **En parte**. A hand-written shock file with one fixed size through `python -m domains.analysis simulate` gives the number, but not as a stored, linked revaluation a screen can call. Request R2a (#141).
+- Hoy: **Sí** (since v0.9.9): `python -m domains.analysis whatif --run-id R --add operating_margin=-0.01 --json`, or the call `domains.analysis.whatif.revalue`. Stores a linked what-if run that reproduces to the cent and returns before, after and change for revenue, EBIT, operating taxes, NOPAT and FCFF per period, the terminal value, the bridge to equity and value per share, each with the inputs behind the move. Request R2a (#141), done.
 
 **9. ¿Qué tan sensible es el valor de Coca-Cola al WACC y al crecimiento terminal?**
 *How sensitive is Coca-Cola's value to WACC and terminal growth?*
@@ -165,7 +165,7 @@ Each is an issue labelled `backlog` and `front-end` (`docs/team-sync.md`, rule 4
 |---|---|---|---|---|
 | R1 | Reported figures and named ratios for a company and period, with provenance, first reported and latest, revision flag (takes over #128 item 2) | 1, 2 | M | #140 (done, v0.9.6) |
 | R1b | Net margin on net income to the parent (left out of #140; no brief question needs it yet) | — | — | #157 |
-| R2a | What-if revaluation: a stored run revalued with named inputs changed, deterministic, stored as a linked child run that reproduces to the cent | 7, 8 | L | #141 |
+| R2a | What-if revaluation: a stored run revalued with named inputs changed, deterministic, stored as a linked child run that reproduces to the cent | 7, 8 | L | #141 (done, v0.9.9; debt #170, WACC and terminal method #171) |
 | R2b | Two-input sensitivity grid on R2a | 9 | S | #142 |
 | R2c | The list of transmissions, starting with an unexpected policy-rate move → 10-year yield, as a sourced range (owner card: a new method) | 7 | M | #143 |
 | R3 | Error ranges (M9) and the company's own coverage on every run | 5 | S–M | #144 |
