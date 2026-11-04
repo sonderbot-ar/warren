@@ -125,3 +125,17 @@ def test_a_transaction_left_open_by_the_caller_is_kept(company):
     run_baseline(company, "TST", AS_OF, choices=CHOICES, today=AS_OF)
     assert company.execute("SELECT x FROM scratch").fetchall()[0][0] == 1
     assert not company.in_transaction
+
+
+def test_the_lock_refuses_to_nest_and_keeps_the_first_error(company):
+    company.execute("CREATE TABLE scratch (x INTEGER)")
+    company.commit()
+    with pytest.raises(RuntimeError, match="doesn't nest"):
+        with write_lock(company):
+            company.execute("INSERT INTO scratch VALUES (1)")
+            with write_lock(company):
+                pass
+    assert company.execute("SELECT COUNT(*) FROM scratch").fetchone()[0] == 0
+    with write_lock(company):  # usable again afterwards
+        company.execute("INSERT INTO scratch VALUES (2)")
+    assert company.execute("SELECT x FROM scratch").fetchall()[0][0] == 2
