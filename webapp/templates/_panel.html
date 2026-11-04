@@ -4,10 +4,12 @@
    so a page without JavaScript still shows it; swapped in, it stays closed until it is modal. #}
 <dialog class="panel" data-panel data-open data-figura="{{ panel.figura }}"
         data-close-url="{{ panel.close_url }}" data-announce="{{ t('panel.announce') }}"
+        data-tab-error="{{ t('panel.tab_error') }}"
         aria-labelledby="panel-titulo"{% if panel.full_page %} open{% endif %}>
   <div class="panel-head">
     <h2 id="panel-titulo">{{ t("panel.label") }}</h2>
-    <button type="button" class="panel-close" data-panel-close>{{ t("panel.close") }}</button>
+    {# a link, so it closes without JavaScript too; panel.js closes it in place #}
+    <a class="panel-close" href="{{ panel.close_url }}" data-panel-close>{{ t("panel.close") }}</a>
   </div>
   <div role="tablist" class="panel-tabs" aria-label="{{ t('panel.tabs_label') }}">
     {% for tab in tabs %}
@@ -16,6 +18,7 @@
        aria-selected="{{ 'true' if tab == panel.pestana else 'false' }}"
        tabindex="{{ '0' if tab == panel.pestana else '-1' }}"
        hx-get="{{ panel.tab_fragment_url(tab) }}" hx-target="#panel-contenido"
+       hx-sync="closest [role=tablist]:replace"
        hx-replace-url="{{ panel.tab_page_url(tab) }}">{{ t("panel.tab." ~ tab) }}</a>
     {% endfor %}
   </div>

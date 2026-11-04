@@ -8,7 +8,7 @@
   "lang.es": "Español",
   "lang.en": "English",
   "inicio.title": "Warren",
-  "inicio.lede": "Aquí vivirán las pantallas de Warren, una por pregunta. Llegarán pronto.",
+  "inicio.lede": "Aquí estarán las pantallas de Warren, una por pregunta. Llegarán pronto.",
   "inicio.bench_link": "Ver los componentes de prueba",
   "bench.title": "Componentes de prueba",
   "bench.lede": "Esta página sirve para revisar cómo funciona el panel lateral con teclado, lector de pantalla y en el celular. No muestra cifras.",
@@ -17,6 +17,7 @@
   "panel.close": "Cerrar el panel",
   "panel.tabs_label": "Secciones del detalle",
   "panel.announce": "Mostrando: {tab}",
+  "panel.tab_error": "No pudimos cargar esta sección. Vuelve a intentarlo en unos segundos.",
   "panel.tab.fuente": "Fuente",
   "panel.tab.formula": "Fórmula",
   "panel.tab.concepto": "Concepto",
@@ -29,9 +30,9 @@
   "panel.body.leer": "Aquí irán titulares publicados antes de la fecha de corte y empresas relacionadas.",
   "error.retry": "Volver a intentar",
   "error.corte.title": "La fecha de corte no es válida",
-  "error.corte.body": "La dirección trae una fecha que no se puede leer. Usa el formato año-mes-día, por ejemplo 2026-11-03.",
+  "error.corte.body": "El enlace tiene una fecha que no se puede leer. Usa el formato año-mes-día, por ejemplo 2026-11-03.",
   "error.busy.title": "Warren está guardando datos",
   "error.busy.body": "La base de datos está ocupada con una descarga larga. Espera unos segundos y vuelve a intentar.",
   "error.not_found.title": "No encontramos esa sección",
-  "error.not_found.body": "La dirección pide una cifra o una pestaña que esta página no tiene."
+  "error.not_found.body": "El enlace pide una cifra o una pestaña que esta página no tiene."
 }

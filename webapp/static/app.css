@@ -163,6 +163,9 @@ h1 {
 }
 
 .panel-close {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
   min-height: var(--target-min);
   padding: 0 var(--space-3);
   font: inherit;
@@ -178,7 +181,7 @@ h1 {
   display: flex;
   gap: var(--space-1);
   margin: var(--space-4) 0;
-  overflow-x: auto; /* five tabs scroll in their own row on a phone, never the page */
+  flex-wrap: wrap; /* five tabs wrap onto a second row on a phone: none is cut off */
   border-bottom: var(--border-width) solid var(--color-line);
 }
 
@@ -194,7 +197,11 @@ h1 {
 }
 
 .panel-tabs [role="tab"]:focus-visible {
-  outline-offset: calc(-1 * var(--focus-width)); /* inside, so the scrolling row never clips it */
+  outline-offset: calc(-1 * var(--focus-width)); /* inside the tab, clear of its neighbours */
+}
+
+.tab-error {
+  color: var(--color-error);
 }
 
 .panel-tabs [role="tab"][aria-selected="true"] {

@@ -33,7 +33,7 @@ def test_an_unreadable_corte_gets_the_error_page_not_a_crash(client):
     response = client.get("/?corte=ayer")
     assert response.status_code == 400
     assert "La fecha de corte no es válida" in response.text
-    assert 'role="alert"' in response.text
+    assert "El enlace tiene una fecha" in response.text
 
 
 def test_the_panel_opens_from_the_address_on_the_tab_it_names(client):

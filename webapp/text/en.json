@@ -17,6 +17,7 @@
   "panel.close": "Close the panel",
   "panel.tabs_label": "Detail sections",
   "panel.announce": "Showing: {tab}",
+  "panel.tab_error": "We could not load this section. Try again in a few seconds.",
   "panel.tab.fuente": "Source",
   "panel.tab.formula": "Formula",
   "panel.tab.concepto": "Concept",
@@ -29,9 +30,9 @@
   "panel.body.leer": "Headlines published before the cut-off date, and related companies, will go here.",
   "error.retry": "Try again",
   "error.corte.title": "The cut-off date is not valid",
-  "error.corte.body": "The address has a date that cannot be read. Use year-month-day, for example 2026-11-03.",
+  "error.corte.body": "The link has a date that cannot be read. Use year-month-day, for example 2026-11-03.",
   "error.busy.title": "Warren is saving data",
   "error.busy.body": "The database is busy with a long download. Wait a few seconds and try again.",
   "error.not_found.title": "We could not find that section",
-  "error.not_found.body": "The address asks for a figure or a tab this page does not have."
+  "error.not_found.body": "The link asks for a figure or a tab this page does not have."
 }
