@@ -118,3 +118,54 @@ def test_ranges_run_on_an_unknown_run_exits_1(company, tmp_path, monkeypatch, ca
     wire(monkeypatch, company, tmp_path)
     assert cli.main(["ranges", "run", "--run-id", "NOPE_1"]) == 1
     assert "not stored" in capsys.readouterr().out
+
+
+# -- track-record (backlog #145) ----------------------------------------------------------------
+
+
+def _track_record_origins(company, monkeypatch):
+    from domains.evaluation import run_ranges
+    from tests.evaluation.test_track_record import origin, q
+
+    monkeypatch.setattr(run_ranges, "basis_flags", lambda conn, ticker, on: set())
+    origin(company, date(2021, 2, 1), [q(1, "FY2021Q1", rev=80.0)], {"FY2021Q1": (90.0, 9.0)})
+
+
+def test_track_record_prints_the_summaries_and_quarters(company, tmp_path, monkeypatch, capsys):
+    wire(monkeypatch, company, tmp_path)
+    _track_record_origins(company, monkeypatch)
+    assert cli.main(["track-record", "--ticker", "TST", "--as-of", "2021-07-01"]) == 0
+    out = capsys.readouterr().out
+    assert "TST track record as of 2021-07-01" in out
+    assert "| FY2021Q1 | 1 | 2021-02-01 |" in out and "revenue: forecast" in out
+
+
+def test_track_record_without_as_of_says_it_is_the_last_ended_day(
+    company, tmp_path, monkeypatch, capsys
+):
+    wire(monkeypatch, company, tmp_path)
+    _track_record_origins(company, monkeypatch)
+    assert cli.main(["track-record", "--ticker", "tst"]) == 0
+    out = capsys.readouterr().out
+    assert "TST track record as of " in out and "(the last day ended in New York)" in out
+
+
+def test_track_record_json_is_plain_json(company, tmp_path, monkeypatch, capsys):
+    import json
+
+    wire(monkeypatch, company, tmp_path)
+    _track_record_origins(company, monkeypatch)
+    args = ["track-record", "--ticker", "TST", "--as-of", "2021-07-01", "--json"]
+    assert cli.main(args) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert {"ticker", "rows", "summaries", "notes"} <= set(data)
+    assert data["ticker"] == "TST" and data["as_of"] == "2021-07-01"
+    assert [r["period"] for r in data["rows"]] == ["FY2021Q1"]
+    assert data["rows"][0]["items"]["revenue"]["signed_miss"] == 0.25
+    assert len(data["summaries"]) == 10
+
+
+def test_track_record_on_an_unknown_ticker_exits_1(company, tmp_path, monkeypatch, capsys):
+    wire(monkeypatch, company, tmp_path)
+    assert cli.main(["track-record", "--ticker", "ZZZ", "--as-of", "2021-07-01"]) == 1
+    assert "has not been ingested" in capsys.readouterr().out
