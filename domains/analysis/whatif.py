@@ -26,7 +26,13 @@ from domains.analysis import financial_math as fm
 from domains.analysis.math_engine import post_checks
 from domains.analysis.montecarlo import _currency
 from domains.analysis.reported import Coded
-from domains.analysis.runs import load_assumptions, load_outputs, save_rows
+from domains.analysis.runs import (
+    code_version,
+    insert_rows,
+    load_assumptions,
+    load_outputs,
+    write_lock,
+)
 from domains.analysis.schemas import SINGLE, Assumption
 from domains.analysis.text import REASON_WORDS
 
@@ -418,21 +424,17 @@ def revalue(conn: sqlite3.Connection, run_id: str, changes: list[Change]) -> Wha
     outputs, gaps = _value(child_rows)
     parent_rows_out = load_outputs(conn, run_id)
 
-    reused_id = _existing_child(conn, run_id, child_rows)
     notes_text = post_checks(child_rows, outputs)
-    if reused_id is None:
-        child_id = save_rows(
-            conn,
-            run,
-            child_rows,
-            outputs,
-            notes_text,
-            gaps,
-            run_id=_next_child_id(conn, run_id),
-            parent_run_id=run_id,
-        )
-    else:
-        child_id = reused_id
+    version = code_version()  # a git call: kept outside the lock
+    # the lookup for a stored copy and the numbering happen under one write lock, so two
+    # identical requests at once store one child (backlog #176)
+    with write_lock(conn):
+        reused_id = _existing_child(conn, run_id, child_rows)
+        if reused_id is None:
+            child_id = _next_child_id(conn, run_id)
+            insert_rows(conn, run, child_rows, outputs, notes_text, gaps, child_id, run_id, version)
+        else:
+            child_id = reused_id
 
     parent_notes = set((run["notes"] or "").splitlines())
     notes = [Coded("run_warning", {"new": text not in parent_notes}, text) for text in notes_text]
