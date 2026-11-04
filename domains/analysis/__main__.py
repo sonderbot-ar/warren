@@ -23,6 +23,8 @@ fails. `reproduce` values stored runs again from their assumptions and exits 1 o
 data/reports/sim/<sim_id>.md; `reproduce-sim` runs it again from its seed and compares to the cent.
 `reported` prints a fiscal period's reported lines, with their filings, and the named ratios, as
 known on the as-of date (backlog #140); `--json` prints the same for the app. Nothing is stored.
+`notes` prints a stored run's warnings as codes with parameters (backlog #172); `--backfill` gives
+runs stored before them their codes, only where the rebuilt text matches the stored text exactly.
 """
 
 import argparse
@@ -43,7 +45,14 @@ from domains.analysis.montecarlo import (
 )
 from domains.analysis.report import write_report
 from domains.analysis.reported import ReportedError, ReportedPeriod, reported_period
-from domains.analysis.runs import rebuild, reproduce, run_baseline
+from domains.analysis.runs import (
+    RunNotes,
+    backfill_notes,
+    rebuild,
+    reproduce,
+    run_baseline,
+    run_notes,
+)
 from domains.analysis.sensitivity import Block, Grid, GridError, grid
 from domains.analysis.sources import SourceError, backfill, run_sources
 from domains.analysis.whatif import Change, WhatIf, WhatIfError, revalue
@@ -510,6 +519,44 @@ def cmd_sources(args: argparse.Namespace) -> int:
     return 0
 
 
+def render_notes(r: RunNotes) -> str:
+    head = f"Notes of {r.run_id}" + ("" if r.recorded else " (stored as text only: no codes)")
+    lines = [f"- [{n.code}] {n.text}" for n in r.notes] or ["None."]
+    return "\n".join([head, *lines])
+
+
+def cmd_notes(args: argparse.Namespace) -> int:
+    with get_db_connection() as conn:
+        apply_migrations(conn)
+        if args.backfill:
+            if not (args.run_id or args.all):
+                print("--backfill needs --run-id R or --all")
+                return 2
+            ids = (
+                [args.run_id]
+                if args.run_id
+                else [r["run_id"] for r in conn.execute("SELECT run_id FROM runs ORDER BY run_id")]
+            )
+            counts: dict[str, int] = {}
+            for run_id in ids:
+                status, detail = backfill_notes(conn, run_id)
+                counts[status] = counts.get(status, 0) + 1
+                if status not in ("filled", "already_recorded", "no_notes"):
+                    print(f"{run_id}: {status} {detail}".rstrip())
+            print("Backfill: " + ", ".join(f"{k} {v}" for k, v in sorted(counts.items())))
+            return 0
+        if not args.run_id:
+            print("--run-id is required")
+            return 2
+        try:
+            result = run_notes(conn, args.run_id)
+        except ValueError as e:
+            print(f"REFUSED: {e}")
+            return 1
+    print(json.dumps(result.to_dict(), indent=2) if args.json else render_notes(result))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m domains.analysis")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -611,6 +658,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     so.add_argument("--all", action="store_true", help="with --backfill: every stored run")
     so.set_defaults(func=cmd_sources)
+
+    no = commands.add_parser("notes", help="a stored run's warnings, as codes (backlog #172)")
+    no.add_argument("--run-id", help="the run (with --backfill: only this run)")
+    no.add_argument("--json", action="store_true", help="print JSON for the app")
+    no.add_argument(
+        "--backfill",
+        action="store_true",
+        help="give older runs their codes, when the rebuilt text matches exactly",
+    )
+    no.add_argument("--all", action="store_true", help="with --backfill: every stored run")
+    no.set_defaults(func=cmd_notes)
 
     args = parser.parse_args(argv)
     return args.func(args)
