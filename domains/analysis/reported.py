@@ -25,6 +25,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import date
 
 from domains.analysis import financial_math as fm
+from domains.analysis.coded import Coded, coded_warnings
 from domains.analysis.math_engine import CASH_ITEMS, CHAINS, History, debt_parts
 from domains.fundamentals.facts import get_facts, newest_filing_disagreements
 from domains.fundamentals.schemas import Fact
@@ -118,15 +119,6 @@ class Line:
     changed: bool  # latest differs from first reported (the engine knows that, not why)
     derived: bool  # computed by Warren from other periods, e.g. Q4 = FY − nine months
     mixed_vintage: bool  # derived from restated and first-reported inputs together
-
-
-@dataclass(frozen=True)
-class Coded:
-    """A gap, note or warning as a stable code with parameters; `text` is an English fallback."""
-
-    code: str
-    params: dict
-    text: str
 
 
 @dataclass(frozen=True)
@@ -397,14 +389,9 @@ def reported_period(
 
 
 def _coded_warnings(caught, universe) -> list[Coded]:
-    out = []
-    for message in dict.fromkeys(str(w.message) for w in caught):
-        if universe is not None and universe.history_ends and "another CIK" in message:
-            params = {"history_ends": universe.history_ends.isoformat()}
-            out.append(Coded("beyond_history", params, message))
-        else:
-            out.append(Coded("data_warning", {}, message))
-    return out
+    """The caught warnings, coded as a run's are (backlog #172): `beyond_history` carries
+    `history_ends` and, since #172, `ticker`, `cik`, `as_of` and `note`."""
+    return coded_warnings(caught)
 
 
 # -- ratios -----------------------------------------------------------------------------------
