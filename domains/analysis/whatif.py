@@ -17,6 +17,7 @@ reproduces to the cent with the ordinary `runs.reproduce`.
   currency units for money, a count for shares.
 """
 
+import math
 import sqlite3
 from dataclasses import asdict, dataclass, field
 
@@ -51,6 +52,7 @@ BOUNDS = {
     "minority_interest": (0.0, None, True, None),
     "tax_rate": (0.0, 1.0, True, False),
     "debt_tax_rate": (0.0, 1.0, True, False),
+    "cost_of_debt": (0.0, None, True, None),
     "revenue_growth": (-1.0, None, False, None),
 }
 SINGLE_LINES = (
@@ -195,6 +197,8 @@ def _refuse(code: str, text: str, **params) -> WhatIfError:
 
 
 def _check_bounds(name: str, value: float) -> None:
+    if not math.isfinite(value):  # NaN passes every comparison; infinity gives no valuation
+        raise _refuse("invalid_input", f"{name} {value} is not a finite number", name=name)
     if name not in BOUNDS:
         return
     low, high, low_in, high_in = BOUNDS[name]
