@@ -4,6 +4,8 @@ rebuilding their assumptions from the data they were built from (M2.1)."""
 import dataclasses
 import sqlite3
 import subprocess
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -58,6 +60,45 @@ SNAPSHOT_COLUMNS = (
 )
 
 
+_LOCKED: set[int] = set()  # connections inside write_lock
+
+
+@contextmanager
+def write_lock(conn: sqlite3.Connection) -> Iterator[None]:
+    """One write transaction that takes SQLite's write lock at its start (BEGIN IMMEDIATE), so a
+    count or lookup made inside it can't be overtaken by another writer before the insert that
+    depends on it (backlog #176). Another writer waits up to the connection's timeout. Commits on
+    success and rolls back on any error. A transaction the caller left open is committed first,
+    as the commit at the end would have done anyway."""
+    if id(conn) in _LOCKED:
+        raise RuntimeError("write_lock is already held on this connection: it doesn't nest")
+    if conn.in_transaction:
+        conn.commit()
+    conn.execute("BEGIN IMMEDIATE")
+    _LOCKED.add(id(conn))
+    try:
+        yield
+        conn.execute("COMMIT")
+    except BaseException:
+        if conn.in_transaction:  # SQLite may have rolled back already; keep the first error
+            conn.execute("ROLLBACK")
+        raise
+    finally:
+        _LOCKED.discard(id(conn))
+
+
+def _next_run_id(prefix: str) -> Callable[[sqlite3.Connection], str]:
+    def allocate(conn: sqlite3.Connection) -> str:
+        # what-ifs (backlog #141) have their own ids and don't count
+        count = conn.execute(
+            "SELECT COUNT(*) FROM runs WHERE run_id LIKE ? AND parent_run_id IS NULL",
+            (prefix + "%",),
+        ).fetchone()[0]
+        return f"{prefix}{count + 1}"
+
+    return allocate
+
+
 def save_run(
     conn: sqlite3.Connection,
     result: EngineResult,
@@ -66,20 +107,16 @@ def save_run(
     gaps: dict[tuple[str, str], dcf.Gap] | None = None,
 ) -> str:
     """Store a run's assumptions, outputs and the reasons for outputs it has no value for, in one
-    transaction; returns its run id."""
-    prefix = f"{result.ticker}_{result.as_of.isoformat()}_"
-    # what-ifs (backlog #141) have their own ids and don't count
-    count = conn.execute(
-        "SELECT COUNT(*) FROM runs WHERE run_id LIKE ? AND parent_run_id IS NULL",
-        (prefix + "%",),
-    ).fetchone()[0]
+    transaction; returns its run id. The id is numbered inside that transaction, so two runs
+    saved at once never get the same one."""
     run = {
         "cik": result.cik,
         "ticker": result.ticker,
         "as_of": result.as_of.isoformat(),
         **{column: result.snapshot[column] for column in SNAPSHOT_COLUMNS},
     }
-    return save_rows(conn, run, result.assumptions, outputs, notes, gaps, f"{prefix}{count + 1}")
+    prefix = f"{result.ticker}_{result.as_of.isoformat()}_"
+    return save_rows(conn, run, result.assumptions, outputs, notes, gaps, _next_run_id(prefix))
 
 
 def save_rows(
@@ -89,46 +126,64 @@ def save_rows(
     outputs: dict[tuple[str, str], float],
     notes: list[str],
     gaps: dict[tuple[str, str], dcf.Gap] | None,
-    run_id: str,
+    run_id: str | Callable[[sqlite3.Connection], str],
     parent_run_id: str | None = None,
 ) -> str:
-    """Store a run under `run_id`: `run` gives its company, date and data snapshot (a mapping
-    with the runs columns cik, ticker, as_of and SNAPSHOT_COLUMNS: an engine result's, or the
-    parent's row for a what-if)."""
+    """Store a run under `run_id` in one write transaction (`write_lock`): `run` gives its
+    company, date and data snapshot (a mapping with the runs columns cik, ticker, as_of and
+    SNAPSHOT_COLUMNS: an engine result's, or the parent's row for a what-if). `run_id` may be a
+    function of the connection, called inside the transaction to number the run."""
     gaps = gaps or {}
     for gap in gaps.values():
         _check_reason(gap.reason)
-    with conn:
-        conn.execute(
-            "INSERT INTO runs (run_id, cik, ticker, as_of, code_version, ingest_run_id, "
-            "concept_map_sha256, price_fetch_sha256, index_fetch_sha256, yield_fetch_sha256, "
-            "notes, parent_run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                run_id,
-                run["cik"],
-                run["ticker"],
-                run["as_of"],
-                code_version(),
-                *(run[column] for column in SNAPSHOT_COLUMNS),
-                "\n".join(notes),
-                parent_run_id,
-            ),
-        )
-        conn.executemany(
-            "INSERT INTO assumptions (run_id, name, period, value, source, method) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            [(run_id, a.name, a.period, a.value, a.source, a.method) for a in assumptions],
-        )
-        conn.executemany(
-            "INSERT INTO run_outputs (run_id, name, period, value) VALUES (?, ?, ?, ?)",
-            [(run_id, name, period, value) for (name, period), value in outputs.items()],
-        )
-        conn.executemany(
-            "INSERT INTO run_output_gaps (run_id, name, period, reason, detail) "
-            "VALUES (?, ?, ?, ?, ?)",
-            [(run_id, n, p, g.reason, g.detail) for (n, p), g in gaps.items()],
-        )
+    version = code_version()  # a git call: kept outside the lock
+    with write_lock(conn):
+        if callable(run_id):
+            run_id = run_id(conn)
+        insert_rows(conn, run, assumptions, outputs, notes, gaps, run_id, parent_run_id, version)
     return run_id
+
+
+def insert_rows(
+    conn: sqlite3.Connection,
+    run,
+    assumptions: list[Assumption],
+    outputs: dict[tuple[str, str], float],
+    notes: list[str],
+    gaps: dict[tuple[str, str], dcf.Gap],
+    run_id: str,
+    parent_run_id: str | None,
+    version: str,
+) -> None:
+    """The inserts behind `save_rows`, for a caller already inside `write_lock`."""
+    conn.execute(
+        "INSERT INTO runs (run_id, cik, ticker, as_of, code_version, ingest_run_id, "
+        "concept_map_sha256, price_fetch_sha256, index_fetch_sha256, yield_fetch_sha256, "
+        "notes, parent_run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            run_id,
+            run["cik"],
+            run["ticker"],
+            run["as_of"],
+            version,
+            *(run[column] for column in SNAPSHOT_COLUMNS),
+            "\n".join(notes),
+            parent_run_id,
+        ),
+    )
+    conn.executemany(
+        "INSERT INTO assumptions (run_id, name, period, value, source, method) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        [(run_id, a.name, a.period, a.value, a.source, a.method) for a in assumptions],
+    )
+    conn.executemany(
+        "INSERT INTO run_outputs (run_id, name, period, value) VALUES (?, ?, ?, ?)",
+        [(run_id, name, period, value) for (name, period), value in outputs.items()],
+    )
+    conn.executemany(
+        "INSERT INTO run_output_gaps (run_id, name, period, reason, detail) VALUES (?, ?, ?, ?, ?)",
+        [(run_id, n, p, g.reason, g.detail) for (n, p), g in gaps.items()],
+    )
 
 
 def _check_reason(reason: str) -> str:
