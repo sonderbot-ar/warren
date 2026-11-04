@@ -137,8 +137,8 @@ def test_a_slow_tab_never_lands_under_a_newer_tab(page, base):
     held = []
     page.route("**/fragmentos/pestana?*pestana=formula*", lambda route: held.append(route))
     _open_from_bench(page, base)
-    page.keyboard.press("ArrowRight")  # Fórmula: held back
-    page.wait_for_timeout(200)
+    with page.expect_request("**/fragmentos/pestana?*pestana=formula*"):
+        page.keyboard.press("ArrowRight")  # Fórmula: sent, and held back
     page.keyboard.press("ArrowRight")  # Concepto: answers at once
     expect(page.locator('.tab-body[data-pestana="concepto"]')).to_be_visible()
     for route in held:  # Fórmula's answer arrives late, after it was replaced
@@ -146,7 +146,7 @@ def test_a_slow_tab_never_lands_under_a_newer_tab(page, base):
             route.continue_()
         except Exception:
             pass  # already aborted by hx-sync
-    page.wait_for_timeout(500)
+    page.wait_for_load_state("networkidle")  # anything late has landed by now
     expect(page.locator('.tab-body[data-pestana="concepto"]')).to_be_visible()
     expect(page.locator('[role="tab"][aria-selected="true"]')).to_have_attribute(
         "id", "pestana-concepto"
