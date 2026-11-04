@@ -658,7 +658,7 @@ def _market(
         "price",
         price.close,
         f"close on {price.date} (Yahoo), as it traded; not used in the valuation",
-        sources=[src.market("yahoo", result.ticker, "close", price.date, price.date)],
+        sources=_price_sources(conn, result.ticker, price),
     )
     shares = _shares(conn, history, result, price)
     result.add(
@@ -734,6 +734,19 @@ def _market(
         "yield_fetch_sha256": erp.yield_fetch_sha256,
     }
     return price
+
+
+def _price_sources(conn: sqlite3.Connection, ticker: str, price: PricePoint) -> list[dict]:
+    """The close, and when the download has since applied a split, the adjustment that puts it
+    back on that day's basis (`raw_close`): its window runs to the download's last date, after
+    the as-of date, but it only undoes a later restatement of the same public close."""
+    out = [src.market("yahoo", ticker, "close", price.date, price.date)]
+    last = conn.execute(
+        "SELECT last_date FROM market_fetches WHERE fetch_id = ?", (price.fetch_id,)
+    ).fetchone()["last_date"]
+    if price_split_factor(conn, ticker, price.date, date.fromisoformat(last)) != 1:
+        out.append(src.market("yahoo", ticker, "splits", price.date, date.fromisoformat(last)))
+    return out
 
 
 def _erp_sources(first_year: int, last_year: int) -> list[dict]:

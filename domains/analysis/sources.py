@@ -551,12 +551,13 @@ def backfill(conn: sqlite3.Connection, run_id: str, today: date | None = None) -
         return "what_if_not_backfilled", f"a what-if of {run['parent_run_id']}"
     try:
         built = rebuild(conn, run_id, today=today)
-    except (ValueError, MarketDataError) as e:
+        if built.ok:
+            check(load_assumptions(conn, run_id), built.sources)
+    except (ValueError, MarketDataError) as e:  # SourceError is a ValueError
         return "failed", str(e)
     if not built.ok:
         first = ", ".join(" ".join(m) for m in built.mismatches[:3])
         return "rebuild_differs", f"{len(built.mismatches)} rows differ ({first})"
-    check(load_assumptions(conn, run_id), built.sources)
     with write_lock(conn):
         if load(conn, run_id):  # another writer filled it meanwhile
             return "already_recorded", ""

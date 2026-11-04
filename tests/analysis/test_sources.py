@@ -106,6 +106,26 @@ def test_market_rows_name_their_series_and_dates(company):
     assert (price["series"], price["measure"]) == ("TST", "close")
 
 
+def test_a_price_the_download_restated_for_a_later_split_names_the_split(company):
+    # a 2:1 split after the price day, inside the download: the stored price undoes it
+    company.execute("UPDATE market_fetches SET last_date = '2020-07-10' WHERE symbol = 'TST'")
+    fetch_id = company.execute(
+        "SELECT fetch_id FROM market_fetches WHERE symbol = 'TST'"
+    ).fetchone()[0]
+    company.execute(
+        "INSERT INTO prices (ticker, fetch_id, date, close, adj_close, volume, split_ratio) "
+        "VALUES ('TST', ?, '2020-07-06', 1, 1, 1, 2)",
+        (fetch_id,),
+    )
+    close, splits = _build(company).sources[("price", SINGLE)]
+    assert (close["measure"], close["start"]) == ("close", "2020-06-26")
+    assert (splits["measure"], splits["start"], splits["end"]) == (
+        "splits",
+        "2020-06-26",
+        "2020-07-10",
+    )
+
+
 def test_rows_computed_from_other_rows_name_them(company):
     s = _build(company).sources
     assert s[("terminal_growth", SINGLE)] == [
