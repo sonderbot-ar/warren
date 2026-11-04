@@ -20,10 +20,15 @@ Kinds:
 import json
 import sqlite3
 from collections.abc import Iterable
+from dataclasses import asdict, dataclass
 from datetime import date
+from urllib.parse import quote
 
+from domains.analysis.schemas import SINGLE as SINGLE_PERIOD
 from domains.analysis.schemas import Assumption
 from domains.fundamentals.schemas import Fact
+from domains.market.prices import MARKET_INDEX
+from domains.market.yields import RISK_FREE_SERIES
 
 KINDS = ("filing", "market", "owner_choice", "derived", "rule", "what_if")
 RULES = {
@@ -213,3 +218,347 @@ def for_child(
             copied.append(item)
         out[key] = copied
     return out
+
+
+# -- the output trace (item 7) -------------------------------------------------------------------
+
+# Codes for how each output is computed from its inputs, in dcf.compute; the app owns the words.
+FORMULAS = {
+    "revenue_from_growth_vs_year_earlier": "the same quarter a year earlier × (1 + growth)",
+    "revenue_year_from_last_four_quarters": "the last four forecast quarters × (1 + growth)",
+    "revenue_from_growth": "the year before × (1 + growth)",
+    "revenue_times_margin": "revenue × operating margin",
+    "revenue_times_da_share": "revenue × D&A share of revenue",
+    "revenue_times_capex_share": "revenue × capex share of revenue",
+    "ebit_after_tax": "EBIT × (1 − tax rate)",
+    "change_in_working_capital": "working-capital share × trailing revenue, less the period before",
+    "first_change_in_working_capital": (
+        "working-capital share × (this quarter's revenue − the same quarter a year earlier)"
+    ),
+    "fcff": "EBIT × (1 − tax rate) + D&A − capex − change in working capital",
+    "discount_factor": "the period before's factor ÷ (1 + WACC) over the period's length",
+    "capm": "risk-free rate + beta × equity risk premium",
+    "wacc": "cost of equity and after-tax cost of debt, weighted by market equity and debt",
+    "present_value_of_cash_flows": "Σ FCFF × discount factor",
+    "gordon_terminal_value": "last FCFF × (1 + g) ÷ (WACC − g)",
+    "value_driver_terminal_value": "last NOPAT × (1 + g) ÷ WACC",
+    "discounted_terminal_value": "terminal value × the last discount factor",
+    "sum_of_present_values": "present value of the cash flows + of the terminal value",
+    "terminal_share": "present value of the terminal value ÷ enterprise value",
+    "rolled_forward": "enterprise value × (1 + WACC) ^ years to the as-of date",
+    "net_debt": "debt − cash and investments",
+    "equity_value": "enterprise value − net debt − minority interest",
+    "per_share": "equity value ÷ shares",
+    "revalued_at_erp_minus_1se": "value per share with the ERP one standard error lower",
+    "revalued_at_erp_plus_1se": "value per share with the ERP one standard error higher",
+}
+
+
+def _row(name: str, period: str) -> dict:
+    return {"of": "row", "name": name, "period": period}
+
+
+def _out(name: str, period: str) -> dict:
+    return {"of": "output", "name": name, "period": period}
+
+
+def output_trace(rows: Iterable[Assumption]) -> dict[Key, dict]:
+    """Each output a run stores: its formula code and its direct inputs, rows of the run or
+    other outputs, following `dcf.compute` step by step (nothing stored; from the periods)."""
+    from domains.analysis import dcf  # dcf is a sibling the engine imports first
+
+    rows = list(rows)
+    index = dcf._index(rows)
+    seed, periods = dcf.forecast_periods(index)
+    q = dcf.QUARTERS
+    last = periods[-1]
+    out: dict[Key, dict] = {}
+
+    def put(name, period, formula, *inputs):
+        out[(name, period)] = {"formula": formula, "inputs": list(inputs)}
+
+    # history = seed quarters + forecast quarters; ttm[i] = history[i + 1 : i + 5] (quarters)
+    history = [_row(dcf.SEED, p) for p in seed] + [_out("revenue", p) for p in periods[:q]]
+    ttm = [history[i + 1 : i + 5] for i in range(q)] + [[_out("revenue", p)] for p in periods[q:]]
+    for i, p in enumerate(periods):
+        growth = _row("revenue_growth", p)
+        if i < q:
+            base = _row(dcf.SEED, seed[i]) if i < 4 else _out("revenue", periods[i - 4])
+            put("revenue", p, "revenue_from_growth_vs_year_earlier", base, growth)
+        elif i == q:
+            put(
+                "revenue",
+                p,
+                "revenue_year_from_last_four_quarters",
+                *(_out("revenue", x) for x in periods[q - 4 : q]),
+                growth,
+            )
+        else:
+            put("revenue", p, "revenue_from_growth", _out("revenue", periods[i - 1]), growth)
+        put("ebit", p, "revenue_times_margin", _out("revenue", p), _row("operating_margin", p))
+        put("d_and_a", p, "revenue_times_da_share", _out("revenue", p), _row("da_pct", p))
+        put("capex", p, "revenue_times_capex_share", _out("revenue", p), _row("capex_pct", p))
+        put("nopat", p, "ebit_after_tax", _out("ebit", p), _row("tax_rate", p))
+        if i == 0:
+            # share × (trailing revenue − the seed year) with one share: the three seed quarters
+            # in both cancel, leaving this quarter's revenue and the seed quarter it replaces
+            put(
+                "delta_nwc",
+                p,
+                "first_change_in_working_capital",
+                _row("nwc_pct", p),
+                _out("revenue", p),
+                _row(dcf.SEED, seed[0]),
+            )
+        else:
+            before = [_row("nwc_pct", periods[i - 1]), *ttm[i - 1]]
+            put("delta_nwc", p, "change_in_working_capital", _row("nwc_pct", p), *ttm[i], *before)
+        put(
+            "fcff",
+            p,
+            "fcff",
+            _out("ebit", p),
+            _row("tax_rate", p),
+            _out("d_and_a", p),
+            _out("capex", p),
+            _out("delta_nwc", p),
+        )
+        previous = [_out("discount_factor", periods[i - 1])] if i else []
+        put("discount_factor", p, "discount_factor", _out("wacc", SINGLE_PERIOD), *previous)
+
+    one = SINGLE_PERIOD
+    put("cost_of_equity", one, "capm", _row("risk_free", one), _row("beta", one), _row("erp", one))
+    put(
+        "wacc",
+        one,
+        "wacc",
+        _out("cost_of_equity", one),
+        _row("equity_market_value", one),
+        _row("debt", one),
+        _row("cost_of_debt", one),
+        _row("debt_tax_rate", one),
+    )
+    put(
+        "pv_explicit",
+        one,
+        "present_value_of_cash_flows",
+        *(x for p in periods for x in (_out("fcff", p), _out("discount_factor", p))),
+    )
+    method = [_row("terminal_method", one)] if "terminal_method" in index else []
+    if dcf.terminal_method(rows) == dcf.VALUE_DRIVER:
+        tv = ("value_driver_terminal_value", _out("nopat", last))
+    else:
+        tv = ("gordon_terminal_value", _out("fcff", last))
+    put(
+        "terminal_value",
+        one,
+        tv[0],
+        tv[1],
+        _out("wacc", one),
+        _row("terminal_growth", one),
+        *method,
+    )
+    put(
+        "pv_terminal",
+        one,
+        "discounted_terminal_value",
+        _out("terminal_value", one),
+        _out("discount_factor", last),
+    )
+    put(
+        "enterprise_value",
+        one,
+        "sum_of_present_values",
+        _out("pv_explicit", one),
+        _out("pv_terminal", one),
+    )
+    put(
+        "terminal_share",
+        one,
+        "terminal_share",
+        _out("pv_terminal", one),
+        _out("enterprise_value", one),
+    )
+    put(
+        "enterprise_value_as_of",
+        one,
+        "rolled_forward",
+        _out("enterprise_value", one),
+        _out("wacc", one),
+        _row("roll_years", one),
+    )
+    put("net_debt", one, "net_debt", _row("debt", one), _row("cash_and_investments", one))
+    put(
+        "equity_value",
+        one,
+        "equity_value",
+        _out("enterprise_value_as_of", one),
+        _out("net_debt", one),
+        _row("minority_interest", one),
+    )
+    put("value_per_share", one, "per_share", _out("equity_value", one), _row("shares", one))
+    for side in ("minus", "plus"):
+        put(
+            f"value_per_share_erp_{side}_1se",
+            one,
+            f"revalued_at_erp_{side}_1se",
+            _out("value_per_share", one),
+            _row("erp", one),
+            _row("erp_std_error", one),
+        )
+    return out
+
+
+def reaches(trace: dict[Key, dict], output: Key) -> set[Key]:
+    """Every row an output is computed from, following outputs back to rows."""
+    seen_outputs: set[Key] = set()
+    found: set[Key] = set()
+    stack = [output]
+    while stack:
+        key = stack.pop()
+        if key in seen_outputs:
+            continue
+        seen_outputs.add(key)
+        for ref in trace[key]["inputs"]:
+            if ref["of"] == "row":
+                found.add((ref["name"], ref["period"]))
+            else:
+                stack.append((ref["name"], ref["period"]))
+    return found
+
+
+# -- what the app reads (item 4) -------------------------------------------------------------------
+
+FRED_URL = "https://fred.stlouisfed.org/series/{series}"
+YAHOO_URL = "https://finance.yahoo.com/quote/{series}/history"
+
+
+@dataclass(frozen=True)
+class RunSources:
+    run_id: str
+    parent_run_id: str | None
+    ticker: str
+    as_of: str  # the fecha de corte: nothing behind the run was public after it
+    recorded: bool
+    rows: list[dict]
+    outputs: list[dict]
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+def _filing(f) -> dict:
+    """The #140 Filing shape, with its date as ISO text."""
+    out = asdict(f)
+    out["filed_at"] = f.filed_at.isoformat() if f.filed_at else None
+    return out
+
+
+def run_sources(conn: sqlite3.Connection, run_id: str) -> RunSources:
+    """Every row of a stored run with its sources, filings with form, date and EDGAR link and
+    market series with the download the run used; and every output with its formula and inputs.
+    Reads only the run's stored rows and, by accession, the filings behind them."""
+    from domains.analysis.reported import _Filings
+    from domains.analysis.runs import load_assumptions, load_gaps, load_outputs
+
+    run = conn.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+    if run is None:
+        raise SourceError(f"no run {run_id}")
+    rows = load_assumptions(conn, run_id)
+    stored = load(conn, run_id)
+    filings = _Filings(conn, run["cik"])
+    fetches = {
+        run["ticker"]: run["price_fetch_sha256"],
+        MARKET_INDEX: run["index_fetch_sha256"],
+        RISK_FREE_SERIES: run["yield_fetch_sha256"],
+    }
+
+    def shown(item: dict) -> dict:
+        item = dict(item)
+        if item["kind"] == "filing":
+            accession = item["accession_no"]
+            item["filing"] = _filing(filings.get(accession)) if accession else None
+            item["input_filings"] = [_filing(filings.get(a)) for a in item["inputs"]]
+        elif item["kind"] == "market":
+            item["label"] = PROVIDERS[item["provider"]]
+            item["fetch_sha256"] = fetches.get(item["series"])
+            url = FRED_URL if item["provider"] == "fred" else YAHOO_URL
+            item["url"] = url.format(series=quote(item["series"]))
+        elif item["kind"] == "rule":
+            item["text"] = RULES[item["code"]]
+        elif item["kind"] == "what_if":
+            item["parent_sources"] = [shown(i) for i in item["parent_sources"]]
+        return item
+
+    out_rows = []
+    for a in rows:
+        items = stored.get((a.name, a.period), [])
+        out_rows.append(
+            {
+                "name": a.name,
+                "period": a.period,
+                "value": a.value,
+                "sources": [shown(i) for i in items],
+                "gap": None if items else NOT_RECORDED,
+            }
+        )
+    values = load_outputs(conn, run_id)
+    gaps = load_gaps(conn, run_id)
+    outputs = []
+    for key, step in sorted(output_trace(rows).items()):
+        if key not in values and key not in gaps:
+            continue
+        gap = gaps.get(key)
+        outputs.append(
+            {
+                "name": key[0],
+                "period": key[1],
+                "value": values.get(key),
+                "formula": step["formula"],
+                "inputs": step["inputs"],
+                "no_value": None if gap is None else {"code": gap.reason},
+            }
+        )
+    return RunSources(
+        run_id=run_id,
+        parent_run_id=run["parent_run_id"],
+        ticker=run["ticker"],
+        as_of=run["as_of"],
+        recorded=bool(stored),
+        rows=out_rows,
+        outputs=outputs,
+    )
+
+
+# -- older runs (item 5) ---------------------------------------------------------------------------
+
+BACKFILL = ("filled", "already_recorded", "what_if_not_backfilled", "rebuild_differs", "failed")
+
+
+def backfill(conn: sqlite3.Connection, run_id: str, today: date | None = None) -> tuple[str, str]:
+    """Give a baseline stored before this version its sources: rebuild its rows from its pinned
+    data (M2.1) and store the rebuilt sources only when every rebuilt row equals the stored one,
+    value and method. Returns (status, detail), status one of BACKFILL; stores nothing otherwise."""
+    from domains.analysis.runs import load_assumptions, rebuild, write_lock
+    from domains.market.store import MarketDataError
+
+    run = conn.execute("SELECT parent_run_id FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+    if run is None:
+        raise SourceError(f"no run {run_id}")
+    if load(conn, run_id):
+        return "already_recorded", ""
+    if run["parent_run_id"] is not None:
+        return "what_if_not_backfilled", f"a what-if of {run['parent_run_id']}"
+    try:
+        built = rebuild(conn, run_id, today=today)
+    except (ValueError, MarketDataError) as e:
+        return "failed", str(e)
+    if not built.ok:
+        first = ", ".join(" ".join(m) for m in built.mismatches[:3])
+        return "rebuild_differs", f"{len(built.mismatches)} rows differ ({first})"
+    check(load_assumptions(conn, run_id), built.sources)
+    with write_lock(conn):
+        if load(conn, run_id):  # another writer filled it meanwhile
+            return "already_recorded", ""
+        insert(conn, run_id, built.sources)
+    return "filled", ""

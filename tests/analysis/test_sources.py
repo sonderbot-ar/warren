@@ -1,20 +1,25 @@
 """A structured source for every assumption row of a run (backlog #175)."""
 
+import json
+from contextlib import contextmanager
+
 import pytest
 
+from domains.analysis import __main__ as cli
 from domains.analysis import dcf
 from domains.analysis import sources as src
-from domains.analysis.math_engine import build_inputs, post_checks
-from domains.analysis.runs import reproduce, run_baseline, save_run
+from domains.analysis.math_engine import UserChoice, build_inputs, post_checks
+from domains.analysis.runs import load_outputs, reproduce, run_baseline, save_run
 from domains.analysis.schemas import SINGLE
+from domains.analysis.sources import run_sources
 from domains.analysis.whatif import Change, revalue
 from domains.market.prices import MARKET_INDEX
 from tests.analysis.conftest import AS_OF, CHOICES, revenue
 from tests.analysis.test_math_engine import drop
 
 
-def _build(conn):
-    return build_inputs(conn, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+def _build(conn, choices=CHOICES):
+    return build_inputs(conn, "TST", AS_OF, choices=choices, today=AS_OF)
 
 
 def _kinds(items):
@@ -203,3 +208,153 @@ def test_terminal_growth_that_followed_the_risk_free_rate_says_so(company):
     child = revalue(company, parent, [Change("risk_free", delta=0.0025)]).run_id
     (tg,) = src.load(company, child)[("terminal_growth", SINGLE)]
     assert tg["kind"] == "what_if" and tg["how"] == "follows_risk_free"
+
+
+def _moved(rows, key):
+    """The rows with one row's value moved by 1% (or by 0.001 when it is zero)."""
+    out = []
+    for a in rows:
+        if (a.name, a.period) == key:
+            a = a.model_copy(update={"value": a.value * 1.01 if a.value else 0.001})
+        out.append(a)
+    return out
+
+
+@pytest.mark.parametrize("method", ["value_driver_ronic_wacc", "gordon_fcff"])
+def test_the_output_trace_matches_the_arithmetic(company, method):
+    choices = CHOICES | {
+        "terminal_method": UserChoice("terminal_method", method, "test", "2026-10-26", "")
+    }
+    # working-capital shares that differ by period, so no input cancels out of a change in
+    # working capital by coincidence (with one share for all periods, a seed quarter drops out)
+    rows = [
+        a.model_copy(update={"value": a.value * (1 + 0.01 * i)}) if a.name == "nwc_pct" else a
+        for i, a in enumerate(_build(company, choices).assumptions)
+    ]
+    base, _ = dcf.outputs_and_gaps(rows)
+    trace = src.output_trace(rows)
+    assert set(trace) >= set(base)
+    keys = {(a.name, a.period) for a in rows}
+    for out_key, step in trace.items():
+        assert step["formula"] in src.FORMULAS
+        for ref in step["inputs"]:
+            pool = keys if ref["of"] == "row" else set(trace)
+            assert (ref["name"], ref["period"]) in pool, (out_key, ref)
+    reach = {key: src.reaches(trace, key) for key in base}
+    for a in rows:
+        if a.value is None:
+            continue
+        key = (a.name, a.period)
+        moved, _ = dcf.outputs_and_gaps(_moved(rows, key))
+        for out_key, value in base.items():
+            changed = abs(moved[out_key] - value) > 1e-12 * max(1.0, abs(value))
+            # moving a row changes exactly the outputs whose trace reaches it
+            assert changed == (key in reach[out_key]), (key, out_key, changed)
+
+
+# -- what the app reads, and the backfill (Steps 2 and 3) ------------------------------------------
+
+
+def _forget(conn, run_id):
+    """The run as it was stored before sources were recorded."""
+    conn.execute("DELETE FROM assumption_sources WHERE run_id = ?", (run_id,))
+    conn.commit()
+
+
+def test_run_sources_gives_filings_with_their_link_and_markets_with_their_download(company):
+    run_id = run_baseline(company, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    answer = run_sources(company, run_id)
+    run = company.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+    assert answer.recorded and answer.as_of == AS_OF.isoformat() and answer.ticker == "TST"
+    rows = {(r["name"], r["period"]): r for r in answer.rows}
+    assert all(r["sources"] and r["gap"] is None for r in rows.values())
+    (seed,) = rows[(dcf.SEED, "FY2020Q1")]["sources"]
+    assert seed["filing"]["form"] == "10-Q"
+    assert seed["filing"]["filed_at"] == "2020-04-30"
+    assert seed["filing"]["url"].startswith("https://www.sec.gov/Archives/edgar/data/123/")
+    (rf,) = rows[("risk_free", SINGLE)]["sources"]
+    assert rf["label"] == "FRED" and rf["fetch_sha256"] == run["yield_fetch_sha256"]
+    assert rf["url"] == "https://fred.stlouisfed.org/series/DGS10"
+    stock, index = rows[("beta", SINGLE)]["sources"]
+    assert stock["fetch_sha256"] == run["price_fetch_sha256"]
+    assert index["fetch_sha256"] == run["index_fetch_sha256"]
+    assert "%5E" in index["url"]  # ^SP500TR, quoted
+
+
+def test_run_sources_traces_every_stored_output(company):
+    run_id = run_baseline(company, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    answer = run_sources(company, run_id)
+    stored = load_outputs(company, run_id)
+    by_key = {(o["name"], o["period"]): o for o in answer.outputs}
+    assert set(stored) <= set(by_key)
+    vps = by_key[("value_per_share", SINGLE)]
+    assert vps["formula"] == "per_share" and vps["value"] == stored[("value_per_share", SINGLE)]
+    assert {"of": "row", "name": "shares", "period": SINGLE} in vps["inputs"]
+    assert json.loads(json.dumps(answer.to_dict())) == answer.to_dict()
+
+
+def test_a_run_stored_before_sources_says_so_on_every_row(company):
+    run_id = run_baseline(company, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    _forget(company, run_id)
+    answer = run_sources(company, run_id)
+    assert not answer.recorded
+    assert {r["gap"]["code"] for r in answer.rows} == {"not_recorded"}
+    assert all(r["sources"] == [] for r in answer.rows)
+    assert answer.outputs  # the trace needs no stored source
+
+
+def test_a_what_if_of_an_older_run_has_no_sources_either(company):
+    parent = run_baseline(company, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    _forget(company, parent)
+    child = revalue(company, parent, [Change("beta", value=1.2)]).run_id
+    assert not run_sources(company, child).recorded
+
+
+def test_the_backfill_gives_an_older_run_the_same_sources_back(company):
+    run_id = run_baseline(company, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    before = src.load(company, run_id)
+    _forget(company, run_id)
+    assert src.backfill(company, run_id) == ("filled", "")
+    assert src.load(company, run_id) == before
+    assert src.backfill(company, run_id) == ("already_recorded", "")
+    assert reproduce(company, run_id).ok
+
+
+def test_the_backfill_skips_a_run_that_doesnt_rebuild_exactly(company):
+    run_id = run_baseline(company, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    _forget(company, run_id)
+    company.execute(
+        "UPDATE assumptions SET method = 'older code' WHERE run_id = ? AND name = 'beta'",
+        (run_id,),
+    )
+    company.commit()
+    status, detail = src.backfill(company, run_id)
+    assert status == "rebuild_differs" and "beta" in detail
+    assert src.load(company, run_id) == {}
+
+
+def test_the_backfill_leaves_what_ifs_alone(company):
+    parent = run_baseline(company, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    child = revalue(company, parent, [Change("beta", value=1.2)]).run_id
+    _forget(company, child)
+    assert src.backfill(company, child)[0] == "what_if_not_backfilled"
+
+
+def test_the_sources_command(company, monkeypatch, capsys):
+    run_id = run_baseline(company, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+
+    @contextmanager
+    def same_connection(*args):
+        yield company
+
+    monkeypatch.setattr(cli, "get_db_connection", same_connection)
+    assert cli.main(["sources", "--run-id", run_id, "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["run_id"] == run_id
+    assert cli.main(["sources", "--run-id", run_id, "--name", "risk_free"]) == 0
+    text = capsys.readouterr().out
+    assert "market: FRED DGS10 yield" in text and "beta" not in text
+    _forget(company, run_id)
+    assert cli.main(["sources", "--backfill", "--all"]) == 0
+    assert "filled 1" in capsys.readouterr().out
+    assert cli.main(["sources", "--backfill"]) == 2
+    assert cli.main(["sources", "--run-id", "nope"]) == 1

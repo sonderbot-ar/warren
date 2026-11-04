@@ -310,6 +310,7 @@ class Rebuild:
     run_id: str
     rows_checked: int
     mismatches: list[tuple[str, str, str]]  # name, period, what differs
+    sources: dict = dataclasses.field(default_factory=dict, compare=False)  # rebuilt (#175)
 
     @property
     def ok(self) -> bool:
@@ -374,7 +375,7 @@ def rebuild(
         for field in ("value", "source", "method"):
             if getattr(before, field) != getattr(after, field):
                 mismatches.append((*key, field))
-    return Rebuild(run_id, len(stored), mismatches)
+    return Rebuild(run_id, len(stored), mismatches, result.sources)
 
 
 def run_baseline(
