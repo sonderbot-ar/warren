@@ -28,7 +28,7 @@ from domains.evaluation.hindsight import MISS_UNITS
 from shared_kernel.calendar import last_ended_day
 
 ITEMS = ("revenue", "ebit")
-MIN_QUARTERS = 12  # rows in a summary cell, else `few_quarters` / `few_scored` (M9's own minimum)
+MIN_QUARTERS = 12  # distinct target quarters, else `few_quarters` / `few_scored` (M9's own minimum)
 SIGN_ALPHA = 0.05
 TIE = 1e-12  # absolute misses this close are a tie
 TARGET = RN.TARGET
