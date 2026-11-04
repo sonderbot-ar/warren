@@ -108,7 +108,7 @@ Fifteen questions, written as a student would ask them, with an English gloss. "
 *How sensitive is Coca-Cola's value to WACC and terminal growth?*
 - Kind: Cambio de supuesto (two inputs over a grid).
 - Returns: value per share over a grid of WACC (set directly, a teaching override) and terminal growth, with the run's own point marked. The lesson the screen states: under Warren's terminal method the table is almost flat along growth and steep along WACC, unlike the textbook Gordon model, which is shown beside it for contrast. Cells where growth reaches WACC say "no definido: el crecimiento terminal alcanza el WACC", never zero, under both methods: Warren's short formula comes from the same perpetuity as Gordon's, and that perpetuity has a value only while growth stays below WACC (v0.5.4).
-- Hoy: **En parte** (only the ERP ± 1 standard error values). Request R2b (#142).
+- Hoy: **Sí** (v0.9.12, #142: `sensitivity.grid`; Gordon is steeper on both axes, so the screen states how much growth moves value compared with WACC, which the engine's verdict gives; a cell at WACC ≤ 0 says "no definido: el WACC es cero o menor").
 
 ### Eventos: answered from past cases
 
@@ -166,7 +166,7 @@ Each is an issue labelled `backlog` and `front-end` (`docs/team-sync.md`, rule 4
 | R1 | Reported figures and named ratios for a company and period, with provenance, first reported and latest, revision flag (takes over #128 item 2) | 1, 2 | M | #140 (done, v0.9.6) |
 | R1b | Net margin on net income to the parent (left out of #140; no brief question needs it yet) | — | — | #157 |
 | R2a | What-if revaluation: a stored run revalued with named inputs changed, deterministic, stored as a linked child run that reproduces to the cent | 7, 8 | L | #141 (done, v0.9.9; debt #170, WACC and terminal method #171) |
-| R2b | Two-input sensitivity grid on R2a | 9 | S | #142 |
+| R2b | Two-input sensitivity grid on R2a | 9 | S | #142 (done, v0.9.12) |
 | R2c | The list of transmissions, starting with an unexpected policy-rate move → 10-year yield, as a sourced range (owner card: a new method) | 7 | M | #143 |
 | R3 | Error ranges (M9) and the company's own coverage on every run | 5 | S–M | #144 |
 | R4 | Track record per company from the stored batches | 6 | S | #145 |

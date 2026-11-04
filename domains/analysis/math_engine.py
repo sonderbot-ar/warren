@@ -25,6 +25,7 @@ from pathlib import Path
 
 from domains.analysis import dcf
 from domains.analysis import financial_math as fm
+from domains.analysis import sources as src
 from domains.analysis.dcf import QUARTERS, SEED, YEARS
 from domains.analysis.schemas import SINGLE, Assumption
 from domains.fundamentals.concepts import concept_map_sha256
@@ -201,6 +202,7 @@ class Resolved:
     value: float
     method: str  # which alternative, with each fact's trace
     fallback: bool
+    facts: tuple[Fact, ...] = ()  # the facts summed, for the row's sources (backlog #175)
 
 
 def resolve(chain: str, get: Callable[[str], Fact | None], where: str) -> Resolved:
@@ -211,7 +213,7 @@ def resolve(chain: str, get: Callable[[str], Fact | None], where: str) -> Resolv
             method = "; ".join(map(trace, facts))
             if i:
                 method = f"fallback: {' + '.join(items)} = {method}"
-            return Resolved(sum(f.value for f in facts), method, fallback=i > 0)
+            return Resolved(sum(f.value for f in facts), method, fallback=i > 0, facts=tuple(facts))
     tried = " | ".join(" + ".join(items) for items in alternatives)
     raise EngineError(f"{chain} for {where}: none of the alternatives is reported ({tried})")
 
@@ -273,12 +275,31 @@ class EngineResult:
     assumptions: list[Assumption] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     snapshot: dict = field(default_factory=dict)  # data the run was built from (hashes, ids)
+    sources: dict[tuple[str, str], list[dict]] = field(default_factory=dict)  # by row (#175)
 
-    def add(self, name: str, value: float | None, method: str, period: str = SINGLE) -> float:
+    def add(
+        self,
+        name: str,
+        value: float | None,
+        method: str,
+        period: str = SINGLE,
+        *,
+        sources: list[dict],
+    ) -> float:
+        """Add a computed row with its sources (backlog #175): every row names what it was made
+        from, so the caller must say."""
         self.assumptions.append(
             Assumption(name=name, period=period, value=value, source="computed", method=method)
         )
+        self._put(name, period, sources)
         return value
+
+    def _put(self, name: str, period: str, sources: list[dict]) -> None:
+        if (name, period) in self.sources:
+            raise EngineError(f"{name} {period}: sources given twice")
+        if not sources:
+            raise EngineError(f"{name} {period}: a row needs at least one source")
+        self.sources[(name, period)] = list(sources)
 
     def value_of(self, name: str, period: str = SINGLE) -> float:
         return next(a.value for a in self.assumptions if (a.name, a.period) == (name, period))
@@ -302,6 +323,11 @@ def build_inputs(
     result = EngineResult(company["ticker"], company["cik"], as_of)
     for choice in choices.values():
         result.assumptions.append(choice.as_assumption())
+        result._put(
+            choice.name,
+            SINGLE,
+            [src.owner_choice(choice.name, choice.value, choice.set_by, choice.set_on)],
+        )
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
@@ -317,10 +343,12 @@ def build_inputs(
     price = _market(conn, history, result, choices, balance_date)
     _cost_of_debt(history, fiscal_years, result)
     _drivers(history, comparisons, fiscal_years, last_year, last_quarter, result)
+    last_seed = quarter_label(last_year, last_quarter)
     result.add(
         "roll_years",
         (as_of - base_date).days / 365.25,
         f"years from the end of the last actual quarter ({base_date}) to the as-of date",
+        sources=[src.derived((SEED, last_seed))],
     )
     result.snapshot |= _snapshot(conn, company["cik"], result.ticker, price)
     if result.snapshot["concept_map_sha256"] != result.snapshot["ingest_concept_map_sha256"]:
@@ -360,7 +388,7 @@ def _revenue_seed(history: History, last_year: int, last_quarter: int, result: E
         fact = history.quarterly.get(("revenue", year, period))
         if fact is None:
             raise EngineError(f"{result.ticker}: revenue for FY{year} {period} is not reported")
-        value, method = fact.value, trace(fact)
+        value, method, used = fact.value, trace(fact), [fact]
         # a fiscal year whose quarters don't add up to it mixes restatement bases: use the
         # year (newest basis) times this quarter's share of it
         quarters = [history.quarterly.get(("revenue", year, f"Q{q}")) for q in range(1, 5)]
@@ -374,7 +402,15 @@ def _revenue_seed(history: History, last_year: int, last_quarter: int, result: E
                     f"FY{year} quarters differ from the year by {gap:+.1%}: year × this "
                     f"quarter's share ({fact.value / total:.4f}); {trace(annual)}; {method}"
                 )
-        result.add(SEED, value, method, quarter_label(year, quarter))
+                # the share's denominator is all four quarters (analyst, #175)
+                used = [annual, fact] + [q for q in quarters if q is not fact]
+        result.add(
+            SEED,
+            value,
+            method,
+            quarter_label(year, quarter),
+            sources=[src.filing(f) for f in used],
+        )
 
 
 def _history_rows(history: History, fiscal_years: list[int], result: EngineResult) -> None:
@@ -383,12 +419,27 @@ def _history_rows(history: History, fiscal_years: list[int], result: EngineResul
         get = history.year(year)
         for chain in ("revenue", "ebit", "pretax", "tax", "d_and_a", "capex"):
             r = resolve(chain, get, f"FY{year}")
-            result.add(f"history:{chain}", r.value, r.method, f"FY{year}")
-        nwc, method = _operating_nwc(lambda item, g=get: g(item), f"FY{year}")
-        result.add("history:nwc", nwc, method, f"FY{year}")
+            result.add(
+                f"history:{chain}",
+                r.value,
+                r.method,
+                f"FY{year}",
+                sources=[src.filing(f) for f in r.facts],
+            )
+        nwc, method, used, missing = _operating_nwc(lambda item, g=get: g(item), f"FY{year}")
+        result.add(
+            "history:nwc",
+            nwc,
+            method,
+            f"FY{year}",
+            sources=[src.filing(f) for f in used]
+            + ([src.rule("not_in_annual_report_zero")] if missing else []),
+        )
 
 
-def _operating_nwc(get: Callable[[str], Fact | None], where: str) -> tuple[float, str]:
+def _operating_nwc(
+    get: Callable[[str], Fact | None], where: str
+) -> tuple[float, str, list[Fact], list[str]]:
     """(Current assets − cash and short-term investments) − (current liabilities − debt in them)."""
     parts, missing = {}, []
     for item in (
@@ -420,7 +471,7 @@ def _operating_nwc(get: Callable[[str], Fact | None], where: str) -> tuple[float
     method = "; ".join(trace(f) for f in parts.values() if f)
     if missing:
         method += f"; counted as zero: {', '.join(missing)}"
-    return nwc, method
+    return nwc, method, [f for f in parts.values() if f], missing
 
 
 def _lease_inclusive(*facts: Fact | None) -> bool:
@@ -496,21 +547,37 @@ def _balance(history: History, base_date: date, result: EngineResult) -> date:
 
     debt, used, zero, notes = debt_parts(get)
     for fact in used:
-        result.add(f"balance:{fact.canonical_name}", fact.value, trace(fact))
+        result.add(
+            f"balance:{fact.canonical_name}",
+            fact.value,
+            trace(fact),
+            sources=[src.filing(fact)],
+        )
     result.add(
         "debt",
         debt,
         "D3 debt = " + " + ".join(f.canonical_name for f in used) + (f"; {notes}" if notes else ""),
+        sources=[src.derived(*((f"balance:{f.canonical_name}", SINGLE) for f in used))]
+        if used
+        else [src.rule("not_reported_zero")],
     )
+    cash_rows = []
     for item in CASH_ITEMS:
         if facts[item] is not None:
-            result.add(f"balance:{item}", facts[item].value, trace(facts[item]))
+            result.add(
+                f"balance:{item}",
+                facts[item].value,
+                trace(facts[item]),
+                sources=[src.filing(facts[item])],
+            )
+            cash_rows.append((f"balance:{item}", SINGLE))
         else:
             zero.append(item)
     result.add(
         "cash_and_investments",
         sum(val(i) for i in CASH_ITEMS),
         "cash + marketable securities (current, non-current) + other short-term investments",
+        sources=[src.derived(*cash_rows)] if cash_rows else [src.rule("not_reported_zero")],
     )
     minority = facts["minority_interest"]
     if minority is None:
@@ -519,6 +586,7 @@ def _balance(history: History, base_date: date, result: EngineResult) -> date:
         "minority_interest",
         minority.value if minority else 0.0,
         trace(minority) if minority else "not reported within a year: counted as zero",
+        sources=[src.filing(minority)] if minority else [src.rule("not_reported_zero")],
     )
     if zero:
         result.warnings.append(
@@ -537,11 +605,13 @@ def _shares(
 ) -> float:
     """Cover-page shares outstanding, split-adjusted to the price date (D4); diluted as fallback."""
 
-    def adjusted(fact: Fact) -> tuple[float, float]:
+    def basis(fact: Fact) -> date:
         # a cover-page count is as of its own date; statement share counts in a filing made
         # after a split are already restated for it, so only later splits apply
-        basis = fact.period_end if fact.canonical_name == "shares_outstanding" else fact.filed_at
-        factor = price_split_factor(conn, result.ticker, basis, price.date)
+        return fact.period_end if fact.canonical_name == "shares_outstanding" else fact.filed_at
+
+    def adjusted(fact: Fact) -> tuple[float, float]:
+        factor = price_split_factor(conn, result.ticker, basis(fact), price.date)
         return fact.value * factor, factor
 
     cover = history.instants.get("shares_outstanding", [])
@@ -551,9 +621,11 @@ def _shares(
     if cover:
         shares, factor = adjusted(cover[-1])
         method = f"cover page: {trace(cover[-1])}"
+        counted = cover[-1]
     elif latest_diluted is not None:
         shares, factor = adjusted(latest_diluted)
         method = f"fallback: weighted diluted shares {trace(latest_diluted)}"
+        counted = latest_diluted
     else:
         raise EngineError(
             f"{result.ticker}: neither shares_outstanding nor diluted_shares reported"
@@ -567,7 +639,10 @@ def _shares(
                 f"Cover-page shares ({shares:,.0f}) differ from diluted shares ({diluted_now:,.0f})"
                 f" by more than {SHARES_TOLERANCE:.0%}"
             )
-    return result.add("shares", shares, method)
+    sources = [src.filing(counted)]
+    if factor != 1:
+        sources.append(src.market("yahoo", result.ticker, "splits", basis(counted), price.date))
+    return result.add("shares", shares, method, sources=sources)
 
 
 def _market(
@@ -583,12 +658,23 @@ def _market(
         "price",
         price.close,
         f"close on {price.date} (Yahoo), as it traded; not used in the valuation",
+        sources=_price_sources(conn, result.ticker, price),
     )
     shares = _shares(conn, history, result, price)
-    result.add("equity_market_value", price.close * shares, f"price on {price.date} × shares")
+    result.add(
+        "equity_market_value",
+        price.close * shares,
+        f"price on {price.date} × shares",
+        sources=[src.derived(("price", SINGLE), ("shares", SINGLE))],
+    )
 
     rf = risk_free_rate(conn, result.as_of)
-    result.add("risk_free", rf.rate, f"{rf.series} on {rf.date} (FRED)")
+    result.add(
+        "risk_free",
+        rf.rate,
+        f"{rf.series} on {rf.date} (FRED)",
+        sources=[src.market("fred", rf.series, "yield", rf.date, rf.date)],
+    )
 
     pairs = aligned_weekly_returns(conn, result.ticker, result.as_of, BETA_WEEKS)
     raw = fm.ols_beta(pairs.stock, pairs.market)
@@ -597,22 +683,34 @@ def _market(
         fm.blume_adjusted_beta(raw),
         f"Blume-adjusted OLS beta of {BETA_WEEKS} weekly total returns vs {MARKET_INDEX}, weeks "
         f"ending {pairs.first_week} to {pairs.last_week}; raw beta {raw:.4f}",
+        sources=[
+            src.market("yahoo", series, "weekly_total_return", pairs.first_week, pairs.last_week)
+            for series in (result.ticker, MARKET_INDEX)
+        ],
     )
 
     first_year = int(choices["erp_first_year"].value)
     erp = equity_risk_premium(conn, result.as_of, first_year)
     years = f"{erp.first_year}-{erp.last_year}"
+    erp_sources = _erp_sources(erp.first_year, erp.last_year)
     result.add(
         "erp",
         erp.premium.geometric,
         f"historical geometric premium, {years} ({erp.premium.years} years): {MARKET_INDEX} total "
         f"return vs 10-year Treasury total return from {RISK_FREE_SERIES}",
+        sources=erp_sources,
     )
-    result.add("erp_std_error", erp.premium.std_error, f"standard error of the premium, {years}")
+    result.add(
+        "erp_std_error",
+        erp.premium.std_error,
+        f"standard error of the premium, {years}",
+        sources=erp_sources,
+    )
     result.add(
         "info:erp_arithmetic",
         erp.premium.arithmetic,
         f"arithmetic premium, {years}; information only",
+        sources=erp_sources,
     )
     for info_year in ERP_INFO_FIRST_YEARS:
         try:
@@ -623,11 +721,13 @@ def _market(
             f"info:erp_from_{info_year}",
             alt.premium.geometric,
             f"geometric premium {alt.first_year}-{alt.last_year}; information only, not used",
+            sources=_erp_sources(alt.first_year, alt.last_year),
         )
     result.add(
         "terminal_growth",
         rf.rate,
         f"= risk-free rate ({rf.series} on {rf.date}), terminal_growth_method risk_free",
+        sources=[src.derived(("risk_free", SINGLE), ("terminal_growth_method", SINGLE))],
     )
     result.snapshot |= {
         "index_fetch_sha256": erp.price_fetch_sha256,
@@ -636,17 +736,45 @@ def _market(
     return price
 
 
+def _price_sources(conn: sqlite3.Connection, ticker: str, price: PricePoint) -> list[dict]:
+    """The close, and when the download has since applied a split, the adjustment that puts it
+    back on that day's basis (`raw_close`): its window runs to the download's last date, after
+    the as-of date, but it only undoes a later restatement of the same public close."""
+    out = [src.market("yahoo", ticker, "close", price.date, price.date)]
+    last = conn.execute(
+        "SELECT last_date FROM market_fetches WHERE fetch_id = ?", (price.fetch_id,)
+    ).fetchone()["last_date"]
+    if price_split_factor(conn, ticker, price.date, date.fromisoformat(last)) != 1:
+        out.append(src.market("yahoo", ticker, "splits", price.date, date.fromisoformat(last)))
+    return out
+
+
+def _erp_sources(first_year: int, last_year: int) -> list[dict]:
+    """The index and the 10-year yield, year-end to year-end: the first return starts from the
+    close and yield at the end of the year before `first_year`."""
+    start, end = date(first_year - 1, 12, 31), date(last_year, 12, 31)
+    return [
+        src.market("yahoo", MARKET_INDEX, "annual_total_return", start, end),
+        src.market("fred", RISK_FREE_SERIES, "yield", start, end),
+    ]
+
+
 def _cost_of_debt(history: History, fiscal_years: list[int], result: EngineResult) -> None:
     """Interest over average debt, from the newest fiscal year that reports both (D8)."""
     if result.value_of("debt") == 0:
-        result.add("cost_of_debt", 0.0, "no debt at the balance date: not used (weight 0)")
+        result.add(
+            "cost_of_debt",
+            0.0,
+            "no debt at the balance date: not used (weight 0)",
+            sources=[src.rule("no_debt")],
+        )
         return
     for year in reversed(fiscal_years):
         try:
             interest = resolve("interest", history.year(year), f"FY{year}")
         except EngineError:
             continue
-        end, _, _, _ = debt_parts(history.year(year))
+        end, end_used, _, _ = debt_parts(history.year(year))
         start, start_used, _, _ = debt_parts(history.year(year - 1))
         average = (start + end) / 2 if start_used else end
         if average <= 0:
@@ -657,6 +785,7 @@ def _cost_of_debt(history: History, fiscal_years: list[int], result: EngineResul
             "cost_of_debt",
             kd,
             f"FY{year} interest / average debt ({opening}, FY{year} {end:,.0f}); {interest.method}",
+            sources=[src.filing(f) for f in (*interest.facts, *start_used, *end_used)],
         )
         if not COST_OF_DEBT_BOUNDS[0] <= kd <= COST_OF_DEBT_BOUNDS[1]:
             result.warnings.append(f"Cost of debt {kd:.2%} is outside {COST_OF_DEBT_BOUNDS}")
@@ -698,6 +827,8 @@ def _drivers(
         f"FY{c.fiscal_year} {c.growth:+.2%} ({_tag(c.current)}, {c.current.accession_no})"
         for c in recent
     )
+    growth_sources = [src.filing(f) for c in recent for f in (c.current, c.prior)]
+    growth_sources.append(src.derived(("terminal_growth", SINGLE)))
     for i, period in enumerate(periods):
         year = i // 4 + 1 if i < QUARTERS else QUARTERS // 4 + 1 + (i - QUARTERS)
         growth = start + (terminal - start) * (year - 1) / 4
@@ -709,10 +840,12 @@ def _drivers(
             + (" (vs the same quarter a year earlier)" if i < QUARTERS else "")
             + f". {detail}",
             period,
+            sources=growth_sources,
         )
 
     # operating margin: by fiscal quarter over the last 12 quarters; annual for Y3-Y5
     margins: dict[int, list[float]] = defaultdict(list)
+    margin_rows: dict[int, list[tuple[str, str]]] = defaultdict(list)
     used = []
     for step in range(-HISTORY_QUARTERS + 1, 1):
         year, quarter = step_quarter(last_year, last_quarter, step)
@@ -723,13 +856,24 @@ def _drivers(
         ebit = resolve("ebit", get, f"FY{year} Q{quarter}")
         margins[quarter].append(ebit.value / revenue.value)
         used.append(f"FY{year}Q{quarter}" + (" (fallback)" if ebit.fallback else ""))
-        result.add("history:ebit", ebit.value, ebit.method, quarter_label(year, quarter))
-        result.add("history:revenue", revenue.value, trace(revenue), quarter_label(year, quarter))
+        label = quarter_label(year, quarter)
+        result.add(
+            "history:ebit",
+            ebit.value,
+            ebit.method,
+            label,
+            sources=[src.filing(f) for f in ebit.facts],
+        )
+        result.add(
+            "history:revenue", revenue.value, trace(revenue), label, sources=[src.filing(revenue)]
+        )
+        margin_rows[quarter] += [("history:ebit", label), ("history:revenue", label)]
     annual_margin = _sum(result, "ebit", fiscal_years) / _sum(result, "revenue", fiscal_years)
     for period in periods:
         if period in YEARS:
             margin = annual_margin
             method = f"Σ EBIT / Σ revenue, {span}"
+            inputs = _yearly(("ebit", "revenue"), fiscal_years)
         else:
             quarter = int(period[-1])
             if len(margins[quarter]) < MIN_QUARTERS_PER_LABEL:
@@ -739,11 +883,13 @@ def _drivers(
                 )
             margin = sum(margins[quarter]) / len(margins[quarter])
             method = f"average Q{quarter} EBIT / revenue of the last {HISTORY_QUARTERS} quarters"
+            inputs = margin_rows[quarter]
         result.add(
             "operating_margin",
             margin,
             method + f" (quarters used: {', '.join(used)})" if period not in YEARS else method,
             period,
+            sources=[src.derived(*inputs)],
         )
 
     # tax rate, reinvestment and working capital: 3-year annual ratios
@@ -754,6 +900,12 @@ def _drivers(
         result.warnings.append(f"Effective tax rate {tax:.1%} clipped to {clipped:.0%}")
         tax_method += f"; {tax:.2%} clipped to {TAX_RATE_BOUNDS}"
     revenue = _sum(result, "revenue", fiscal_years)
+    ratio_inputs = {
+        "tax_rate": _yearly(("tax", "pretax"), fiscal_years),
+        "da_pct": _yearly(("d_and_a", "revenue"), fiscal_years),
+        "capex_pct": _yearly(("capex", "revenue"), fiscal_years),
+        "nwc_pct": _yearly(("nwc", "revenue"), fiscal_years),
+    }
     ratios = {
         "tax_rate": (clipped, tax_method),
         "da_pct": (_sum(result, "d_and_a", fiscal_years) / revenue, f"Σ D&A / Σ revenue, {span}"),
@@ -773,8 +925,18 @@ def _drivers(
     }
     for name, (value, method) in ratios.items():
         for period in periods:
-            result.add(name, value, method, period)
-    result.add("debt_tax_rate", clipped, f"effective tax rate, {span}")
+            result.add(name, value, method, period, sources=[src.derived(*ratio_inputs[name])])
+    result.add(
+        "debt_tax_rate",
+        clipped,
+        f"effective tax rate, {span}",
+        sources=[src.derived(*ratio_inputs["tax_rate"])],
+    )
+
+
+def _yearly(items: tuple[str, ...], fiscal_years: list[int]) -> list[tuple[str, str]]:
+    """The history rows of `items` for each fiscal year, as derived inputs."""
+    return [(f"history:{item}", f"FY{y}") for y in fiscal_years for item in items]
 
 
 def _snapshot(conn: sqlite3.Connection, cik: str, ticker: str, price: PricePoint) -> dict:
