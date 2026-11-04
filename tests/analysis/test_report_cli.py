@@ -190,3 +190,30 @@ def test_parse_change_reads_name_period_and_number():
     for bad in ("beta", "beta=high"):
         with pytest.raises(argparse.ArgumentTypeError):
             cli.parse_change(bad, "value")
+
+
+def test_sensitivity_command_prints_both_tables_and_json(company, monkeypatch, capsys):
+    _wire(company, monkeypatch, datetime(2020, 7, 2, tzinfo=UTC))
+    run_id = run(company)
+    assert cli.main(["sensitivity", "--run-id", run_id]) == 0
+    out = capsys.readouterr().out
+    assert f"Sensitivity of {run_id}" in out and "Contrast (gordon_fcff)" in out
+    assert "*" in out and "per point" in out
+    args = ["sensitivity", "--run-id", run_id, "--wacc-steps=-0.01,0.01", "--growth-steps"]
+    assert cli.main(args + ["0.005", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["wacc_steps"] == [-0.01, 0.0, 0.01] and data["growth_steps"] == [0.0, 0.005]
+    assert data["run_point"] == {"row": 1, "column": 0}
+
+
+def test_sensitivity_command_refuses_with_its_code(company, monkeypatch, capsys):
+    _wire(company, monkeypatch, datetime(2020, 7, 2, tzinfo=UTC))
+    run_id = run(company)
+    assert cli.main(["sensitivity", "--run-id", run_id, "--wacc-steps=0"]) == 1
+    assert "REFUSED (too_few_steps)" in capsys.readouterr().out
+
+
+def test_sensitivity_steps_must_be_numbers():
+    with pytest.raises(argparse.ArgumentTypeError):
+        cli.parse_steps("0.01,abc")
+    assert cli.parse_steps("-0.01, 0,0.01") == [-0.01, 0.0, 0.01]

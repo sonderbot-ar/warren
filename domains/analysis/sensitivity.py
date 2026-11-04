@@ -37,6 +37,12 @@ MIN_STEPS, MAX_STEPS = 2, 9  # per axis, counted after the run's own 0 is added
 # the −2 point row would be nearly all "no value" (design review, analyst)
 DEFAULT_MIN_GAP = 0.005
 OTHER = {dcf.VALUE_DRIVER: dcf.GORDON, dcf.GORDON: dcf.VALUE_DRIVER}
+CONTRAST_WORDS = {
+    dcf.GORDON: "Gordon on free cash flow is the formula Warren used before it tied "
+    "reinvestment to growth (Structure Guide Decision 4, oct.30.2026).",
+    dcf.VALUE_DRIVER: "The value-driver formula is the one Warren has used since oct.30.2026; "
+    "this run was stored before it.",
+}
 
 
 class GridError(ValueError):
@@ -373,7 +379,8 @@ def _notes(own, other, method, rows, g_steps, left_out, run_wacc, run_growth) ->
         Coded(
             "contrast_method",
             {"terminal_method": other.terminal_method},
-            "The contrast table uses the other terminal formula; it is not this run's value.",
+            "The contrast table uses the other terminal formula; it is not this run's value. "
+            + CONTRAST_WORDS[other.terminal_method],
         ),
     ]
     vd = own if own.terminal_method == dcf.VALUE_DRIVER else other
