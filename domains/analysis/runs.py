@@ -60,6 +60,9 @@ SNAPSHOT_COLUMNS = (
 )
 
 
+_LOCKED: set[int] = set()  # connections inside write_lock
+
+
 @contextmanager
 def write_lock(conn: sqlite3.Connection) -> Iterator[None]:
     """One write transaction that takes SQLite's write lock at its start (BEGIN IMMEDIATE), so a
@@ -67,15 +70,21 @@ def write_lock(conn: sqlite3.Connection) -> Iterator[None]:
     depends on it (backlog #176). Another writer waits up to the connection's timeout. Commits on
     success and rolls back on any error. A transaction the caller left open is committed first,
     as the commit at the end would have done anyway."""
+    if id(conn) in _LOCKED:
+        raise RuntimeError("write_lock is already held on this connection: it doesn't nest")
     if conn.in_transaction:
         conn.commit()
     conn.execute("BEGIN IMMEDIATE")
+    _LOCKED.add(id(conn))
     try:
         yield
+        conn.execute("COMMIT")
     except BaseException:
-        conn.execute("ROLLBACK")
+        if conn.in_transaction:  # SQLite may have rolled back already; keep the first error
+            conn.execute("ROLLBACK")
         raise
-    conn.execute("COMMIT")
+    finally:
+        _LOCKED.discard(id(conn))
 
 
 def _next_run_id(prefix: str) -> Callable[[sqlite3.Connection], str]:
@@ -147,8 +156,6 @@ def insert_rows(
     version: str,
 ) -> None:
     """The inserts behind `save_rows`, for a caller already inside `write_lock`."""
-    for gap in gaps.values():
-        _check_reason(gap.reason)
     conn.execute(
         "INSERT INTO runs (run_id, cik, ticker, as_of, code_version, ingest_run_id, "
         "concept_map_sha256, price_fetch_sha256, index_fetch_sha256, yield_fetch_sha256, "
