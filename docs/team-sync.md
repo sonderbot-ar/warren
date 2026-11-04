@@ -19,7 +19,7 @@ How Warren's two building teams keep each other informed (owner's ask, nov.03.20
 
 **Front-end team:**
 1. Engine needs from F1 (#141–#147, #157), followed on each run. #140 is done (v0.9.6; brief Q1 and Q2 now marked Sí). #128 is done (v0.9.7: runs default to the latest ended day). #144 is done (v0.9.8: every run has its range and the company's track record). #141 is done (v0.9.9: what-if revaluation). Most useful next for F2's first screen: #145 (track record per company) and #142 (the two-input grid on the what-if).
-2. F2 — Web app, run locally (after M10): the stack card (including the question reader's model, free tools only), then two or three visual directions for the owner.
+2. F2 — Web app, run locally. Started nov.04.2026 with the stack card (owner's choice, before M10; `docs/designs/f2-web-app.md`): owner chose FastAPI, Jinja2 and htmx, with a local open model for the question reader (Decisions 9 and 13 amended). The skeleton is built (Step 1: `webapp/`, run with `python -m webapp`; no screens). Next, before M10: the reader's labelled set (Step 3). Visual directions and screens wait until M10 merges. Engine team: the app imports the engine and never edits it. Asked for the first screen: #175 (a structured source for every forecast assumption) and #176 (run ids allocated inside the transaction, before hosting).
 3. F2's first screen: one company and date, the forecast with its range, every number traced to its source, the question reader in front.
 
 ## Log

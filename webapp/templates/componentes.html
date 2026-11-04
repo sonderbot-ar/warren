@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}{{ t("bench.title") }} · {{ t("app.name") }}{% endblock %}
+{% block content %}
+  <h1>{{ t("bench.title") }}</h1>
+  <p class="lede">{{ t("bench.lede") }}</p>
+  <p>
+    <a class="figure-door" href="{{ open_url }}" data-figura="ejemplo"
+       hx-get="{{ open_fragment_url }}" hx-target="#panel-host" hx-push-url="{{ open_url }}"
+       aria-haspopup="dialog">{{ t("bench.open") }}</a>
+  </p>
+{% endblock %}
+{% block panel %}{% if panel %}{% include "_panel.html" %}{% endif %}{% endblock %}

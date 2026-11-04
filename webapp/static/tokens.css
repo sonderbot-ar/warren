@@ -1,0 +1,75 @@
+/* Warren's design tokens: the only place a colour, a size or a typeface is set (design principles,
+   "How Warren looks"). Every value below is PROVISIONAL: the names are fixed now, and the values
+   are chosen once at the visual direction (F2 Step 2), then hold everywhere. app.css and every
+   screen use only these variables; a test refuses a raw colour anywhere else. */
+:root {
+  color-scheme: light;
+  /* type */
+  --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: var(--font-body);
+  --font-figures: var(--font-body); /* figures use tabular-nums whatever the face */
+  --text-xs: 0.8125rem;
+  --text-sm: 0.875rem;
+  --text-md: 1rem; /* body text, at least 16 px (principles, "Focus") */
+  --text-lg: 1.25rem;
+  --text-xl: 1.75rem;
+  --text-2xl: 2.25rem;
+  --leading-tight: 1.2;
+  --leading-body: 1.55;
+  /* spacing */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+  /* layout */
+  --measure: 68ch;
+  --panel-width: min(28rem, 100vw);
+  --radius: 0.375rem;
+  --border-width: 1px;
+  --focus-width: 3px;
+  --target-min: 2.75rem; /* above WCAG 2.2's 24 px minimum */
+  /* colour (provisional greys and one accent; contrast at least WCAG AA in both themes) */
+  --color-bg: #ffffff;
+  --color-surface: #f6f7f8;
+  --color-fg: #1b1f23;
+  --color-muted: #59636e;
+  --color-line: #d0d7de;
+  --color-accent: #0b5cad;
+  --color-accent-fg: #ffffff;
+  --color-focus: #0b5cad;
+  --color-error: #a40e26;
+  --color-backdrop: rgb(0 0 0 / 0.4);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --color-bg: #0f1419;
+    --color-surface: #161c22;
+    --color-fg: #e6edf3;
+    --color-muted: #9da7b1;
+    --color-line: #30363d;
+    --color-accent: #6cb6ff;
+    --color-accent-fg: #0f1419;
+    --color-focus: #6cb6ff;
+    --color-error: #ff8182;
+    --color-backdrop: rgb(0 0 0 / 0.6);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-bg: #0f1419;
+  --color-surface: #161c22;
+  --color-fg: #e6edf3;
+  --color-muted: #9da7b1;
+  --color-line: #30363d;
+  --color-accent: #6cb6ff;
+  --color-accent-fg: #0f1419;
+  --color-focus: #6cb6ff;
+  --color-error: #ff8182;
+  --color-backdrop: rgb(0 0 0 / 0.6);
+}
