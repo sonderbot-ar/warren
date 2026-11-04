@@ -115,6 +115,10 @@ class Inputs:
     one: dict[str, float]  # each of SINGLE_VALUES
     cost_of_equity_shift: list | None = None  # added to the cost of equity per period (M4)
     terminal_method: str = GORDON
+    # WACC set directly, in memory only (the sensitivity grid, backlog #142): it replaces the
+    # run's WACC in every discount rate and in the roll-forward; the cost of equity, the weights
+    # and the cash flows stay as stored. Never set on a stored run.
+    wacc_override: float | None = None
 
     def replace(self, **changes) -> "Inputs":
         return dataclasses.replace(self, **changes)
@@ -162,7 +166,9 @@ def _wacc_at(one: dict, cost_of_equity):
 
 
 def base_wacc(inp: Inputs):
-    """The run's WACC before any risk-premium shock."""
+    """The run's WACC before any risk-premium shock (or the grid's override, if set)."""
+    if inp.wacc_override is not None:
+        return inp.wacc_override
     one = inp.one
     return _wacc_at(one, fm.capm_cost_of_equity(one["risk_free"], one["beta"], one["erp"]))
 
@@ -180,6 +186,8 @@ def discount_rates(inp: Inputs) -> list:
 
     Floats, or per-sample arrays in the Monte Carlo; the valuation and the sample checks both read
     the rates from here, so they can't disagree (backlog #90)."""
+    if inp.wacc_override is not None and inp.cost_of_equity_shift is not None:
+        raise DCFInputError("a WACC override and a cost-of-equity shift are different questions")
     if inp.cost_of_equity_shift is None:
         return [base_wacc(inp)] * len(inp.periods)
     return [_wacc_at(inp.one, cost) for cost in costs_of_equity(inp)]

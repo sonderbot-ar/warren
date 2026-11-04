@@ -44,6 +44,7 @@ from domains.analysis.montecarlo import (
 from domains.analysis.report import write_report
 from domains.analysis.reported import ReportedError, ReportedPeriod, reported_period
 from domains.analysis.runs import rebuild, reproduce, run_baseline
+from domains.analysis.sensitivity import Block, Grid, GridError, grid
 from domains.analysis.sources import SourceError, backfill, run_sources
 from domains.analysis.whatif import Change, WhatIf, WhatIfError, revalue
 from domains.fundamentals.universe import PHASE1_UNIVERSE, get_universe_company
@@ -358,6 +359,79 @@ def cmd_whatif(args: argparse.Namespace) -> int:
     return 0
 
 
+def parse_steps(text: str) -> list[float]:
+    """A comma-separated list of shifts in fractions, e.g. "-0.01,0,0.01" (pass a list that
+    starts with a minus as --wacc-steps=-0.01,0.01)."""
+    try:
+        return [float(x) for x in text.split(",") if x.strip()]
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(
+            f"steps must be numbers separated by commas: {text}"
+        ) from e
+
+
+def _render_block(g: Grid, b: Block, title: str) -> list[str]:
+    out = [f"{title}: {b.terminal_formula.text}"]
+    corner = "WACC / growth"
+    out.append(f"  {corner:>14} " + " ".join(f"{x:>11.2%}" for x in g.growth_values))
+    reasons = []
+    for i, row in enumerate(b.cells):
+        cells = []
+        for j, c in enumerate(row):
+            if c.value_per_share is None:
+                if c.gap and c.gap.text not in reasons:
+                    reasons.append(c.gap.text)
+                cells.append(f"{'n/a':>11}")
+            else:
+                mark = "*" if (i, j) == (g.run_point["row"], g.run_point["column"]) else " "
+                cells.append(f"{c.value_per_share:>10.2f}{mark}")
+        out.append(f"  {g.wacc_values[i]:>14.2%} " + " ".join(cells))
+    if reasons:
+        out.append(f"  n/a: no value ({'; '.join(reasons)})")
+    for s in (b.wacc_spread, b.growth_spread):
+        if s.per_point is None:
+            out.append(f"  along {s.axis}: no spread ({s.gap})")
+        else:
+            out.append(
+                f"  along {s.axis}: {s.low_value:.2f} to {s.high_value:.2f} "
+                f"({s.low_change_pct:+.1%} to {s.high_change_pct:+.1%}), "
+                f"{s.per_point:+.2%} of the value per point"
+            )
+    if b.reinvestment_rate is not None:
+        out.append(f"  year-5 reinvestment rate {b.reinvestment_rate:.1%}")
+    return out
+
+
+def render_grid(g: Grid) -> str:
+    """The run's table, the contrast table, their spreads and the notes, for the terminal."""
+    out = [
+        f"Sensitivity of {g.run_id} ({g.ticker} as of {g.as_of}, {g.currency} per share); "
+        "* is the run's own point"
+    ]
+    out += _render_block(g, g.method, f"This run's method ({g.method.terminal_method})")
+    out += _render_block(g, g.contrast, f"Contrast ({g.contrast.terminal_method})")
+    for note in g.notes:
+        out.append(f"Note: {note.text}")
+    return "\n".join(out)
+
+
+def cmd_sensitivity(args: argparse.Namespace) -> int:
+    kwargs = {}
+    if args.wacc_steps is not None:
+        kwargs["wacc_steps"] = args.wacc_steps
+    if args.growth_steps is not None:
+        kwargs["growth_steps"] = args.growth_steps
+    with get_db_connection() as conn:
+        apply_migrations(conn)
+        try:
+            result = grid(conn, args.run_id, **kwargs)
+        except GridError as e:
+            print(f"REFUSED ({e.code}): {e.text}")
+            return 1
+    print(json.dumps(result.to_dict(), indent=2) if args.json else render_grid(result))
+    return 0
+
+
 def render_sources(r, name: str | None = None) -> str:
     out = [f"Sources of {r.run_id} ({r.ticker}, as of {r.as_of})"]
     if not r.recorded:
@@ -506,6 +580,25 @@ def main(argv: list[str] | None = None) -> int:
     )
     wi.add_argument("--json", action="store_true", help="print JSON for the app")
     wi.set_defaults(func=cmd_whatif)
+
+    se = commands.add_parser(
+        "sensitivity", help="value per share over WACC × terminal growth on a stored run"
+    )
+    se.add_argument("--run-id", required=True)
+    se.add_argument(
+        "--wacc-steps",
+        type=parse_steps,
+        metavar="S,S,...",
+        help="shifts from the run's WACC (0.01 = one point; write --wacc-steps=-0.01,0.01)",
+    )
+    se.add_argument(
+        "--growth-steps",
+        type=parse_steps,
+        metavar="S,S,...",
+        help="shifts from the run's terminal growth (write --growth-steps=-0.005,0.005)",
+    )
+    se.add_argument("--json", action="store_true", help="print JSON for the app")
+    se.set_defaults(func=cmd_sensitivity)
 
     so = commands.add_parser("sources", help="where each assumption of a stored run came from")
     so.add_argument("--run-id", help="the run (with --backfill: only this run)")

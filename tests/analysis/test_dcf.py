@@ -1,4 +1,6 @@
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from domains.analysis import dcf
 from domains.analysis import financial_math as fm
@@ -234,3 +236,54 @@ def test_discount_rates_are_the_wacc_per_period_with_its_shift():
     assert rates[1] == pytest.approx(by_hand + 2 / 3 * 0.02)
     assert rates[:1] + rates[2:] == pytest.approx([by_hand] * 10)
     assert dcf.compute(shifted).wacc == pytest.approx(by_hand)  # the run's WACC is unshifted
+
+
+# -- WACC set directly, in memory (the sensitivity grid, backlog #142) ------------------------
+
+
+@pytest.mark.parametrize("method", [dcf.GORDON, dcf.VALUE_DRIVER])
+def test_an_override_equal_to_the_runs_wacc_changes_nothing(method):
+    inp = dcf.inputs(rows(growth=0.01, debt=500.0, roll_years=0.4)).replace(terminal_method=method)
+    plain = dcf.compute(inp).outputs()
+    same = dcf.compute(inp.replace(wacc_override=dcf.base_wacc(inp))).outputs()
+    assert same == plain  # bit for bit, not approximately
+
+
+@pytest.mark.parametrize("method", [dcf.GORDON, dcf.VALUE_DRIVER])
+def test_an_override_replaces_every_rate_and_the_roll_forward(method):
+    inp = dcf.inputs(rows(debt=500.0, roll_years=0.5)).replace(terminal_method=method)
+    out = dcf.compute(inp.replace(wacc_override=0.12))
+    assert dcf.discount_rates(inp.replace(wacc_override=0.12)) == [0.12] * 11
+    assert out.wacc == 0.12
+    assert out.cost_of_equity == dcf.compute(inp).cost_of_equity  # the cost of equity is held
+    assert out.enterprise_value_as_of == pytest.approx(out.dcf.enterprise_value * 1.12**0.5)
+    assert out.lines["fcff"] == dcf.compute(inp).lines["fcff"]  # cash flows are held
+
+
+@pytest.mark.parametrize("method", [dcf.GORDON, dcf.VALUE_DRIVER])
+def test_a_higher_override_lowers_value_per_share(method):
+    inp = dcf.inputs(rows(growth=0.01)).replace(terminal_method=method)
+    values = [dcf.compute(inp.replace(wacc_override=w)).value_per_share for w in (0.07, 0.09, 0.11)]
+    assert values[0] > values[1] > values[2]
+
+
+def test_an_override_and_a_cost_of_equity_shift_are_refused_together():
+    inp = dcf.inputs(rows()).replace(wacc_override=0.1, cost_of_equity_shift=[0.0] * 11)
+    with pytest.raises(DCFInputError, match="different questions"):
+        dcf.compute(inp)
+
+
+@settings(max_examples=60, deadline=None)
+@given(
+    st.floats(min_value=-0.05, max_value=0.15),
+    st.floats(min_value=0.3, max_value=2.0),
+    st.floats(min_value=0.0, max_value=2000.0),
+    st.floats(min_value=0.0, max_value=0.03),
+    st.sampled_from([dcf.GORDON, dcf.VALUE_DRIVER]),
+)
+def test_property_the_runs_own_wacc_as_override_is_the_run(growth, beta, debt, g, method):
+    inp = dcf.inputs(rows(growth=growth, beta=beta, debt=debt, terminal_growth=g))
+    inp = inp.replace(terminal_method=method)
+    assert dcf.compute(inp.replace(wacc_override=dcf.base_wacc(inp))).outputs() == (
+        dcf.compute(inp).outputs()
+    )
