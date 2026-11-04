@@ -62,3 +62,11 @@ Serves design principle "no text hard-coded in logic" for every screen that show
 - **Analyst.** Two codes for one sentence: fixed (`beyond_history`). Units per param: added, with a test on `threshold`. Split-adjusted shares: renamed. Dedupe: kept, tested on XOM. `threshold_days`: added. Ideas taken in the doc: item sets, period keys, `bound` gives lower/higher, the what-if's `no_value` vocabulary. A `reason` code and successor CIK for the coverage note, and filtering library warnings: follow-up issue.
 - **Professor.** Untranslatable params: `note` is marked as English and optional; Step 4 checks zero `data_warning`. `wacc` and `terminal_growth` added to both spread codes. Registry of codes: taken. Teaching sentence per code (`WARNING_SENTENCES`): follow-up issue, the app's catalogue may own it.
 - **Product lead.** Stored runs in English: the backfill moved into this item (Step 3). `bound` values pinned. Registry exported. A group per code (data quality vs valuation): left to the app's catalogue.
+
+## Results on real data (nov.04.2026, Step 4)
+
+Snapshot `warren-20261104T055118Z` restored; `reproduce --all`: 903 of 903 runs to the cent, before and after.
+
+- **Backfill:** `notes --backfill --all` filled 903 of 903 stored runs (1 min 40 s); no run's text differed, so none stays `recorded: false`. 1,595 lines, every one coded; no `note_text`, no `data_warning`. Codes seen: `balance_counted_zero` 903 runs, `balance_carried_forward` 612, `no_value_per_share` 61, `fundamentals_stale` 13, `shares_cover_differs` 5, `beyond_history` 1 (XOM at 2026-10-30). No stored run is under the Gordon rule with a thin spread, so the spread codes appear only in the tests.
+- **Fresh baselines:** the eight companies at 2026-10-30 (the latest date with stored prices; 2026-11-03 needs a price refresh, which this item doesn't need): each new run's `runs.notes` equals the text the old code stored for the same company and date, and every line is coded. These check runs were then discarded (the database copied back), so the snapshot holds only the backfill.
+- The backfilled database was saved as a new snapshot.
