@@ -72,7 +72,7 @@ Decision 9 records the reader: it returns only labels (the kind, the company, th
 
 ### Step 1 results (nov.04.2026)
 
-Built in `webapp/` with tests in `tests/webapp/` (82 tests: 75 without a browser, 7 in Chromium). Nothing under `domains/`, `shared_kernel/` or `main.py` changed.
+Built in `webapp/` with tests in `tests/webapp/` (85 tests: 75 without a browser, 10 in Chromium). Nothing under `domains/`, `shared_kernel/` or `main.py` changed.
 
 - **Run it:** `python -m webapp` (127.0.0.1:8000 only). It checks the database first and refuses to start, naming the restore command, when a migration is missing or unknown (`webapp/database.py`); it never applies one. `/salud` reports the same check as JSON.
 - **Point in time:** every page and fragment takes `?corte=`; none, or a day that has not ended in New York, is a 307 redirect to `last_ended_day(now)` that keeps the rest of the address; an unreadable date is the designed 400 page. Page views never open the database (tested).
