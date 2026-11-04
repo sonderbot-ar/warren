@@ -2,6 +2,7 @@
 rebuilding their assumptions from the data they were built from (M2.1)."""
 
 import dataclasses
+import json
 import sqlite3
 import subprocess
 from collections.abc import Callable, Iterator
@@ -13,13 +14,14 @@ from pathlib import Path
 from domains.analysis import dcf
 from domains.analysis import financial_math as fm
 from domains.analysis import sources as src
+from domains.analysis.coded import RUN_NOTE_CODES, Coded
 from domains.analysis.math_engine import (
     USER_CHOICES,
     EngineError,
     EngineResult,
     UserChoice,
     build_inputs,
-    post_checks,
+    post_check_notes,
 )
 from domains.analysis.schemas import Assumption
 from domains.analysis.text import REASON_WORDS
@@ -104,7 +106,7 @@ def save_run(
     conn: sqlite3.Connection,
     result: EngineResult,
     outputs: dict[tuple[str, str], float],
-    notes: list[str],
+    notes: list[Coded | str],
     gaps: dict[tuple[str, str], dcf.Gap] | None = None,
 ) -> str:
     """Store a run's assumptions, outputs and the reasons for outputs it has no value for, in one
@@ -134,7 +136,7 @@ def save_rows(
     run,
     assumptions: list[Assumption],
     outputs: dict[tuple[str, str], float],
-    notes: list[str],
+    notes: list[Coded | str],
     gaps: dict[tuple[str, str], dcf.Gap] | None,
     run_id: str | Callable[[sqlite3.Connection], str],
     parent_run_id: str | None = None,
@@ -165,13 +167,16 @@ def insert_rows(
     run,
     assumptions: list[Assumption],
     outputs: dict[tuple[str, str], float],
-    notes: list[str],
+    notes: list[Coded | str],
     gaps: dict[tuple[str, str], dcf.Gap],
     run_id: str,
     parent_run_id: str | None,
     version: str,
 ) -> None:
-    """The inserts behind `save_rows`, for a caller already inside `write_lock`."""
+    """The inserts behind `save_rows`, for a caller already inside `write_lock`. `notes` go to
+    `runs.notes` as their texts, one per line, and to `run_notes` with their codes (backlog
+    #172); a plain string is stored as `note_text`."""
+    notes = [as_coded(n) for n in notes]
     conn.execute(
         "INSERT INTO runs (run_id, cik, ticker, as_of, code_version, ingest_run_id, "
         "concept_map_sha256, price_fetch_sha256, index_fetch_sha256, yield_fetch_sha256, "
@@ -183,7 +188,7 @@ def insert_rows(
             run["as_of"],
             version,
             *(run[column] for column in SNAPSHOT_COLUMNS),
-            "\n".join(notes),
+            "\n".join(n.text for n in notes),
             parent_run_id,
         ),
     )
@@ -200,6 +205,63 @@ def insert_rows(
         "INSERT INTO run_output_gaps (run_id, name, period, reason, detail) VALUES (?, ?, ?, ?, ?)",
         [(run_id, n, p, g.reason, g.detail) for (n, p), g in gaps.items()],
     )
+    insert_notes(conn, run_id, notes)
+
+
+def as_coded(note: Coded | str) -> Coded:
+    if isinstance(note, str):
+        return Coded("note_text", {}, note)
+    if note.code not in RUN_NOTE_CODES:
+        raise ValueError(f"unknown run note code {note.code!r}")
+    if "\n" in note.text:
+        raise ValueError(f"a run note is one line: {note.text!r}")
+    return note
+
+
+def insert_notes(conn: sqlite3.Connection, run_id: str, notes: list[Coded]) -> None:
+    conn.executemany(
+        "INSERT INTO run_notes (run_id, position, code, params, text) VALUES (?, ?, ?, ?, ?)",
+        [
+            (run_id, i, n.code, json.dumps(n.params, sort_keys=True), n.text)
+            for i, n in enumerate(notes)
+        ],
+    )
+
+
+@dataclass(frozen=True)
+class RunNotes:
+    """A run's warnings as codes (backlog #172). `recorded` is False for a run whose notes have
+    no codes stored (made before 0021 and not matched by the backfill): each line of its
+    `runs.notes` is then a `note_text` with the English text only."""
+
+    run_id: str
+    recorded: bool
+    notes: list[Coded]
+
+    def to_dict(self) -> dict:
+        return {
+            "run_id": self.run_id,
+            "recorded": self.recorded,
+            "notes": [dataclasses.asdict(n) for n in self.notes],
+        }
+
+
+def run_notes(conn: sqlite3.Connection, run_id: str) -> RunNotes:
+    run = conn.execute("SELECT notes FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+    if run is None:
+        raise ValueError(f"No run {run_id}")
+    rows = conn.execute(
+        "SELECT code, params, text FROM run_notes WHERE run_id = ? ORDER BY position", (run_id,)
+    ).fetchall()
+    lines = _lines(run["notes"])
+    if rows or not lines:
+        notes = [Coded(r["code"], json.loads(r["params"]), r["text"]) for r in rows]
+        return RunNotes(run_id, True, notes)
+    return RunNotes(run_id, False, [Coded("note_text", {}, line) for line in lines])
+
+
+def _lines(notes: str | None) -> list[str]:
+    return [line for line in (notes or "").split("\n") if line]
 
 
 def _check_reason(reason: str) -> str:
@@ -311,6 +373,7 @@ class Rebuild:
     rows_checked: int
     mismatches: list[tuple[str, str, str]]  # name, period, what differs
     sources: dict = dataclasses.field(default_factory=dict, compare=False)  # rebuilt (#175)
+    notes: list = dataclasses.field(default_factory=list, compare=False)  # rebuilt (#172)
 
     @property
     def ok(self) -> bool:
@@ -375,7 +438,7 @@ def rebuild(
         for field in ("value", "source", "method"):
             if getattr(before, field) != getattr(after, field):
                 mismatches.append((*key, field))
-    return Rebuild(run_id, len(stored), mismatches, result.sources)
+    return Rebuild(run_id, len(stored), mismatches, result.sources, result.notes)
 
 
 def run_baseline(
@@ -388,8 +451,71 @@ def run_baseline(
     """Build, value and store a baseline DCF; returns the run id."""
     result = build_inputs(conn, ticker, as_of, choices=choices, today=today)
     outputs, gaps = dcf.outputs_and_gaps(result.assumptions)
-    notes = result.warnings + post_checks(result.assumptions, outputs)
-    for (name, _period), gap in sorted(gaps.items()):
-        label = name.removeprefix("value_per_share_").replace("_", " ")
-        notes.append(f"No value per share at {label}: {REASON_WORDS[gap.reason]}")
+    notes = result.notes + valuation_notes(result.assumptions, outputs, gaps)
     return save_run(conn, result, outputs, notes, gaps)
+
+
+def valuation_notes(
+    assumptions: list[Assumption],
+    outputs: dict[tuple[str, str], float],
+    gaps: dict[tuple[str, str], dcf.Gap],
+) -> list[Coded]:
+    """A baseline's notes after its build warnings: the post-checks, then one line for each
+    value per share with no value."""
+    notes = post_check_notes(assumptions, outputs)
+    for (name, _period), gap in sorted(gaps.items()):
+        bound = name.removeprefix("value_per_share_") if name != "value_per_share" else "base"
+        label = name.removeprefix("value_per_share_").replace("_", " ")
+        notes.append(
+            Coded(
+                "no_value_per_share",
+                {"bound": bound, "reason": gap.reason},
+                f"No value per share at {label}: {REASON_WORDS[gap.reason]}",
+            )
+        )
+    return notes
+
+
+NOTES_BACKFILL = ("filled", "already_recorded", "no_notes", "text_differs", "failed")
+
+
+def backfill_notes(
+    conn: sqlite3.Connection, run_id: str, today: date | None = None
+) -> tuple[str, str]:
+    """Give a run stored before 0021 its notes as codes (backlog #172). A baseline's build
+    warnings come from rebuilding it from its pinned data (as `rebuild` does); its post-checks and
+    missing bounds, and a what-if's post-checks, from its stored rows. They are stored only when
+    their texts, joined, equal `runs.notes` byte for byte. Returns (status, detail), status one of
+    NOTES_BACKFILL; stores nothing otherwise."""
+    from domains.market.store import MarketDataError
+
+    run = conn.execute(
+        "SELECT notes, parent_run_id FROM runs WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    if run is None:
+        raise ValueError(f"No run {run_id}")
+    if conn.execute("SELECT 1 FROM run_notes WHERE run_id = ?", (run_id,)).fetchone():
+        return "already_recorded", ""
+    if not _lines(run["notes"]):
+        return "no_notes", ""
+    rows = load_assumptions(conn, run_id)
+    outputs, gaps = dcf.outputs_and_gaps(rows)
+    try:
+        if run["parent_run_id"] is None:
+            notes = rebuild(conn, run_id, today=today).notes + valuation_notes(rows, outputs, gaps)
+        else:
+            notes = post_check_notes(rows, outputs)
+    except (ValueError, EngineError, MarketDataError) as e:
+        return "failed", str(e)
+    if "\n".join(n.text for n in notes) != run["notes"]:
+        stored, made = _lines(run["notes"]), [n.text for n in notes]
+        first = next(
+            (f"line {i + 1}" for i, (a, b) in enumerate(zip(stored, made, strict=False)) if a != b),
+            f"{len(stored)} lines stored, {len(made)} made",
+        )
+        return "text_differs", first
+    with write_lock(conn):
+        if conn.execute("SELECT 1 FROM run_notes WHERE run_id = ?", (run_id,)).fetchone():
+            return "already_recorded", ""
+        insert_notes(conn, run_id, [as_coded(n) for n in notes])
+    return "filled", ""

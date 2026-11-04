@@ -24,7 +24,7 @@ from dataclasses import asdict, dataclass, field
 from domains.analysis import dcf
 from domains.analysis import financial_math as fm
 from domains.analysis import sources as src
-from domains.analysis.math_engine import post_checks
+from domains.analysis.math_engine import post_check_notes
 from domains.analysis.montecarlo import _currency
 from domains.analysis.reported import Coded
 from domains.analysis.runs import (
@@ -425,7 +425,7 @@ def revalue(conn: sqlite3.Connection, run_id: str, changes: list[Change]) -> Wha
     outputs, gaps = _value(child_rows)
     parent_rows_out = load_outputs(conn, run_id)
 
-    notes_text = post_checks(child_rows, outputs)
+    checks = post_check_notes(child_rows, outputs)  # coded (backlog #172)
     version = code_version()  # a git call: kept outside the lock
     # the lookup for a stored copy and the numbering happen under one write lock, so two
     # identical requests at once store one child (backlog #176)
@@ -440,14 +440,25 @@ def revalue(conn: sqlite3.Connection, run_id: str, changes: list[Change]) -> Wha
         reused_id = _existing_child(conn, run_id, child_rows)
         if reused_id is None:
             child_id = _next_child_id(conn, run_id)
-            insert_rows(conn, run, child_rows, outputs, notes_text, gaps, child_id, run_id, version)
+            insert_rows(conn, run, child_rows, outputs, checks, gaps, child_id, run_id, version)
             if child_sources is not None:
                 src.insert(conn, child_id, child_sources)
         else:
             child_id = reused_id
 
     parent_notes = set((run["notes"] or "").splitlines())
-    notes = [Coded("run_warning", {"new": text not in parent_notes}, text) for text in notes_text]
+    notes = [
+        Coded(
+            "run_warning",
+            {
+                "new": check.text not in parent_notes,
+                "warning_code": check.code,
+                "warning_params": check.params,
+            },
+            check.text,
+        )
+        for check in checks
+    ]
     changed = {c.name for c in moved}
     if any(c.how == "follows_terminal_growth" for c in moved):
         notes.append(

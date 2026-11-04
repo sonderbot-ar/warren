@@ -26,6 +26,7 @@ from pathlib import Path
 from domains.analysis import dcf
 from domains.analysis import financial_math as fm
 from domains.analysis import sources as src
+from domains.analysis.coded import Coded, coded_warnings
 from domains.analysis.dcf import QUARTERS, SEED, YEARS
 from domains.analysis.schemas import SINGLE, Assumption
 from domains.fundamentals.concepts import concept_map_sha256
@@ -273,9 +274,17 @@ class EngineResult:
     cik: str
     as_of: date
     assumptions: list[Assumption] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
+    notes: list[Coded] = field(default_factory=list)  # warnings as codes (backlog #172)
     snapshot: dict = field(default_factory=dict)  # data the run was built from (hashes, ids)
     sources: dict[tuple[str, str], list[dict]] = field(default_factory=dict)  # by row (#175)
+
+    @property
+    def warnings(self) -> list[str]:
+        """The warnings' English texts, in order (as stored in `runs.notes`)."""
+        return [n.text for n in self.notes]
+
+    def warn(self, code: str, params: dict, text: str) -> None:
+        self.notes.append(Coded(code, params, text))
 
     def add(
         self,
@@ -333,7 +342,7 @@ def build_inputs(
         warnings.simplefilter("always")
         history = load_history(conn, company["cik"], as_of)
         comparisons = same_filing_annual_comparisons(conn, company["cik"], "revenue", as_of)
-    result.warnings += list(dict.fromkeys(str(w.message) for w in caught))  # one per query
+    result.notes += coded_warnings(caught)  # one per text
 
     last_year, last_quarter, base_date = _last_actual_quarter(history, result)
     fiscal_years = _history_years(history, last_year, result)
@@ -352,7 +361,11 @@ def build_inputs(
     )
     result.snapshot |= _snapshot(conn, company["cik"], result.ticker, price)
     if result.snapshot["concept_map_sha256"] != result.snapshot["ingest_concept_map_sha256"]:
-        result.warnings.append("concept_map.csv changed since the last ingest: re-run ingest")
+        result.warn(
+            "concept_map_changed",
+            {},
+            "concept_map.csv changed since the last ingest: re-run ingest",
+        )
     return result
 
 
@@ -362,10 +375,17 @@ def _last_actual_quarter(history: History, result: EngineResult) -> tuple[int, i
         raise EngineError(f"{result.ticker}: no quarterly revenue reported by {result.as_of}")
     last = max(revenue, key=lambda f: f.period_end)
     if result.as_of - last.period_end > STALE_AFTER:
-        result.warnings.append(
+        days = (result.as_of - last.period_end).days
+        result.warn(
+            "fundamentals_stale",
+            {
+                "last_quarter_end": last.period_end.isoformat(),
+                "days": days,
+                "threshold_days": STALE_AFTER.days,
+            },
             f"Fundamentals may be stale: the last reported quarter ended {last.period_end}, "
             f"{(result.as_of - last.period_end).days} days before the as-of date (check that "
-            "the newest filings are ingested)."
+            "the newest filings are ingested).",
         )
     return last.fiscal_year, int(last.fiscal_period[1]), last.period_end
 
@@ -524,8 +544,15 @@ def _balance(history: History, base_date: date, result: EngineResult) -> date:
         f"{i} ({f.period_end})" for i, f in facts.items() if f and f.period_end < balance_date
     ]
     if carried:
-        result.warnings.append(
-            f"Carried forward to the {balance_date} balance sheet: {', '.join(carried)}"
+        items = [
+            {"item": i, "period_end": f.period_end.isoformat()}
+            for i, f in facts.items()
+            if f and f.period_end < balance_date
+        ]
+        result.warn(
+            "balance_carried_forward",
+            {"balance_date": balance_date.isoformat(), "items": items},
+            f"Carried forward to the {balance_date} balance sheet: {', '.join(carried)}",
         )
 
     def val(item: str) -> float:
@@ -589,13 +616,17 @@ def _balance(history: History, base_date: date, result: EngineResult) -> date:
         sources=[src.filing(minority)] if minority else [src.rule("not_reported_zero")],
     )
     if zero:
-        result.warnings.append(
+        result.warn(
+            "balance_counted_zero",
+            {"balance_date": balance_date.isoformat(), "items": sorted(set(zero))},
             f"Counted as zero (not reported within a year of the {balance_date} balance sheet): "
-            f"{', '.join(sorted(set(zero)))}"
+            f"{', '.join(sorted(set(zero)))}",
         )
     if balance_date != base_date:
-        result.warnings.append(
-            f"Balance sheet date {balance_date} differs from the last quarter end {base_date}"
+        result.warn(
+            "balance_date_differs",
+            {"balance_date": balance_date.isoformat(), "last_quarter_end": base_date.isoformat()},
+            f"Balance sheet date {balance_date} differs from the last quarter end {base_date}",
         )
     return balance_date
 
@@ -635,9 +666,15 @@ def _shares(
     if cover and latest_diluted is not None:
         diluted_now, _ = adjusted(latest_diluted)
         if abs(shares / diluted_now - 1) > SHARES_TOLERANCE:
-            result.warnings.append(
+            result.warn(
+                "shares_cover_differs",
+                {
+                    "cover_shares_adjusted": shares,
+                    "diluted_shares_adjusted": diluted_now,
+                    "tolerance": SHARES_TOLERANCE,
+                },
                 f"Cover-page shares ({shares:,.0f}) differ from diluted shares ({diluted_now:,.0f})"
-                f" by more than {SHARES_TOLERANCE:.0%}"
+                f" by more than {SHARES_TOLERANCE:.0%}",
             )
     sources = [src.filing(counted)]
     if factor != 1:
@@ -788,7 +825,12 @@ def _cost_of_debt(history: History, fiscal_years: list[int], result: EngineResul
             sources=[src.filing(f) for f in (*interest.facts, *start_used, *end_used)],
         )
         if not COST_OF_DEBT_BOUNDS[0] <= kd <= COST_OF_DEBT_BOUNDS[1]:
-            result.warnings.append(f"Cost of debt {kd:.2%} is outside {COST_OF_DEBT_BOUNDS}")
+            low, high = COST_OF_DEBT_BOUNDS
+            result.warn(
+                "cost_of_debt_out_of_bounds",
+                {"cost_of_debt": kd, "low": low, "high": high},
+                f"Cost of debt {kd:.2%} is outside {COST_OF_DEBT_BOUNDS}",
+            )
         break
     else:
         raise EngineError(
@@ -897,7 +939,12 @@ def _drivers(
     clipped = min(max(tax, TAX_RATE_BOUNDS[0]), TAX_RATE_BOUNDS[1])
     tax_method = f"Σ income tax / Σ pretax income, {span}"
     if clipped != tax:
-        result.warnings.append(f"Effective tax rate {tax:.1%} clipped to {clipped:.0%}")
+        low, high = TAX_RATE_BOUNDS
+        result.warn(
+            "tax_rate_clipped",
+            {"tax_rate": tax, "clipped_to": clipped, "low": low, "high": high},
+            f"Effective tax rate {tax:.1%} clipped to {clipped:.0%}",
+        )
         tax_method += f"; {tax:.2%} clipped to {TAX_RATE_BOUNDS}"
     revenue = _sum(result, "revenue", fiscal_years)
     ratio_inputs = {
@@ -956,7 +1003,14 @@ def _snapshot(conn: sqlite3.Connection, cik: str, ticker: str, price: PricePoint
 def post_checks(
     assumptions: Iterable[Assumption], outputs: dict[tuple[str, str], float]
 ) -> list[str]:
-    """Warnings about a valuation, from its rows and outputs alone.
+    """The texts of `post_check_notes`, as stored in `runs.notes`."""
+    return [n.text for n in post_check_notes(assumptions, outputs)]
+
+
+def post_check_notes(
+    assumptions: Iterable[Assumption], outputs: dict[tuple[str, str], float]
+) -> list[Coded]:
+    """Warnings about a valuation, from its rows and outputs alone, as codes (backlog #172).
 
     They read nothing but the run, so they apply to any row set: a baseline, or (M4) one whose
     drivers were shocked.
@@ -978,9 +1032,21 @@ def post_checks(
         sd = math.sqrt(sum((m - mean) ** 2 for m in history) / (len(history) - 1))
         for period, margin in sorted(rows.get("operating_margin", {}).items()):
             if sd > 0 and abs(margin - mean) > MARGIN_SIGMAS * sd:
+                params = {
+                    "period": period,
+                    "margin": margin,
+                    "mean": mean,
+                    "sd": sd,
+                    "sigmas": MARGIN_SIGMAS,
+                    "n_quarters": len(history),
+                }
                 out.append(
-                    f"Operating margin {margin:.1%} in {period} is outside the historical range "
-                    f"({mean:.1%} ± {MARGIN_SIGMAS} × {sd:.1%}, {len(history)} quarters)"
+                    Coded(
+                        "margin_outside_history",
+                        params,
+                        f"Operating margin {margin:.1%} in {period} is outside the historical "
+                        f"range ({mean:.1%} ± {MARGIN_SIGMAS} × {sd:.1%}, {len(history)} quarters)",
+                    )
                 )
 
     # under the value-driver terminal value the spread no longer drives the value (M4)
@@ -989,11 +1055,23 @@ def post_checks(
     growth = rows["terminal_growth"][SINGLE]
     spread = outputs[("wacc", SINGLE)] - growth
     if _thin(spread):
+        share = outputs[("terminal_share", SINGLE)]
+        params = {
+            "spread": spread,
+            "threshold": TERMINAL_SPREAD_WARNING,
+            "wacc": outputs[("wacc", SINGLE)],
+            "terminal_growth": growth,
+            "terminal_share": share,
+        }
         out.append(
-            f"WACC − terminal growth is {spread * 100:.2f} points (below "
-            f"{TERMINAL_SPREAD_WARNING * 100:.0f}): terminal value is "
-            f"{outputs[('terminal_share', SINGLE)]:.0%} of enterprise value, so the result depends "
-            "mostly on terminal growth and WACC"
+            Coded(
+                "thin_terminal_spread",
+                params,
+                f"WACC − terminal growth is {spread * 100:.2f} points (below "
+                f"{TERMINAL_SPREAD_WARNING * 100:.0f}): terminal value is "
+                f"{share:.0%} of enterprise value, so the result depends "
+                "mostly on terminal growth and WACC",
+            )
         )
     # the same check at ERP ± 1 SE (backlog #10): revalue the run's own rows with the ERP moved,
     # the path that made the stored sensitivity; a bound with no value is noted elsewhere (#9)
@@ -1001,18 +1079,34 @@ def post_checks(
     if std_error is None:
         return out
     erp = rows["erp"][SINGLE]
-    for sign, label, word in ((-1, "ERP − 1 SE", "lower"), (1, "ERP + 1 SE", "higher")):
+    bounds = (
+        (-1, "erp_minus_1se", "ERP − 1 SE", "lower"),
+        (1, "erp_plus_1se", "ERP + 1 SE", "higher"),
+    )
+    for sign, bound, label, word in bounds:
         try:
             shifted = dcf.value(dcf.with_value(assumptions, "erp", erp + sign * std_error))
         except fm.FinancialMathError:
             continue
         spread = shifted.wacc - growth
         if _thin(spread):
+            params = {
+                "bound": bound,
+                "spread": spread,
+                "threshold": TERMINAL_SPREAD_WARNING,
+                "wacc": shifted.wacc,
+                "terminal_growth": growth,
+                "terminal_share": shifted.dcf.terminal_share,
+            }
             out.append(
-                f"At {label}, WACC − terminal growth is {spread * 100:.2f} points (below "
-                f"{TERMINAL_SPREAD_WARNING * 100:.0f}): terminal value is "
-                f"{shifted.dcf.terminal_share:.0%} of enterprise value there, so this bound "
-                f"mostly shows how the terminal value reacts to the {word} ERP"
+                Coded(
+                    "thin_terminal_spread_at_erp_bound",
+                    params,
+                    f"At {label}, WACC − terminal growth is {spread * 100:.2f} points (below "
+                    f"{TERMINAL_SPREAD_WARNING * 100:.0f}): terminal value is "
+                    f"{shifted.dcf.terminal_share:.0%} of enterprise value there, so this bound "
+                    f"mostly shows how the terminal value reacts to the {word} ERP",
+                )
             )
     return out
 
