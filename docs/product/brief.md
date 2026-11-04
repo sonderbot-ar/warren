@@ -87,7 +87,7 @@ Fifteen questions, written as a student would ask them, with an English gloss. "
 *How well has Warren forecast P&G in the past?*
 - Kind: Estimación (the model's track record).
 - Returns: past forecasts beside the first-reported actuals, quarter by quarter, the error, how often the range held the actual, and the same for a simple benchmark (last year's quarter carried forward), for that company. Where the range did not hold for this company, it says so.
-- Hoy: **En parte**. The batches are stored; reports pool all companies. Request R4 (#145).
+- Hoy: **Sí** (since v0.9.14, #145; monthly history since 2019; the case batches join when M10 merges, #189): `python -m domains.evaluation track-record --ticker PG --json`, or the call `domains.evaluation.track_record.track_record`. Each past forecast quarter with the first-reported actual, the miss, the benchmark's miss and whether the range held; per item and horizon a coded verdict against the benchmark and the range's record beside the other companies'. Lead with the `headline` cell.
 
 ### Cambios de supuesto: change an input, see the ripple
 
@@ -169,7 +169,7 @@ Each is an issue labelled `backlog` and `front-end` (`docs/team-sync.md`, rule 4
 | R2b | Two-input sensitivity grid on R2a | 9 | S | #142 (done, v0.9.12) |
 | R2c | The list of transmissions, starting with an unexpected policy-rate move → 10-year yield, as a sourced range (owner card: a new method) | 7 | M | #143 |
 | R3 | Error ranges (M9) and the company's own coverage on every run | 5 | S–M | #144 |
-| R4 | Track record per company from the stored batches | 6 | S | #145 |
+| R4 | Track record per company from the stored batches | 6 | S | #145 (done, v0.9.14) |
 | R5 | Past-event query: cases by rule, closeness, n and a thin-evidence flag, the usual-miss comparison, scope-change warning, and a sourced "metrics to watch" table | 10–15 | M | #146 |
 | R6 | Analogue cases for currency, inflation, commodity supply and elections, in a separate, unscored file | 11, 13, 14, 15 | M | #147 |
 | — | Runs default to the latest ended day; a past date shows what was reported afterwards | 3, 5 | | #128 (done, v0.9.7) |
