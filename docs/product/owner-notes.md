@@ -10,6 +10,7 @@ The owner's comments on what students see, kept so the owner never says the same
 |---|---|---|---|
 | Product brief (`docs/product/brief.md`) | nov.03.2026 | Approved (card) | nov.03.2026 |
 | Design principles (`docs/product/design-principles.md`) | nov.03.2026 | Approved (card), including the side-panel narrowing and the Mexico number format | nov.03.2026 |
+| The app's stack and the reader's model (`docs/designs/f2-web-app.md`) | nov.04.2026 | FastAPI + htmx, local open model (card, the recommended option) | nov.04.2026 |
 | Start F2's stack comparison before M10 merges (no screens until it does) | nov.04.2026 | Approved (card) | nov.04.2026 |
 | Literal and hypothetical sorting rule (backlog #130): AI reader or menus only | nov.03.2026 | AI reader (card), then "no menus first": the reader is built from the start, menus only as a fallback | nov.03.2026 |
 

@@ -1,6 +1,6 @@
 # F2 design: the web app, run locally
 
-Status: In progress (Step 0, the stack card; owner chose nov.04.2026 to compare stacks before M10 merges, with no screens until it does) · Elephant: front-end team (`product-lead`)
+Status: In progress (Step 0 done nov.04.2026: the owner chose FastAPI, Jinja2 and htmx, and a local open model for the reader; next, Step 1, the skeleton; no screens until M10 merges) · Elephant: front-end team (`product-lead`)
 Implements F2 of the front-end track (Build Plan §4, Structure Guide Decisions 11 and 13).
 
 ## Problem
