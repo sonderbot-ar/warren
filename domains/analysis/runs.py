@@ -12,6 +12,7 @@ from pathlib import Path
 
 from domains.analysis import dcf
 from domains.analysis import financial_math as fm
+from domains.analysis import sources as src
 from domains.analysis.math_engine import (
     USER_CHOICES,
     EngineError,
@@ -116,7 +117,16 @@ def save_run(
         **{column: result.snapshot[column] for column in SNAPSHOT_COLUMNS},
     }
     prefix = f"{result.ticker}_{result.as_of.isoformat()}_"
-    return save_rows(conn, run, result.assumptions, outputs, notes, gaps, _next_run_id(prefix))
+    return save_rows(
+        conn,
+        run,
+        result.assumptions,
+        outputs,
+        notes,
+        gaps,
+        _next_run_id(prefix),
+        sources=result.sources,
+    )
 
 
 def save_rows(
@@ -128,19 +138,25 @@ def save_rows(
     gaps: dict[tuple[str, str], dcf.Gap] | None,
     run_id: str | Callable[[sqlite3.Connection], str],
     parent_run_id: str | None = None,
+    sources: dict[tuple[str, str], list[dict]] | None = None,
 ) -> str:
     """Store a run under `run_id` in one write transaction (`write_lock`): `run` gives its
     company, date and data snapshot (a mapping with the runs columns cik, ticker, as_of and
     SNAPSHOT_COLUMNS: an engine result's, or the parent's row for a what-if). `run_id` may be a
-    function of the connection, called inside the transaction to number the run."""
+    function of the connection, called inside the transaction to number the run. `sources` (backlog
+    #175) must cover every row (`sources.check`); a run is refused, storing nothing, otherwise."""
     gaps = gaps or {}
     for gap in gaps.values():
         _check_reason(gap.reason)
+    if sources is None:
+        raise ValueError("a run is stored with the sources of its rows (backlog #175)")
+    src.check(assumptions, sources, child=parent_run_id is not None)
     version = code_version()  # a git call: kept outside the lock
     with write_lock(conn):
         if callable(run_id):
             run_id = run_id(conn)
         insert_rows(conn, run, assumptions, outputs, notes, gaps, run_id, parent_run_id, version)
+        src.insert(conn, run_id, sources)
     return run_id
 
 
