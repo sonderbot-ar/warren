@@ -232,3 +232,9 @@ def test_the_ai_baseline_lookup_returns_the_baseline_not_a_newer_child(company, 
     revalue(company, parent, [Change("beta", delta=0.1)])
     case = SimpleNamespace(ticker="TST", event_date=AS_OF)
     assert llm_main._baseline_run(company, case) == parent
+
+
+def test_rates_change_in_points_not_percent(company, parent):
+    result = revalue(company, parent, [Change("erp", delta=0.01)])
+    wacc = _line(result, "wacc")
+    assert wacc.unit == "fraction" and wacc.change > 0 and wacc.change_pct is None

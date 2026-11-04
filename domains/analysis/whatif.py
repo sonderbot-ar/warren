@@ -357,9 +357,9 @@ def _lines(
         )
         change = None if before is None or after is None else after - before
         driven_by = sorted(DEPENDS[name] & changed) if change else []
-        out.append(
-            Line(name, period, unit, before, after, change, _change_pct(before, after), driven_by)
-        )
+        # a rate's change is in points (`change`); a percent of a percent would mislead
+        pct = None if unit == "fraction" else _change_pct(before, after)
+        out.append(Line(name, period, unit, before, after, change, pct, driven_by))
     return out
 
 
