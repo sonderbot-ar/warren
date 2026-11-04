@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}{{ t(title_key) }} · {{ t("app.name") }}{% endblock %}
+{% block content %}
+  <div class="state state-error" role="alert">
+    <h1>{{ t(title_key) }}</h1>
+    <p>{{ t(body_key) }}</p>
+    <p><a href="{{ retry_url }}">{{ t("error.retry") }}</a></p>
+  </div>
+{% endblock %}

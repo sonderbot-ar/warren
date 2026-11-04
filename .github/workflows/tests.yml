@@ -21,6 +21,17 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install -r requirements.txt
+      # Chromium for the web app's browser tests (tests/webapp/test_browser.py) and screenshots
+      - run: python -m playwright install --with-deps chromium
       - run: ruff check .
       - run: ruff format --check .
       - run: python -m pytest -q
+        env:
+          WARREN_BROWSER_TESTS: "1" # a missing browser fails the run instead of skipping
+      - name: Screenshots for the design critic (laptop and phone, light and dark)
+        run: python -m webapp.screenshots --out screenshots
+      - uses: actions/upload-artifact@v4
+        with:
+          name: webapp-screenshots
+          path: screenshots/
+          retention-days: 14
