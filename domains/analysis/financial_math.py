@@ -213,6 +213,38 @@ def growth(current: Number, prior: Number) -> Number:
     return current / prior - 1
 
 
+# -- sensitivity grid (backlog #142) -----------------------------------------------------------
+
+
+def reinvestment_rate(fcff_value: Number, nopat: Number) -> Number:
+    """Share of NOPAT reinvested: 1 − FCFF ÷ NOPAT, over a positive NOPAT (Koller, Goedhart &
+    Wessels, *Valuation*, ch. 14). Negative when the company takes out more than it puts in."""
+    if _any(nopat <= 0):
+        raise FinancialMathError(f"a reinvestment rate needs a positive NOPAT, got {nopat}")
+    return 1 - fcff_value / nopat
+
+
+def implied_ronic(growth_rate: Number, reinvestment: Number) -> Number:
+    """Return on new invested capital that growth g at a reinvestment rate implies: g ÷ rate
+    (g = reinvestment rate × RONIC; Damodaran, *Investment Valuation*, ch. 12). Only a positive
+    reinvestment rate gives a return; at zero or below, growth would come from nothing."""
+    if _any(reinvestment <= 0):
+        raise FinancialMathError(
+            f"an implied return needs a positive reinvestment rate, got {reinvestment}"
+        )
+    return growth_rate / reinvestment
+
+
+def change_per_point(
+    low_value: Number, high_value: Number, base_value: Number, low_step: float, high_step: float
+) -> Number:
+    """How much a value moves, as a fraction of its base, per point (0.01) of an input between
+    two steps of that input: (high − low) ÷ base ÷ ((high step − low step) × 100)."""
+    if high_step <= low_step:
+        raise FinancialMathError(f"steps must rise, got {low_step} to {high_step}")
+    return ratio(high_value - low_value, base_value) / ((high_step - low_step) * 100)
+
+
 def net_debt(debt: Number, cash_and_investments: Number) -> Number:
     """Debt − cash and investments; negative means net cash."""
     if _any(debt < 0) or _any(cash_and_investments < 0):
