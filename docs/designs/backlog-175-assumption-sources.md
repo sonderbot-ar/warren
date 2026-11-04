@@ -61,3 +61,11 @@ Serves brief questions 3, 4 and 5 and F2's first screen; the *Fuente* tab of des
 ## Files to change
 
 `domains/analysis/sources.py` (new), `domains/analysis/math_engine.py`, `domains/analysis/runs.py`, `domains/analysis/whatif.py`, `domains/analysis/__main__.py`, `shared_kernel/migrations/0020_assumption_sources.sql`, tests as above, `docs/versions.md`, `docs/team-sync.md`.
+
+## Real-data check (nov.04.2026)
+
+On the restored snapshot `warren-20261103T070542Z` (895 stored runs; migrations 0019 and 0020 applied on restore).
+
+- **New runs.** One baseline per company as of 2026-10-30 (`AAPL_2026-10-30_1` … `XOM_2026-10-30_1`): 139–143 rows each, every row sourced (`sources.check` passes), 1,174 `filing`, 112 `market`, 576 `derived`, 32 `owner_choice` and 27 `rule` sources in all. Every filing's accession is found in `financial_facts` with its form, none was filed after the as-of date, 101 outputs traced per run, and each run reproduces.
+- **Backfill.** `sources --backfill --all`: 895 of 895 older runs rebuilt exactly and got their sources (`filled 895`, `already_recorded 8` for the new runs), none skipped, in 2 min 13 s.
+- **Reproduce.** `analysis reproduce --all`: 903 of 903 runs reproduced to the cent.
