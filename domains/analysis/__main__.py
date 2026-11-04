@@ -126,7 +126,7 @@ def cmd_reproduce(args: argparse.Namespace) -> int:
             if args.all
             else [args.run_id]
         )
-        bad = unbuilt = text_only = 0
+        bad = unbuilt = text_only = whatifs = 0
         for run_id in run_ids:
             result = reproduce(conn, run_id)
             status = "OK      " if result.ok else "MISMATCH"
@@ -140,7 +140,13 @@ def cmd_reproduce(args: argparse.Namespace) -> int:
             if result.stored_code_version != result.current_code_version:
                 print(f"         code {result.stored_code_version} → {result.current_code_version}")
             bad += not result.ok
-            if args.rebuild:
+            parent = conn.execute(
+                "SELECT parent_run_id FROM runs WHERE run_id = ?", (run_id,)
+            ).fetchone()["parent_run_id"]
+            if args.rebuild and parent is not None:
+                print(f"         rebuild skipped: a what-if of {parent} (rebuild the parent)")
+                whatifs += 1
+            elif args.rebuild:
                 try:
                     rebuilt = rebuild(conn, run_id)
                 except (EngineError, MarketDataError, ValueError) as e:
@@ -162,8 +168,10 @@ def cmd_reproduce(args: argparse.Namespace) -> int:
     print(f"{len(run_ids) - bad} of {len(run_ids)} runs reproduced to the cent")
     if args.rebuild:
         print(
-            f"{len(run_ids) - unbuilt} of {len(run_ids)} runs rebuilt to identical rows; "
+            f"{len(run_ids) - unbuilt - whatifs} of {len(run_ids) - whatifs} runs rebuilt to "
+            "identical rows; "
             f"{text_only} more with identical values (method text from older code)"
+            + (f"; {whatifs} what-ifs not rebuilt (their parents are)" if whatifs else "")
         )
     return 1 if bad or unbuilt else 0
 

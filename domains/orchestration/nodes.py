@@ -198,6 +198,7 @@ def build_baseline(state: PipelineState, deps: Deps) -> dict:
     ticker = state.ticker.upper()
     runs = conn.execute(
         "SELECT * FROM runs WHERE ticker = ? AND as_of = ? AND seed IS NULL "
+        "AND parent_run_id IS NULL "
         "ORDER BY created_at DESC, run_id DESC",
         (ticker, state.as_of.isoformat()),
     ).fetchall()
