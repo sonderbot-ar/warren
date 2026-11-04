@@ -44,6 +44,7 @@ from domains.analysis.montecarlo import (
 from domains.analysis.report import write_report
 from domains.analysis.reported import ReportedError, ReportedPeriod, reported_period
 from domains.analysis.runs import rebuild, reproduce, run_baseline
+from domains.analysis.sources import SourceError, backfill, run_sources
 from domains.analysis.whatif import Change, WhatIf, WhatIfError, revalue
 from domains.fundamentals.universe import PHASE1_UNIVERSE, get_universe_company
 from domains.market.store import MarketDataError
@@ -357,6 +358,84 @@ def cmd_whatif(args: argparse.Namespace) -> int:
     return 0
 
 
+def render_sources(r, name: str | None = None) -> str:
+    out = [f"Sources of {r.run_id} ({r.ticker}, as of {r.as_of})"]
+    if not r.recorded:
+        out.append("Not recorded: this run was stored before sources were (try --backfill).")
+    for row in r.rows:
+        if name and row["name"] != name:
+            continue
+        value = "—" if row["value"] is None else f"{row['value']:,.6g}"
+        out.append(f"  {row['name']:28} {row['period']:9} {value:>14}")
+        for item in row["sources"]:
+            out.append(f"      {_describe_source(item)}")
+    return "\n".join(out)
+
+
+def _describe_source(item: dict) -> str:
+    kind = item["kind"]
+    if kind == "filing":
+        filing = item["filing"]
+        where = (
+            f"{filing['form']} {filing['accession_no']} filed {filing['filed_at']}"
+            if filing
+            else "derived from " + ", ".join(f["accession_no"] for f in item["input_filings"])
+        )
+        return f"filing: {item['concept']} {item['period_end']} = {item['value']:,.6g} ({where})"
+    if kind == "market":
+        span = (
+            item["start"] if item["start"] == item["end"] else f"{item['start']} to {item['end']}"
+        )
+        return f"market: {item['label']} {item['series']} {item['measure']} {span}"
+    if kind == "owner_choice":
+        who = f"{item['set_by']}, {item['set_on']}"
+        return f"owner's choice: {item['choice']} = {item['value']} ({who})"
+    if kind == "derived":
+        refs = [
+            f"{i['name']} {i['period']}" + (f" of {i['run_id']}" if "run_id" in i else "")
+            for i in item["inputs"]
+        ]
+        return "from rows: " + ", ".join(refs)
+    if kind == "rule":
+        return f"rule: {item['text']}"
+    return f"what-if: {item['how']} on {item['parent_run_id']} (was {item['before']:,.6g})"
+
+
+def cmd_sources(args: argparse.Namespace) -> int:
+    with get_db_connection() as conn:
+        apply_migrations(conn)
+        if args.backfill:
+            if not (args.run_id or args.all):
+                print("--backfill needs --run-id R or --all")
+                return 2
+            ids = (
+                [args.run_id]
+                if args.run_id
+                else [r["run_id"] for r in conn.execute("SELECT run_id FROM runs ORDER BY run_id")]
+            )
+            counts: dict[str, int] = {}
+            for run_id in ids:
+                status, detail = backfill(conn, run_id)
+                counts[status] = counts.get(status, 0) + 1
+                if status not in ("filled", "already_recorded"):
+                    print(f"{run_id}: {status} {detail}".rstrip())
+            print("Backfill: " + ", ".join(f"{k} {v}" for k, v in sorted(counts.items())))
+            return 0
+        if not args.run_id:
+            print("--run-id is required")
+            return 2
+        try:
+            result = run_sources(conn, args.run_id)
+        except SourceError as e:
+            print(f"REFUSED: {e}")
+            return 1
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(render_sources(result, args.name))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m domains.analysis")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -427,6 +506,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     wi.add_argument("--json", action="store_true", help="print JSON for the app")
     wi.set_defaults(func=cmd_whatif)
+
+    so = commands.add_parser("sources", help="where each assumption of a stored run came from")
+    so.add_argument("--run-id", help="the run (with --backfill: only this run)")
+    so.add_argument("--name", help="only this assumption, in the table")
+    so.add_argument("--json", action="store_true", help="print JSON for the app")
+    so.add_argument(
+        "--backfill",
+        action="store_true",
+        help="give older runs their sources, when their rows rebuild exactly",
+    )
+    so.add_argument("--all", action="store_true", help="with --backfill: every stored run")
+    so.set_defaults(func=cmd_sources)
 
     args = parser.parse_args(argv)
     return args.func(args)

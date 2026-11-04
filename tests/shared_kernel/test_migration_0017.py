@@ -21,14 +21,15 @@ def test_0017_adds_tables_and_keeps_stored_rows(db_path, tmp_path):
         conn.execute("INSERT INTO companies (cik, ticker, name) VALUES ('0000000123', 'TST', 'T')")
         conn.commit()
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        assert apply_migrations(conn) == [17, 19]
-        assert current_schema_version(conn) == 19
+        assert apply_migrations(conn) == [17, 19, 20]
+        assert current_schema_version(conn) == 20
         after = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert after - tables == {
             "forecast_origins",
             "baseline_errors",
             "range_builds",
             "range_results",
+            "assumption_sources",  # 0020 (backlog #175)
         }
         assert conn.execute("SELECT ticker FROM companies").fetchone()[0] == "TST"
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
