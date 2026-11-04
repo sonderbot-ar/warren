@@ -1,3 +1,4 @@
+import argparse
 import json
 from contextlib import contextmanager
 from datetime import UTC, date, datetime
@@ -151,3 +152,41 @@ def test_reported_without_a_date_keeps_the_json_clean(company, monkeypatch, caps
     data = json.loads(captured.out)
     assert data[0]["as_of"] == "2020-06-30" and data[0]["period"] == "FY2020Q1"
     assert "as of 2020-06-30 (the latest day that has ended in New York)" in captured.err
+
+
+def test_whatif_command_prints_the_ripple_and_json(company, monkeypatch, capsys):
+    _wire(company, monkeypatch, datetime(2020, 7, 2, tzinfo=UTC))
+    run_id = run(company)
+    assert cli.main(["whatif", "--run-id", run_id, "--add", "operating_margin=-0.01"]) == 0
+    out = capsys.readouterr().out
+    assert f"What-if {run_id}_whatif_1 on {run_id}" in out
+    assert "value_per_share" in out and "operating_margin" in out and "NOPAT" in out
+    assert cli.main(["whatif", "--run-id", run_id, "--set", "beta=1.2", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["parent_run_id"] == run_id and data["changes"][0]["name"] == "beta"
+    # what-ifs reproduce with the rest and are not rebuilt
+    assert cli.main(["reproduce", "--all", "--rebuild"]) == 0
+    out = capsys.readouterr().out
+    assert "3 of 3 runs reproduced to the cent" in out
+    assert "1 of 1 runs rebuilt to identical rows" in out and "2 what-ifs not rebuilt" in out
+
+
+def test_whatif_command_refuses_with_its_code(company, monkeypatch, capsys):
+    _wire(company, monkeypatch, datetime(2020, 7, 2, tzinfo=UTC))
+    run_id = run(company)
+    assert cli.main(["whatif", "--run-id", run_id, "--set", "debt=0"]) == 1
+    assert "REFUSED (not_changeable)" in capsys.readouterr().out
+
+
+def test_parse_change_reads_name_period_and_number():
+    change = cli.parse_change("operating_margin@FY2021Q1=-0.01", "delta")
+    assert (change.name, change.period, change.delta, change.value) == (
+        "operating_margin",
+        "FY2021Q1",
+        -0.01,
+        None,
+    )
+    assert cli.parse_change("beta=1.1", "value").period is None
+    for bad in ("beta", "beta=high"):
+        with pytest.raises(argparse.ArgumentTypeError):
+            cli.parse_change(bad, "value")

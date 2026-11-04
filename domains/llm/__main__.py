@@ -64,6 +64,7 @@ def _baseline_run(conn: sqlite3.Connection, case: Case) -> str:
     """The latest baseline run as of the case date, or a new one."""
     row = conn.execute(
         "SELECT run_id FROM runs WHERE ticker = ? AND as_of = ? AND seed IS NULL "
+        "AND parent_run_id IS NULL "
         "ORDER BY created_at DESC, run_id DESC LIMIT 1",
         (case.ticker, case.event_date.isoformat()),
     ).fetchone()

@@ -44,6 +44,7 @@ from domains.analysis.montecarlo import (
 from domains.analysis.report import write_report
 from domains.analysis.reported import ReportedError, ReportedPeriod, reported_period
 from domains.analysis.runs import rebuild, reproduce, run_baseline
+from domains.analysis.whatif import Change, WhatIf, WhatIfError, revalue
 from domains.fundamentals.universe import PHASE1_UNIVERSE, get_universe_company
 from domains.market.store import MarketDataError
 from shared_kernel.calendar import known_by, last_ended_day
@@ -126,7 +127,7 @@ def cmd_reproduce(args: argparse.Namespace) -> int:
             if args.all
             else [args.run_id]
         )
-        bad = unbuilt = text_only = 0
+        bad = unbuilt = text_only = whatifs = 0
         for run_id in run_ids:
             result = reproduce(conn, run_id)
             status = "OK      " if result.ok else "MISMATCH"
@@ -140,7 +141,13 @@ def cmd_reproduce(args: argparse.Namespace) -> int:
             if result.stored_code_version != result.current_code_version:
                 print(f"         code {result.stored_code_version} → {result.current_code_version}")
             bad += not result.ok
-            if args.rebuild:
+            parent = conn.execute(
+                "SELECT parent_run_id FROM runs WHERE run_id = ?", (run_id,)
+            ).fetchone()["parent_run_id"]
+            if args.rebuild and parent is not None:
+                print(f"         rebuild skipped: a what-if of {parent} (rebuild the parent)")
+                whatifs += 1
+            elif args.rebuild:
                 try:
                     rebuilt = rebuild(conn, run_id)
                 except (EngineError, MarketDataError, ValueError) as e:
@@ -162,8 +169,10 @@ def cmd_reproduce(args: argparse.Namespace) -> int:
     print(f"{len(run_ids) - bad} of {len(run_ids)} runs reproduced to the cent")
     if args.rebuild:
         print(
-            f"{len(run_ids) - unbuilt} of {len(run_ids)} runs rebuilt to identical rows; "
+            f"{len(run_ids) - unbuilt - whatifs} of {len(run_ids) - whatifs} runs rebuilt to "
+            "identical rows; "
             f"{text_only} more with identical values (method text from older code)"
+            + (f"; {whatifs} what-ifs not rebuilt (their parents are)" if whatifs else "")
         )
     return 1 if bad or unbuilt else 0
 
@@ -284,6 +293,70 @@ def cmd_reported(args: argparse.Namespace) -> int:
     return 0
 
 
+def parse_change(text: str, kind: str) -> Change:
+    """NAME=NUMBER or NAME@PERIOD=NUMBER, for --set (kind value) or --add (kind delta)."""
+    target, sep, number = text.partition("=")
+    if not sep:
+        raise argparse.ArgumentTypeError(f"{text!r}: expected NAME[@PERIOD]=NUMBER")
+    name, _, period = target.partition("@")
+    try:
+        amount = float(number)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(f"{text!r}: {number!r} is not a number") from e
+    return Change(name.strip(), period=period.strip() or None, **{kind: amount})
+
+
+def _fmt_line(value: float | None, unit: str) -> str:
+    if value is None:
+        return "—"
+    if unit == "fraction":
+        return f"{value:.3%}"
+    if unit == "per_share":
+        return f"{value:,.2f}"
+    return f"{value / 1e6:,.1f}m"
+
+
+def render_whatif(w: WhatIf) -> str:
+    """A what-if's changes, its before / after / change lines and its notes, for the terminal."""
+    out = [
+        f"What-if {w.run_id} on {w.parent_run_id} ({w.ticker} as of {w.as_of}, {w.currency})"
+        + (" — already stored" if w.reused else ""),
+        "Changed inputs:",
+    ]
+    for c in w.changes:
+        out.append(f"  {c.name:22} {c.period:9} {c.before:>14.6g} → {c.after:<14.6g} ({c.how})")
+    out.append(f"Terminal value: {w.terminal_formula.text}")
+    out.append(
+        f"  {'line':24} {'period':9} {'before':>14} {'after':>14} {'change':>14}  because of"
+    )
+    for x in w.lines:
+        if not x.change and x.period != "-":
+            continue  # unchanged per-period lines are left out of the table, not the JSON
+        change = "—" if x.change is None else _fmt_line(x.change, x.unit)
+        pct = "" if x.change_pct is None or not x.change else f" ({x.change_pct:+.2%})"
+        out.append(
+            f"  {x.name:24} {x.period:9} {_fmt_line(x.before, x.unit):>14} "
+            f"{_fmt_line(x.after, x.unit):>14} {change:>14}{pct}  {', '.join(x.driven_by)}"
+        )
+    for note in w.notes:
+        out.append(f"Note: {note.text}")
+    return "\n".join(out)
+
+
+def cmd_whatif(args: argparse.Namespace) -> int:
+    changes = [parse_change(t, "value") for t in args.set or []]
+    changes += [parse_change(t, "delta") for t in args.add or []]
+    with get_db_connection() as conn:
+        apply_migrations(conn)
+        try:
+            result = revalue(conn, args.run_id, changes)
+        except WhatIfError as e:
+            print(f"REFUSED ({e.code}): {e.text}")
+            return 1
+    print(json.dumps(result.to_dict(), indent=2) if args.json else render_whatif(result))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m domains.analysis")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -337,6 +410,23 @@ def main(argv: list[str] | None = None) -> int:
     )
     rp.add_argument("--json", action="store_true", help="print JSON for the app")
     rp.set_defaults(func=cmd_reported)
+
+    wi = commands.add_parser("whatif", help="a stored run valued again with inputs changed")
+    wi.add_argument("--run-id", required=True)
+    wi.add_argument(
+        "--set",
+        action="append",
+        metavar="NAME[@PERIOD]=VALUE",
+        help="set an input (fractions for rates: 0.05 = 5%%); repeatable",
+    )
+    wi.add_argument(
+        "--add",
+        action="append",
+        metavar="NAME[@PERIOD]=DELTA",
+        help="add to an input (0.01 = one point); repeatable",
+    )
+    wi.add_argument("--json", action="store_true", help="print JSON for the app")
+    wi.set_defaults(func=cmd_whatif)
 
     args = parser.parse_args(argv)
     return args.func(args)

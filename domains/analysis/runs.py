@@ -49,6 +49,15 @@ def code_version() -> str:
     return commit + ("+dirty" if status else "")
 
 
+SNAPSHOT_COLUMNS = (
+    "ingest_run_id",
+    "concept_map_sha256",
+    "price_fetch_sha256",
+    "index_fetch_sha256",
+    "yield_fetch_sha256",
+)
+
+
 def save_run(
     conn: sqlite3.Connection,
     result: EngineResult,
@@ -58,38 +67,57 @@ def save_run(
 ) -> str:
     """Store a run's assumptions, outputs and the reasons for outputs it has no value for, in one
     transaction; returns its run id."""
+    prefix = f"{result.ticker}_{result.as_of.isoformat()}_"
+    # what-ifs (backlog #141) have their own ids and don't count
+    count = conn.execute(
+        "SELECT COUNT(*) FROM runs WHERE run_id LIKE ? AND parent_run_id IS NULL",
+        (prefix + "%",),
+    ).fetchone()[0]
+    run = {
+        "cik": result.cik,
+        "ticker": result.ticker,
+        "as_of": result.as_of.isoformat(),
+        **{column: result.snapshot[column] for column in SNAPSHOT_COLUMNS},
+    }
+    return save_rows(conn, run, result.assumptions, outputs, notes, gaps, f"{prefix}{count + 1}")
+
+
+def save_rows(
+    conn: sqlite3.Connection,
+    run,
+    assumptions: list[Assumption],
+    outputs: dict[tuple[str, str], float],
+    notes: list[str],
+    gaps: dict[tuple[str, str], dcf.Gap] | None,
+    run_id: str,
+    parent_run_id: str | None = None,
+) -> str:
+    """Store a run under `run_id`: `run` gives its company, date and data snapshot (a mapping
+    with the runs columns cik, ticker, as_of and SNAPSHOT_COLUMNS: an engine result's, or the
+    parent's row for a what-if)."""
     gaps = gaps or {}
     for gap in gaps.values():
         _check_reason(gap.reason)
-    prefix = f"{result.ticker}_{result.as_of.isoformat()}_"
-    count = conn.execute(
-        "SELECT COUNT(*) FROM runs WHERE run_id LIKE ?", (prefix + "%",)
-    ).fetchone()[0]
-    run_id = f"{prefix}{count + 1}"
-    snap = result.snapshot
     with conn:
         conn.execute(
             "INSERT INTO runs (run_id, cik, ticker, as_of, code_version, ingest_run_id, "
             "concept_map_sha256, price_fetch_sha256, index_fetch_sha256, yield_fetch_sha256, "
-            "notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "notes, parent_run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 run_id,
-                result.cik,
-                result.ticker,
-                result.as_of.isoformat(),
+                run["cik"],
+                run["ticker"],
+                run["as_of"],
                 code_version(),
-                snap["ingest_run_id"],
-                snap["concept_map_sha256"],
-                snap["price_fetch_sha256"],
-                snap["index_fetch_sha256"],
-                snap["yield_fetch_sha256"],
+                *(run[column] for column in SNAPSHOT_COLUMNS),
                 "\n".join(notes),
+                parent_run_id,
             ),
         )
         conn.executemany(
             "INSERT INTO assumptions (run_id, name, period, value, source, method) "
             "VALUES (?, ?, ?, ?, ?, ?)",
-            [(run_id, a.name, a.period, a.value, a.source, a.method) for a in result.assumptions],
+            [(run_id, a.name, a.period, a.value, a.source, a.method) for a in assumptions],
         )
         conn.executemany(
             "INSERT INTO run_outputs (run_id, name, period, value) VALUES (?, ?, ?, ?)",
@@ -239,6 +267,11 @@ def rebuild(
     run = conn.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
     if run is None:
         raise ValueError(f"No run {run_id}")
+    if run["parent_run_id"] is not None:
+        raise ValueError(
+            f"{run_id} is a what-if of {run['parent_run_id']}: its rows are not meant to match "
+            "the data; rebuild the parent"
+        )
     if run["concept_map_sha256"] != concept_map_sha256():
         raise ValueError(f"{run_id}: concept_map.csv changed since the run, it can't be rebuilt")
     pins = {
