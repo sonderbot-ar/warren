@@ -1,6 +1,6 @@
 # F2 design: the web app, run locally
 
-Status: In progress (Step 0 done nov.04.2026: the owner chose FastAPI, Jinja2 and htmx, and a local open model for the reader; next, Step 1, the skeleton; no screens until M10 merges) · Elephant: front-end team (`product-lead`)
+Status: In progress (Step 0 done nov.04.2026: the owner chose FastAPI, Jinja2 and htmx, and a local open model for the reader. Step 1 done nov.04.2026: the skeleton, see "Step 1 results"; next, Step 3, the reader's labelled set; no screens until M10 merges) · Elephant: front-end team (`product-lead`)
 Implements F2 of the front-end track (Build Plan §4, Structure Guide Decisions 11 and 13).
 
 ## Problem
@@ -70,6 +70,18 @@ Decision 9 records the reader: it returns only labels (the kind, the company, th
 
 **Step 4. The first screen (after M10).** One company and date, the forecast with its range, every number traced to its source, the reader in front (Build Plan F2). Mockup and built screen each signed off by the owner.
 
+### Step 1 results (nov.04.2026)
+
+Built in `webapp/` with tests in `tests/webapp/` (82 tests: 75 without a browser, 7 in Chromium). Nothing under `domains/`, `shared_kernel/` or `main.py` changed.
+
+- **Run it:** `python -m webapp` (127.0.0.1:8000 only). It checks the database first and refuses to start, naming the restore command, when a migration is missing or unknown (`webapp/database.py`); it never applies one. `/salud` reports the same check as JSON.
+- **Point in time:** every page and fragment takes `?corte=`; none, or a day that has not ended in New York, is a 307 redirect to `last_ended_day(now)` that keeps the rest of the address; an unreadable date is the designed 400 page. Page views never open the database (tested).
+- **Words and regions:** `webapp/text/es.json` and `en.json` hold every word; tests keep their keys and placeholders equal and fail on any word or readable attribute (`aria-label`, `title`, `alt`, `placeholder`) written into a template. The language toggle sets a cookie and returns to the same address (only paths on the site). `webapp/formatting.py` formats every figure by the principles' table (half up on the shown digits, a true minus sign or parentheses, never −0), parses what a student types strictly by region (Mexico's 1,234.5 is refused under Argentina's settings rather than guessed), pins dates (15 nov 2026; Nov 15, 2026; September follows each region, "sep" in Mexico and "sept" further south, as CLDR has it) and writes the spreadsheet formula with the region's separators and Spanish function names.
+- **Tokens:** `webapp/static/tokens.css` names every token with provisional values for light and dark; a test refuses a raw colour or type size in `app.css` or a `style=` in a template, and keeps the two themes on the same colour tokens.
+- **The side panel** on a component bench (`/componentes`, placeholder text, no figures): a modal `<dialog>` at the right, full screen at phone width; WAI-ARIA tabs with arrow keys, Home and End; Escape or the close button returns focus to the figure; the panel and its tab live in the address (opened with `hx-push-url`, tabs with `hx-replace-url`), so Back reopens it and a copied link opens the same tab; a polite live region says which tab is showing. Without JavaScript the links still load the page with the panel open. htmx 2.0.11 is vendored (0BSD, npm integrity checked, its hash pinned in a test).
+- **CI:** Playwright 1.64.1 and its Chromium are installed in the `tests` job; with `WARREN_BROWSER_TESTS=1` a missing browser fails the run. `python -m webapp.screenshots --out DIR` saves each page at 1440 and 390 px, light and dark, and CI uploads them as the `webapp-screenshots` artifact for the `design-critic`.
+- **Changed from the plan:** no write lock in the app. Since v0.9.10 (#176) the engine numbers runs inside its own write lock, so the lock the engine lead asked for is no longer needed for correctness. `uv.lock` is unchanged: `pyproject.toml` lists no dependencies (`requirements.txt` is the source of pins), so the lock holds only the project itself.
+
 ## Alternatives considered
 
 - **Wait for M10 before choosing a stack.** The Build Plan's first order. The owner chose (nov.04.2026) to compare stacks now, since the stack does not depend on the engine's outputs; screens still wait.
@@ -83,7 +95,7 @@ None for Step 0 or Step 1. The app imports the engine's existing calls: `domains
 **Rules for sharing the database** (engine lead's review):
 - Each route opens its own connection inside its body (`with get_db_connection() as conn:`), never through a dependency that can cross worker threads (the connection keeps SQLite's same-thread check).
 - The app never applies migrations. At start it compares `current_schema_version` with `list_migrations` and refuses to start, with a message naming the command, if they differ.
-- The app writes only when a student asks for something new (a what-if, a run on a date with none stored), never on a page view, and every write goes through one lock in the app, because `save_run` and `revalue` name a new run by counting the existing ones (`runs.py`, `whatif.py`), so two identical requests at once would collide. Allocating ids inside the transaction is an engine ask for when the app is hosted (#176).
+- The app writes only when a student asks for something new (a what-if, a run on a date with none stored), never on a page view. (The first draft also put every write behind one lock in the app, because run ids were counted outside the write; v0.9.10, #176, moved that count inside the engine's own write lock, so the app needs none.)
 - A write that waits past SQLite's 10 s timeout (during a long ingest) shows the designed error state and can be retried.
 
 **Asks filed for the first screen:** a structured source for every forecast assumption (today a run's filings are only inside the free text of each assumption's `method`; principle 2 needs them as fields) (#175), and run ids allocated inside the transaction (#176, before hosting). Already open: #172 (warnings as codes, so they show in Spanish), #145 (the company's track record) and #142 (the sensitivity grid). Also noted: the "filings may be out of date" note lives only in the command line (`domains/analysis/__main__.py`), and `code_version()` reads git, so a hosted copy without `.git` would store runs as "unknown"; both go into the first screen's asks if it needs them.
