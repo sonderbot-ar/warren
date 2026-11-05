@@ -181,7 +181,9 @@ def check(reading: Reading, question: str, today: date) -> Reading:
     if len(companies) != len(set(reading.companies)):
         dropped.append("companies")
 
-    as_of = reading.as_of
+    as_of, period = reading.as_of, reading.period
+    if kind == "fuera_de_alcance":  # nothing is computed, so no date is kept, and none is doubted
+        as_of = period = None
     if as_of is not None:
         try:
             parsed = date.fromisoformat(as_of)
@@ -190,7 +192,6 @@ def check(reading: Reading, question: str, today: date) -> Reading:
         if parsed is None or parsed > today or len(as_of) != 10:
             as_of, dropped = None, [*dropped, "as_of"]
 
-    period = reading.period
     if period is not None and not copied_from(period, question):
         period, dropped = None, [*dropped, "period"]
     # a fecha de corte the question never states: its year must be in the copied period
@@ -217,8 +218,7 @@ def check(reading: Reading, question: str, today: date) -> Reading:
         inputs, dropped = [], [*dropped, "inputs"]
 
     out_of_scope = reading.out_of_scope
-    if kind == "fuera_de_alcance":  # nothing is computed, so no date is kept
-        as_of = period = None
+    if kind == "fuera_de_alcance":
         if out_of_scope not in OUT_OF_SCOPE:
             out_of_scope, dropped = None, [*dropped, "out_of_scope"]
     elif out_of_scope is not None:

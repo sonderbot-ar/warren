@@ -179,6 +179,10 @@ def test_out_of_scope_keeps_no_date():
     sent = Reading("fuera_de_alcance", period="fin de año", out_of_scope="precio_o_consejo")
     got = check(sent, q, TODAY)
     assert got.period is None and not got.unsure
+    garbled = check(
+        Reading("fuera_de_alcance", period="mañana", out_of_scope="precio_o_consejo"), q, TODAY
+    )
+    assert garbled.period is None and not garbled.unsure and garbled.dropped == ()
 
 
 def test_direction_with_a_level_is_dropped_without_doubt():
