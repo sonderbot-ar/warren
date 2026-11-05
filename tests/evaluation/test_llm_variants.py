@@ -225,10 +225,11 @@ def test_0016_keeps_stored_results_on_a_v15_database(db_path, tmp_path):
         )
         conn.commit()
         before_rows = conn.execute("SELECT * FROM eval_results").fetchall()
-        assert apply_migrations(conn) == [16, 17, 19, 20, 21]
-        assert [tuple(r) for r in conn.execute("SELECT * FROM eval_results")] == [
-            tuple(r) for r in before_rows
-        ]
+        assert apply_migrations(conn) == [16, 17, 18, 19, 20, 21]
+        width = len(before_rows[0])  # 0018 appends actual_filed_at, NULL on stored rows
+        after = [tuple(r) for r in conn.execute("SELECT * FROM eval_results")]
+        assert [r[:width] for r in after] == [tuple(r) for r in before_rows]
+        assert all(r[width:] == (None,) for r in after)
         conn.execute(
             "INSERT INTO eval_results (batch_id, case_id, run_id, variant, item, period, "
             "horizon, forecast, status) VALUES ('B', 'C', 'R', 'llm_masked', 'revenue', "

@@ -422,7 +422,7 @@ def evaluate_case(
                         "direction_actual": direction(value, reference),
                         "derived": int(actual.derived),
                         "actual_method": actual.method,
-                        "actual_filed_at": actual.filed_at.isoformat(),  # M9, not stored here
+                        "actual_filed_at": actual.filed_at.isoformat(),  # stored since M10
                     }
                 rows.append(row)
     if not rows:
@@ -437,6 +437,10 @@ COLUMNS = (
     "comparative prior_year_known error signed_error pct_error direction_forecast "
     "direction_actual derived actual_method status p10 p50 p90 seed"
 ).split()
+
+# stored with every row since migration 0018 (M10); not in COLUMNS, so batches stored before it
+# reproduce unchanged, and `reproduce --batch` compares it only where it was stored
+STORED_COLUMNS = (*COLUMNS, "actual_filed_at")
 
 
 def case_seed(case_id: str) -> int:
@@ -490,9 +494,9 @@ def record_failure(conn: sqlite3.Connection, batch_id: str, case_id: str, reason
 def insert_rows(conn: sqlite3.Connection, batch_id: str, rows: list[dict]) -> None:
     with conn:
         conn.executemany(
-            f"INSERT INTO eval_results (batch_id, {', '.join(COLUMNS)}) "
-            f"VALUES (?, {', '.join('?' * len(COLUMNS))})",
-            [(batch_id, *(row.get(c) for c in COLUMNS)) for row in rows],
+            f"INSERT INTO eval_results (batch_id, {', '.join(STORED_COLUMNS)}) "
+            f"VALUES (?, {', '.join('?' * len(STORED_COLUMNS))})",
+            [(batch_id, *(row.get(c) for c in STORED_COLUMNS)) for row in rows],
         )
 
 

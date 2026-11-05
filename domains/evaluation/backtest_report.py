@@ -12,6 +12,8 @@ from collections import defaultdict
 from pathlib import Path
 
 from domains.evaluation import backtest as bt
+from domains.evaluation import grid
+from domains.evaluation import grid_report as gr
 from domains.evaluation.backtest_batch import LLM_VARIANTS, batch_notes
 from domains.evaluation.report import REPORTS_DIR, load_rows
 from domains.llm import review
@@ -189,6 +191,8 @@ def render(conn: sqlite3.Connection, batch_id: str) -> str:
             h = bt.by_horizon(ps)
             cells = [f"{_pts(h[k][0])} (n={h[k][1]})" if k in h else "n/a" for k in (1, 2, 3, 4)]
             out.append(f"| {NAMES[v]} | {ITEM_NAMES[item]} | {' | '.join(cells)} |")
+    if info and all(r["event_type"] == "grid" for r in info.values()):
+        out += grid_sections(conn, rows, {f["case_id"]: f["reason"] for f in failures})
     out += _direction(rows)
     out += _band(rows)
     out += _groups(rows, info, shocks)
@@ -321,7 +325,8 @@ def _named_masked(rows, scored) -> list[str]:
     flips = bt.opposite_moves(rows)
     cutoffs = sorted({m.training_cutoff for m in NODE_MODELS.values() if m.training_cutoff})
     first = cutoffs[0] if cutoffs else None
-    post = [c for c in scored if first and c.split("_")[1] >= first.isoformat()]
+    # post-cutoff: the whole news week after the cutoff month (M10 rule, grid.is_post_cutoff)
+    post = [c for c in scored if first and grid.is_post_cutoff(gr.case_date(c))]
     return [
         "",
         "## Named against masked",
@@ -366,6 +371,116 @@ def _per_case(rows, info, shocks) -> list[str]:
             f"{_shock_words(shocks.get((case_id, 'llm_masked'), []))} | "
             f"{_shock_words(shocks.get((case_id, 'llm_named'), []))} | {' | '.join(cells)} |"
         )
+    return out
+
+
+def _date_line(name: str, item: str, t: gr.DateTest) -> str:
+    return (
+        f"| {name} | {ITEM_NAMES[item]} | {t.cases} / {t.dates} | {_pts(t.mean_d)} | "
+        f"{t.sign.better} / {t.sign.worse} / {t.sign.ties} | {_p(t.sign.p)} | "
+        f"{_interval(t.interval)} | {_interval(t.block)} | {'shown' if t.shown else 'not shown'} |"
+    )
+
+
+DATE_HEAD = [
+    "| Variant | Item | Cases / dates | Mean d | Dates better / worse / tied | Sign test p "
+    "(dates) | 90% interval (date bootstrap) | 90% interval (blocks of 4 dates) | Gain |",
+    "|---|---|---|---|---|---|---|---|---|",
+]
+
+
+def _ds(rows, variant, keep=None) -> dict[str, dict[str, float]]:
+    out = {}
+    for item, ps in bt.by_item(bt.pairs(rows, variant)).items():
+        ds = bt.case_differences(ps)
+        out[item] = {c: d for c, d in ds.items() if keep is None or keep(c)}
+    return out
+
+
+def grid_sections(conn: sqlite3.Connection, rows: list[dict], failures: dict[str, str]) -> list:
+    """The M10 sections: date-clustered tests, pre/post cutoff, the memory test, the h1 split and
+    the counts. Fixed in docs/designs/m10-more-dates.md before any result."""
+    case_ids = sorted({r["case_id"] for r in rows} | set(failures))
+    c = gr.counts(case_ids, rows, failures)
+    post = [x for x in case_ids if grid.is_post_cutoff(gr.case_date(x))]
+    out = [
+        "",
+        "## Grid cases: the test read for the answer",
+        "",
+        f"{c.cases} grid cases in the batch ({len(case_ids) - len(post)} before the models' "
+        f"cutoff, {len(post)} after): {c.scored} scored, {len(c.not_yet_scorable)} not yet "
+        f"scorable (no actual reported yet), {len(c.failed)} failed. Cases left out by the "
+        "grid rule are listed by `python -m domains.evaluation grid`.",
+        "",
+        "The companies on one date share a news week and its surprises, so the test is read at "
+        "the level of dates: the sign test on each date's mean d, and intervals that resample "
+        "whole dates. A gain is **shown** when that sign test has p < 0.05 and the date interval "
+        "excludes zero; otherwise it is **not shown**, which is not the same as no effect.",
+        "",
+        *DATE_HEAD,
+    ]
+    for v in SHOCKED[:2]:
+        for item, ds in sorted(_ds(rows, v).items(), key=lambda kv: ITEMS.index(kv[0])):
+            out.append(_date_line(NAMES[v], item, gr.date_test(ds)))
+    out += ["", "### Before and after the models' cutoff", "", *DATE_HEAD]
+    for label, keep in (("before", lambda x: grid.is_pre_cutoff(gr.case_date(x))),
+                        ("after", lambda x: grid.is_post_cutoff(gr.case_date(x)))):  # fmt: skip
+        for v in SHOCKED[:2]:
+            for item, ds in sorted(_ds(rows, v, keep).items(), key=lambda kv: ITEMS.index(kv[0])):
+                out.append(_date_line(f"{NAMES[v]}, {label}", item, gr.date_test(ds)))
+    gaps = gr.memory_gaps(rows)
+    out += [
+        "",
+        "### The memory test (h1 only)",
+        "",
+        "g = (error with the named variant's shocks − without) − (the same for masked), at the "
+        "first forecast quarter. Below 0, naming the company helped more. If the named edge came "
+        "from the model remembering outcomes, g would be below 0 when the outcome was public "
+        "before the cutoff (A) and near 0 when it wasn't (B, C). Masking doesn't fully stop "
+        "recall, so g understates memory; few dates sit after the cutoff, so a missing change "
+        'is "not shown", never "no memory".',
+        "",
+        "| Item | Group | Cases / dates | Mean g | 90% interval (date bootstrap) |",
+        "|---|---|---|---|---|",
+    ]
+    for item in ITEMS:
+        for g in gr.GROUPS:
+            ds = gaps.get(item, {}).get(g, {})
+            t = gr.date_test(ds)
+            out.append(f"| {ITEM_NAMES[item]} | {g}: {gr.GROUP_NAMES[g]} | {t.cases} / {t.dates}"
+                       f" | {_pts(t.mean_d)} | {_interval(t.interval)} |")  # fmt: skip
+        a, cc = gaps.get(item, {}).get("A", {}), gaps.get(item, {}).get("C", {})
+        if a and cc:
+            diff = statistics.fmean(cc.values()) - statistics.fmean(a.values())
+            out.append(f"| {ITEM_NAMES[item]} | C − A | | {_pts(diff)} | |")
+    out += [
+        "",
+        "### First quarter: already ended or still running",
+        "",
+        "On some dates the first forecast quarter had already ended (a nowcast). Mean d at h1:",
+        "",
+        "| Variant | Item | Ended: cases, mean d | Running: cases, mean d |",
+        "|---|---|---|---|",
+    ]
+    for v in SHOCKED[:2]:
+        effects = gr.h1_effects(rows, v)
+        for item in ITEMS:
+            parts = []
+            for closed in (True, False):
+                e = [d for (cid, it), (d, b) in effects.items()
+                     if it == item and gr.h1_closed(b) is closed]  # fmt: skip
+                parts.append(f"{len(e)}, {_pts(statistics.fmean(e)) if e else 'n/a'}")
+            out.append(f"| {NAMES[v]} | {ITEM_NAMES[item]} | {parts[0]} | {parts[1]} |")
+    sql = "SELECT case_id, MAX(events_chosen) AS n FROM case_llm_status GROUP BY case_id"
+    chosen = {r["case_id"]: r["n"] for r in conn.execute(sql)}
+    out += ["", "### Quiet weeks", "", "| Variant | Shocks | Events, no shock | No events |",
+            "|---|---|---|---|"]  # fmt: skip
+    for v in SHOCKED[:2]:
+        q = gr.quiet(rows, chosen, v)
+        out.append(f"| {NAMES[v]} | {len(q['shocks'])} | {len(q['no shock'])} | "
+                   f"{len(q['no events'])} |")  # fmt: skip
+    if c.not_yet_scorable:
+        out += ["", "Not yet scorable: " + ", ".join(c.not_yet_scorable) + "."]
     return out
 
 
