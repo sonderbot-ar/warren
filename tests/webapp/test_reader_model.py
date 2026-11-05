@@ -213,3 +213,8 @@ def test_a_recorded_run_reproduces_its_score(name):
     report = scoring.score(ROWS, answers, TODAY)
     assert sum(q["right"] for q in report["questions"]) == right
     assert report["passes"] is passes
+
+
+def test_the_prompt_is_still_the_one_the_runs_used():
+    """A prompt edit after the recorded runs needs a new run before its score is quoted."""
+    assert runner.prompt_sha256() == PROMPT_OF_THE_RUNS
