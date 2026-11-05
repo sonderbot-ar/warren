@@ -35,6 +35,12 @@ RUN_NOTE_CODES = frozenset(
     }
 )
 
+# Every code a run's simulation list can carry (backlog #201,
+# `domains.orchestration.simulations`); the app's text catalogue covers this set too.
+SIMULATION_NOTE_CODES = frozenset(
+    {"pipeline_variant_differs", "shock_not_traced", "sized_elsewhere"}
+)
+
 
 def coded_warnings(caught) -> list[Coded]:
     """Warnings caught while reading facts, one per text (the first one's params): the

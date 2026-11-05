@@ -292,6 +292,14 @@ def refresh_range(conn: sqlite3.Connection, folders: Folders, pipeline_id: str):
     return state
 
 
+def state_values(conn: sqlite3.Connection, folders: Folders, pipeline_id: str) -> dict:
+    """A pipeline's last checkpointed values, done or not (backlog #201); {} with none."""
+    with checkpointer(conn) as saver:
+        app = build(nodes.Deps(conn=conn), folders, saver, pipeline_id)
+        snapshot = app.get_state(_config(pipeline_id))
+    return dict(snapshot.values or {})
+
+
 def final_state(conn: sqlite3.Connection, folders: Folders, pipeline_id: str):
     """A done pipeline's last state, from its checkpoint; None when it is not done."""
     with checkpointer(conn) as saver:

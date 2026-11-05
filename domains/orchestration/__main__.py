@@ -7,6 +7,7 @@
     python main.py show --pipeline-id ID
     python main.py reproduce --pipeline-id ID
     python main.py report --pipeline-id ID
+    python main.py simulations --run-id R [--pipeline-id ID] [--check] [--json]
 
 `run` goes from filings to report for one company and date (without `--as-of`, the last day that
 has ended in New York, backlog #128; a past date's report adds the forecast against what was
@@ -209,6 +210,48 @@ def cmd_report(args) -> int:
     return 0
 
 
+def cmd_simulations(args) -> int:
+    """A run's simulations, masked first, with their variant (backlog #201)."""
+    import json
+
+    from domains.orchestration.simulations import SimulationListError, run_simulations
+
+    with get_db_connection() as conn:
+        apply_migrations(conn)
+        try:
+            out = run_simulations(conn, args.run_id, check=args.check,
+                                  pipeline_id=args.pipeline_id, folders=FOLDERS)  # fmt: skip
+        except SimulationListError as e:
+            print(e, file=sys.stderr)
+            return 2
+    if args.json:
+        print(json.dumps(out.to_dict(), indent=2, sort_keys=True))
+        return 0
+    if not out.simulations:
+        print(f"No simulation on {out.run_id}")
+    for s in out.simulations:
+        vps = s.value_per_share or {}
+        made = [p.pipeline_id for p in s.pipelines] + s.backtests
+        check = "" if s.reproduces is None else "  OK" if s.reproduces else "  MISMATCH"
+        print(f"{'*' if s.primary else ' '} {s.variant:6} {s.sim_id}  seed {s.seed}  "
+              f"n {s.n_samples:,}  value/share p10 {vps.get('p10', float('nan')):.2f} "
+              f"p50 {vps.get('p50', float('nan')):.2f} p90 {vps.get('p90', float('nan')):.2f} "
+              f"{s.currency}  by {', '.join(made) or 'hand'}{check}")  # fmt: skip
+        for n in s.notes:
+            print(f"    {n.code}: {n.text}")
+        for m in s.mismatches:
+            print(f"    {m}")
+    for x in out.proposal_sets:
+        if x.latest and not x.sim_ids:
+            why = (
+                "the model saw no impact" if x.no_impact
+                else "the call failed" if x.status == "failed"
+                else f"proposals {x.proposals}"
+            )  # fmt: skip
+            print(f"  {x.variant}: no simulation from set {x.set_id} ({why})")
+    return 1 if any(s.reproduces is False for s in out.simulations) else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python main.py")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -236,6 +279,12 @@ def main(argv: list[str] | None = None) -> int:
         p = sub.add_parser(name, help=what)
         p.add_argument("--pipeline-id", required=True)
         p.set_defaults(func=func)
+    sims = sub.add_parser("simulations", help="a run's simulations with their variant")
+    sims.add_argument("--run-id", required=True)
+    sims.add_argument("--pipeline-id", help="only the simulations this pipeline filed")
+    sims.add_argument("--check", action="store_true", help="reproduce each to the cent")
+    sims.add_argument("--json", action="store_true")
+    sims.set_defaults(func=cmd_simulations)
     args = parser.parse_args(argv)
     return args.func(args)
 
