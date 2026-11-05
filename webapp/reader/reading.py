@@ -25,8 +25,9 @@ from domains.analysis import dcf
 # The four kinds of the brief (§2), plus questions Warren declines (§4).
 KINDS = ("dato", "estimacion", "cambio_de_supuesto", "evento", "fuera_de_alcance")
 
-# Why a question is out of scope (brief §4). Concepts go to the side panel's Concepto tab.
-OUT_OF_SCOPE = ("precio_o_consejo", "otra_empresa", "concepto")
+# Why a question is out of scope (brief §4). Concepts go to the side panel's Concepto tab;
+# sin_pregunta is a message with nothing Warren can read ("ayuda con mi tp").
+OUT_OF_SCOPE = ("precio_o_consejo", "otra_empresa", "concepto", "sin_pregunta")
 
 # The model inputs a student can name (brief §2, "Model inputs"): the engine's drivers and single
 # values, less the two that are never inputs (the market value of equity comes from the price,
@@ -43,7 +44,7 @@ INPUTS = (
 # route. Its first and only entry, proposed in backlog #143, moves the risk-free rate.
 TRANSMISSIONS = {"fed_policy_surprise": "risk_free"}
 
-HOWS = ("set", "add")
+HOWS = ("set", "add", "scale")  # a level, a move in its own unit, a proportional move
 DIRECTIONS = ("up", "down")
 
 UNIVERSE_CSV = Path(__file__).resolve().parents[2] / "domains" / "fundamentals" / "universe.csv"
@@ -60,10 +61,17 @@ def tickers() -> tuple[str, ...]:
 class NamedInput:
     """One model input the question changes or names.
 
-    `how` is "set" (a new level: "si la beta fuera 1,2") or "add" (a move: "baja un punto");
+    `how` is "set" (a new level: "si la beta fuera 1,2"), "add" (a move in the input's own unit:
+    "baja un punto") or "scale" (a proportional move: "aumenta el capex un 20%", "doubled");
     `direction` says up or down when the question does; `value_text` is the number and its unit
     copied word for word from the question ("25 puntos básicos"), or None when the question
     gives none; `via` names a transmission when the question reaches the input through one.
+
+    With `via`, `value_text` is the size of the event the student names ("la Fed sube 25 puntos
+    básicos"), never the input's change: the transmission's sourced range turns the one into the
+    other (backlog #143; about a third of a basis point on the 10-year per basis point of
+    surprise, Kuttner 2001). The card shows it as the event's size. Moving the input one for one
+    would quietly turn an event into an input, which the brief forbids (§2).
     """
 
     name: str
@@ -138,7 +146,7 @@ class Reading:
 
 
 _STOPWORDS = frozenset(
-    "a al de del el en la las lo los su sus por para un una the of in its at on for by as".split()
+    "a al de del el en la las lo los su sus por para the of in its at on for by as".split()
 )
 
 
@@ -185,6 +193,8 @@ def check(reading: Reading, question: str, today: date) -> Reading:
     period = reading.period
     if period is not None and not copied_from(period, question):
         period, dropped = None, [*dropped, "period"]
+    if as_of is not None and period is None:  # a fecha de corte the question never states
+        as_of, dropped = None, [*dropped, "as_of"]
 
     inputs = []
     for item in reading.inputs:
@@ -197,6 +207,8 @@ def check(reading: Reading, question: str, today: date) -> Reading:
         if item.via is not None and TRANSMISSIONS.get(item.via) != item.name:
             dropped.append("inputs")
             continue
+        if item.how == "set" and item.direction is not None:  # the level already says it
+            item = replace(item, direction=None)
         if item.value_text is not None and not copied_from(item.value_text, question):
             item, dropped = replace(item, value_text=None), [*dropped, "inputs.value_text"]
         inputs.append(item)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections import Counter
 from datetime import date
@@ -26,8 +27,19 @@ ROWS = scoring.load_set()
 # --- the set itself -------------------------------------------------------------------------
 
 
-def test_at_least_100_questions_with_unique_ids():
-    assert len(ROWS) >= 100
+# The labels are frozen before any model sees them (professor's review, nov.05.2026): a label
+# changed after a run would let the set bend to the model. Changing one needs a new hash here
+# and a line in docs/designs/f2-web-app.md saying which label changed and why, before a run.
+LABELLED_SET_SHA256 = "28c9eed8bfd96e56fdd864304e56b9b4ec8e2b58bc01e5910438aa0ea34dd510"
+
+
+def test_the_labels_are_frozen():
+    digest = hashlib.sha256(scoring.LABELLED_SET.read_bytes()).hexdigest()
+    assert digest == LABELLED_SET_SHA256
+
+
+def test_about_200_questions_with_unique_ids():
+    assert len(ROWS) >= 200
     assert len({r["id"] for r in ROWS}) == len(ROWS)
 
 
@@ -43,6 +55,9 @@ def test_every_kind_and_source_is_represented():
     assert all(n >= 10 for n in kinds.values()), kinds
     sources = {r["source"].split("-")[0] for r in ROWS}
     assert {"brief", "variant", "student"} <= sources
+    # the held-out part: written by the student-reviewer, at least 40% of the set
+    held_out = [r for r in ROWS if r["source"] == scoring.HELD_OUT_SOURCE]
+    assert len(held_out) / len(ROWS) >= 0.4
     # all fifteen brief questions, in both languages
     for n in range(1, 16):
         assert {r["lang"] for r in ROWS if r["source"] == f"brief-{n}"} == {"es", "en"}
@@ -72,7 +87,19 @@ def test_labels_cover_the_tricky_edges():
     assert any(i["via"] for lab in labels for i in lab["inputs"])
     assert any(i["value_text"] is None for lab in labels for i in lab["inputs"])
     reasons = {lab["out_of_scope"] for lab in labels if lab["kind"] == "fuera_de_alcance"}
-    assert reasons == {"precio_o_consejo", "otra_empresa", "concepto"}
+    assert reasons == {"precio_o_consejo", "otra_empresa", "concepto", "sin_pregunta"}
+    assert any(i["how"] == "scale" for lab in labels for i in lab["inputs"])
+    assert any(not lab["companies"] and lab["kind"] == "cambio_de_supuesto" for lab in labels)
+
+
+def test_with_a_transmission_the_value_is_the_events_size():
+    """With `via`, the value is the Fed's move, never the input's change (professor's review):
+    the transmission's sourced range makes the input's change (#143). So such a value is always
+    a move, never a level, and the input is the one the transmission reaches."""
+    via = [i for r in ROWS for i in r["expected"]["inputs"] if i["via"]]
+    assert len(via) >= 6
+    for item in via:
+        assert item["name"] == "risk_free" and item["how"] in ("add", None)
 
 
 # --- the code check -------------------------------------------------------------------------
@@ -92,6 +119,7 @@ def test_copied_from_ignores_case_accents_and_filler():
     assert copied_from("7,5%", "Si fijo el CPPC en 7,5% directamente")
     assert not copied_from("7.5%", "Si fijo el CPPC en 7,5% directamente")
     assert copied_from("último trimestre", "en su ultimo trimestre")
+    assert copied_from("03/04/2025", "cuanta deuda tenia P&G al 03/04/2025")
     assert not copied_from("", q)
 
 
@@ -130,6 +158,20 @@ def test_a_transmission_must_reach_its_own_input():
     bad = NamedInput("beta", "add", "up", "25 pb", "fed_policy_surprise")
     assert check(Reading("cambio_de_supuesto", inputs=(ok,)), q, TODAY).inputs == (ok,)
     assert check(Reading("cambio_de_supuesto", inputs=(bad,)), q, TODAY).inputs == ()
+
+
+def test_an_as_of_needs_a_date_in_the_question():
+    """A fecha de corte the question never states is invented, so it is dropped."""
+    got = check(Reading("estimacion", ("AAPL",), as_of="2024-01-02"), "¿Cuánto vale Apple?", TODAY)
+    assert got.as_of is None and got.unsure and "as_of" in got.dropped
+
+
+def test_direction_with_a_level_is_dropped_without_doubt():
+    q = "what if Coca-Cola's tax rate went from 18% to 21%"
+    sent = NamedInput("tax_rate", "set", "up", "21%")
+    got = check(Reading("cambio_de_supuesto", ("KO",), inputs=(sent,)), q, TODAY)
+    assert got.inputs == (NamedInput("tax_rate", "set", None, "21%"),)
+    assert not got.unsure
 
 
 def test_malformed_model_output_becomes_unsure_not_an_error():
@@ -194,12 +236,33 @@ def test_the_bar_is_the_one_set_before_any_run():
     assert scoring.BAR == {
         "kind": 0.95,
         "companies": 0.95,
-        "date": 0.95,
+        "as_of": 0.95,
         "inputs": 0.90,
         "kind_each_language": 0.90,
         "wrong_unflagged_max": 0.02,
         "unsure_max": 0.15,
     }
+
+
+def test_the_report_shows_intervals_and_the_held_out_part():
+    report = scoring.score(ROWS, _answers(ROWS), TODAY)
+    low, high = report["overall"]["interval"]["right"]
+    assert high == 1.0 and 0.97 < low < 1.0
+    assert report["held_out"]["n"] == sum(r["source"] == "student-reviewer" for r in ROWS)
+    assert report["held_out"]["right"] == 1.0
+
+
+def test_wilson_interval_matches_a_known_value():
+    # 107 of 113: about 88.9% to 97.5% (the professor's example)
+    low, high = scoring.wilson(107, 113)
+    assert low == pytest.approx(0.889, abs=0.002) and high == pytest.approx(0.975, abs=0.002)
+
+
+def test_a_period_boundary_is_reported_but_not_a_wrong_reading():
+    row = next(r for r in ROWS if r["expected"]["period"] == "fiscal 2024")
+    answer = {**row["expected"], "period": "2024"}
+    q = scoring.score([row], {row["id"]: answer}, TODAY)["questions"][0]
+    assert q["right"] and not q["fields"]["period"]
 
 
 def test_command_line(tmp_path, capsys):
