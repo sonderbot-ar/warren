@@ -5,15 +5,19 @@ import pytest
 
 from domains.fundamentals.facts import get_facts
 from domains.fundamentals.universe import (
+    COVERAGE_REASONS,
     PHASE1_UNIVERSE,
     CoverageWarning,
     UniverseError,
+    coverage_fields,
     get_universe_company,
     load_universe,
     warn_if_beyond_history,
 )
+from shared_kernel.data_warnings import DataWarning
 
 XOM_CIK = "0000034088"
+XOM_SUCCESSOR = "0002115436"
 
 
 def test_xom_is_pinned_to_the_predecessor_cik_with_a_history_end():
@@ -22,9 +26,54 @@ def test_xom_is_pinned_to_the_predecessor_cik_with_a_history_end():
     assert len(PHASE1_UNIVERSE) == 8
 
 
+def test_xom_has_a_reason_and_its_successor():
+    xom = get_universe_company("XOM")
+    assert (xom.reason, xom.successor_cik, xom.successor_name) == (
+        "holding_company_reorganisation",
+        XOM_SUCCESSOR,
+        "ExxonMobil Holdings Corp",
+    )
+    assert coverage_fields(XOM_CIK, "2026-08-03") == {
+        "reason": "holding_company_reorganisation",
+        "successor_cik": XOM_SUCCESSOR,
+        "successor_name": "ExxonMobil Holdings Corp",
+    }
+    assert coverage_fields(XOM_CIK, "2026-07-01") is None  # a cut-off since corrected
+    assert coverage_fields("0000320193", "2026-08-03") is None
+    assert coverage_fields(None, None) is None
+
+
+def test_every_reason_in_the_file_is_in_the_closed_set():
+    reasons = {c.reason for c in PHASE1_UNIVERSE if c.reason}
+    assert reasons and reasons <= COVERAGE_REASONS
+
+
 def test_query_past_the_history_end_warns():
     with pytest.warns(CoverageWarning, match="XOM"):
         warn_if_beyond_history(XOM_CIK, date(2026, 8, 3))
+
+
+def test_the_warning_carries_reason_and_successor_and_keeps_its_text():
+    with pytest.warns(CoverageWarning) as caught:
+        warn_if_beyond_history(XOM_CIK, date(2026, 9, 30))
+    w = caught[0].message
+    assert isinstance(w, DataWarning)
+    assert w.fields == {
+        "ticker": "XOM",
+        "cik": XOM_CIK,
+        "as_of": "2026-09-30",
+        "history_ends": "2026-08-03",
+        "reason": "holding_company_reorganisation",
+        "successor_cik": XOM_SUCCESSOR,
+        "successor_name": "ExxonMobil Holdings Corp",
+        "note": get_universe_company("XOM").note,
+    }
+    # the English text is the one #172 stored, byte for byte
+    assert str(w) == (
+        f"XOM (CIK {XOM_CIK}) as of 2026-09-30: filings from 2026-08-03 onward are on another "
+        f"CIK and are missing here, so recent periods will be absent. "
+        f"{get_universe_company('XOM').note}"
+    )
 
 
 def test_query_before_the_history_end_is_silent():
@@ -44,32 +93,58 @@ def test_csv_holds_the_phase1_list_in_order():
     assert [c.ticker for c in PHASE1_UNIVERSE] == [
         "AAPL", "MSFT", "WMT", "KO", "PG", "JNJ", "CAT", "XOM",
     ]  # fmt: skip
-    assert all(c.cik is None and c.history_ends is None for c in PHASE1_UNIVERSE[:-1])
+    assert all(
+        c.cik is None
+        and c.history_ends is None
+        and c.reason is None
+        and c.successor_cik is None
+        and c.successor_name is None
+        for c in PHASE1_UNIVERSE[:-1]
+    )
     assert "ExxonMobil Holdings Corp" in get_universe_company("XOM").note
 
 
 def _write(tmp_path, body):
     path = tmp_path / "universe.csv"
-    path.write_text("ticker,cik,history_ends,note\n" + body)
+    path.write_text("ticker,cik,history_ends,reason,successor_cik,successor_name,note\n" + body)
     return path
 
 
 def test_a_new_company_is_one_row(tmp_path):
-    path = _write(tmp_path, "AAPL,,,\nAMXB,0001129137,,a new company needs no code\n")
+    path = _write(tmp_path, "AAPL,,,,,,\nAMXB,0001129137,,,,,a new company needs no code\n")
     new = load_universe(path)[1]
     assert (new.ticker, new.cik, new.note) == ("AMXB", "0001129137", "a new company needs no code")
+
+
+REORG = "holding_company_reorganisation"
+NEW = "0002115436,ExxonMobil Holdings Corp"
 
 
 @pytest.mark.parametrize(
     "body, message",
     [
-        ("aapl,,,\n", "line 2: ticker must be non-empty and upper case"),
-        (",,,\n", "line 2: ticker must be non-empty"),
-        ("AAPL,,,\nAAPL,,,\n", "line 3: duplicate ticker AAPL"),
-        ("AAPL,34088,,\n", "line 2: cik must be empty or ten digits"),
-        ("XOM,0000034088,2026-13-01,\n", "line 2: history_ends must be an ISO date"),
-        ("XOM,,2026-08-03,\n", "line 2: history_ends needs a pinned cik"),
-        ("AAPL,,,a, b\n", "line 2: wrong number of fields"),
+        ("aapl,,,,,,\n", "line 2: ticker must be non-empty and upper case"),
+        (",,,,,,\n", "line 2: ticker must be non-empty"),
+        ("AAPL,,,,,,\nAAPL,,,,,,\n", "line 3: duplicate ticker AAPL"),
+        ("AAPL,34088,,,,,\n", "line 2: cik must be empty or ten digits"),
+        (f"XOM,0000034088,2026-13-01,{REORG},{NEW},\n", "line 2: history_ends must be an ISO date"),
+        (f"XOM,,2026-08-03,{REORG},{NEW},\n", "line 2: history_ends needs a pinned cik"),
+        ("XOM,0000034088,2026-08-03,,,,\n", "line 2: history_ends needs a reason"),
+        ("XOM,0000034088,2026-08-03,merged,,,\n", "line 2: reason must be one of"),
+        (f"XOM,0000034088,,{REORG},,,\n", "line 2: reason needs a history_ends"),
+        (
+            f"XOM,0000034088,2026-08-03,{REORG},2115436,Holdings,\n",
+            "successor_cik must be empty or ten",
+        ),
+        (f"XOM,0000034088,2026-08-03,{REORG},0000034088,Holdings,\n", "successor_cik must differ"),
+        ("XOM,0000034088,,,0002115436,Holdings,\n", "line 2: successor_cik needs a history_ends"),
+        (f"XOM,0000034088,2026-08-03,{REORG},,,\n", "needs successor_cik and successor_name"),
+        ("XOM,0000034088,2026-08-03,,,Holdings,\n", "successor_cik and successor_name go together"),
+        (
+            f"XOM,0000034088,2026-08-03,{REORG},{NEW},\nCVX,0000034088,,,,,\n",
+            "line 3: cik 0000034088 is pinned twice",
+        ),
+        ("AAPL,,,,,,a, b\n", "line 2: wrong number of fields"),
         ("AAPL,,\n", "line 2: wrong number of fields"),
     ],
 )
@@ -80,7 +155,14 @@ def test_bad_rows_are_named_by_line(tmp_path, body, message):
 
 def test_every_problem_is_reported_at_once(tmp_path):
     with pytest.raises(UniverseError, match="line 2.*line 3"):
-        load_universe(_write(tmp_path, "aapl,,,\nMSFT,123,,\n"))
+        load_universe(_write(tmp_path, "aapl,,,,,,\nMSFT,123,,,,,\n"))
+
+
+def test_the_old_four_columns_are_refused(tmp_path):
+    path = tmp_path / "universe.csv"
+    path.write_text("ticker,cik,history_ends,note\nAAPL,,,\n")
+    with pytest.raises(UniverseError, match="reason"):
+        load_universe(path)
 
 
 def test_wrong_columns_are_refused(tmp_path):

@@ -8,6 +8,7 @@ from domains.analysis import math_engine
 from domains.analysis.coded import RUN_NOTE_CODES
 from domains.analysis.math_engine import build_inputs
 from domains.fundamentals.universe import CoverageWarning
+from shared_kernel.data_warnings import DataWarning
 from tests.analysis.conftest import AS_OF, CHOICES
 
 COVER = "dei:EntityCommonStockSharesOutstanding"
@@ -142,6 +143,9 @@ def test_beyond_history_is_one_note_with_its_fields(company, monkeypatch):
         "cik": "0000000123",
         "as_of": "2020-06-30",
         "history_ends": "2020-01-01",
+        "reason": "holding_company_reorganisation",
+        "successor_cik": "0000000456",
+        "successor_name": "TST Holdings",
         "note": "moved",
     }
 
@@ -154,13 +158,35 @@ def test_beyond_history_is_one_note_with_its_fields(company, monkeypatch):
     assert note.text == "TST is beyond its history"
 
 
-def test_a_plain_warning_is_a_data_warning_without_params(company, monkeypatch):
+def test_a_library_warning_is_not_a_note_and_goes_back_to_the_log(company, monkeypatch):
+    # backlog #196: before, any warning became a `data_warning` note; only Warren's own now do
     def warn(cik, as_of):
-        warnings.warn("something odd", stacklevel=2)
+        warnings.warn("something odd", DeprecationWarning, stacklevel=2)
+
+    monkeypatch.setattr("domains.fundamentals.facts.warn_if_beyond_history", warn)
+    with pytest.warns(DeprecationWarning, match="something odd"):
+        result = build(company)
+    assert not notes(result, "data_warning")
+    assert "something odd" not in result.warnings
+
+
+def test_a_plain_user_warning_is_not_a_note_either(company, monkeypatch):
+    def warn(cik, as_of):
+        warnings.warn("odd", stacklevel=2)
+
+    monkeypatch.setattr("domains.fundamentals.facts.warn_if_beyond_history", warn)
+    with pytest.warns(UserWarning, match="odd"):
+        result = build(company)
+    assert not notes(result, "data_warning")
+
+
+def test_a_warren_data_warning_without_its_own_code_is_a_data_warning(company, monkeypatch):
+    def warn(cik, as_of):
+        warnings.warn(DataWarning("something odd in the data"), stacklevel=2)
 
     monkeypatch.setattr("domains.fundamentals.facts.warn_if_beyond_history", warn)
     note = only(build(company), "data_warning")
-    assert note.params == {} and note.text == "something odd"
+    assert note.params == {} and note.text == "something odd in the data"
 
 
 def test_every_code_the_fixtures_produce_is_a_run_note_code(company, make_company):

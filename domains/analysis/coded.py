@@ -1,7 +1,10 @@
 """A gap, note or warning as a stable code with parameters (front-end design principle "no text
 hard-coded in logic"): the app owns the words; `text` is the English fallback."""
 
+import warnings
 from dataclasses import dataclass
+
+from shared_kernel.data_warnings import DataWarning
 
 
 @dataclass(frozen=True)
@@ -45,18 +48,28 @@ SIMULATION_NOTE_CODES = frozenset(
 
 
 def coded_warnings(caught) -> list[Coded]:
-    """Warnings caught while reading facts, one per text (the first one's params): the
-    fundamentals coverage warning as `beyond_history` with its fields, anything else as
-    `data_warning` with its text only."""
+    """Warren's own data warnings caught while reading facts, one per text (the first one's
+    params): the fundamentals coverage warning as `beyond_history` with its fields, any other
+    `DataWarning` as `data_warning` with its text only. Any other warning (a library's) is not a
+    note: `pass_on` hands it back to the log (backlog #196)."""
     from domains.fundamentals.universe import CoverageWarning
 
     out: dict[str, Coded] = {}
     for w in caught:
         text = str(w.message)
-        if text in out:
+        if text in out or not isinstance(w.message, DataWarning):
             continue
         if isinstance(w.message, CoverageWarning):
             out[text] = Coded("beyond_history", dict(w.message.fields), text)
         else:
             out[text] = Coded("data_warning", {}, text)
     return list(out.values())
+
+
+def pass_on(caught) -> None:
+    """Warn again, after the recording block, with every caught warning that is not Warren's own
+    data warning (backlog #196): it reaches the log and the tests as if never caught, and is
+    never stored as a run's note."""
+    for w in caught:
+        if not isinstance(w.message, DataWarning):
+            warnings.warn_explicit(w.message, w.category, w.filename, w.lineno, source=w.source)

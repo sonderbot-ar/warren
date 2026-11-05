@@ -170,3 +170,67 @@ def test_the_notes_command(company, monkeypatch, capsys):
     assert "filled 1" in capsys.readouterr().out
     assert cli.main(["notes", "--backfill"]) == 2
     assert cli.main(["notes", "--run-id", "nope"]) == 1
+
+
+# -- backlog #196: a stored coverage note gets its reason and successor on read --------------
+
+XOM_FIELDS = {
+    "ticker": "XOM",
+    "cik": "0000034088",
+    "as_of": "2026-09-30",
+    "history_ends": "2026-08-03",
+    "note": "the universe file's English note",
+}
+
+
+def _store_coverage_note(conn, params):
+    result = build_inputs(conn, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    note = Coded("beyond_history", params, "XOM is beyond its history")
+    run_id = save_run(conn, result, dcf.run_outputs(result.assumptions), [note])
+    return run_id
+
+
+def _stored_params(conn, run_id):
+    row = conn.execute("SELECT params FROM run_notes WHERE run_id = ?", (run_id,)).fetchone()
+    return json.loads(row[0])
+
+
+def test_a_coverage_note_stored_before_196_gets_its_fields_on_read(company):
+    run_id = _store_coverage_note(company, XOM_FIELDS)
+    (note,) = run_notes(company, run_id).notes
+    assert note.params == {
+        **XOM_FIELDS,
+        "reason": "holding_company_reorganisation",
+        "successor_cik": "0002115436",
+        "successor_name": "ExxonMobil Holdings Corp",
+        "filled_on_read": True,
+    }
+    assert note.text == "XOM is beyond its history"
+    assert _stored_params(company, run_id) == XOM_FIELDS  # the stored row is unchanged
+
+
+def test_a_coverage_note_with_its_fields_is_returned_as_stored(company):
+    params = {
+        **XOM_FIELDS,
+        "reason": "holding_company_reorganisation",
+        "successor_cik": "0002115436",
+        "successor_name": "ExxonMobil Holdings Corp",
+    }
+    run_id = _store_coverage_note(company, params)
+    assert run_notes(company, run_id).notes[0].params == params
+
+
+@pytest.mark.parametrize(
+    "change",
+    [{"cik": "0000000123"}, {"history_ends": "2026-07-01"}, {"cik": None}],
+    ids=["unknown cik", "cut-off since corrected", "no cik"],
+)
+def test_a_coverage_note_matching_no_row_gets_nulls(company, change):
+    run_id = _store_coverage_note(company, {**XOM_FIELDS, **change})
+    params = run_notes(company, run_id).notes[0].params
+    assert (params["reason"], params["successor_cik"], params["successor_name"]) == (
+        None,
+        None,
+        None,
+    )
+    assert params["filled_on_read"] is True
