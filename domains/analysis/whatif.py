@@ -373,8 +373,11 @@ def _value(rows: list[Assumption]):
     except fm.FinancialMathError as e:
         params = {}
         if e.reason == "growth_not_below_rate":  # the two numbers, so the app can say them
-            inp = dcf.inputs(rows)
-            params = {"wacc": dcf.base_wacc(inp), "terminal_growth": inp.one["terminal_growth"]}
+            try:
+                inp = dcf.inputs(rows)
+                params = {"wacc": dcf.base_wacc(inp), "terminal_growth": inp.one["terminal_growth"]}
+            except (dcf.DCFInputError, fm.FinancialMathError):
+                params = {}  # never hide the refusal behind a second error
         raise _refuse(e.reason, f"{REASON_WORDS[e.reason]}: {e}", **params) from e
 
 

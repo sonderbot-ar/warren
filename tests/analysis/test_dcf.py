@@ -307,6 +307,18 @@ def test_rows_without_a_wacc_row_are_valued_as_before():
     assert not dcf.wacc_is_set(base)
     out, _gaps = dcf.outputs_and_gaps(base)
     assert ("value_per_share_erp_minus_1se", SINGLE) in out
+    # bit for bit: the stored row set without `wacc` values as the plain computed WACC
+    assert dcf.compute(dcf.inputs(base)).outputs() == dcf.value(base).outputs()
+    inp = dcf.inputs(base)
+    one = inp.one
+    expected = fm.wacc(
+        one["equity_market_value"],
+        one["debt"],
+        fm.capm_cost_of_equity(one["risk_free"], one["beta"], one["erp"]),
+        one["cost_of_debt"],
+        one["debt_tax_rate"],
+    )
+    assert out[("wacc", SINGLE)] == expected
 
 
 def test_with_wacc_set_the_erp_bounds_are_not_computed():
