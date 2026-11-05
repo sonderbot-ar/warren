@@ -97,8 +97,18 @@ def actuals_on(state: PipelineState, deps: nodes.Deps) -> date:
     return day
 
 
+def range_errors_sha256(conn: sqlite3.Connection, as_of: date) -> str:
+    """The hash of the past misses public on the as-of date, which the range section reads
+    (backlog #167); `reproduce` checks it."""
+    from domains.evaluation import ranges
+
+    return ranges.pairs_sha256([p for p in ranges.load_pairs(conn) if p.filed_at <= as_of])
+
+
 def write_report(state: PipelineState, deps: nodes.Deps, folders: Folders) -> dict:
-    state = state.model_copy(update={"actuals_on": actuals_on(state, deps)})
+    found = {"actuals_on": actuals_on(state, deps),
+             "range_errors_sha256": range_errors_sha256(deps.conn, state.as_of)}  # fmt: skip
+    state = state.model_copy(update=found)
     path = report.write_report(deps.conn, state, folders.reports,
                                folders.telemetry / f"{state.pipeline_id}.jsonl")  # fmt: skip
     with deps.conn:
@@ -106,7 +116,8 @@ def write_report(state: PipelineState, deps: nodes.Deps, folders: Folders) -> di
             "UPDATE pipeline_runs SET report_path = ? WHERE pipeline_id = ?",
             (str(path), state.pipeline_id),
         )
-    return {"report_path": str(path), "actuals_on": state.actuals_on}
+    return {"report_path": str(path), "actuals_on": state.actuals_on,
+            "range_errors_sha256": state.range_errors_sha256}  # fmt: skip
 
 
 def build(deps: nodes.Deps, folders: Folders, saver: SqliteSaver, pipeline_id: str):
@@ -262,6 +273,23 @@ def history(conn: sqlite3.Connection, folders: Folders, pipeline_id: str) -> lis
         changed = sorted(k for k, v in after.values.items() if before.values.get(k) != v)
         out.append((after.metadata.get("step"), before.next[0], changed))
     return out
+
+
+def refresh_range(conn: sqlite3.Connection, folders: Folders, pipeline_id: str):
+    """For a done pipeline, store the hash of the past misses as they are now (backlog #167):
+    used when the report is written again after the misses were rebuilt, so the stored report
+    and the hash it was rendered from stay together. The new state; None when not done."""
+    state = final_state(conn, folders, pipeline_id)
+    if state is None:
+        return None
+    digest = range_errors_sha256(conn, state.as_of)
+    if digest != state.range_errors_sha256:
+        with checkpointer(conn) as saver:
+            app = build(nodes.Deps(conn=conn), folders, saver, pipeline_id)
+            app.update_state(_config(pipeline_id), {"range_errors_sha256": digest},
+                             as_node="write_report")  # fmt: skip
+        state = final_state(conn, folders, pipeline_id)
+    return state
 
 
 def final_state(conn: sqlite3.Connection, folders: Folders, pipeline_id: str):

@@ -47,3 +47,18 @@ HINDSIGHT_INTRO = (
     "only; quarters 5 to 8 are shown but were never scored."
 )
 HINDSIGHT_NONE = "No forecast quarter was in a 10-Q or 10-K by {actuals_on}."
+
+RANGE_HEADING = "Range from past misses"
+RANGE_INTRO = (
+    "How sure, from the record: each forecast quarter's p10 to p90, built by applying the "
+    "baseline's own past misses (every company's, with actuals filed by {as_of}) to the forecast "
+    "{draws:,} times. For a variant with shocks, the misses are applied to each simulated path, "
+    "and its forecast is the paths' middle (p50 in section 2). The range's p50 can sit off the "
+    "forecast: that gap is the average lean of past misses. Quarters 1 to 4 only, since misses "
+    "were measured for those; section 2's later years have no such range. {currency} millions."
+)
+RANGE_TRACK = (
+    "Track record of the range (baseline, misses of every company): the share of past quarters "
+    "whose actual fell inside their p10 to p90, forecasts made from {origins_from} to before "
+    "{as_of}; the target is {target:.0%}."
+)

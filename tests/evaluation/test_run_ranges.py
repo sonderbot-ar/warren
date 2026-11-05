@@ -462,6 +462,150 @@ def test_to_dict_round_trips_through_json(company, run):
     assert set(d) >= set(top.split()) | {"quarters", "coverage", "notes"}
 
 
+# -- the shocked range (backlog #167) -----------------------------------------------------------
+
+
+def _with_history(company, count=25):
+    for i in range(count):
+        quarters = [{"h": h, "period": f"S{i}_{h}", "period_end": "2019-01-31",
+                     "filed": date(2019, 3, 1), "actual_rev": 100.0 + (i % 5) - 2,
+                     "actual_ebit": 10.0 + (i % 3) - 1} for h in (1, 2)]  # fmt: skip
+        add_origin(
+            company, "TST" if i < 15 else "OTH", date(2018, 6, 1) + timedelta(days=i), quarters
+        )
+
+
+def _sim(company, run, low=-6.0, base=-2.0, high=-1.0, n=N, seed=7, driver="revenue_growth"):
+    from domains.analysis import montecarlo
+    from tests.analysis.test_shocks import shock
+
+    s = shock(driver=driver, low=low, base=base, high=high, horizon=4)
+    return montecarlo.save_simulation(company, run, [s], n=n, seed=seed)
+
+
+def test_a_baseline_call_has_no_simulation_and_centres_on_the_forecast(company, run):
+    _with_history(company)
+    out = RN.run_ranges(company, run, N, check_basis=False)
+    assert (out.basis, out.sim_id) == ("baseline", None)
+    for q in out.quarters:
+        assert (q.revenue_center, q.ebit_center) == (q.revenue_forecast, q.ebit_forecast)
+        for b in q.bands:
+            assert b.revenue_vs_center == b.revenue_vs_forecast
+            assert b.ebit_vs_center == b.ebit_vs_forecast
+
+
+def test_shocked_bands_equal_ranges_on_the_simulations_samples(company, run):
+    from domains.analysis.montecarlo import load_simulation_shocks, sample_lines
+    from domains.analysis.runs import load_assumptions
+
+    _with_history(company)
+    sim_id = _sim(company, run, n=300, seed=11)
+    out = RN.run_ranges(company, run, N, check_basis=False, sim_id=sim_id)
+    assert (out.basis, out.sim_id, out.n_samples) == ("shocked", sim_id, 300)
+    lines = sample_lines(load_assumptions(company, run), load_simulation_shocks(company, sim_id),
+                         300, 11)  # fmt: skip
+    samples = {h: (lines[("revenue", q.period)], lines[("ebit", q.period)])
+               for h, q in enumerate(out.quarters[:2], start=1)}  # fmt: skip
+    pairs = [p for p in R.load_pairs(company) if p.filed_at <= out.as_of]
+    for pool_i, pool in enumerate(R.POOLS):
+        seed = R.range_seed(f"{sim_id}:shocked", pool)
+        want = R.ranges(samples, pairs, out.as_of, pool, "TST", seed, 300)
+        for h in (1, 2):
+            b = out.quarters[h - 1].bands[pool_i]
+            assert b.revenue == dict(zip(RN.KEYS, want[h].revenue, strict=True))
+            assert b.ebit == dict(zip(RN.KEYS, want[h].ebit, strict=True))
+
+
+def test_the_centre_is_the_samples_median_and_vs_center_is_read_from_it(company, run):
+    import numpy as np
+
+    from domains.analysis.montecarlo import load_simulation_shocks, sample_lines
+    from domains.analysis.runs import load_assumptions
+
+    _with_history(company)
+    sim_id = _sim(company, run)
+    out = RN.run_ranges(company, run, N, check_basis=False, sim_id=sim_id)
+    lines = sample_lines(load_assumptions(company, run), load_simulation_shocks(company, sim_id),
+                         N, 7)  # fmt: skip
+    for q in out.quarters:  # every quarter, also beyond horizon 4
+        assert q.revenue_center == float(np.median(lines[("revenue", q.period)]))
+        assert q.ebit_center == float(np.median(lines[("ebit", q.period)]))
+    q1 = out.quarters[0]
+    assert q1.revenue_center < q1.revenue_forecast  # a negative growth shock
+    b = q1.bands[0]
+    want_c = RN.vs_forecast(b.revenue, b.ebit, q1.revenue_center, q1.ebit_center)
+    want_f = RN.vs_forecast(b.revenue, b.ebit, q1.revenue_forecast, q1.ebit_forecast)
+    assert (b.revenue_vs_center, b.ebit_vs_center) == want_c
+    assert (b.revenue_vs_forecast, b.ebit_vs_forecast) == want_f  # meaning unchanged
+
+
+def test_the_centre_matches_the_stored_simulation_p50(company, run):
+    from domains.analysis.montecarlo import load_bands
+
+    _with_history(company)
+    sim_id = _sim(company, run, driver="operating_margin")
+    out = RN.run_ranges(company, run, N, check_basis=False, sim_id=sim_id, coverage=False)
+    stored = load_bands(company, sim_id)
+    for q in out.quarters:
+        assert q.revenue_center == pytest.approx(stored[("revenue", q.period)].p50, abs=0.005)
+        assert q.ebit_center == pytest.approx(stored[("ebit", q.period)].p50, abs=0.005)
+
+
+def test_zero_width_shocks_give_the_baseline_band_drawn_with_the_same_seed(company, run):
+    _with_history(company)
+    sim_id = _sim(company, run, low=0.0, base=0.0, high=0.0)
+    shocked = RN.run_ranges(company, run, N, check_basis=False, sim_id=sim_id, coverage=False)
+    q1 = shocked.quarters[0]
+    forecasts = {1: (q1.revenue_forecast, q1.ebit_forecast)}
+    pairs = [p for p in R.load_pairs(company) if p.filed_at <= shocked.as_of]
+    for i, pool in enumerate(R.POOLS):
+        seed = R.range_seed(f"{sim_id}:shocked", pool)
+        want = R.ranges(R.constant_samples(forecasts, N), pairs, shocked.as_of, pool, "TST", seed,
+                        N)  # fmt: skip
+        assert q1.bands[i].revenue == pytest.approx(
+            dict(zip(RN.KEYS, want[1].revenue, strict=True)), rel=1e-12
+        )
+        assert q1.bands[i].ebit == pytest.approx(
+            dict(zip(RN.KEYS, want[1].ebit, strict=True)), rel=1e-12
+        )
+
+
+def test_a_simulation_of_another_run_or_none_raises(company, run):
+    with pytest.raises(EvaluationError, match="not stored"):
+        RN.run_ranges(company, run, N, sim_id="NOPE_sim1")
+    sim_id = _sim(company, run)
+    company.execute("PRAGMA foreign_keys = OFF")  # a simulation stored under another run id
+    company.execute("UPDATE simulations SET run_id = 'OTHER' WHERE sim_id = ?", (sim_id,))
+    with pytest.raises(EvaluationError, match="not .*" + run):
+        RN.run_ranges(company, run, N, sim_id=sim_id)
+
+
+def test_shocked_notes_and_skipped_coverage(company, run):
+    sim_id = _sim(company, run)
+    out = RN.run_ranges(company, run, N, sim_id=sim_id, coverage=False)
+    codes = [n.code for n in out.notes]
+    assert codes[:3] == ["shocked_plus_misses", "coverage_is_baseline", "horizons_pooled"]
+    assert "coverage_skipped" in codes and out.coverage == []
+    assert out.notes[0].params == {"sim_id": sim_id}
+    full = RN.run_ranges(company, run, N, sim_id=sim_id)
+    assert len(full.coverage) == 8 and "coverage_skipped" not in [n.code for n in full.notes]
+    assert full.to_dict() == RN.run_ranges(company, run, N, sim_id=sim_id).to_dict()
+    d = full.to_dict()
+    assert json.loads(json.dumps(d)) == d and d["sim_id"] == sim_id
+
+
+def test_a_run_after_the_newest_stored_miss_says_the_misses_may_be_stale(company, run):
+    _with_history(company)  # misses filed 2019-03-01; the run is dated 2019-05-01
+    company.execute("DELETE FROM baseline_errors WHERE origin_id = 'TST_2019-05-01'")  # later ones
+    (note,) = [n for n in RN.run_ranges(company, run, N, check_basis=False).notes
+               if n.code == "errors_stale"]  # fmt: skip
+    assert note.params == {"as_of": "2019-05-01", "errors_filed_to": "2019-03-01"}
+    quarters = [scored(1, "LATE", date(2019, 5, 1))]
+    add_origin(company, "OTH", date(2019, 1, 15), quarters)
+    codes = [n.code for n in RN.run_ranges(company, run, N, check_basis=False).notes]
+    assert "errors_stale" not in codes  # a miss filed on the run's date: the table is current
+
+
 def test_an_unknown_run_raises(company):
     with pytest.raises(EvaluationError, match="not stored"):
         RN.run_ranges(company, "no_such_run", N)

@@ -120,6 +120,27 @@ def test_ranges_run_on_an_unknown_run_exits_1(company, tmp_path, monkeypatch, ca
     assert "not stored" in capsys.readouterr().out
 
 
+def test_ranges_run_with_a_simulation_names_it(company, tmp_path, monkeypatch, capsys):
+    import json
+
+    from domains.analysis import montecarlo
+    from tests.analysis.test_shocks import shock
+
+    wire(monkeypatch, company, tmp_path)
+    run_id = _tst_run(company)
+    sim_id = montecarlo.save_simulation(company, run_id, [shock(low=-6.0, base=-2.0, high=-1.0)],
+                                        n=200, seed=4)  # fmt: skip
+    assert cli.main(["ranges", "run", "--run-id", run_id, "--sim-id", sim_id]) == 0
+    out = capsys.readouterr().out
+    assert f"simulation {sim_id}" in out and "shocked forecast" in out
+    assert "counted twice" in out
+    assert cli.main(["ranges", "run", "--run-id", run_id, "--sim-id", sim_id, "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert (data["basis"], data["sim_id"], data["n_samples"]) == ("shocked", sim_id, 200)
+    assert cli.main(["ranges", "run", "--run-id", run_id, "--sim-id", "NOPE_sim1"]) == 1
+    assert "not stored" in capsys.readouterr().out
+
+
 # -- track-record (backlog #145) ----------------------------------------------------------------
 
 
