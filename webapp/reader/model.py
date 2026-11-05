@@ -1,0 +1,136 @@
+"""The question reader: one question in, one checked reading out (Decision 9).
+
+`read_question(text, today, backend)` asks a local open model for a reading held to the answer
+schema, then passes it through the code check (`reading.check`). Anything that goes wrong (no
+model running, a timeout, an answer that is not JSON) returns an unsure, empty reading, so the
+reading card falls back to the menus; it never raises into a screen.
+
+The model sits behind a small backend interface, so it can be swapped without touching the
+screens (F2 design, "The question reader's model"):
+
+- `OllamaBackend` talks to Ollama on the owner's Mac (`http://127.0.0.1:11434`, its native
+  `/api/chat` with `format` set to the schema). Standard library only; nothing to install in
+  the app.
+- `LlamaCppBackend` loads the same GGUF file in-process with llama-cpp-python (MIT), which is
+  how the exam runs on a machine without Ollama. It is a measuring tool, not an app
+  dependency, so it is imported only when used and is not pinned in `requirements.txt`.
+
+Both run llama.cpp underneath, at temperature 0 with a fixed seed, on the same weights.
+"""
+
+from __future__ import annotations
+
+import json
+import urllib.error
+import urllib.request
+from dataclasses import dataclass, field
+from datetime import date
+from typing import Protocol
+
+from webapp.reader.prompt import answer_schema, system_prompt, user_message
+from webapp.reader.reading import Reading, check
+
+SEED = 7
+MAX_TOKENS = 400
+
+
+class Backend(Protocol):
+    name: str
+
+    def complete(self, system: str, user: str, schema: dict) -> str:
+        """The model's raw answer text."""
+
+
+@dataclass
+class OllamaBackend:
+    model: str = "qwen3:8b"
+    url: str = "http://127.0.0.1:11434"
+    timeout: float = 60.0
+    name: str = field(default="ollama", init=False)
+
+    def complete(self, system: str, user: str, schema: dict) -> str:
+        body = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "format": schema,
+            "stream": False,
+            "think": False,
+            "options": {"temperature": 0, "seed": SEED, "num_predict": MAX_TOKENS},
+        }
+        request = urllib.request.Request(
+            f"{self.url}/api/chat",
+            data=json.dumps(body).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(request, timeout=self.timeout) as response:  # noqa: S310
+            return json.loads(response.read())["message"]["content"]
+
+
+@dataclass
+class LlamaCppBackend:
+    model_path: str
+    n_ctx: int = 8192
+    n_threads: int | None = None
+    name: str = field(default="llama-cpp-python", init=False)
+
+    def __post_init__(self) -> None:
+        from llama_cpp import Llama  # optional: only for running the exam without Ollama
+
+        self._llm = Llama(
+            model_path=self.model_path,
+            n_ctx=self.n_ctx,
+            n_threads=self.n_threads,
+            seed=SEED,
+            verbose=False,
+        )
+
+    def complete(self, system: str, user: str, schema: dict) -> str:
+        result = self._llm.create_chat_completion(
+            messages=[
+                {"role": "system", "content": system},
+                # Qwen3's switch for its thinking mode; the schema holds the answer to JSON anyway
+                {"role": "user", "content": user + " /no_think"},
+            ],
+            response_format={"type": "json_object", "schema": schema},
+            temperature=0,
+            seed=SEED,
+            max_tokens=MAX_TOKENS,
+        )
+        return result["choices"][0]["message"]["content"]
+
+
+def unavailable() -> Reading:
+    """What the card gets when the reader cannot answer: nothing read, so the menus."""
+    return Reading(kind="", unsure=True, dropped=("reader",))
+
+
+def parse_answer(raw: str) -> dict | None:
+    """The model's JSON object, or None. Tolerates an empty think block before it."""
+    text = raw.strip()
+    if "</think>" in text:
+        text = text.split("</think>", 1)[1].strip()
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def raw_reading(text: str, backend: Backend) -> dict | None:
+    """The model's answer before the check, or None when the reader is unavailable."""
+    try:
+        raw = backend.complete(system_prompt(), user_message(text), answer_schema())
+    except (OSError, urllib.error.URLError, TimeoutError, KeyError, ValueError):
+        return None
+    return parse_answer(raw)
+
+
+def read_question(text: str, today: date, backend: Backend) -> Reading:
+    """One question's checked reading. `today` is the last ended day (the check's limit)."""
+    data = raw_reading(text, backend)
+    if data is None:
+        return unavailable()
+    return check(Reading.from_dict(data), text, today)
