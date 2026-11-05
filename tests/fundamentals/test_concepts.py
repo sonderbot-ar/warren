@@ -1,9 +1,14 @@
+import hashlib
+
 import pytest
 
 from domains.fundamentals.concepts import (
     COLUMNS,
+    CONCEPT_MAP_PATH,
     ConceptMapError,
+    concept_map_sha256,
     load_concept_map,
+    reported_only_names,
     sync_concepts,
 )
 from shared_kernel.database import apply_migrations, get_db_connection
@@ -130,3 +135,49 @@ def test_shipped_fallback_and_holding_items_are_optional():
     gates = {r.canonical_name: r.gate for r in load_concept_map()}
     assert gates["revenue"] == "required"
     assert gates["marketable_securities_current"] == gates["interest_paid"] == "optional"
+
+
+# -- the two files (backlog #157) -------------------------------------------------------------
+
+
+def test_shipped_maps_load_together():
+    names = {r.canonical_name for r in load_concept_map()}
+    assert {"revenue", "net_income", "discontinued_operations"} <= names
+    assert "net_income" not in {r.canonical_name for r in load_concept_map(CONCEPT_MAP_PATH)}
+    assert reported_only_names() == {"net_income", "discontinued_operations"}
+
+
+def test_the_fingerprint_is_the_valuation_map_alone():
+    expected = hashlib.sha256(CONCEPT_MAP_PATH.read_bytes()).hexdigest()
+    assert concept_map_sha256() == expected  # the reported-only file never enters it
+
+
+def test_a_tag_in_both_files_is_rejected(tmp_path):
+    main = write_map(tmp_path, "revenue,us-gaap:Revenues,1,USD,duration,required,Top line.,")
+    other = tmp_path / "reported.csv"
+    other.write_text(HEADER + "\nsales,us-gaap:Revenues,1,USD,duration,optional,Top line.,\n")
+    with pytest.raises(ConceptMapError, match="mapped more than once"):
+        load_concept_map(main, other)
+
+
+def test_an_item_split_across_the_files_is_rejected(tmp_path):
+    main = write_map(tmp_path, "revenue,us-gaap:Revenues,1,USD,duration,required,Top line.,")
+    other = tmp_path / "reported.csv"
+    other.write_text(
+        HEADER + "\nrevenue,us-gaap:SalesRevenueNet,2,USD,duration,required,Top line.,\n"
+    )
+    with pytest.raises(ConceptMapError, match="one file"):
+        load_concept_map(main, other)
+
+
+def test_no_valuation_or_scoring_step_reads_a_reported_only_item():
+    """An item that can change a valuation, a score or an AI proposal belongs in concept_map.csv,
+    whose fingerprint every run stores; moving it there is a visible change of that fingerprint."""
+    from domains.analysis import math_engine
+    from domains.evaluation import harness
+    from domains.llm import propose
+
+    read = {*math_engine.ITEMS, *harness.ITEMS, *propose.ITEMS, "capex"}
+    for chain in math_engine.CHAINS.values():
+        read |= {item for alternative in chain for item in alternative}
+    assert not read & reported_only_names()
