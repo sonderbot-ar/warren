@@ -139,11 +139,13 @@ def concept_map_sha256(path: Path = CONCEPT_MAP_PATH) -> str:
 def reported_only_names(path: Path = CONCEPT_MAP_REPORTED_PATH) -> set[str]:
     """The items only the reported-figures query reads (concept_map_reported.csv)."""
     return {r.canonical_name for r in load_concept_map(path)}
-    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def sync_concepts(conn: sqlite3.Connection, rows: list[ConceptRow]) -> dict[str, int]:
     """Make the concepts table match the CSV, in one transaction.
+
+    Pass the whole map (`load_concept_map()`, both files): rows read from one file alone would
+    delete the other file's tags (backlog #157).
 
     A tag removed from the CSV is deleted from the table; if stored facts still reference it the
     sync fails loudly, because silently keeping it would leave those facts in every query.
