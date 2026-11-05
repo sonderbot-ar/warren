@@ -1076,7 +1076,8 @@ def post_check_notes(
     # the same check at ERP ± 1 SE (backlog #10): revalue the run's own rows with the ERP moved,
     # the path that made the stored sensitivity; a bound with no value is noted elsewhere (#9)
     std_error = rows.get("erp_std_error", {}).get(SINGLE)
-    if std_error is None:
+    # with WACC set directly (a what-if, backlog #171) the ERP doesn't enter the rate: no bounds
+    if std_error is None or dcf.wacc_is_set(assumptions):
         return out
     erp = rows["erp"][SINGLE]
     bounds = (

@@ -72,7 +72,7 @@ def render(conn: sqlite3.Connection, run_id: str) -> str:
         "",
         f"- **Value per share: {o('value_per_share'):,.2f}** "
         f"(share price {price.value:,.2f}, {price.method.split(' (')[0]}, for comparison only)",
-        f"- At ERP ± 1 standard error: {_sensitivity(out, gaps)}",
+        f"- At ERP ± 1 standard error: {_sensitivity(out, gaps, dcf.wacc_is_set(rows))}",
         *_precision(gaps),
         f"- Enterprise value {_m(o('enterprise_value_as_of'))}M · equity value "
         f"{_m(o('equity_value'))}M (USD millions)",
@@ -219,7 +219,9 @@ def _gaps(conn: sqlite3.Connection, run_id: str, rows, out: dict) -> dict:
     return gaps
 
 
-def _sensitivity(out: dict, gaps: dict) -> str:
+def _sensitivity(out: dict, gaps: dict, wacc_set: bool = False) -> str:
+    if wacc_set:  # a what-if that sets WACC: the ERP doesn't enter the rate (backlog #171)
+        return "not computed: WACC set directly"
     parts = []
     for name, label in SENSITIVITIES:
         key = (f"value_per_share_{name}", SINGLE)

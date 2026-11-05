@@ -198,6 +198,9 @@ def for_child(
     a derived input the child changed names the parent's row (`run_id`), since the copied value
     was computed from the parent's, not the child's (analyst, #175)."""
     out: dict[Key, list[dict]] = {}
+    for key in changed.keys() - parent.keys():  # a row the parent doesn't have (WACC set, #171)
+        before, how = changed[key]
+        out[key] = [what_if(parent_run_id, before, how, [])]
     for key, items in parent.items():
         if key in changed:
             before, how = changed[key]
@@ -249,6 +252,7 @@ FORMULAS = {
     "net_debt": "debt − cash and investments",
     "equity_value": "enterprise value − net debt − minority interest",
     "per_share": "equity value ÷ shares",
+    "wacc_set_directly": "WACC as the what-if set it, in place of the computed one",
     "revalued_at_erp_minus_1se": "value per share with the ERP one standard error lower",
     "revalued_at_erp_plus_1se": "value per share with the ERP one standard error higher",
 }
@@ -327,17 +331,21 @@ def output_trace(rows: Iterable[Assumption]) -> dict[Key, dict]:
         put("discount_factor", p, "discount_factor", _out("wacc", SINGLE_PERIOD), *previous)
 
     one = SINGLE_PERIOD
+    wacc_set = dcf.wacc_is_set(rows)
     put("cost_of_equity", one, "capm", _row("risk_free", one), _row("beta", one), _row("erp", one))
-    put(
-        "wacc",
-        one,
-        "wacc",
-        _out("cost_of_equity", one),
-        _row("equity_market_value", one),
-        _row("debt", one),
-        _row("cost_of_debt", one),
-        _row("debt_tax_rate", one),
-    )
+    if wacc_set:  # a what-if that sets the rate itself (backlog #171)
+        put("wacc", one, "wacc_set_directly", _row(dcf.WACC_SET, one))
+    else:
+        put(
+            "wacc",
+            one,
+            "wacc",
+            _out("cost_of_equity", one),
+            _row("equity_market_value", one),
+            _row("debt", one),
+            _row("cost_of_debt", one),
+            _row("debt_tax_rate", one),
+        )
     put(
         "pv_explicit",
         one,
@@ -397,7 +405,7 @@ def output_trace(rows: Iterable[Assumption]) -> dict[Key, dict]:
         _row("minority_interest", one),
     )
     put("value_per_share", one, "per_share", _out("equity_value", one), _row("shares", one))
-    for side in ("minus", "plus"):
+    for side in () if wacc_set else ("minus", "plus"):  # not computed with WACC set
         put(
             f"value_per_share_erp_{side}_1se",
             one,
