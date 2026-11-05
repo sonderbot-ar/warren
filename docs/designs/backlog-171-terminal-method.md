@@ -51,3 +51,7 @@ The switch to Gordon on the latest run of each company (as of 2026-10-30; every 
 - AAPL $95.21 → $143.08 (+50%) and JNJ $168.01 → $658.32 (+292%): year 5 takes capital out, so `gordon_reinvestment_not_positive` fires on both.
 - `thin_terminal_spread` is stored on JNJ, KO, PG and XOM (WACC − g under 3 points), and the ERP-bound spread warning on all eight.
 - Every child reproduces; `python -m domains.analysis reproduce --all`: 929 of 929 runs to the cent (903 stored, 26 children made on this machine and not saved to the shared snapshot).
+
+## Merged
+
+nov.05.2026 as v0.9.21, PR #215, merge `af485b2`, after the gatekeeper's GO. The review's ideas are in #216. #171 is done.
