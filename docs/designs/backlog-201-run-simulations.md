@@ -2,7 +2,7 @@
 
 Issue #201 (front-end, from the #167 design review, `docs/designs/backlog-167-shocked-range.md`, Product impact). Branch `backlog-201-run-simulations`.
 
-Status: Built, PR open (nov.05.2026).
+Status: Done (nov.05.2026; v0.9.18, PR #206, merge `96a2d64`; gatekeeper GO, follow-ups in #207).
 
 ## Problem
 
@@ -36,7 +36,7 @@ It lives in `domains/orchestration/`, not `domains/analysis/runs.py` as the issu
 ## Plan
 
 - **Step 0.** This design doc; status in team sync.
-- **Step 1.** `domains/orchestration/simulations.py` with the call, its dataclasses and `to_dict`; `graph.state_values(conn, folders, pipeline_id)` (the last checkpoint's values, done or not) used by it. Tests (`tests/orchestration/test_simulations.py`) on Test Corp: a pipeline with both variants gives two simulations, masked first, each with its pipeline and the variant its proposal set has; a manual simulation on the same run is `none` with no pipeline and comes last; `_sim10` sorts after `_sim2`; a pipeline whose checkpoint is edited to file a simulation under the other variant gets `pipeline_variant_differs`; an unknown run raises; a run with none returns `[]`; `check=True` reproduces each and a changed stored output turns `reproduces` false. Exit: tests and ruff pass.
+- **Step 1.** `domains/orchestration/simulations.py` with the call, its dataclasses and `to_dict`; `graph.state_values(conn, folders, pipeline_id)` (the last checkpoint's values, done or not) used by it. Tests (`tests/orchestration/test_simulations.py`) on Test Corp: a pipeline with both variants gives two simulations, masked first, each with its pipeline and the variant its proposal set has; a manual simulation on the same run is `none` with no pipeline and comes last; inside a variant the newest comes first (`_sim12` before `_sim2`); a pipeline whose checkpoint is edited to file a simulation under the other variant gets `pipeline_variant_differs`; an unknown run raises; a run with none returns `[]`; `check=True` reproduces each and a changed stored output turns `reproduces` false. Exit: tests and ruff pass.
 - **Step 2.** The command in `domains/orchestration/__main__.py` and its JSON (`to_dict` keys fixed by a test). Exit: CLI tests pass. (Built in one commit with Step 1.)
 - **Step 3.** Real data: on the restored snapshot, every run with a simulation listed; for every finished pipeline, the checkpoint's `sim[variant]` equals the listed simulation of that variant, with no `pipeline_variant_differs` and no `shock_not_traced`; counts of masked, named and none recorded here; `check=True` on a sample. Exit: results recorded below; 0 mismatches.
 
