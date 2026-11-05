@@ -97,8 +97,18 @@ def actuals_on(state: PipelineState, deps: nodes.Deps) -> date:
     return day
 
 
+def range_errors_sha256(conn: sqlite3.Connection, as_of: date) -> str:
+    """The hash of the past misses public on the as-of date, which the range section reads
+    (backlog #167); `reproduce` checks it."""
+    from domains.evaluation import ranges
+
+    return ranges.pairs_sha256([p for p in ranges.load_pairs(conn) if p.filed_at <= as_of])
+
+
 def write_report(state: PipelineState, deps: nodes.Deps, folders: Folders) -> dict:
-    state = state.model_copy(update={"actuals_on": actuals_on(state, deps)})
+    found = {"actuals_on": actuals_on(state, deps),
+             "range_errors_sha256": range_errors_sha256(deps.conn, state.as_of)}  # fmt: skip
+    state = state.model_copy(update=found)
     path = report.write_report(deps.conn, state, folders.reports,
                                folders.telemetry / f"{state.pipeline_id}.jsonl")  # fmt: skip
     with deps.conn:
@@ -106,7 +116,8 @@ def write_report(state: PipelineState, deps: nodes.Deps, folders: Folders) -> di
             "UPDATE pipeline_runs SET report_path = ? WHERE pipeline_id = ?",
             (str(path), state.pipeline_id),
         )
-    return {"report_path": str(path), "actuals_on": state.actuals_on}
+    return {"report_path": str(path), "actuals_on": state.actuals_on,
+            "range_errors_sha256": state.range_errors_sha256}  # fmt: skip
 
 
 def build(deps: nodes.Deps, folders: Folders, saver: SqliteSaver, pipeline_id: str):

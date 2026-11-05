@@ -40,11 +40,27 @@ def test_reproduce_passes_and_fails_after_a_stored_output_changes(wired, capsys)
     assert cli.main(ARGS) == 0
     assert cli.main(["reproduce", "--pipeline-id", "TST_2020-06-30_p1"]) == 0
     out = capsys.readouterr().out
-    assert out.count("OK") == 3 and "MISMATCH" not in out
+    assert out.count("OK") == 4 and "MISMATCH" not in out
+    assert "OK range misses" in out
     wired.conn.execute("UPDATE simulation_outputs SET p50 = p50 + 1 WHERE name = 'revenue'")
     wired.conn.commit()
     assert cli.main(["reproduce", "--pipeline-id", "TST_2020-06-30_p1"]) == 1
     assert "MISMATCH" in capsys.readouterr().out
+
+
+def test_reproduce_names_misses_that_changed_after_the_report(wired, capsys):
+    from datetime import date
+
+    from tests.evaluation.test_run_ranges import add_origin
+
+    assert cli.main(ARGS) == 0
+    capsys.readouterr()
+    quarters = [{"h": 1, "period": "X1", "period_end": "2020-03-31", "filed": date(2020, 5, 1),
+                 "actual_rev": 101.0, "actual_ebit": 10.0}]  # fmt: skip
+    add_origin(wired.conn, "OTH", date(2020, 1, 1), quarters)  # filed before the as-of date
+    assert cli.main(["reproduce", "--pipeline-id", "TST_2020-06-30_p1"]) == 1
+    out = capsys.readouterr().out
+    assert "MISMATCH range misses" in out and "report --pipeline-id TST_2020-06-30_p1" in out
 
 
 def test_later_exits_4_and_resume_asks_then_finishes(wired, monkeypatch, capsys):

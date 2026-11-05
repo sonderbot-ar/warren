@@ -71,6 +71,11 @@ class PipelineState(BaseModel):
     actuals_on: date | None = Field(
         default=None, description="hindsight section reads filings to this day (backlog #128)"
     )
+    range_errors_sha256: str | None = Field(
+        default=None,
+        description="the past misses the range section read: ranges.pairs_sha256 of those filed "
+        "by as_of (backlog #167)",
+    )
 
     @property
     def case_id(self) -> str:
