@@ -41,3 +41,13 @@ Explainer, analyst, professor and product lead in one fresh-context panel; the a
 - **`ronic_follows_wacc` follows the child (analyst).** Tested both ways.
 - **RONIC far above WACC (analyst, idea).** `gordon_implied_ronic` carries `wacc` beside the return.
 - **A citation in the switch note (professor, idea).** Koller, Goedhart and Wessels, ch. 14.
+
+## Results on real data (Step 2, nov.05.2026)
+
+The switch to Gordon on the latest run of each company (as of 2026-10-30; every one is a value-driver run with terminal growth 4.98%), value per share before → after:
+
+- MSFT $203.55 → $208.92 (+3%, implied return on new investment 12%), WMT $31.24 → $39.26 (+26%, 11%): close, because both reinvest a lot in year 5.
+- CAT $218.45 → $357.95 (+64%, 105%), KO $37.37 → $113.63 (+204%, 77%), PG $104.13 → $264.70 (+154%, 226%), XOM $116.23 → $406.48 (+250%, 100%): Gordon rests on returns many times WACC.
+- AAPL $95.21 → $143.08 (+50%) and JNJ $168.01 → $658.32 (+292%): year 5 takes capital out, so `gordon_reinvestment_not_positive` fires on both.
+- `thin_terminal_spread` is stored on JNJ, KO, PG and XOM (WACC − g under 3 points), and the ERP-bound spread warning on all eight.
+- Every child reproduces; `python -m domains.analysis reproduce --all`: 929 of 929 runs to the cent (903 stored, 26 children made on this machine and not saved to the shared snapshot).
