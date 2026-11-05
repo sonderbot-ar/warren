@@ -530,7 +530,38 @@ def _ratios(views: _Views, period: Period, lines: list[Line], prior_lines: list[
 
     out.append(_tax(get, period, lines))
     out.append(_net_debt(views, revenue, period, lines))
+    out.append(_net_margin(get, revenue, period, lines))
     return out
+
+
+NET_MARGIN_FORMULA = (
+    "net income attributable to the parent's shareholders ÷ revenue (after the non-controlling "
+    "interests' share; includes discontinued operations)"
+)
+
+
+def _net_margin(get, revenue: Fact, period: Period, lines: list[Line]) -> Ratio:
+    """Net income to the parent over revenue (backlog #157). Discontinued operations stay in, as
+    the filing reports them, and a coded note gives their amount and, when it is one, their share
+    of net income, so a one-off exit is not read as a better business."""
+    name, fid = "net_margin", "net_income_to_parent_over_revenue"
+    net_income = get("net_income")
+    if net_income is None:
+        return _gap(name, fid, NET_MARGIN_FORMULA, ["net_income"])
+    notes, used = [], [net_income]
+    discontinued = get("discontinued_operations")
+    if discontinued is not None and discontinued.value != 0:
+        used.append(discontinued)
+        params = {"amount": discontinued.value, "currency": discontinued.unit}
+        text = f"includes {discontinued.value:,.0f} from discontinued operations"
+        if net_income.value > 0 and 0 < discontinued.value <= net_income.value:
+            share = fm.ratio(discontinued.value, net_income.value)
+            params["share_of_net_income"] = share
+            text += f" ({share:.0%} of net income)"
+        notes.append(Coded("includes_discontinued_operations", params, text))
+    return _ratio(
+        name, fid, NET_MARGIN_FORMULA, [net_income], [revenue], lines, period, notes, used
+    )
 
 
 def _growth(views, period, revenue, lines, prior_lines) -> Ratio:

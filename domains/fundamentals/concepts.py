@@ -2,6 +2,13 @@
 
 concept_map.csv is the editable source; sync_concepts() copies it into the `concepts` table, which
 is the enforced vocabulary (financial_facts can only reference tags that exist there).
+
+The map is two files with the same columns (backlog #157). concept_map.csv holds every item a
+valuation can read, and its SHA-256 is the fingerprint each run stores: a different file can give
+a different answer for an old date, so a run built from another map can't be rebuilt.
+concept_map_reported.csv holds items only the reported-figures query reads (net income to the
+parent, discontinued operations), so adding one there leaves every stored run rebuildable.
+Ingest and the `concepts` table see both files as one map.
 """
 
 import csv
@@ -11,6 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 CONCEPT_MAP_PATH = Path(__file__).parent / "concept_map.csv"
+CONCEPT_MAP_REPORTED_PATH = Path(__file__).parent / "concept_map_reported.csv"
 COLUMNS = [
     "canonical_name",
     "xbrl_concept",
@@ -52,21 +60,32 @@ class ConceptRow:
         return self.xbrl_concept.split(":", 1)[1]
 
 
-def load_concept_map(path: Path = CONCEPT_MAP_PATH) -> list[ConceptRow]:
-    """Read and validate the concept map. Every problem found is reported at once."""
-    with open(path, newline="") as f:
-        reader = csv.DictReader(f)
-        if reader.fieldnames != COLUMNS:
-            raise ConceptMapError(f"Expected columns {COLUMNS}, got {reader.fieldnames}")
-        raw = list(reader)
+def load_concept_map(
+    path: Path | None = None, reported_path: Path | None = None
+) -> list[ConceptRow]:
+    """Read and validate the concept map: both shipped files by default, or the files given
+    (`path` alone reads one file). Every problem found is reported at once."""
+    if path is None:
+        paths = [CONCEPT_MAP_PATH, reported_path or CONCEPT_MAP_REPORTED_PATH]
+    else:
+        paths = [path] + ([reported_path] if reported_path else [])
+    raw, files = [], {}
+    for source in paths:
+        with open(source, newline="") as f:
+            reader = csv.DictReader(f)
+            if reader.fieldnames != COLUMNS:
+                raise ConceptMapError(
+                    f"{Path(source).name}: expected columns {COLUMNS}, got {reader.fieldnames}"
+                )
+            raw += [(f"{Path(source).name} line {n}", r) for n, r in enumerate(reader, start=2)]
 
     errors, rows = [], []
-    for line, r in enumerate(raw, start=2):
+    for line, r in raw:
         if None in r or None in r.values():
-            errors.append(f"line {line}: wrong number of fields (quote any field with a comma)")
+            errors.append(f"{line}: wrong number of fields (quote any field with a comma)")
             continue
         if not r["priority"].isdigit():
-            errors.append(f"line {line}: priority must be a positive integer")
+            errors.append(f"{line}: priority must be a positive integer")
             continue
         row = ConceptRow(
             canonical_name=r["canonical_name"].strip(),
@@ -78,20 +97,24 @@ def load_concept_map(path: Path = CONCEPT_MAP_PATH) -> list[ConceptRow]:
             gate=r["gate"].strip(),
         )
         if not row.xbrl_concept.startswith(TAXONOMIES):
-            errors.append(f"line {line}: {row.xbrl_concept} must start with one of {TAXONOMIES}")
+            errors.append(f"{line}: {row.xbrl_concept} must start with one of {TAXONOMIES}")
         if row.unit not in UNITS:
-            errors.append(f"line {line}: unknown unit {row.unit!r}")
+            errors.append(f"{line}: unknown unit {row.unit!r}")
         if row.period_type not in PERIOD_TYPES:
-            errors.append(f"line {line}: unknown period_type {row.period_type!r}")
+            errors.append(f"{line}: unknown period_type {row.period_type!r}")
         if row.gate not in GATES:
-            errors.append(f"line {line}: gate must be one of {sorted(GATES)}")
+            errors.append(f"{line}: gate must be one of {sorted(GATES)}")
         if not row.definition:
-            errors.append(f"line {line}: definition is required")
+            errors.append(f"{line}: definition is required")
+        files.setdefault(row.canonical_name, set()).add(line.split(" line ")[0])
         rows.append(row)
 
     tags = [r.xbrl_concept for r in rows]
     for tag in sorted({t for t in tags if tags.count(t) > 1}):
         errors.append(f"{tag} is mapped more than once (one tag maps to one canonical name)")
+
+    for name in sorted(n for n, names in files.items() if len(names) > 1):
+        errors.append(f"{name}: an item's tags must all be in one file, not {sorted(files[name])}")
 
     for name in sorted({r.canonical_name for r in rows}):
         group = [r for r in rows if r.canonical_name == name]
@@ -107,12 +130,22 @@ def load_concept_map(path: Path = CONCEPT_MAP_PATH) -> list[ConceptRow]:
 
 
 def concept_map_sha256(path: Path = CONCEPT_MAP_PATH) -> str:
-    """Fingerprint of the concept map: a different map can give different answers for old dates."""
+    """Fingerprint of the valuation's concept map (concept_map.csv only): a different map can give
+    different answers for old dates. The reported-only file is left out by design (backlog #157):
+    no valuation reads its items, so editing it must not stop old runs from rebuilding."""
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def reported_only_names(path: Path = CONCEPT_MAP_REPORTED_PATH) -> set[str]:
+    """The items only the reported-figures query reads (concept_map_reported.csv)."""
+    return {r.canonical_name for r in load_concept_map(path)}
 
 
 def sync_concepts(conn: sqlite3.Connection, rows: list[ConceptRow]) -> dict[str, int]:
     """Make the concepts table match the CSV, in one transaction.
+
+    Pass the whole map (`load_concept_map()`, both files): rows read from one file alone would
+    delete the other file's tags (backlog #157).
 
     A tag removed from the CSV is deleted from the table; if stored facts still reference it the
     sync fails loudly, because silently keeping it would leave those facts in every query.
