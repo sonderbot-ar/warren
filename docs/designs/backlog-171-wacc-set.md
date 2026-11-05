@@ -88,4 +88,4 @@ On the restored snapshot (schema 21), on the latest stored run of each company (
 
 ## Merged
 
-nov.05.2026 as v0.9.20, PR #213, merge `04376d9`, after the gatekeeper's GO (a NO-GO first, on the last-digit change, fixed). The terminal-formula switch, the rest of #171, waits for the owner's card (sent nov.05.2026); #171 stays open for it.
+nov.05.2026 as v0.9.20, PR #213, merge `04376d9`, after the gatekeeper's GO (a NO-GO first, on the last-digit change, fixed). The terminal-formula switch, the rest of #171, was approved by the owner on nov.05.2026 and merged as v0.9.21 (PR #215).
