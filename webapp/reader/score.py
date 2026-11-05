@@ -168,6 +168,8 @@ def main(argv: list[str] | None = None) -> int:
         for line in handle:
             if line.strip():
                 item = json.loads(line)
+                if "meta" in item:  # the run's record of what produced the answers
+                    continue
                 answers[item["id"]] = item["reading"]
     report = score(load_set(args.set), answers, today)
     if args.json:
