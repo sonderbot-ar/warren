@@ -90,7 +90,97 @@ def test_items_not_reported_give_a_coded_gap(company):
         {"items": ["cost_of_revenue"]},
     )
     assert r.line("cost_of_revenue") is None  # a line the period doesn't report is left out
-    assert "net_margin" not in {x.name for x in r.ratios}  # waits for net income to the parent
+
+
+def test_net_margin_is_net_income_to_the_parent_over_revenue(company):
+    for period in ("FY2019", "FY2019Q4", "FY2019Q2"):  # a year, a derived Q4, a 10-Q quarter
+        r = reported_period(company, "TST", period, AS_OF)
+        margin = r.ratio("net_margin")
+        expected = r.line("net_income").value / r.line("revenue").value
+        assert margin.value == pytest.approx(expected)
+        assert margin.formula_id == "net_income_to_parent_over_revenue"
+        assert margin.notes == [] and margin.missing is None
+        assert [u["line"] for u in margin.uses] == ["net_income", "revenue"]
+    year = reported_period(company, "TST", "FY2019", AS_OF)
+    assert year.line("net_income").latest.xbrl_concept == "us-gaap:NetIncomeLoss"
+    # by construction: 0.75 × (20% of revenue − 8 of interest)
+    rev = year.line("revenue").value
+    assert year.ratio("net_margin").value == pytest.approx(0.75 * (0.2 * rev - 8) / rev)
+
+
+def test_net_margin_without_net_income_is_a_coded_gap(make_company):
+    conn = make_company(lambda tag, row: None if tag == "NetIncomeLoss" else row)
+    margin = reported_period(conn, "TST", "FY2019", AS_OF).ratio("net_margin")
+    assert margin.value is None
+    assert (margin.missing.code, margin.missing.params) == (
+        "not_reported",
+        {"items": ["net_income"]},
+    )
+
+
+def _with_discontinued(amount, tag="IncomeLossFromDiscontinuedOperationsNetOfTax", net=None):
+    """FY2019 (the 10-K's own year) gains a discontinued line; net income moves by it, or to
+    `net` when given."""
+
+    def edit(t, row):
+        fy2019 = row.get("start") == "2019-01-01" and row["end"] == "2019-12-31"
+        if t != "NetIncomeLoss" or not fy2019:
+            return row
+        value = row["val"] + amount if net is None else net
+        return [("NetIncomeLoss", {**row, "val": value}), (tag, {**row, "val": amount})]
+
+    return edit
+
+
+def test_discontinued_operations_get_a_note_with_their_share(make_company):
+    conn = make_company(_with_discontinued(50))
+    r = reported_period(conn, "TST", "FY2019", AS_OF)
+    margin = r.ratio("net_margin")
+    net = r.line("net_income").value
+    assert margin.value == pytest.approx(net / r.line("revenue").value)  # stays in, as reported
+    (note,) = margin.notes
+    assert note.code == "includes_discontinued_operations"
+    assert note.params == {
+        "amount": 50,
+        "currency": "USD",
+        "share_of_net_income": pytest.approx(50 / net),
+    }
+    assert [u["line"] for u in margin.uses] == ["net_income", "discontinued_operations", "revenue"]
+    assert r.line("discontinued_operations").value == 50
+
+
+def test_the_parents_share_of_discontinued_operations_ranks_first(make_company):
+    parent = "IncomeLossFromDiscontinuedOperationsNetOfTaxAttributableToReportingEntity"
+
+    def both(t, row):
+        pairs = _with_discontinued(50)(t, row)
+        if isinstance(pairs, list):
+            pairs.append((parent, {**row, "val": 40}))
+        return pairs
+
+    r = reported_period(make_company(both), "TST", "FY2019", AS_OF)
+    assert r.line("discontinued_operations").latest.xbrl_concept == f"us-gaap:{parent}"
+    assert r.ratio("net_margin").notes[0].params["amount"] == 40
+
+
+@pytest.mark.parametrize(
+    ("amount", "net"),
+    [(-30, None), (50, -20), (500, 300)],  # a loss; net loss overall; more than all of net income
+)
+def test_no_share_when_it_would_not_be_a_share(make_company, amount, net):
+    r = reported_period(make_company(_with_discontinued(amount, net=net)), "TST", "FY2019", AS_OF)
+    margin = r.ratio("net_margin")
+    (note,) = margin.notes
+    assert note.code == "includes_discontinued_operations"
+    assert "share_of_net_income" not in note.params
+    assert note.params["amount"] == amount
+    if net is not None and net < 0:
+        assert margin.value < 0  # a loss gives a negative margin, not a gap
+
+
+def test_zero_discontinued_operations_give_no_note(make_company):
+    r = reported_period(make_company(_with_discontinued(0)), "TST", "FY2019", AS_OF)
+    assert r.ratio("net_margin").notes == []
 
 
 def test_latest_quarter_is_point_in_time(company):

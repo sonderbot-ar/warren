@@ -2,10 +2,11 @@
 
 Test Corp (TST), calendar fiscal years. Quarterly revenue is 100 × 1.1^(year − 2015) × the
 seasonal share (0.9, 1.0, 1.0, 1.1), so every year grows 10%. Operating margin 20%, interest 2 a
-quarter, tax 25% of pretax, D&A 5% and capex 6% of revenue. Every balance sheet: current assets
-300, cash 60, current liabilities 150, current debt 20, non-current debt 180, minority interest
-5; 100 shares. The market index gains steadily with a wobble, TST moves 1.5× the index, and the
-10-year yield is a flat 3%. Data runs to 2020-03-31 (the Q1 2020 10-Q, filed 2020-04-30).
+quarter, tax 25% of pretax, net income to the parent the other 75%, D&A 5% and capex 6% of
+revenue. Every balance sheet: current assets 300, cash 60, current liabilities 150, current debt
+20, non-current debt 180, minority interest 5; 100 shares. The market index gains steadily with a
+wobble, TST moves 1.5× the index, and the 10-year yield is a flat 3%. Data runs to
+2020-03-31 (the Q1 2020 10-Q, filed 2020-04-30).
 """
 
 import math
@@ -57,6 +58,7 @@ def flows(revenue_value: float, quarters: int) -> dict[str, float]:
         "InterestExpense": 2 * quarters,
         "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest": pretax,  # noqa: E501
         "IncomeTaxExpenseBenefit": 0.25 * pretax,
+        "NetIncomeLoss": 0.75 * pretax,  # reported figures only (backlog #157)
         "DepreciationDepletionAndAmortization": 0.05 * revenue_value,
         "PaymentsToAcquirePropertyPlantAndEquipment": 0.06 * revenue_value,
         "WeightedAverageNumberOfDilutedSharesOutstanding": 100,
@@ -64,7 +66,8 @@ def flows(revenue_value: float, quarters: int) -> dict[str, float]:
 
 
 def companyfacts(edit=None) -> dict:
-    """The companyfacts document; `edit(tag, row)` may change a row's value or drop it (None)."""
+    """The companyfacts document; `edit(tag, row)` may change a row's value, drop it (None), or
+    return a list of (tag, row) pairs to file instead (adds a tag the fixture lacks)."""
     facts: dict[str, dict[str, list]] = {}
 
     def put(tag, value, end, accn, fy, fp, form, filed, start=None):
@@ -73,11 +76,12 @@ def companyfacts(edit=None) -> dict:
         row["filed"] = filed
         if start:
             row["start"] = start
+        pairs = [(tag, row)]
         if edit is not None:
             row = edit(tag, row)
-            if row is None:
-                return
-        facts.setdefault(tag, {}).setdefault(unit, []).append(row)
+            pairs = row if isinstance(row, list) else [] if row is None else [(tag, row)]
+        for tag, row in pairs:
+            facts.setdefault(tag, {}).setdefault(unit, []).append(row)
 
     filings = [(y, q) for y in range(2016, 2020) for q in (1, 2, 3, 4)] + [(2020, 1)]
     for n, (year, quarter) in enumerate(filings):
