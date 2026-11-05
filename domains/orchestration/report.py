@@ -298,15 +298,15 @@ def range_section(conn: sqlite3.Connection, state: PipelineState) -> list[str]:
         who = "all companies" if c.scope == "all" else state.ticker
         iv = f", 90% interval {_pct(c.interval[0])}–{_pct(c.interval[1])}" if c.interval else ""
         verdict = c.missing.code if c.missing else c.verdict
-        lines.append(f"- {c.item}, {who}: {_pct(c.share)} inside ({c.inside} of {c.n} past "
+        lines.append(f"- {c.item}, {who}: {_pct(c.share)} inside ({c.inside:,} of {c.n:,} past "
                      f"forecasts, {c.n_quarters} quarters){iv}; {verdict}")  # fmt: skip
-    lines.append("")
+    lines += ["", *[f"- Note: {n.text}" for n in base.notes], ""]
     by_sim: dict[str, list[str]] = {}
     for v in state.variants:
         s = state.sim.get(v)
         if s is not None:
             by_sim.setdefault(s.sim_id, []).append(v)
-    notes = [n.text for n in base.notes]
+    notes: list[str] = []
     for sim_id, variants in by_sim.items():
         r = RN.run_ranges(conn, state.run_id, check_basis=False, sim_id=sim_id, coverage=False)
         label = f"With shocks: {' and '.join(variants)} (simulation {sim_id})"
@@ -315,11 +315,13 @@ def range_section(conn: sqlite3.Connection, state: PipelineState) -> list[str]:
                   ""]  # fmt: skip
         notes += [n.text for n in r.notes if n.code not in ("coverage_skipped",
                                                             "coverage_is_baseline")]  # fmt: skip
-    seen = []
+    shown, seen = {n.text for n in base.notes}, []
     for n in notes:
+        if n in shown:
+            continue
         if n not in seen:
             seen.append(n)
-    return [*lines, *[f"- Note: {n}" for n in seen]]
+    return [*lines, *[f"- Note: {n}" for n in seen]] if seen else lines[:-1]
 
 
 def trace(state: PipelineState, telemetry_path: Path) -> str:
