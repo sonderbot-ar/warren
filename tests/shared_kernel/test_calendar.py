@@ -1,6 +1,8 @@
 import ast
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+
+import pytest
 
 from domains.news import gdelt
 from shared_kernel import calendar
@@ -50,3 +52,34 @@ def test_the_scan_sees_the_kernel_and_its_users():
     files = {p.relative_to(ROOT).as_posix() for p in _source_files()}
     expected = {"shared_kernel/calendar.py", "domains/market/store.py", "domains/news/gdelt.py"}
     assert expected <= files
+
+
+def test_the_last_ended_day_turns_at_new_york_midnight():
+    # summer (EDT, UTC-4) and winter (EST, UTC-5)
+    assert calendar.last_ended_day(datetime(2026, 7, 2, 3, 59, 59, tzinfo=UTC)) == date(2026, 6, 30)
+    assert calendar.last_ended_day(datetime(2026, 7, 2, 4, 0, tzinfo=UTC)) == date(2026, 7, 1)
+    assert calendar.last_ended_day(datetime(2026, 1, 16, 4, 59, 59, tzinfo=UTC)) == date(
+        2026, 1, 14
+    )
+    assert calendar.last_ended_day(datetime(2026, 1, 16, 5, 0, tzinfo=UTC)) == date(2026, 1, 15)
+
+
+def test_the_last_ended_day_across_both_clock_changes():
+    # 2026-03-08 and 2026-11-01 are the US clock changes; midnight after them is 04:00 and 05:00 UTC
+    assert calendar.last_ended_day(datetime(2026, 3, 9, 3, 59, tzinfo=UTC)) == date(2026, 3, 7)
+    assert calendar.last_ended_day(datetime(2026, 3, 9, 4, 0, tzinfo=UTC)) == date(2026, 3, 8)
+    assert calendar.last_ended_day(datetime(2026, 11, 2, 4, 59, tzinfo=UTC)) == date(2026, 10, 31)
+    assert calendar.last_ended_day(datetime(2026, 11, 2, 5, 0, tzinfo=UTC)) == date(2026, 11, 1)
+
+
+def test_the_last_ended_day_has_ended_and_the_next_has_not():
+    now = datetime(2025, 12, 31, 0, 17, tzinfo=UTC)
+    while now < datetime(2027, 1, 2, tzinfo=UTC):
+        day = calendar.last_ended_day(now)
+        assert calendar.known_by(day) <= now < calendar.known_by(day + timedelta(days=1))
+        now += timedelta(hours=7, minutes=13)
+
+
+def test_the_last_ended_day_needs_a_time_zone():
+    with pytest.raises(ValueError):
+        calendar.last_ended_day(datetime(2026, 7, 2, 12, 0))

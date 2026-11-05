@@ -10,10 +10,13 @@ The owner's comments on what students see, kept so the owner never says the same
 |---|---|---|---|
 | Product brief (`docs/product/brief.md`) | nov.03.2026 | Approved (card) | nov.03.2026 |
 | Design principles (`docs/product/design-principles.md`) | nov.03.2026 | Approved (card), including the side-panel narrowing and the Mexico number format | nov.03.2026 |
+| The app's stack and the reader's model (`docs/designs/f2-web-app.md`) | nov.04.2026 | FastAPI + htmx, local open model (card, the recommended option) | nov.04.2026 |
+| Start F2's stack comparison before M10 merges (no screens until it does) | nov.04.2026 | Approved (card) | nov.04.2026 |
 | Literal and hypothetical sorting rule (backlog #130): AI reader or menus only | nov.03.2026 | AI reader (card), then "no menus first": the reader is built from the start, menus only as a fallback | nov.03.2026 |
 
 ## Notes
 
+- **nov.04.2026 · Compare stacks now.** On the card "Start comparing app stacks now, while M10 waits until 16 Nov?", chose "Start the stack comparison now". *Changed:* F2 starts with its stack card (`docs/designs/f2-web-app.md`); mockups and screens still wait for M10.
 - **nov.03.2026 · No tagging by students.** On the sorting card: "I am not too fond of users having to tag their type of question — maybe we get a decision model in this part of the process?" Then chose the AI reader and added: "I agree, no menus first." *Changed:* Decision 9 records the question reader, built with the first screens; menus are only a fallback when the reader is unsure or unavailable; the student only confirms the reading. Students should not have to classify their own question.
 - **nov.03.2026 · Pristine and intuitive.** "I want the aesthetics and functionality of Warren to be pristine and intuitive." "This front-end team will need a lot of coordination and reporting with me." *Changed:* the owner signs off the brief, the design principles, the visual direction and each screen (mockup and built); a design critic passes everything first; this file and the studio page exist.
 - **nov.03.2026 · A web app, run locally first.** Asked whether a desktop app was overkill, and chose a web app that runs on the owner's Mac first and is hosted later. *Changed:* Decision 13; F2 compares free stacks that can be hosted without a rewrite.

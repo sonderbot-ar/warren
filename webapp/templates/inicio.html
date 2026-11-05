@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block content %}
+  <h1>{{ t("inicio.title") }}</h1>
+  <p class="lede">{{ t("app.tagline") }}</p>
+  <p>{{ t("inicio.lede") }}</p>
+  <p><a href="/componentes?corte={{ corte.isoformat() }}">{{ t("inicio.bench_link") }}</a></p>
+{% endblock %}

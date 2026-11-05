@@ -21,11 +21,21 @@ difference.
     python -m domains.evaluation ranges origins [--ticker T ...] [--from D] [--to D]
     python -m domains.evaluation ranges test [--batch EVAL_BATCH] [--guidance PATH]
     python -m domains.evaluation ranges reproduce --build B [--guidance PATH]
+    python -m domains.evaluation ranges run --run-id R [--json]
 
 M9 (honest ranges): `origins` runs the baseline on the 1st of every month for every company and
 stores each forecast quarter's miss; `test` builds every range from the misses public on its
 date, scores the rolling test and (with --batch) the backtest's cases, and writes
-data/reports/eval/<build_id>_ranges.md; `reproduce` checks a stored build to the cent.
+data/reports/eval/<build_id>_ranges.md; `reproduce` checks a stored build to the cent. `run`
+(backlog #144) gives any stored run its range and the range's track record, as of the run's date;
+`--json` prints it for the app. It writes nothing.
+
+    python -m domains.evaluation track-record --ticker T [--as-of D] [--json]
+
+`track-record` (backlog #145) shows how well Warren has forecast one company: every past
+monthly forecast quarter beside its first-reported actual, the benchmark's miss and whether the
+range held, with summaries. Without --as-of it uses the last day ended in New York. It writes
+nothing.
 """
 
 import argparse
@@ -272,6 +282,48 @@ def cmd_run_grid(args) -> int:
     return 0 if not summary.failed else 1
 
 
+def cmd_ranges_run(args: argparse.Namespace) -> int:
+    import json
+
+    from domains.evaluation import run_ranges
+    from domains.evaluation.harness import EvaluationError
+
+    with get_db_connection() as conn:
+        apply_migrations(conn)
+        try:
+            result = run_ranges.run_ranges(conn, args.run_id)
+        except EvaluationError as e:
+            print(f"FAILED: {e}")
+            return 1
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2, ensure_ascii=False))
+    else:
+        print(run_ranges.render(result), end="")
+    return 0
+
+
+def cmd_track_record(args: argparse.Namespace) -> int:
+    import json
+    from datetime import date
+
+    from domains.evaluation import track_record
+    from domains.evaluation.harness import EvaluationError
+
+    as_of = date.fromisoformat(args.as_of) if args.as_of else None
+    with get_db_connection() as conn:
+        apply_migrations(conn)
+        try:
+            result = track_record.track_record(conn, args.ticker, as_of)
+        except EvaluationError as e:
+            print(f"FAILED: {e}")
+            return 1
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2, ensure_ascii=False))
+    else:
+        print(track_record.render(result), end="")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m domains.evaluation")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -321,6 +373,16 @@ def main(argv: list[str] | None = None) -> int:
     rgr.add_argument("--since", help="count AI spend from this UTC time (YYYY-MM-DDTHH:MM:SSZ), so "
                      "a restarted run stays under the same cap; default: now")  # fmt: skip
     rgr.set_defaults(func=cmd_run_grid)
+
+    rn = rcmd.add_parser("run", help="a stored run's range and the range's track record")
+    rn.add_argument("--run-id", required=True)
+    rn.add_argument("--json", action="store_true", help="print JSON for the app")
+    rn.set_defaults(func=cmd_ranges_run)
+    tr = commands.add_parser("track-record", help="how well Warren has forecast one company")
+    tr.add_argument("--ticker", required=True)
+    tr.add_argument("--as-of", help="YYYY-MM-DD; default: the last day ended in New York")
+    tr.add_argument("--json", action="store_true", help="print JSON for the app")
+    tr.set_defaults(func=cmd_track_record)
     args = parser.parse_args(argv)
     return args.func(args)
 

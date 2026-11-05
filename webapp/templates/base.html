@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="{{ region.language }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  {# history: no cached copies; Back reloads the address, so the panel opens or closes from it #}
+  <meta name="htmx-config" content='{"historyCacheSize": 0, "refreshOnHistoryMiss": true}'>
+  <title>{% block title %}{{ t("app.name") }}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/tokens.css">
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/vendor/htmx-2.0.11.min.js" defer></script>
+  <script src="/static/panel.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#contenido">{{ t("skip_link") }}</a>
+  <header class="site-header">
+    <a class="brand" href="/?corte={{ corte.isoformat() }}">{{ t("app.name") }}</a>
+    <p class="corte" title="{{ t('header.corte_help') }}">
+      <span class="corte-label">{{ t("header.corte") }}</span>
+      <time datetime="{{ corte.isoformat() }}" data-corte>{{ fmt_date(corte) }}</time>
+    </p>
+    <nav class="language" aria-label="{{ t('header.language') }}">
+      {% set here = path ~ ("?" ~ query if query else "") %}
+      <a href="/idioma?region=es-MX&amp;volver={{ here | urlencode }}" lang="es" hreflang="es"
+         {% if region.language == "es" %}aria-current="true"{% endif %}>{{ t("lang.es") }}</a>
+      <a href="/idioma?region=en-US&amp;volver={{ here | urlencode }}" lang="en" hreflang="en"
+         {% if region.language == "en" %}aria-current="true"{% endif %}>{{ t("lang.en") }}</a>
+    </nav>
+  </header>
+  <main id="contenido" tabindex="-1">
+    {% block content %}{% endblock %}
+  </main>
+  <div id="panel-host">{% block panel %}{% endblock %}</div>
+</body>
+</html>

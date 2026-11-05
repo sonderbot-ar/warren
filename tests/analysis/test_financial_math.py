@@ -235,3 +235,66 @@ def test_errors_apply_to_sample_arrays():
     assert fm.apply_margin_error(10.0, np.array([0.01, -0.02]), revenue) == pytest.approx(
         [11.0, 7.8]
     )
+
+
+# -- reported ratios (backlog #140) -----------------------------------------------------------
+
+
+def test_ratio_is_a_fraction_of_a_positive_base():
+    # 20 / 100 = 0.2 (20%)
+    assert fm.ratio(20, 100) == pytest.approx(0.2)
+    assert fm.ratio(-5, 100) == pytest.approx(-0.05)  # a loss gives a negative margin
+
+
+@pytest.mark.parametrize("base", [0, -100])
+def test_ratio_refuses_a_base_at_or_below_zero(base):
+    with pytest.raises(FinancialMathError):
+        fm.ratio(20, base)
+
+
+def test_growth():
+    # 110 / 100 − 1 = 0.10
+    assert fm.growth(110, 100) == pytest.approx(0.10)
+    assert fm.growth(90, 100) == pytest.approx(-0.10)
+    with pytest.raises(FinancialMathError):
+        fm.growth(110, 0)
+
+
+def test_net_debt_can_be_net_cash():
+    # 200 − 60 = 140; 50 − 80 = −30 (net cash)
+    assert fm.net_debt(200, 60) == 140
+    assert fm.net_debt(50, 80) == -30
+    with pytest.raises(FinancialMathError):
+        fm.net_debt(-1, 0)
+
+
+# -- sensitivity grid (backlog #142) ---------------------------------------------------------
+
+
+def test_reinvestment_rate_and_the_return_it_implies():
+    # NOPAT 100, FCFF 60: 40% reinvested; 4% growth at that rate implies a 10% return
+    assert fm.reinvestment_rate(60.0, 100.0) == pytest.approx(0.4)
+    assert fm.implied_ronic(0.04, 0.4) == pytest.approx(0.10)
+    assert fm.reinvestment_rate(120.0, 100.0) == pytest.approx(-0.2)  # takes capital out
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda: fm.reinvestment_rate(10.0, 0.0),
+        lambda: fm.reinvestment_rate(10.0, -5.0),
+        lambda: fm.implied_ronic(0.04, 0.0),
+        lambda: fm.implied_ronic(0.04, -0.2),
+        lambda: fm.change_per_point(1.0, 2.0, 1.0, 0.01, 0.01),
+        lambda: fm.change_per_point(1.0, 2.0, 0.0, -0.01, 0.01),
+    ],
+)
+def test_sensitivity_helpers_refuse_meaningless_inputs(call):
+    with pytest.raises(FinancialMathError):
+        call()
+
+
+def test_change_per_point():
+    # 90 to 110 on a base of 100 over 2 points of the input: 10% a point
+    assert fm.change_per_point(90.0, 110.0, 100.0, -0.01, 0.01) == pytest.approx(0.10)
+    assert fm.change_per_point(110.0, 90.0, 100.0, -0.01, 0.01) == pytest.approx(-0.10)

@@ -42,8 +42,8 @@ def test_0018_adds_the_filing_date_and_keeps_stored_rows(db_path, tmp_path):
         )
         conn.commit()
         before_rows = [tuple(r) for r in conn.execute("SELECT * FROM eval_results")]
-        assert apply_migrations(conn) == [18]
-        assert current_schema_version(conn) == 18
+        assert apply_migrations(conn) == [18, 19, 20, 21]
+        assert current_schema_version(conn) == 21
         after = [tuple(r) for r in conn.execute("SELECT * FROM eval_results")]
         assert [r[:-1] for r in after] == before_rows and after[0][-1] is None
         conn.execute("UPDATE eval_results SET actual_filed_at = '2019-10-30'")

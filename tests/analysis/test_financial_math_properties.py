@@ -120,3 +120,30 @@ def test_revenue_range_is_positive_and_monotone_in_the_error(forecast, error, st
     low = fm.apply_revenue_error(forecast, error)
     assert low > 0
     assert fm.apply_revenue_error(forecast, error + step) > low
+
+
+amount = st.floats(min_value=0.0, max_value=1e12)
+positive = st.floats(min_value=1e-3, max_value=1e12)
+
+
+@given(positive)
+def test_growth_of_a_value_over_itself_is_zero(x):
+    assert fm.growth(x, x) == pytest.approx(0.0)
+
+
+@given(amount, positive)
+def test_ratio_times_its_base_gives_the_numerator_back(part, whole):
+    assert fm.ratio(part, whole) * whole == pytest.approx(part)
+
+
+@given(amount, amount)
+def test_net_debt_is_debt_less_cash(debt, cash):
+    assert fm.net_debt(debt, cash) == pytest.approx(debt - cash)
+
+
+def test_reported_ratios_work_on_sample_arrays():
+    import numpy as np
+
+    assert fm.ratio(np.array([1.0, 2.0]), np.array([4.0, 4.0])).tolist() == [0.25, 0.5]
+    with pytest.raises(fm.FinancialMathError):
+        fm.ratio(np.array([1.0]), np.array([0.0]))

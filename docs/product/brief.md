@@ -2,6 +2,8 @@
 
 Status: Accepted (F1, nov.03.2026) · Owner sign-off: approved nov.03.2026, with the sorting rule · Owner: front-end team (Structure Guide Decision 13)
 
+Since sign-off: v0.9.6 (backlog #140) answers questions 1 and 2, v0.9.8 (#144) question 5, and v0.9.9 (#141) question 8 and part of 7, so six questions work today, five in part and four not yet. The questions and answers below are unchanged; only their "Hoy" lines and section 5 move as the engine delivers.
+
 > **What you are approving.** Fifteen questions a finance student would ask Warren, in Spanish, and what Warren answers to each. Questions come in four kinds: a reported figure (*dato*), a model estimate (*estimación*), a changed assumption (*cambio de supuesto*) and an event (*evento*). Warren shows how it read the question before computing anything. Changed assumptions are recomputed by tested code. Events are answered only with similar past cases, how many there are, and what to watch: never a number an AI made up. Warren never predicts prices or gives advice. Two questions work today, eight in part and five not yet; what is missing is eight requests to the engine team (section 5). Signing commits Warren's first screens to these questions. How questions are sorted was decided on its own card (an AI reader, built from the start). How screens look comes later, with mockups.
 
 This brief says which questions Warren must answer for a finance student, how each kind is answered, and what the engine still needs. Engine design docs check their *Product impact* against it (`docs/team-sync.md`). Screens come later (F2, after M10); this brief decides what they must hold, not how they look.
@@ -53,13 +55,13 @@ Fifteen questions, written as a student would ask them, with an English gloss. "
 *How much did Apple sell last quarter, and which filing does that number come from?*
 - Kind: Dato.
 - Returns: revenue for the last reported quarter, its 10-Q or 10-K (accession), the XBRL tag, the period end and the filing date; the first-reported and the latest figure, flagged when they differ (the engine knows *that* it changed, not *why*). Apple's fiscal fourth quarter has no 10-Q: it is the year in the 10-K minus the first nine months, and is marked as derived.
-- Hoy: **En parte**. Facts are stored point in time with their provenance since M1; no command returns one. Request R1 (#140).
+- Hoy: **Sí** (since v0.9.6): `python -m domains.analysis reported --ticker AAPL --period latest-quarter --as-of <fecha> --json`, or the call `domains.analysis.reported.reported_period`. Returns the filing (form, accession, date, EDGAR link), first-reported and latest with `changed`, and the derived fiscal Q4 with its inputs. Request R1 (#140), done.
 
 **2. ¿Cómo ha cambiado el margen operativo de Coca-Cola en los últimos cinco años frente al de Procter & Gamble?**
 *How has Coca-Cola's operating margin changed over five years compared with P&G's?*
 - Kind: Dato (two companies, a ratio).
 - Returns: operating margin by fiscal year for both, as reported (one-off charges included, and said so), each year traced to its filing, the formula, and the fiscal-year ends side by side (Coca-Cola: December; P&G: June, so the "same" year is six months apart).
-- Hoy: **En parte**. A valuation run holds the history it used; there is no stand-alone query, and the app never computes a ratio itself. Request R1 (#140).
+- Hoy: **Sí** (since v0.9.6): the `reported` command once per fiscal year and company (`operating_margin`, with its formula, the lines it uses and their filings; fiscal-year labels are each company's own). The app asks five periods per company, and builds the spreadsheet formula a student would type from `uses` (design principle 5); it never computes the ratio. Request R1 (#140), done.
 
 ### Estimaciones: what the model says
 
@@ -67,7 +69,7 @@ Fifteen questions, written as a student would ask them, with an English gloss. "
 *What is Microsoft worth per share on a DCF, and what assumptions does it use?*
 - Kind: Estimación.
 - Returns: value per share with its values at the equity risk premium ± one standard error; the five-year drivers; WACC; the terminal value method; every assumption with its source. The market price appears only as an input to the capital weights, never as a target.
-- Hoy: **Sí**, with a date: `python -m domains.analysis dcf --ticker MSFT --as-of <fecha>` (no AI, free). The default to the latest date is #128 item 1.
+- Hoy: **Sí**: `python -m domains.analysis dcf --ticker MSFT` (no AI, free). Without `--as-of` it uses the last day that has ended in New York and says so, with the date of the last EDGAR download (since v0.9.7, #128). A past date is asked with `--as-of <fecha>`; the full run (`python main.py run`) then also shows the forecast against what was reported afterwards.
 
 **4. ¿Cuál es el WACC de Walmart y de dónde sale cada parte?**
 *What is Walmart's WACC, and where does each part come from?*
@@ -79,13 +81,13 @@ Fifteen questions, written as a student would ask them, with an English gloss. "
 *How much will Apple sell in the next four quarters, and how sure is that forecast?*
 - Kind: Estimación.
 - Returns: the baseline revenue path, quarter by quarter, with its p10–p90 range from Warren's own past misses known on that date (M9), and how often such ranges held: across all companies 83% (a p10–p90 range should hold about 8 times in 10), and Apple's own figure beside it, since coverage differs by company (4 of the 8 companies fell outside 65–95%, the band the team set as acceptable for an 80% range; v0.9). So the screen says plainly when Apple's own ranges held less or more often than the pooled 83%.
-- Hoy: **En parte**. Ranges exist for the stored M9 origins and backtest cases, not for a new run. Request R3 (#144).
+- Hoy: **Sí** for the baseline's range (v0.9.8, #144): any run gets its p10–p90 per quarter, how often such ranges held across all companies and for the company, and a coded verdict against 65–95%. The range on top of news shocks still waits (#167).
 
 **6. ¿Qué tan bien ha pronosticado Warren a Procter & Gamble en el pasado?**
 *How well has Warren forecast P&G in the past?*
 - Kind: Estimación (the model's track record).
 - Returns: past forecasts beside the first-reported actuals, quarter by quarter, the error, how often the range held the actual, and the same for a simple benchmark (last year's quarter carried forward), for that company. Where the range did not hold for this company, it says so.
-- Hoy: **En parte**. The batches are stored; reports pool all companies. Request R4 (#145).
+- Hoy: **Sí** (since v0.9.14, #145; monthly history since 2019; the case batches join when M10 merges, #189): `python -m domains.evaluation track-record --ticker PG --json`, or the call `domains.evaluation.track_record.track_record`. Each past forecast quarter with the first-reported actual, the miss, the benchmark's miss and whether the range held; per item and horizon a coded verdict against the benchmark and the range's record beside the other companies'. Lead with the `headline` cell.
 
 ### Cambios de supuesto: change an input, see the ripple
 
@@ -94,19 +96,19 @@ Fifteen questions, written as a student would ask them, with an English gloss. "
 - Kind: Cambio de supuesto, through the listed transmission.
 - Reading shown first: "Cambio: tasa libre de riesgo, por una subida inesperada de la Fed. Traslado a la tasa a 10 años: entre A y B pb por cada 25 pb (fuente). Si la subida ya se esperaba, la tasa de hoy ya la incluye y no cambia nada." A and B come from the engine's sourced range (R2c), never from the app.
 - Returns: before and after for the risk-free rate, cost of equity, WACC, terminal growth and value per share, at the low and the high end of the transmission range, with the reason for each move. It names the run's terminal value method and what follows from it. Two of Warren's own choices, not general rules, shape the answer, and the screen says so: terminal growth is set equal to the risk-free rate (the usual ceiling, Damodaran), and new investment after year five earns exactly its cost of capital (RONIC = WACC: the return on new invested capital equals its cost, so growth adds no value), which makes terminal value NOPAT × (1 + g) ÷ WACC. So growth moves with the rate but barely matters, and the higher cost of equity, hence WACC, drives the change. The cost of debt does not move: Warren takes it from past interest over average debt.
-- Hoy: **No**. A manual shock can move the risk premium inside a simulation, not the risk-free rate or terminal growth. Requests R2a, R2c (#141, #143).
+- Hoy: **En parte** (since v0.9.9, #141): `python -m domains.analysis whatif --run-id R --add risk_free=0.0025 --json` (or `domains.analysis.whatif.revalue`) moves the risk-free rate and shows cost of equity, WACC and value per share before and after, with terminal growth and the growth fade following it and each moved line's cause. The app must label it "if the 10-year yield moved by 25 bp": the Fed's surprise to the 10-year transmission, with its low and high ends, is R2c (#143).
 
 **8. Si el margen operativo de Walmart baja un punto porcentual, ¿cuánto cambia su valor por acción?**
 *If Walmart's operating margin falls by one percentage point, how much does its value per share change?*
 - Kind: Cambio de supuesto.
 - Returns: before and after value per share, the free cash flow path both ways, and the ripple: operating income, taxes, free cash flow, terminal value.
-- Hoy: **En parte**. A hand-written shock file with one fixed size through `python -m domains.analysis simulate` gives the number, but not as a stored, linked revaluation a screen can call. Request R2a (#141).
+- Hoy: **Sí** (since v0.9.9): `python -m domains.analysis whatif --run-id R --add operating_margin=-0.01 --json`, or the call `domains.analysis.whatif.revalue`. Stores a linked what-if run that reproduces to the cent and returns before, after and change for revenue, EBIT, operating taxes, NOPAT and FCFF per period, the terminal value, the bridge to equity and value per share, each with the inputs behind the move. Request R2a (#141), done.
 
 **9. ¿Qué tan sensible es el valor de Coca-Cola al WACC y al crecimiento terminal?**
 *How sensitive is Coca-Cola's value to WACC and terminal growth?*
 - Kind: Cambio de supuesto (two inputs over a grid).
 - Returns: value per share over a grid of WACC (set directly, a teaching override) and terminal growth, with the run's own point marked. The lesson the screen states: under Warren's terminal method the table is almost flat along growth and steep along WACC, unlike the textbook Gordon model, which is shown beside it for contrast. Cells where growth reaches WACC say "no definido: el crecimiento terminal alcanza el WACC", never zero, under both methods: Warren's short formula comes from the same perpetuity as Gordon's, and that perpetuity has a value only while growth stays below WACC (v0.5.4).
-- Hoy: **En parte** (only the ERP ± 1 standard error values). Request R2b (#142).
+- Hoy: **Sí** (v0.9.12, #142: `sensitivity.grid`; Gordon is steeper on both axes, so the screen states how much growth moves value compared with WACC, which the engine's verdict gives; a cell at WACC ≤ 0 says "no definido: el WACC es cero o menor").
 
 ### Eventos: answered from past cases
 
@@ -157,17 +159,18 @@ Every event answer shows, for each case: the company and date with its source, w
 
 ## 5. What this brief asks of the engine
 
-Each is an issue labelled `backlog` and `front-end` (`docs/team-sync.md`, rule 4). The engine team weighs them with its backlog. F2's first screen needs R1 and #128; the rest serve later screens.
+Each is an issue labelled `backlog` and `front-end` (`docs/team-sync.md`, rule 4). The engine team weighs them with its backlog. F2's first screen needs R1 (done in v0.9.6) and #128 (done in v0.9.7); the rest serve later screens.
 
 | Id | Ask | Questions | Size (engine lead) | Issue |
 |---|---|---|---|---|
-| R1 | Reported figures and named ratios for a company and period, with provenance, first reported and latest, revision flag (takes over #128 item 2) | 1, 2 | M | #140 |
-| R2a | What-if revaluation: a stored run revalued with named inputs changed, deterministic, stored as a linked child run that reproduces to the cent | 7, 8 | L | #141 |
-| R2b | Two-input sensitivity grid on R2a | 9 | S | #142 |
+| R1 | Reported figures and named ratios for a company and period, with provenance, first reported and latest, revision flag (takes over #128 item 2) | 1, 2 | M | #140 (done, v0.9.6) |
+| R1b | Net margin on net income to the parent (left out of #140; no brief question needs it yet) | — | — | #157 |
+| R2a | What-if revaluation: a stored run revalued with named inputs changed, deterministic, stored as a linked child run that reproduces to the cent | 7, 8 | L | #141 (done, v0.9.9; debt #170, WACC and terminal method #171) |
+| R2b | Two-input sensitivity grid on R2a | 9 | S | #142 (done, v0.9.12) |
 | R2c | The list of transmissions, starting with an unexpected policy-rate move → 10-year yield, as a sourced range (owner card: a new method) | 7 | M | #143 |
 | R3 | Error ranges (M9) and the company's own coverage on every run | 5 | S–M | #144 |
-| R4 | Track record per company from the stored batches | 6 | S | #145 |
+| R4 | Track record per company from the stored batches | 6 | S | #145 (done, v0.9.14) |
 | R5 | Past-event query: cases by rule, closeness, n and a thin-evidence flag, the usual-miss comparison, scope-change warning, and a sourced "metrics to watch" table | 10–15 | M | #146 |
 | R6 | Analogue cases for currency, inflation, commodity supply and elections, in a separate, unscored file | 11, 13, 14, 15 | M | #147 |
-| — | Runs default to the latest ended day | 3 | | #128 |
+| — | Runs default to the latest ended day; a past date shows what was reported afterwards | 3, 5 | | #128 (done, v0.9.7) |
 | — | The sorting rule and the AI reader (owner decision) | all | | #130 |

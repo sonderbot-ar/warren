@@ -68,6 +68,9 @@ class PipelineState(BaseModel):
 
     # write_report
     report_path: str | None = None
+    actuals_on: date | None = Field(
+        default=None, description="hindsight section reads filings to this day (backlog #128)"
+    )
 
     @property
     def case_id(self) -> str:

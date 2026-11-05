@@ -51,6 +51,16 @@ def list_migrations(migrations_dir: Path = MIGRATIONS_DIR) -> list[tuple[int, Pa
     return migrations
 
 
+def applied_versions(conn: sqlite3.Connection) -> set[int]:
+    """Every migration version recorded in schema_version (empty for an empty database)."""
+    table = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'"
+    ).fetchone()
+    if table is None:
+        return set()
+    return {row[0] for row in conn.execute("SELECT version FROM schema_version")}
+
+
 def current_schema_version(conn: sqlite3.Connection) -> int:
     """Highest applied migration version, or 0 for an empty database."""
     table = conn.execute(
@@ -63,15 +73,19 @@ def current_schema_version(conn: sqlite3.Connection) -> int:
 
 
 def apply_migrations(conn: sqlite3.Connection, migrations_dir: Path = MIGRATIONS_DIR) -> list[int]:
-    """Apply every pending migration in order, each in its own transaction.
+    """Apply every migration not yet recorded, in order, each in its own transaction.
+
+    "Not yet recorded", not "above the highest applied": parallel tracks number their migrations
+    ahead of merging (backlog #141 took 0019 while M10's 0018 waited on its branch), so a version
+    that lands after a higher one must still apply.
 
     Returns the versions applied (empty when the schema is already up to date).
     A failing migration is rolled back and re-raised; earlier migrations stay applied.
     """
     applied = []
-    current = current_schema_version(conn)
+    done = applied_versions(conn)
     for version, path in list_migrations(migrations_dir):
-        if version <= current:
+        if version in done:
             continue
         sql = path.read_text()
         keys_off = sql.startswith(FOREIGN_KEYS_OFF)

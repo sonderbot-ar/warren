@@ -36,3 +36,14 @@ INHERITED = "reviewed before this pipeline started ({when}), so the earlier verd
 
 DRIVER_UNITS = {"risk_premium": "bp"}
 LINE_LABELS = {"revenue": "Revenue", "ebit": "Operating income (EBIT)", "fcff": "Free cash flow"}
+
+HINDSIGHT_HEADING = "6. Forecast against what was reported"
+HINDSIGHT_INTRO = (
+    "Hindsight, for comparison only: nothing below fed the forecast. Each forecast quarter "
+    "beside its value as first reported (the number in the first 10-Q or 10-K that reported it, "
+    "not a later restatement), from the filings public by {actuals_on}. Revenue misses are in % "
+    "of the actual; EBIT misses are in points of margin (the gap over actual revenue). A positive "
+    "miss means the forecast was too high. Warren's error ruler (M3) measured quarters 1 to 4 "
+    "only; quarters 5 to 8 are shown but were never scored."
+)
+HINDSIGHT_NONE = "No forecast quarter was in a 10-Q or 10-K by {actuals_on}."

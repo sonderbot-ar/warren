@@ -3,12 +3,14 @@
     python -m shared_kernel.snapshot save --dir DIR
     python -m shared_kernel.snapshot restore --dir DIR [--force]
 
-A snapshot is one `warren-<UTC time>.tar.gz` holding a consistent copy of the database (made with
-SQLite's backup, so the WAL is included), the raw EDGAR files and the pipelines' telemetry (M7),
-next to a JSON manifest with the archive's SHA-256, its size, the schema version, the code commit
-and row counts. `restore` picks the newest manifest, checks the hash, unpacks into `data/` and
-applies newer migrations. Nothing in a snapshot changes point-in-time reads: every row keeps its
-own filing, fetch and seen dates.
+A snapshot is one `warren-<UTC time>.tar.gz`, written to the folder as parts `.part000`,
+`.part001`, … of at most PART_BYTES each (#153: the project's shared folder never kept a file over
+512 MiB). It holds a consistent copy of the database (made with SQLite's backup, so the WAL is
+included), the raw EDGAR files and the pipelines' telemetry (M7), next to a JSON manifest with the
+archive's SHA-256 and size, each part's, the schema version, the code commit and row counts.
+`restore` picks the newest manifest whose parts are all there and match their hashes (#150),
+unpacks into `data/` and applies newer migrations. Nothing in a snapshot changes point-in-time
+reads: every row keeps its own filing, fetch and seen dates.
 Callers still run the reproduce checks before trusting the data (the warren-run-track skill).
 
 The SHA-256 proves the archive is the one its manifest describes (integrity), not who made it
@@ -21,6 +23,7 @@ Needs Python 3.11.4 or later (`extractall(filter="data")`).
 
 import argparse
 import hashlib
+import io
 import json
 import os
 import re
@@ -38,6 +41,9 @@ from shared_kernel.config import DATA_DIR, DB_PATH, PROJECT_ROOT, RAW_EDGAR_DIR
 from shared_kernel.database import apply_migrations, current_schema_version, get_db_connection
 
 KEEP = 2  # snapshots kept in the folder; older ones are removed after a good save
+# The project's shared folder never kept a file over 512 MiB (#153: 759 MB to 1.1 GB archives
+# never landed, a 521 MB one did), so an archive is written as parts below that.
+PART_BYTES = 400 * 1000 * 1000
 DB_NAME, RAW_NAME, TELEMETRY_NAME = "warren.db", "raw/edgar", "telemetry"  # telemetry: M7
 
 
@@ -58,6 +64,53 @@ def _archive_path(manifest_path: Path, manifest: dict) -> Path:
             f"expected {expected!r} in the same folder"
         )
     return manifest_path.parent / expected
+
+
+def _parts(manifest_path: Path, manifest: dict) -> list[tuple[Path, int, str]]:
+    """(path, bytes, sha256) of each file holding the archive, in order. A manifest with `parts`
+    (#153) names `<archive>.part000`, `.part001`, … beside it, refused otherwise; an older one is
+    the single archive."""
+    archive = _archive_path(manifest_path, manifest)
+    if "parts" not in manifest:
+        return [(archive, manifest["bytes"], manifest["sha256"])]
+    out = []
+    for i, part in enumerate(manifest["parts"]):
+        expected = f"{archive.name}.part{i:03d}"
+        if part["name"] != expected:
+            raise SnapshotError(
+                f"{manifest_path.name} names part {part['name']!r}; expected {expected!r}"
+            )
+        out.append((archive.parent / expected, part["bytes"], part["sha256"]))
+    if not out:
+        raise SnapshotError(f"{manifest_path.name} lists no parts")
+    return out
+
+
+class _Chain(io.RawIOBase):
+    """The parts read back to back as one stream, for `tarfile`'s streaming mode."""
+
+    def __init__(self, paths: list[Path]):
+        self._paths, self._f = list(paths), None
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buf) -> int:
+        while True:
+            if self._f is None:
+                if not self._paths:
+                    return 0
+                self._f = open(self._paths.pop(0), "rb")
+            n = self._f.readinto(buf)
+            if n:
+                return n
+            self._f.close()
+            self._f = None
+
+    def close(self) -> None:
+        if self._f is not None:
+            self._f.close()
+        super().close()
 
 
 def _swap_in(new: Path, targets: list[Path], label: str) -> None:
@@ -135,8 +188,9 @@ def _landed(manifest_path: Path) -> bool:
     SHA-256 is checked on restore). A manifest whose archive never landed is an orphan (#150)."""
     try:
         manifest = json.loads(manifest_path.read_text())
-        archive = _archive_path(manifest_path, manifest)
-        return archive.exists() and archive.stat().st_size == manifest["bytes"]
+        return all(
+            p.exists() and p.stat().st_size == n for p, n, _ in _parts(manifest_path, manifest)
+        )
     except (SnapshotError, ValueError, KeyError, TypeError, AttributeError, OSError):
         return False
 
@@ -155,19 +209,40 @@ def save(folder: Path, db_path: Path = DB_PATH, raw_dir: Path = RAW_EDGAR_DIR,
             src.backup(dst)
         with closing(sqlite3.connect(copy)) as conn:
             version, counts = current_schema_version(conn), _row_counts(conn)
-        partial = archive.with_suffix(".partial")
-        with tarfile.open(partial, "w:gz") as tar:
+        local = Path(tmp) / archive.name  # built here, then copied to the folder in parts
+        with tarfile.open(local, "w:gz") as tar:
             tar.add(copy, arcname=DB_NAME)
             if raw_dir.exists():
                 tar.add(raw_dir, arcname=RAW_NAME)
             telemetry = telemetry_dir or db_path.parent / TELEMETRY_NAME
             if telemetry.exists():  # the pipelines' telemetry lines, which reports point to
                 tar.add(telemetry, arcname=TELEMETRY_NAME)
-        partial.rename(archive)  # a reader never sees a half-written archive
+        whole_sha, whole_bytes = _sha256(local), local.stat().st_size
+        parts = []
+        written: list[Path] = []
+        try:
+            with open(local, "rb") as src:
+                for i in range(max(1, -(-whole_bytes // PART_BYTES))):
+                    part = folder / f"{archive.name}.part{i:03d}"
+                    partial = part.with_name(part.name + ".partial")
+                    written += [partial, part]
+                    with open(partial, "wb") as dst:
+                        left = PART_BYTES
+                        while left and (block := src.read(min(left, 1 << 20))):
+                            dst.write(block)
+                            left -= len(block)
+                    partial.rename(part)  # a reader never sees a half-written part
+                    parts.append({"name": part.name, "bytes": part.stat().st_size,
+                                  "sha256": _sha256(part)})  # fmt: skip
+        except BaseException:  # no manifest names these, so nothing would ever prune them
+            for path in written:
+                path.unlink(missing_ok=True)
+            raise
     manifest = {
         "archive": archive.name,
-        "sha256": _sha256(archive),
-        "bytes": archive.stat().st_size,
+        "sha256": whole_sha,
+        "bytes": whole_bytes,
+        "parts": parts,
         "schema_version": version,
         "commit": _commit(),
         "created_at": stamp,
@@ -179,8 +254,9 @@ def save(folder: Path, db_path: Path = DB_PATH, raw_dir: Path = RAW_EDGAR_DIR,
     # pushes the last good archive out; orphans are left for a person to look at.
     for old in [m for m in manifests(folder) if _landed(m)][KEEP:]:
         try:
-            _archive_path(old, json.loads(old.read_text())).unlink(missing_ok=True)
-        except (SnapshotError, ValueError, AttributeError):
+            for part, _, _ in _parts(old, json.loads(old.read_text())):
+                part.unlink(missing_ok=True)
+        except (SnapshotError, ValueError, AttributeError, KeyError, TypeError):
             continue  # an unreadable or odd manifest is left alone, and so is what it names
         old.unlink()
     return path
@@ -198,11 +274,11 @@ def restore(folder: Path, data_dir: Path = DATA_DIR, force: bool = False) -> dic
     for path in found:
         try:
             manifest = json.loads(path.read_text())
-            archive = _archive_path(path, manifest)
-        except (SnapshotError, ValueError, AttributeError) as e:  # AttributeError: not an object
-            skipped.append(f"{path.name} ({e})")
+            parts = _parts(path, manifest)
+        except (SnapshotError, ValueError, AttributeError, KeyError, TypeError) as e:
+            skipped.append(f"{path.name} ({e!r})")  # AttributeError: not an object
             continue
-        if archive.exists() and _sha256(archive) == manifest.get("sha256"):
+        if all(p.exists() and _sha256(p) == sha for p, _, sha in parts):
             break
         skipped.append(f"{path.name} (archive missing or does not match its SHA-256)")
     else:
@@ -212,7 +288,10 @@ def restore(folder: Path, data_dir: Path = DATA_DIR, force: bool = False) -> dic
         raise SnapshotError(f"{db_path} exists; pass --force to replace it")
     data_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=data_dir) as tmp:
-        with tarfile.open(archive, "r:gz") as tar:
+        with (
+            _Chain([p for p, _, _ in parts]) as stream,
+            tarfile.open(fileobj=stream, mode="r|gz") as tar,
+        ):
             tar.extractall(tmp, filter="data")  # refuses absolute paths and links out of tmp
         unpacked = Path(tmp)
         # Swap first, delete after: the old files sit aside until the new ones are in place.

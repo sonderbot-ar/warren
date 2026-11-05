@@ -15,7 +15,13 @@ COLUMNS = ["ticker", "cik", "history_ends", "note"]
 
 
 class CoverageWarning(UserWarning):
-    """A query asks for a date after this CIK stopped filing (its history continues elsewhere)."""
+    """A query asks for a date after this CIK stopped filing (its history continues elsewhere).
+
+    Carries its fields (backlog #172), so a caller can show it in another language."""
+
+    def __init__(self, text: str, **fields) -> None:
+        super().__init__(text)
+        self.fields = fields
 
 
 @dataclass(frozen=True)
@@ -72,13 +78,19 @@ def warn_if_beyond_history(cik: str, as_of: date) -> None:
     """Warn when a query's as-of date is past the point where this CIK's filings stop."""
     for company in PHASE1_UNIVERSE:
         if company.cik == cik and company.history_ends and as_of >= company.history_ends:
-            warnings.warn(
+            text = (
                 f"{company.ticker} (CIK {cik}) as of {as_of.isoformat()}: filings from "
                 f"{company.history_ends.isoformat()} onward are on another CIK and are missing "
-                f"here, so recent periods will be absent. {company.note}",
-                CoverageWarning,
-                stacklevel=3,
+                f"here, so recent periods will be absent. {company.note}"
             )
+            fields = {
+                "ticker": company.ticker,
+                "cik": cik,
+                "as_of": as_of.isoformat(),
+                "history_ends": company.history_ends.isoformat(),
+                "note": company.note,
+            }
+            warnings.warn(CoverageWarning(text, **fields), stacklevel=3)
 
 
 def get_universe_company(ticker: str) -> UniverseCompany:

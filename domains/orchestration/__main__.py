@@ -1,6 +1,6 @@
 """Command line for the one-command pipeline (M7). `python main.py ...` is the same command.
 
-    python main.py run --ticker MSFT --as-of 2022-06-02 [--variant named|masked|both]
+    python main.py run --ticker MSFT [--as-of 2022-06-02] [--variant named|masked|both]
                        [--review auto|manual|later] [--seed N] [--n 10000] [--refresh]
                        [--offline] [--max-tokens-total N]
     python main.py resume --pipeline-id ID [--max-tokens-total N]
@@ -8,7 +8,9 @@
     python main.py reproduce --pipeline-id ID
     python main.py report --pipeline-id ID
 
-`run` goes from filings to report for one company and date: fundamentals (SEC EDGAR, needs
+`run` goes from filings to report for one company and date (without `--as-of`, the last day that
+has ended in New York, backlog #128; a past date's report adds the forecast against what was
+reported afterwards): fundamentals (SEC EDGAR, needs
 SEC_USER_AGENT), prices and the risk-free rate (Yahoo Finance, FRED), a week of GDELT news, the
 two LLM steps (key in WARREN_ANTHROPIC_API_KEY, or ANTHROPIC_API_KEY locally), the review, the
 Monte Carlo and the report in data/reports/pipeline/. Every step's state is checkpointed in the
@@ -29,6 +31,7 @@ from domains.fundamentals.edgar_client import EdgarClient
 from domains.llm import calls
 from domains.llm.client import AnthropicClient
 from domains.orchestration import graph, nodes, report
+from shared_kernel.calendar import last_ended_day
 from shared_kernel.config import DATA_DIR, REPORTS_DIR, ConfigError, anthropic_api_key
 from shared_kernel.database import apply_migrations, get_db_connection
 
@@ -100,7 +103,7 @@ def _finish(out: graph.Outcome, deps: nodes.Deps, review: str) -> int:
 
 def cmd_run(args) -> int:
     try:
-        as_of = date.fromisoformat(args.as_of)
+        as_of = date.fromisoformat(args.as_of) if args.as_of else None
     except ValueError:
         print(f"--as-of must be YYYY-MM-DD, got {args.as_of!r}", file=sys.stderr)
         return 2
@@ -115,6 +118,9 @@ def cmd_run(args) -> int:
     with get_db_connection() as conn:
         apply_migrations(conn)
         deps = make_deps(conn)
+        if as_of is None:
+            as_of = last_ended_day(deps.now())
+            print(f"as of {as_of} (the latest day that has ended in New York)")
         try:
             out = graph.start(deps, FOLDERS, args.ticker, as_of, variants=variants,
                               review=args.review, seed=args.seed, n_samples=args.n,
@@ -195,7 +201,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     run = sub.add_parser("run", help="filings to report for one company and date")
     run.add_argument("--ticker", required=True)
-    run.add_argument("--as-of", required=True, help="YYYY-MM-DD")
+    run.add_argument("--as-of", help="YYYY-MM-DD (default: the last day ended in New York)")
     run.add_argument("--variant", choices=("named", "masked", "both"),
                      help="default: both for an eval case, else named")  # fmt: skip
     run.add_argument("--review", choices=("auto", "manual", "later"),

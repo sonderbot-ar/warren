@@ -16,7 +16,7 @@ import json
 import sqlite3
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import numpy as np
@@ -31,6 +31,7 @@ from domains.llm import calls
 from domains.orchestration import nodes, report
 from domains.orchestration.state import PipelineState
 from domains.orchestration.telemetry import Emitter, check_tracing_off, traced
+from shared_kernel.calendar import last_ended_day
 
 NODE_ORDER = (
     "load_fundamentals",
@@ -80,7 +81,24 @@ def checkpointer(conn: sqlite3.Connection):
         yield saver
 
 
+def actuals_on(state: PipelineState, deps: nodes.Deps) -> date:
+    """The day the report's hindsight section reads filings to (backlog #128): the last day
+    ended in New York, but no later than the last day ended when the filings were downloaded,
+    so every filing public by then is in the database and the section always renders the same."""
+    ingest = deps.conn.execute(
+        "SELECT companyfacts_fetched_at, ingested_at FROM ingest_runs WHERE run_id = ?",
+        (state.ingest_run_id,),
+    ).fetchone()
+    day = last_ended_day(deps.now())
+    stamp = ingest and (ingest["companyfacts_fetched_at"] or ingest["ingested_at"])
+    if stamp:
+        fetched = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+        day = min(day, last_ended_day(fetched if fetched.tzinfo else fetched.replace(tzinfo=UTC)))
+    return day
+
+
 def write_report(state: PipelineState, deps: nodes.Deps, folders: Folders) -> dict:
+    state = state.model_copy(update={"actuals_on": actuals_on(state, deps)})
     path = report.write_report(deps.conn, state, folders.reports,
                                folders.telemetry / f"{state.pipeline_id}.jsonl")  # fmt: skip
     with deps.conn:
@@ -88,7 +106,7 @@ def write_report(state: PipelineState, deps: nodes.Deps, folders: Folders) -> di
             "UPDATE pipeline_runs SET report_path = ? WHERE pipeline_id = ?",
             (str(path), state.pipeline_id),
         )
-    return {"report_path": str(path)}
+    return {"report_path": str(path), "actuals_on": state.actuals_on}
 
 
 def build(deps: nodes.Deps, folders: Folders, saver: SqliteSaver, pipeline_id: str):
