@@ -26,6 +26,7 @@ from domains.analysis.math_engine import (
 from domains.analysis.schemas import Assumption
 from domains.analysis.text import REASON_WORDS
 from domains.fundamentals.concepts import concept_map_sha256
+from domains.fundamentals.universe import COVERAGE_FIELDS, coverage_fields
 from domains.market.prices import MARKET_INDEX
 from domains.market.store import fetch_with_hash, pin_fetches
 from domains.market.yields import RISK_FREE_SERIES
@@ -255,9 +256,22 @@ def run_notes(conn: sqlite3.Connection, run_id: str) -> RunNotes:
     ).fetchall()
     lines = _lines(run["notes"])
     if rows or not lines:
-        notes = [Coded(r["code"], json.loads(r["params"]), r["text"]) for r in rows]
+        notes = [_with_coverage(Coded(r["code"], json.loads(r["params"]), r["text"])) for r in rows]
         return RunNotes(run_id, True, notes)
     return RunNotes(run_id, False, [Coded("note_text", {}, line) for line in lines])
+
+
+def _with_coverage(note: Coded) -> Coded:
+    """A `beyond_history` note stored before backlog #196 lacks `reason`, `successor_cik` and
+    `successor_name`: they are added on read from today's universe row with the note's own `cik`
+    and `history_ends` (a fact about the company, not the run), with `filled_on_read` true so the
+    provenance shows; all None when no row matches. The stored row is unchanged."""
+    if note.code != "beyond_history" or set(COVERAGE_FIELDS) <= note.params.keys():
+        return note
+    found = coverage_fields(note.params.get("cik"), note.params.get("history_ends"))
+    found = found or dict.fromkeys(COVERAGE_FIELDS)
+    missing = {k: v for k, v in found.items() if k not in note.params}
+    return Coded(note.code, {**note.params, **missing, "filled_on_read": True}, note.text)
 
 
 def _lines(notes: str | None) -> list[str]:
