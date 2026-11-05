@@ -6,24 +6,34 @@ own date D, by M9's method unchanged: the misses whose actual was filed by D, bo
 same seeding rule. Beside it, how M9's ranges have done so far: the share of past quarters that
 fell inside their range, over all companies and over this company, counting only origins dated
 before D whose actual was filed by D. Nothing is written; gaps are coded, never raised.
-Design: docs/designs/backlog-144-run-ranges.md.
+With a simulation (backlog #167), the misses are applied to its shocked samples instead of the
+baseline repeated, as M9 does for its cases ("combined" range).
+Designs: docs/designs/backlog-144-run-ranges.md, docs/designs/backlog-167-shocked-range.md.
 """
 
 import sqlite3
 from dataclasses import asdict, dataclass, field
 from datetime import date
 
+import numpy as np
+
 from domains.analysis import financial_math as fm
 from domains.analysis.dcf import YEARS
-from domains.analysis.montecarlo import DEFAULT_SAMPLES, _currency
+from domains.analysis.montecarlo import (
+    DEFAULT_SAMPLES,
+    _currency,
+    load_simulation_shocks,
+    sample_lines,
+)
 from domains.analysis.reported import Coded
-from domains.analysis.runs import load_outputs
+from domains.analysis.runs import load_assumptions, load_outputs
 from domains.evaluation import ranges as R
 from domains.evaluation import ranges_report as RR
 from domains.evaluation.harness import EvaluationError
 from domains.evaluation.ranges_report import cover
 
 BASIS = "baseline"
+SHOCKED = "shocked"
 METHOD = "resampled_misses"
 ITEMS = ("revenue", "ebit")
 MAX_HORIZON = max(R.HORIZONS)
@@ -46,15 +56,21 @@ class Band:
     method: str = METHOD
     missing: Coded | None = None
     notes: list[Coded] = field(default_factory=list)
+    # the same, read from the centre (the samples' median; backlog #167): for a baseline range
+    # equal to the two above; for a shocked range, measured from the shocked p50
+    revenue_vs_center: dict | None = None  # the band is centre × (1 + x)
+    ebit_vs_center: dict | None = None  # (band − EBIT centre) / revenue centre
 
 
 @dataclass(frozen=True)
 class Quarter:
     period: str  # the run's label, e.g. FY2026Q3
     horizon: int  # 1 for the run's first forecast quarter
-    revenue_forecast: float
+    revenue_forecast: float  # the baseline's
     ebit_forecast: float
     bands: list[Band]
+    revenue_center: float  # median of the samples the misses are applied to: the forecast
+    ebit_center: float  # for a baseline range, the simulation's p50 for a shocked one
 
 
 @dataclass(frozen=True)
@@ -91,7 +107,8 @@ class RunRanges:
     ticker: str
     as_of: date
     currency: str
-    basis: str
+    basis: str  # baseline or shocked
+    sim_id: str | None  # the simulation whose samples a shocked range is built on
     n_samples: int
     errors_sha256: str
     errors_filed_to: date | None
@@ -160,6 +177,39 @@ def _unchecked(ticker: str) -> Coded:
     )
 
 
+COVERAGE_SKIPPED = Coded(
+    "coverage_skipped",
+    {},
+    "the track record was not computed for this call (it is the baseline range's either way)",
+)
+
+
+def _shocked_note(sim_id: str) -> Coded:
+    return Coded(
+        "shocked_plus_misses",
+        {"sim_id": sim_id},
+        "the range adds the baseline's past misses to each shocked sample of the simulation; the "
+        "shocks mostly move where the band sits. When a shock captures an event the baseline "
+        "would have missed, part of that miss is counted twice, which can widen the band a little",
+    )
+
+
+def _stale(on: date, newest: date) -> Coded:
+    return Coded(
+        "errors_stale",
+        {"as_of": on.isoformat(), "errors_filed_to": newest.isoformat()},
+        f"the stored misses end with actuals filed on {newest}; any filed after that and by "
+        f"{on} are not in the range yet (they come with the next rebuild of the misses)",
+    )
+
+
+COVERAGE_IS_BASELINE = Coded(
+    "coverage_is_baseline",
+    {"basis": BASIS},
+    "the track record is the baseline range's: past ranges were tested without shocks",
+)
+
+
 BASELINE_ONLY = Coded(
     "baseline_only",
     {"basis": BASIS},
@@ -173,6 +223,11 @@ HORIZONS_POOLED = Coded(
 )
 
 
+def centers(samples: dict[int, tuple[np.ndarray, np.ndarray]]) -> dict[int, tuple[float, float]]:
+    """The median revenue and EBIT of each horizon's samples (M9's `forecast` of a variant)."""
+    return {h: (float(np.median(r)), float(np.median(e))) for h, (r, e) in samples.items()}
+
+
 def bands(
     forecasts: dict[int, tuple[float, float]],
     pairs: list[R.ErrorPair],
@@ -181,16 +236,26 @@ def bands(
     subject_id: str,
     n: int = DEFAULT_SAMPLES,
     flags: set[tuple[str, str, str]] | None = None,
+    samples: dict[int, tuple[np.ndarray, np.ndarray]] | None = None,
+    basis: str = BASIS,
 ) -> dict[int, list[Band]]:
     """Both pools' bands per horizon 1–4, as M9 builds a subject's (`ranges.subject_rows`).
-    `flags` holds this company's basis changes as (origin id, period, item)."""
-    samples = R.constant_samples(forecasts, n)
+    `flags` holds this company's basis changes as (origin id, period, item). Without `samples`
+    the misses are applied to the forecasts repeated n times (the baseline range); with them,
+    to each sample, and the change from the forecast is read from the samples' median. The
+    seed key is `<subject_id>:<basis>`."""
+    if samples is None:
+        samples = R.constant_samples(forecasts, n)
+        middle = forecasts
+    else:
+        middle = centers(samples)
     out: dict[int, list[Band]] = {h: [] for h in forecasts}
     for pool in R.POOLS:
-        seed = R.range_seed(f"{subject_id}:{BASIS}", pool)
+        seed = R.range_seed(f"{subject_id}:{basis}", pool)
         for h, r in sorted(R.ranges(samples, pairs, on, pool, ticker, seed, n).items()):
             revenue, ebit = _pcts(r.revenue), _pcts(r.ebit)
             rev_vs, ebit_vs = vs_forecast(revenue, ebit, *forecasts[h])
+            rev_vc, ebit_vc = vs_forecast(revenue, ebit, *middle[h])
             changes, notes = None, []
             if pool == "own" and flags is not None:
                 changes = sum(
@@ -201,7 +266,7 @@ def bands(
                 notes.append(_unchecked(ticker))
             out[h].append(Band(pool, r.n_errors, r.n_quarters, revenue, ebit, rev_vs, ebit_vs,
                                changes, METHOD, None if r.ok else _no_history(h, pool, r.n_errors),
-                               notes))  # fmt: skip
+                               notes, rev_vc, ebit_vc))  # fmt: skip
     return out
 
 
@@ -309,11 +374,41 @@ def coverage_cells(
     return cells
 
 
+def simulation_samples(
+    conn: sqlite3.Connection, run_id: str, sim_id: str, periods: list[str]
+) -> tuple[int, dict[int, tuple[np.ndarray, np.ndarray]]]:
+    """The stored simulation's sample count and its shocked revenue and EBIT samples for every
+    forecast quarter (horizon 1 up), drawn again from its stored shocks and seed
+    (`montecarlo.sample_lines`)."""
+    sim = conn.execute(
+        "SELECT run_id, seed, n_samples FROM simulations WHERE sim_id = ?", (sim_id,)
+    ).fetchone()
+    if sim is None:
+        raise EvaluationError(f"simulation {sim_id} is not stored")
+    if sim["run_id"] != run_id:
+        raise EvaluationError(f"simulation {sim_id} is of run {sim['run_id']}, not {run_id}")
+    n = sim["n_samples"]
+    lines = sample_lines(
+        load_assumptions(conn, run_id), load_simulation_shocks(conn, sim_id), n, sim["seed"]
+    )
+    samples = {
+        h: (lines[("revenue", p)], lines[("ebit", p)]) for h, p in enumerate(periods, start=1)
+    }
+    return n, samples
+
+
 def run_ranges(
-    conn: sqlite3.Connection, run_id: str, n: int = DEFAULT_SAMPLES, check_basis: bool = True
+    conn: sqlite3.Connection,
+    run_id: str,
+    n: int = DEFAULT_SAMPLES,
+    check_basis: bool = True,
+    sim_id: str | None = None,
+    coverage: bool = True,
 ) -> RunRanges:
     """The range of each forecast quarter of `run_id` and the range's track record, as of the
-    run's own date. `check_basis` runs the change-of-basis count on the run's company."""
+    run's own date. `check_basis` runs the change-of-basis count on the run's company. With
+    `sim_id` (a simulation of this run), the range is built on its shocked samples, with its own
+    sample count in place of `n` (backlog #167). `coverage=False` skips the track record."""
     run = conn.execute(
         "SELECT ticker, as_of, code_version FROM runs WHERE run_id = ?", (run_id,)
     ).fetchone()
@@ -322,6 +417,10 @@ def run_ranges(
     ticker, on = run["ticker"], date.fromisoformat(run["as_of"])
     outputs = load_outputs(conn, run_id)
     periods = sorted(p for (name, p) in outputs if name == "revenue" and p not in YEARS)
+    samples, basis, subject = None, BASIS, run_id
+    if sim_id is not None:
+        n, samples = simulation_samples(conn, run_id, sim_id, periods)
+        basis, subject = SHOCKED, sim_id
     pairs = R.load_pairs(conn)
     known = [p for p in pairs if p.filed_at <= on]
     flags = basis_flags(conn, ticker, on) if check_basis else None
@@ -330,15 +429,29 @@ def run_ranges(
         for h, p in enumerate(periods, start=1)
         if h <= MAX_HORIZON
     }
-    by_h = bands(forecasts, known, on, ticker, run_id, n, flags)
+    banded = None if samples is None else {h: samples[h] for h in forecasts}
+    by_h = bands(forecasts, known, on, ticker, subject, n, flags, banded, basis)
+    middle = forecasts if samples is None else centers(samples)
     quarters = []
     for h, p in enumerate(periods, start=1):
         bs = by_h.get(h) or [
             Band(pool, 0, 0, None, None, None, None, None, METHOD, _beyond(h)) for pool in R.POOLS
         ]
-        quarters.append(Quarter(p, h, outputs[("revenue", p)], outputs[("ebit", p)], bs))
-    cells = coverage_cells(scored_origin_rows(conn, on, pairs, n), ticker, on, flags)
-    notes = [BASELINE_ONLY, HORIZONS_POOLED]
+        rev, ebit = outputs[("revenue", p)], outputs[("ebit", p)]
+        center = middle.get(h, (rev, ebit))
+        quarters.append(Quarter(p, h, rev, ebit, bs, *center))
+    cells = []
+    if coverage:
+        cells = coverage_cells(scored_origin_rows(conn, on, pairs, n), ticker, on, flags)
+    if sim_id is None:
+        notes = [BASELINE_ONLY, HORIZONS_POOLED]
+    else:
+        notes = [_shocked_note(sim_id), COVERAGE_IS_BASELINE, HORIZONS_POOLED]
+    if not coverage:
+        notes.append(COVERAGE_SKIPPED)
+    newest = max((p.filed_at for p in pairs), default=None)
+    if newest is not None and on > newest:
+        notes.append(_stale(on, newest))
     versions = sorted({r[0] for r in conn.execute(
         "SELECT DISTINCT code_version FROM forecast_origins WHERE status = 'ok'")})  # fmt: skip
     if versions and run["code_version"] not in versions:
@@ -349,7 +462,7 @@ def run_ranges(
             f"baseline built with {', '.join(versions)}",
         ))  # fmt: skip
     return RunRanges(
-        run_id, ticker, on, _currency(conn), BASIS, n, R.pairs_sha256(known),
+        run_id, ticker, on, _currency(conn), basis, sim_id, n, R.pairs_sha256(known),
         max((p.filed_at for p in known), default=None), quarters, cells, notes,
     )  # fmt: skip
 
@@ -368,7 +481,9 @@ def _p(value: float | None) -> str:
 def render(r: RunRanges) -> str:
     """The call as text: a table per pool, the track record and the notes."""
     out = [
-        f"{r.ticker} run {r.run_id} as of {r.as_of}: p10–p90 range of the {r.basis} forecast "
+        f"{r.ticker} run {r.run_id}"
+        + (f", simulation {r.sim_id}" if r.sim_id else "")
+        + f" as of {r.as_of}: p10–p90 range of the {r.basis} forecast "
         f"from past misses filed by {r.as_of} (newest {r.errors_filed_to}); {r.currency} millions",
     ]
     for i, pool in enumerate(R.POOLS):

@@ -217,7 +217,7 @@ def cmd_ranges_run(args: argparse.Namespace) -> int:
     with get_db_connection() as conn:
         apply_migrations(conn)
         try:
-            result = run_ranges.run_ranges(conn, args.run_id)
+            result = run_ranges.run_ranges(conn, args.run_id, sim_id=args.sim_id)
         except EvaluationError as e:
             print(f"FAILED: {e}")
             return 1
@@ -288,6 +288,7 @@ def main(argv: list[str] | None = None) -> int:
     rr.set_defaults(func=cmd_ranges_reproduce)
     rn = rcmd.add_parser("run", help="a stored run's range and the range's track record")
     rn.add_argument("--run-id", required=True)
+    rn.add_argument("--sim-id", help="a simulation of the run: the range on its shocked samples")
     rn.add_argument("--json", action="store_true", help="print JSON for the app")
     rn.set_defaults(func=cmd_ranges_run)
     tr = commands.add_parser("track-record", help="how well Warren has forecast one company")
