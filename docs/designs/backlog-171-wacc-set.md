@@ -74,3 +74,13 @@ Rejected or deferred, with the reason:
 - **A code for the Monte Carlo refusal (product lead).** No student path runs a simulation on a what-if child: the pipeline and the AI proposals use baselines only (`parent_run_id IS NULL`, v0.9.9), and the refusal is the existing `DCFInputError` for the grid's override. Filed as a backlog issue for when simulations on children become a screen.
 - **The grid's note on such a child (analyst, idea).** On a child with WACC set, the grid's `wacc_set_directly` text says the run's WACC "comes from CAPM"; filed as a backlog issue (a param or a variant of the note).
 - **Reports for children.** A report is written only for a baseline (`__main__.py`); `report.render` works on a child and says "not computed"; nothing else changes.
+
+## Results on real data (Step 3, nov.05.2026)
+
+On the restored snapshot (schema 21), on the latest stored run of each company (as of 2026-10-30):
+
+- **Identity on all eight companies.** WACC set to the run's own WACC gives the run's value per share exactly (change 0.0, not just to the cent) on AAPL, CAT, JNJ, KO, MSFT, PG, WMT and XOM.
+- **+1 point on each** (value per share before → after): AAPL $95.21 → $87.84 (−7.7%), CAT $218.45 → $194.14 (−11.1%), JNJ $168.01 → $144.62 (−13.9%), KO $37.37 → $31.69 (−15.2%), MSFT $203.55 → $183.79 (−9.7%), PG $104.13 → $90.48 (−13.1%), WMT $31.24 → $26.88 (−14.0%), XOM $116.23 → $99.64 (−14.3%). Every one of these is flagged `wacc_outside_its_parts`: on every company the cost of equity is less than a point above WACC (AAPL 11.30% vs 11.15%, CAT 11.62% vs 10.79%), so +1 point is a rate no mix of this run's debt and equity could give. That is what the analyst's must-fix was about, and the note fires as designed.
+- **WACC 9%:** Walmart (8.87% computed, cost of equity 9.18%) $31.24 → $30.64 (−1.9%), inside its parts, no warning; Microsoft (11.45%) $203.55 → $271.59 (+33.4%), with `wacc_outside_its_parts` (below debt's after-tax cost).
+- **WACC 4.5% on XOM, JNJ and KO** is refused, `growth_not_below_rate` with `wacc` 0.045 and `terminal_growth` 0.0498.
+- Each call takes 0.01–0.03 s; every child reproduces. `python -m domains.analysis reproduce --all`: 921 of 921 runs reproduce to the cent (903 stored runs and the 18 children made here). The children were made on this machine's copy and are not saved to the shared snapshot.
