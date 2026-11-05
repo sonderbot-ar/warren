@@ -271,9 +271,15 @@ def wacc(
     if _any(equity_market_value <= 0) or _any(debt < 0):
         raise FinancialMathError("equity value must be positive and debt non-negative")
     total = equity_market_value + debt
+    # kept as written since M2: regrouping the debt term moves stored WACCs in the last bit
     return equity_market_value / total * cost_of_equity + debt / total * cost_of_debt * (
         1 - tax_rate
     )
+
+
+def after_tax_cost_of_debt(cost_of_debt: Number, tax_rate: Number) -> Number:
+    """Debt's cost after the tax saving on interest: the lower end of where a WACC can lie."""
+    return cost_of_debt * (1 - tax_rate)
 
 
 def cost_of_debt(interest: Number, average_debt: Number) -> Number:

@@ -171,6 +171,19 @@ def test_whatif_command_prints_the_ripple_and_json(company, monkeypatch, capsys)
     assert "1 of 1 runs rebuilt to identical rows" in out and "2 what-ifs not rebuilt" in out
 
 
+def test_whatif_command_sets_wacc_and_the_report_says_the_range_is_not_computed(
+    company, monkeypatch, capsys
+):
+    from domains.analysis.report import render
+
+    _wire(company, monkeypatch, datetime(2020, 7, 2, tzinfo=UTC))
+    run_id = run(company)
+    assert cli.main(["whatif", "--run-id", run_id, "--set", "wacc=0.12"]) == 0
+    out = capsys.readouterr().out
+    assert "wacc" in out and "WACC is set directly" in out
+    assert "not computed: WACC set directly" in render(company, f"{run_id}_whatif_1")
+
+
 def test_whatif_command_refuses_with_its_code(company, monkeypatch, capsys):
     _wire(company, monkeypatch, datetime(2020, 7, 2, tzinfo=UTC))
     run_id = run(company)

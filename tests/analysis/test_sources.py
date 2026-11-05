@@ -10,7 +10,7 @@ from domains.analysis import dcf
 from domains.analysis import sources as src
 from domains.analysis.math_engine import UserChoice, build_inputs, post_checks
 from domains.analysis.runs import load_outputs, reproduce, run_baseline, save_run
-from domains.analysis.schemas import SINGLE
+from domains.analysis.schemas import SINGLE, Assumption
 from domains.analysis.sources import run_sources
 from domains.analysis.whatif import Change, revalue
 from domains.market.prices import MARKET_INDEX
@@ -240,8 +240,9 @@ def _moved(rows, key):
     return out
 
 
+@pytest.mark.parametrize("wacc_set", [False, True])
 @pytest.mark.parametrize("method", ["value_driver_ronic_wacc", "gordon_fcff"])
-def test_the_output_trace_matches_the_arithmetic(company, method):
+def test_the_output_trace_matches_the_arithmetic(company, method, wacc_set):
     choices = CHOICES | {
         "terminal_method": UserChoice("terminal_method", method, "test", "2026-10-26", "")
     }
@@ -251,6 +252,9 @@ def test_the_output_trace_matches_the_arithmetic(company, method):
         a.model_copy(update={"value": a.value * (1 + 0.01 * i)}) if a.name == "nwc_pct" else a
         for i, a in enumerate(_build(company, choices).assumptions)
     ]
+    if wacc_set:  # a what-if child that sets WACC directly (backlog #171)
+        wacc = dcf.value(rows).wacc + 0.01
+        rows.append(Assumption(name="wacc", period=SINGLE, value=wacc, source="user", method="t"))
     base, _ = dcf.outputs_and_gaps(rows)
     trace = src.output_trace(rows)
     assert set(trace) >= set(base)

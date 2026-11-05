@@ -31,6 +31,8 @@ RUN_NOTE_CODES = frozenset(
         "thin_terminal_spread",
         "thin_terminal_spread_at_erp_bound",
         "no_value_per_share",
+        "erp_bounds_not_computed",
+        "wacc_outside_its_parts",
         "note_text",
     }
 )

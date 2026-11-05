@@ -80,3 +80,23 @@ def test_post_checks_are_the_texts_of_the_codes_in_order(company):
         notes = post_check_notes(shifted, outputs)
         assert post_checks(shifted, outputs) == [n.text for n in notes]
         assert {n.code for n in notes} <= RUN_NOTE_CODES
+
+
+def test_with_wacc_set_directly_only_the_base_spread_is_checked(company):
+    """A what-if that sets WACC (backlog #171): the ERP no longer enters the rate, so there is no
+    bound to check; the base spread is read from the set WACC."""
+    from domains.analysis.schemas import SINGLE, Assumption
+
+    rows = gordon_rows(company)
+    wacc_low = at_bound(rows, -1).wacc
+    shifted = dcf.with_value(rows, "terminal_growth", wacc_low - 0.029)
+    assert codes(
+        post_check_notes(shifted, dcf.run_outputs(shifted)), "thin_terminal_spread_at_erp_bound"
+    )
+    set_rows = shifted + [
+        Assumption(name="wacc", period=SINGLE, value=wacc_low - 0.02, source="user", method="t")
+    ]
+    notes = post_check_notes(set_rows, dcf.run_outputs(set_rows))
+    assert not codes(notes, "thin_terminal_spread_at_erp_bound")
+    (base,) = codes(notes, "thin_terminal_spread")
+    assert base.params["wacc"] == wacc_low - 0.02

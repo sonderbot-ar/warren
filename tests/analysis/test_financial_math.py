@@ -298,3 +298,17 @@ def test_change_per_point():
     # 90 to 110 on a base of 100 over 2 points of the input: 10% a point
     assert fm.change_per_point(90.0, 110.0, 100.0, -0.01, 0.01) == pytest.approx(0.10)
     assert fm.change_per_point(110.0, 90.0, 100.0, -0.01, 0.01) == pytest.approx(-0.10)
+
+
+def test_after_tax_cost_of_debt_is_the_wacc_with_no_equity_weight():
+    assert fm.after_tax_cost_of_debt(0.06, 0.25) == pytest.approx(0.045)
+    # the debt-only limit of the WACC is debt's after-tax cost
+    assert fm.wacc(1e-12, 1.0, 0.10, 0.06, 0.25) == pytest.approx(0.045)
+
+
+def test_wacc_keeps_its_m2_expression_bit_for_bit():
+    """Stored runs reproduce bit for bit only if the WACC's float order never changes (#171)."""
+    cases = [(1000.0, 500.0, 0.117, 0.037, 0.21), (3.1e12, 9.7e10, 0.1130, 0.0291, 0.19)]
+    for e, d, ke, kd, t in cases:
+        total = e + d
+        assert fm.wacc(e, d, ke, kd, t) == e / total * ke + d / total * kd * (1 - t)
