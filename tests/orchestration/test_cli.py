@@ -61,6 +61,11 @@ def test_reproduce_names_misses_that_changed_after_the_report(wired, capsys):
     assert cli.main(["reproduce", "--pipeline-id", "TST_2020-06-30_p1"]) == 1
     out = capsys.readouterr().out
     assert "MISMATCH range misses" in out and "report --pipeline-id TST_2020-06-30_p1" in out
+    assert cli.main(["report", "--pipeline-id", "TST_2020-06-30_p1"]) == 0
+    capsys.readouterr()
+    assert cli.main(["reproduce", "--pipeline-id", "TST_2020-06-30_p1"]) == 0  # the remedy works
+    out = capsys.readouterr().out
+    assert "OK range misses" in out and "MISMATCH" not in out
 
 
 def test_later_exits_4_and_resume_asks_then_finishes(wired, monkeypatch, capsys):

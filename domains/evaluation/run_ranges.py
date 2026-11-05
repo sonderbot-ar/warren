@@ -417,7 +417,7 @@ def run_ranges(
     ticker, on = run["ticker"], date.fromisoformat(run["as_of"])
     outputs = load_outputs(conn, run_id)
     periods = sorted(p for (name, p) in outputs if name == "revenue" and p not in YEARS)
-    samples, basis, subject = None, BASIS, run_id
+    samples, basis, subject, coverage_n = None, BASIS, run_id, n
     if sim_id is not None:
         n, samples = simulation_samples(conn, run_id, sim_id, periods)
         basis, subject = SHOCKED, sim_id
@@ -442,7 +442,8 @@ def run_ranges(
         quarters.append(Quarter(p, h, rev, ebit, bs, *center))
     cells = []
     if coverage:
-        cells = coverage_cells(scored_origin_rows(conn, on, pairs, n), ticker, on, flags)
+        rows = scored_origin_rows(conn, on, pairs, coverage_n)  # the baseline's, as asked
+        cells = coverage_cells(rows, ticker, on, flags)
     if sim_id is None:
         notes = [BASELINE_ONLY, HORIZONS_POOLED]
     else:

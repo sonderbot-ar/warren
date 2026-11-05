@@ -275,6 +275,23 @@ def history(conn: sqlite3.Connection, folders: Folders, pipeline_id: str) -> lis
     return out
 
 
+def refresh_range(conn: sqlite3.Connection, folders: Folders, pipeline_id: str):
+    """For a done pipeline, store the hash of the past misses as they are now (backlog #167):
+    used when the report is written again after the misses were rebuilt, so the stored report
+    and the hash it was rendered from stay together. The new state; None when not done."""
+    state = final_state(conn, folders, pipeline_id)
+    if state is None:
+        return None
+    digest = range_errors_sha256(conn, state.as_of)
+    if digest != state.range_errors_sha256:
+        with checkpointer(conn) as saver:
+            app = build(nodes.Deps(conn=conn), folders, saver, pipeline_id)
+            app.update_state(_config(pipeline_id), {"range_errors_sha256": digest},
+                             as_node="write_report")  # fmt: skip
+        state = final_state(conn, folders, pipeline_id)
+    return state
+
+
 def final_state(conn: sqlite3.Connection, folders: Folders, pipeline_id: str):
     """A done pipeline's last state, from its checkpoint; None when it is not done."""
     with checkpointer(conn) as saver:

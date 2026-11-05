@@ -184,7 +184,8 @@ def cmd_reproduce(args) -> int:
                 print(f"MISMATCH range misses: stored {state.range_errors_sha256[:12]}, now "
                       f"{now[:12]}: the past misses were rebuilt or rescored after the report "
                       f"was written; `python main.py report --pipeline-id {state.pipeline_id}` "
-                      "writes it again")  # fmt: skip
+                      "writes it again with the misses as they are now (the report line below "
+                      "fails for the same reason)")  # fmt: skip
                 bad += 1
         path = FOLDERS.reports / f"{state.pipeline_id}.md"
         same = path.exists() and report.body(path) == report.render(conn, state)
@@ -197,6 +198,8 @@ def cmd_report(args) -> int:
     with get_db_connection() as conn:
         apply_migrations(conn)
         state = graph.final_state(conn, FOLDERS, args.pipeline_id)
+        if state is not None and state.range_errors_sha256 is not None:
+            state = graph.refresh_range(conn, FOLDERS, args.pipeline_id)  # backlog #167
         if state is None:
             print(f"{args.pipeline_id} is not done")
             return 2
