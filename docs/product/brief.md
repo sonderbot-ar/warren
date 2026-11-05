@@ -2,7 +2,7 @@
 
 Status: Accepted (F1, nov.03.2026) · Owner sign-off: approved nov.03.2026, with the sorting rule · Owner: front-end team (Structure Guide Decision 13)
 
-Since sign-off: v0.9.6 (backlog #140) answers questions 1 and 2, v0.9.8 (#144) question 5, and v0.9.9 (#141) question 8 and part of 7, so six questions work today, five in part and four not yet. The questions and answers below are unchanged; only their "Hoy" lines and section 5 move as the engine delivers.
+Since sign-off: v0.9.6 (backlog #140) answers questions 1 and 2, v0.9.8 (#144) question 5 (v0.9.16, #167, adds the range on shocked runs), and v0.9.9 (#141) question 8 and part of 7, so six questions work today, five in part and four not yet. The questions and answers below are unchanged; only their "Hoy" lines and section 5 move as the engine delivers.
 
 > **What you are approving.** Fifteen questions a finance student would ask Warren, in Spanish, and what Warren answers to each. Questions come in four kinds: a reported figure (*dato*), a model estimate (*estimación*), a changed assumption (*cambio de supuesto*) and an event (*evento*). Warren shows how it read the question before computing anything. Changed assumptions are recomputed by tested code. Events are answered only with similar past cases, how many there are, and what to watch: never a number an AI made up. Warren never predicts prices or gives advice. Two questions work today, eight in part and five not yet; what is missing is eight requests to the engine team (section 5). Signing commits Warren's first screens to these questions. How questions are sorted was decided on its own card (an AI reader, built from the start). How screens look comes later, with mockups.
 
@@ -81,7 +81,7 @@ Fifteen questions, written as a student would ask them, with an English gloss. "
 *How much will Apple sell in the next four quarters, and how sure is that forecast?*
 - Kind: Estimación.
 - Returns: the baseline revenue path, quarter by quarter, with its p10–p90 range from Warren's own past misses known on that date (M9), and how often such ranges held: across all companies 83% (a p10–p90 range should hold about 8 times in 10), and Apple's own figure beside it, since coverage differs by company (4 of the 8 companies fell outside 65–95%, the band the team set as acceptable for an 80% range; v0.9). So the screen says plainly when Apple's own ranges held less or more often than the pooled 83%.
-- Hoy: **Sí** for the baseline's range (v0.9.8, #144): any run gets its p10–p90 per quarter, how often such ranges held across all companies and for the company, and a coded verdict against 65–95%. The range on top of news shocks still waits (#167).
+- Hoy: **Sí** for the baseline's range (v0.9.8, #144): any run gets its p10–p90 per quarter, how often such ranges held across all companies and for the company, and a coded verdict against 65–95%. On a pipeline run with shocks, the range on top of each simulation (v0.9.16, #167: `run_ranges(conn, run_id, sim_id=S)` or `ranges run --sim-id S`; show `*_center` as the forecast, label `coverage_is_baseline`), and the pipeline report's section 7. Which simulation goes with a variant waits for #201.
 
 **6. ¿Qué tan bien ha pronosticado Warren a Procter & Gamble en el pasado?**
 *How well has Warren forecast P&G in the past?*
