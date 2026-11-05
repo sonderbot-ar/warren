@@ -85,3 +85,7 @@ On the restored snapshot (schema 21), on the latest stored run of each company (
 - **WACC 4.5% on XOM, JNJ and KO** is refused, `growth_not_below_rate` with `wacc` 0.045 and `terminal_growth` 0.0498.
 - Each call takes 0.01–0.03 s; every child reproduces. `python -m domains.analysis reproduce --all`: 921 of 921 runs reproduce to the cent (903 stored runs and the 18 children made here). The children were made on this machine's copy and are not saved to the shared snapshot.
 - **Bit for bit (gatekeeper, must-fix).** The first push had `fm.wacc` call the new `after_tax_cost_of_debt`, which regroups one float product: 30 of 903 stored baselines then valued differently in the last bit (still within `reproduce`'s cent). `fm.wacc` keeps its M2 expression; with it, all 903 stored baselines give outputs exactly equal to their stored ones (`==`, not a tolerance), and a test pins the expression.
+
+## Merged
+
+nov.05.2026 as v0.9.20, PR #213, merge `04376d9`, after the gatekeeper's GO (a NO-GO first, on the last-digit change, fixed). The terminal-formula switch, the rest of #171, waits for the owner's card (sent nov.05.2026); #171 stays open for it.
