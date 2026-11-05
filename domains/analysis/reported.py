@@ -25,7 +25,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import date
 
 from domains.analysis import financial_math as fm
-from domains.analysis.coded import Coded, coded_warnings
+from domains.analysis.coded import Coded, coded_warnings, pass_on
 from domains.analysis.math_engine import CASH_ITEMS, CHAINS, History, debt_parts
 from domains.fundamentals.facts import get_facts, newest_filing_disagreements
 from domains.fundamentals.schemas import Fact
@@ -390,7 +390,9 @@ def reported_period(
 
 def _coded_warnings(caught, universe) -> list[Coded]:
     """The caught warnings, coded as a run's are (backlog #172): `beyond_history` carries
-    `history_ends` and, since #172, `ticker`, `cik`, `as_of` and `note`."""
+    `history_ends` and, since #172, `ticker`, `cik`, `as_of` and `note`; since #196, `reason`
+    and `successor_cik`. A warning that is not Warren's own goes back to the log."""
+    pass_on(caught)
     return coded_warnings(caught)
 
 

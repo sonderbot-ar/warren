@@ -336,10 +336,12 @@ def test_spread_warning_is_not_raised_under_the_value_driver_terminal(company):
 
 def test_a_data_warning_raised_by_every_query_is_noted_once(company, monkeypatch):
     from domains.fundamentals import facts
+    from shared_kernel.data_warnings import DataWarning
 
     monkeypatch.setattr(
         facts,
         "warn_if_beyond_history",
-        lambda cik, as_of: warnings.warn("coverage ends", stacklevel=2),
+        # a Warren data warning: since #196 only these become notes
+        lambda cik, as_of: warnings.warn(DataWarning("coverage ends"), stacklevel=2),
     )
     assert build(company).warnings.count("coverage ends") == 1

@@ -26,7 +26,7 @@ from pathlib import Path
 from domains.analysis import dcf
 from domains.analysis import financial_math as fm
 from domains.analysis import sources as src
-from domains.analysis.coded import Coded, coded_warnings
+from domains.analysis.coded import Coded, coded_warnings, pass_on
 from domains.analysis.dcf import QUARTERS, SEED, YEARS
 from domains.analysis.schemas import SINGLE, Assumption
 from domains.fundamentals.concepts import concept_map_sha256
@@ -343,6 +343,7 @@ def build_inputs(
         history = load_history(conn, company["cik"], as_of)
         comparisons = same_filing_annual_comparisons(conn, company["cik"], "revenue", as_of)
     result.notes += coded_warnings(caught)  # one per text
+    pass_on(caught)  # a library's warning goes to the log, never into the notes (#196)
 
     last_year, last_quarter, base_date = _last_actual_quarter(history, result)
     fiscal_years = _history_years(history, last_year, result)
