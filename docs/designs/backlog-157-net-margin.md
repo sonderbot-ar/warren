@@ -2,7 +2,7 @@
 
 Issue #157 (front-end, follow-up to #140, `docs/designs/backlog-140-reported-figures.md`, "Net margin is left out"). Branch `backlog-157-net-margin`.
 
-Status: In progress (nov.05.2026): Steps 0–3 done, PR next.
+Status: Done (nov.05.2026; v0.9.19, PR #209, merge `9c3910d`; gatekeeper GO, follow-ups in #210).
 
 ## Problem
 
