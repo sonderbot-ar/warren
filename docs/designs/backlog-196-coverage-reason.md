@@ -2,7 +2,7 @@
 
 Issue #196 (front-end, from the #172 design review, `docs/designs/backlog-172-run-warning-codes.md`). Branch `backlog-196-coverage-reason`.
 
-Status: In progress (nov.05.2026; built, PR to come).
+Status: Done (nov.05.2026; v0.9.22, PR #219, merge `c516676`; gatekeeper GO, follow-ups in #218).
 
 ## Problem
 
