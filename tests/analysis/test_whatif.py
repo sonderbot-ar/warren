@@ -381,3 +381,153 @@ def test_a_set_wacc_on_a_value_driver_run_says_ronic_follows(company, parent):
     result = revalue(company, parent, [Change("wacc", delta=0.005)])
     assert result.terminal_method == dcf.VALUE_DRIVER
     assert "ronic_follows_wacc" in [n.code for n in result.notes]
+
+
+# -- the terminal formula switched on a what-if (backlog #171 part 2, owner decision) ------------
+
+
+def _gordon_parent(company):
+    """A run stored before M4: no terminal_method row, so Gordon on FCFF."""
+    choices = {k: v for k, v in CHOICES.items() if k != "terminal_method"}
+    return run_baseline(company, "TST", AS_OF, choices=choices, today=AS_OF)
+
+
+def test_a_switch_to_gordon_values_as_dcf_under_gordon_and_reproduces(company, parent):
+    result = revalue(company, parent, [Change("terminal_method", method=dcf.GORDON)])
+    inp = dcf.inputs(load_assumptions(company, parent)).replace(terminal_method=dcf.GORDON)
+    assert _line(result, "value_per_share").after == dcf.compute(inp).value_per_share
+    assert reproduce(company, result.run_id).ok
+    assert result.terminal_method == dcf.GORDON and result.terminal_formula.code == "gordon"
+    (change,) = result.changes
+    assert (change.before, change.after, change.how) == (dcf.VALUE_DRIVER, dcf.GORDON, "switch")
+    row = _rows(company, result.run_id)[("terminal_method", SINGLE)]
+    assert row.source == "user" and row.value is None
+    assert row.method.startswith(f"{dcf.GORDON}: what-if on {parent}")
+    assert dcf.terminal_method(load_assumptions(company, parent)) == dcf.VALUE_DRIVER
+
+
+def test_a_switch_moves_only_the_terminal_value_and_what_follows(company, parent):
+    result = revalue(company, parent, [Change("terminal_method", method=dcf.GORDON)])
+    moved = {x.name for x in result.lines if x.change}
+    assert moved <= {
+        "terminal_value",
+        "pv_terminal",
+        "enterprise_value",
+        "terminal_share",
+        "enterprise_value_as_of",
+        "equity_value",
+        "value_per_share",
+    }
+    assert "value_per_share" in moved
+    assert _line(result, "value_per_share").driven_by == ["terminal_method"]
+    assert _line(result, "wacc").change == 0 and _line(result, "pv_explicit").change == 0
+
+
+def test_a_run_stored_before_m4_can_be_seen_under_the_value_driver(company):
+    gordon = _gordon_parent(company)
+    result = revalue(company, gordon, [Change("terminal_method", method=dcf.VALUE_DRIVER)])
+    rows = _rows(company, result.run_id)
+    assert ("terminal_method", SINGLE) in rows and ("terminal_method", SINGLE) not in _rows(
+        company, gordon
+    )
+    assert result.terminal_method == dcf.VALUE_DRIVER
+    assert reproduce(company, result.run_id).ok
+    from domains.analysis import sources as src
+
+    (item,) = src.load(company, result.run_id)[("terminal_method", SINGLE)]
+    assert item["kind"] == "what_if" and item["before"] == dcf.GORDON and item["how"] == "switch"
+    src.check(load_assumptions(company, result.run_id), src.load(company, result.run_id), True)
+
+
+@pytest.mark.parametrize(
+    ("change", "code"),
+    [
+        (Change("terminal_method", method="nonsense"), "unknown_terminal_method"),
+        (Change("terminal_method", method=dcf.VALUE_DRIVER), "same_terminal_method"),
+        (Change("terminal_method", value=1.0), "value_and_delta"),
+        (Change("terminal_method", method=dcf.GORDON, value=1.0), "value_and_delta"),
+        (Change("beta", method=dcf.GORDON), "method_on_number"),
+        (Change("terminal_method", method=dcf.GORDON, period="FY2021Q1"), "period_on_single_value"),
+    ],
+)
+def test_switch_refusals_have_a_code_and_store_nothing(company, parent, change, code):
+    count = _count(company)
+    with pytest.raises(WhatIfError) as e:
+        revalue(company, parent, [change])
+    assert e.value.code == code
+    assert _count(company) == count
+
+
+def test_a_switch_to_gordon_names_what_it_assumes_with_the_grids_codes(company, parent):
+    result = revalue(company, parent, [Change("terminal_method", method=dcf.GORDON)])
+    by_code = {n.code: n for n in result.notes}
+    assert "terminal_method_switched" in by_code
+    out = load_outputs(company, result.run_id)
+    g = _rows(company, parent)[("terminal_growth", SINGLE)].value
+    reinvest = fm.reinvestment_rate(out[("fcff", "Y5")], out[("nopat", "Y5")])
+    assert by_code["gordon_holds_reinvestment"].params == {"reinvestment_rate": reinvest}
+    if reinvest > 0:
+        assert by_code["gordon_implied_ronic"].params == {
+            "implied_ronic": fm.implied_ronic(g, reinvest),
+            "reinvestment_rate": reinvest,
+            "terminal_growth": g,
+            "wacc": out[("wacc", SINGLE)],
+        }
+    else:
+        assert "gordon_reinvestment_not_positive" in by_code
+
+
+@pytest.mark.parametrize(
+    ("fcff", "nopat", "codes"),
+    [
+        (80.0, 100.0, {"gordon_holds_reinvestment", "gordon_implied_ronic"}),
+        (120.0, 100.0, {"gordon_holds_reinvestment", "gordon_reinvestment_not_positive"}),
+        (100.0, 100.0, {"gordon_holds_reinvestment", "gordon_reinvestment_not_positive"}),
+        (-5.0, -10.0, {"gordon_holds_reinvestment", "gordon_reinvestment_not_positive"}),
+    ],
+)
+def test_gordon_notes_cover_negative_reinvestment_and_negative_nopat(fcff, nopat, codes):
+    from domains.analysis.schemas import Assumption
+    from domains.analysis.whatif import _gordon_notes
+
+    rows = [
+        Assumption(name="terminal_growth", period=SINGLE, value=0.04, source="computed", method="t")
+    ]
+    outputs = {("fcff", "Y5"): fcff, ("nopat", "Y5"): nopat, ("wacc", SINGLE): 0.09}
+    notes = _gordon_notes(outputs, rows)
+    assert {n.code for n in notes} == codes
+    if nopat <= 0:
+        assert notes[0].params == {"reinvestment_rate": None}
+
+
+def test_a_switch_beside_a_set_wacc_reproduces_and_follows_the_childs_method(company, parent):
+    result = revalue(
+        company,
+        parent,
+        [Change("terminal_method", method=dcf.GORDON), Change("wacc", delta=0.01)],
+    )
+    assert reproduce(company, result.run_id).ok
+    assert "ronic_follows_wacc" not in [n.code for n in result.notes]  # the child is Gordon
+    back = revalue(
+        company,
+        _gordon_parent(company),
+        [Change("terminal_method", method=dcf.VALUE_DRIVER), Change("wacc", delta=0.01)],
+    )
+    assert "ronic_follows_wacc" in [n.code for n in back.notes]  # the child is value-driver
+
+
+def test_a_gordon_child_stores_the_thin_spread_warning(company, parent):
+    rows = _rows(company, parent)
+    wacc = load_outputs(company, parent)[("wacc", SINGLE)]
+    g = rows[("terminal_growth", SINGLE)].value
+    result = revalue(
+        company,
+        parent,
+        [
+            Change("terminal_method", method=dcf.GORDON),
+            Change("terminal_growth", value=wacc - 0.02),
+        ],
+    )
+    warnings = [n.params["warning_code"] for n in result.notes if n.code == "run_warning"]
+    assert "thin_terminal_spread" in warnings
+    assert g != wacc - 0.02

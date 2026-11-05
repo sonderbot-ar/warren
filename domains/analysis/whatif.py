@@ -55,6 +55,10 @@ CHANGEABLE_SINGLE = (
     dcf.WACC_SET,
 )
 CHANGEABLE = dcf.DRIVERS + CHANGEABLE_SINGLE
+# The terminal formula, switched on a what-if only (backlog #171 part 2; owner decision
+# nov.05.2026, Decision 4): a choice, not a number, so it comes as Change(method=...)
+TERMINAL = "terminal_method"
+TERMINAL_METHODS = (dcf.GORDON, dcf.VALUE_DRIVER)
 # The inputs the computed WACC is built from: with WACC set they would move nothing but the
 # cost-of-equity line, which a student would read as a result, so they are refused beside it
 WACC_INPUTS = ("risk_free", "beta", "erp", "cost_of_debt", "debt_tax_rate")
@@ -102,7 +106,7 @@ FRACTIONS = {"cost_of_equity", "wacc", "terminal_growth", "terminal_share", "dis
 _REVENUE = {"revenue_growth"}
 _CASH_FLOW = set(dcf.DRIVERS)
 _RATE = set(WACC_INPUTS) | {dcf.WACC_SET}
-_VALUE = _CASH_FLOW | _RATE | {"terminal_growth"}
+_VALUE = _CASH_FLOW | _RATE | {"terminal_growth", TERMINAL}
 DEPENDS = {
     "revenue": _REVENUE,
     "ebit": _REVENUE | {"operating_margin"},
@@ -165,15 +169,16 @@ class Change:
     value: float | None = None
     delta: float | None = None
     period: str | None = None
+    method: str | None = None  # only for terminal_method: the formula to switch to
 
 
 @dataclass(frozen=True)
 class RowChange:
     name: str
     period: str
-    before: float
-    after: float
-    how: str  # set, add, follows_risk_free, follows_terminal_growth
+    before: float | str  # a method name for terminal_method
+    after: float | str
+    how: str  # set, add, follows_risk_free, follows_terminal_growth, switch
 
 
 @dataclass(frozen=True)
@@ -275,6 +280,20 @@ def _changed_rows(
     periods = dcf.forecast_periods(dcf._index(rows))[1]
     out: dict[tuple[str, str], RowChange] = {}
     for change in changes:
+        if change.name == TERMINAL:
+            key = (TERMINAL, SINGLE)
+            if key in out:
+                raise _refuse(
+                    "duplicate_change", f"{TERMINAL} is changed twice", name=TERMINAL, period=SINGLE
+                )
+            out[key] = _switch(rows, change)
+            continue
+        if change.method is not None:
+            raise _refuse(
+                "method_on_number",
+                f"{change.name} takes a number; only {TERMINAL} takes a method",
+                name=change.name,
+            )
         for period in _targets(change, periods):
             key = (change.name, period)
             if key in out:
@@ -317,6 +336,34 @@ def _changed_rows(
     return list(out.values())
 
 
+def _switch(rows: list[Assumption], change: Change) -> RowChange:
+    """The terminal formula switched to `change.method` (a what-if only, owner decision)."""
+    if change.value is not None or change.delta is not None or change.method is None:
+        raise _refuse("value_and_delta", f"{TERMINAL}: give a method, not a number")
+    if change.period not in (None, SINGLE):
+        raise _refuse(
+            "period_on_single_value",
+            f"{TERMINAL} has one value for the whole run",
+            name=TERMINAL,
+            period=change.period,
+        )
+    if change.method not in TERMINAL_METHODS:
+        raise _refuse(
+            "unknown_terminal_method",
+            f"no terminal method {change.method!r}",
+            method=change.method,
+            allowed=list(TERMINAL_METHODS),
+        )
+    before = dcf.terminal_method(rows)
+    if change.method == before:
+        raise _refuse(
+            "same_terminal_method",
+            f"the run already uses {before}",
+            method=before,
+        )
+    return RowChange(TERMINAL, SINGLE, before, change.method, "switch")
+
+
 def forecast_year(i: int) -> int:
     """Forecast year 1–5 of the i-th forecast period (8 quarters, then Y3–Y5), as math_engine."""
     return i // 4 + 1 if i < dcf.QUARTERS else dcf.QUARTERS // 4 + 1 + (i - dcf.QUARTERS)
@@ -341,7 +388,13 @@ def _child_rows(rows: list[Assumption], moved: list[RowChange], parent: str) -> 
     have = {(a.name, a.period) for a in rows}
     # a row the parent doesn't have (a set WACC) goes last, after the parent's rows
     new = [
-        Assumption(name=c.name, period=c.period, value=c.before, source="user", method="new")
+        Assumption(
+            name=c.name,
+            period=c.period,
+            value=None if c.how == "switch" else c.before,
+            source="user",
+            method="new",
+        )
         for c in moved
         if (c.name, c.period) not in have
     ]
@@ -350,6 +403,15 @@ def _child_rows(rows: list[Assumption], moved: list[RowChange], parent: str) -> 
         c = by_key.get((a.name, a.period))
         if c is None:
             out.append(a)
+            continue
+        if c.how == "switch":  # the choice is read before the first colon, as on every run
+            method = (
+                f"{c.after}: what-if on {parent}: switched from {c.before} (a student's contrast, "
+                "allowed on what-ifs only, owner decision nov.05.2026)"
+            )
+            out.append(
+                Assumption(name=a.name, period=a.period, value=None, source="user", method=method)
+            )
             continue
         how = {
             "set": f"set to {c.after!r}",
@@ -494,6 +556,20 @@ def revalue(conn: sqlite3.Connection, run_id: str, changes: list[Change]) -> Wha
         for check in checks
     ]
     changed = {c.name for c in moved}
+    method = dcf.terminal_method(child_rows)
+    switched = next((c for c in moved if c.how == "switch"), None)
+    if switched is not None:
+        notes.append(
+            Coded(
+                "terminal_method_switched",
+                {"before": switched.before, "after": switched.after},
+                f"A contrast: valued under {switched.after} instead of the run's "
+                f"{switched.before}; a hypothetical, not Warren's value (Koller, Goedhart and "
+                "Wessels, Valuation, ch. 14, on why the two differ).",
+            )
+        )
+        if method == dcf.GORDON:
+            notes += _gordon_notes(outputs, child_rows)
     wacc_set = next((c for c in moved if c.name == dcf.WACC_SET), None)
     if wacc_set is not None:
         notes.append(
@@ -506,7 +582,7 @@ def revalue(conn: sqlite3.Connection, run_id: str, changes: list[Change]) -> Wha
                 "of equity shown is the run's CAPM, for reference.",
             )
         )
-        if dcf.terminal_method(rows) == dcf.VALUE_DRIVER:
+        if method == dcf.VALUE_DRIVER:
             notes.append(
                 Coded(
                     "ronic_follows_wacc",
@@ -562,7 +638,6 @@ def revalue(conn: sqlite3.Connection, run_id: str, changes: list[Change]) -> Wha
             )
         )
     periods = dcf.forecast_periods(dcf._index(rows))[1]
-    method = dcf.terminal_method(rows)
     currency = _currency(conn)
     return WhatIf(
         run_id=child_id,
@@ -579,6 +654,55 @@ def revalue(conn: sqlite3.Connection, run_id: str, changes: list[Change]) -> Wha
         ),
         notes=notes,
     )
+
+
+def _gordon_notes(outputs: dict, rows: list[Assumption]) -> list[Coded]:
+    """What a Gordon value on this child assumes, with the sensitivity grid's codes and params so
+    one screen string serves both (product lead): year 5's reinvestment is held while growth runs
+    on, and, when year 5 reinvests nothing (or NOPAT isn't positive), its growth comes from no
+    investment; otherwise the return on new investment it implies, g ÷ the reinvestment rate."""
+    last = dcf.YEARS[-1]
+    growth = next(a.value for a in rows if a.name == "terminal_growth" and a.period == SINGLE)
+    try:
+        reinvest = fm.reinvestment_rate(outputs[("fcff", last)], outputs[("nopat", last)])
+    except fm.FinancialMathError:  # NOPAT at or below zero: no rate (as the grid)
+        reinvest = None
+    notes = [
+        Coded(
+            "gordon_holds_reinvestment",
+            {"reinvestment_rate": reinvest},
+            "The Gordon formula grows year 5's free cash flow, whose reinvestment is fixed, so "
+            "more growth comes at no extra investment.",
+        )
+    ]
+    if reinvest is None or reinvest <= 0:
+        notes.append(
+            Coded(
+                "gordon_reinvestment_not_positive",
+                {"reinvestment_rate": reinvest},
+                "In year 5 this run reinvests nothing or takes capital out, so the Gordon "
+                "formula's growth comes from no investment and implies no return: read its "
+                "value as a formula, not a valuation.",
+            )
+        )
+        return notes
+    ronic = fm.implied_ronic(growth, reinvest)
+    params = {
+        "implied_ronic": ronic,
+        "reinvestment_rate": reinvest,
+        "terminal_growth": growth,
+        "wacc": outputs[("wacc", SINGLE)],
+    }
+    notes.append(
+        Coded(
+            "gordon_implied_ronic",
+            params,
+            f"Under Gordon, growth of {growth:.2%} with {reinvest:.1%} of NOPAT reinvested "
+            f"assumes new investment earns {ronic:.1%} forever, against a WACC of "
+            f"{params['wacc']:.2%}.",
+        )
+    )
+    return notes
 
 
 def _next_child_id(conn: sqlite3.Connection, parent: str) -> str:

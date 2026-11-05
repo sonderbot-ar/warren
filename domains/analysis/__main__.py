@@ -317,6 +317,18 @@ def parse_change(text: str, kind: str) -> Change:
     return Change(name.strip(), period=period.strip() or None, **{kind: amount})
 
 
+def parse_switch(text: str) -> Change:
+    """NAME=METHOD, for --switch (the terminal formula on a what-if)."""
+    name, sep, method = text.partition("=")
+    if not sep or not method.strip():
+        raise argparse.ArgumentTypeError(f"{text!r}: expected NAME=METHOD")
+    return Change(name.strip(), method=method.strip())
+
+
+def _fmt_change(value) -> str:
+    return value if isinstance(value, str) else f"{value:.6g}"
+
+
 def _fmt_line(value: float | None, unit: str) -> str:
     if value is None:
         return "—"
@@ -335,7 +347,10 @@ def render_whatif(w: WhatIf) -> str:
         "Changed inputs:",
     ]
     for c in w.changes:
-        out.append(f"  {c.name:22} {c.period:9} {c.before:>14.6g} → {c.after:<14.6g} ({c.how})")
+        out.append(
+            f"  {c.name:22} {c.period:9} {_fmt_change(c.before):>14} → "
+            f"{_fmt_change(c.after):<14} ({c.how})"
+        )
     out.append(f"Terminal value: {w.terminal_formula.text}")
     out.append(
         f"  {'line':24} {'period':9} {'before':>14} {'after':>14} {'change':>14}  because of"
@@ -357,6 +372,7 @@ def render_whatif(w: WhatIf) -> str:
 def cmd_whatif(args: argparse.Namespace) -> int:
     changes = [parse_change(t, "value") for t in args.set or []]
     changes += [parse_change(t, "delta") for t in args.add or []]
+    changes += [parse_switch(t) for t in args.switch or []]
     with get_db_connection() as conn:
         apply_migrations(conn)
         try:
@@ -624,6 +640,12 @@ def main(argv: list[str] | None = None) -> int:
         action="append",
         metavar="NAME[@PERIOD]=DELTA",
         help="add to an input (0.01 = one point); repeatable",
+    )
+    wi.add_argument(
+        "--switch",
+        action="append",
+        metavar="terminal_method=METHOD",
+        help="value under the other terminal formula (gordon_fcff or value_driver_ronic_wacc)",
     )
     wi.add_argument("--json", action="store_true", help="print JSON for the app")
     wi.set_defaults(func=cmd_whatif)

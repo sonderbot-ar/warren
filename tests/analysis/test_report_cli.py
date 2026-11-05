@@ -184,6 +184,14 @@ def test_whatif_command_sets_wacc_and_the_report_says_the_range_is_not_computed(
     assert "not computed: WACC set directly" in render(company, f"{run_id}_whatif_1")
 
 
+def test_whatif_command_switches_the_terminal_formula(company, monkeypatch, capsys):
+    _wire(company, monkeypatch, datetime(2020, 7, 2, tzinfo=UTC))
+    run_id = run(company)
+    assert cli.main(["whatif", "--run-id", run_id, "--switch", "terminal_method=gordon_fcff"]) == 0
+    out = capsys.readouterr().out
+    assert "value_driver_ronic_wacc → gordon_fcff" in out and "(switch)" in out
+
+
 def test_whatif_command_refuses_with_its_code(company, monkeypatch, capsys):
     _wire(company, monkeypatch, datetime(2020, 7, 2, tzinfo=UTC))
     run_id = run(company)
