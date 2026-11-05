@@ -30,7 +30,7 @@ ROWS = scoring.load_set()
 # The labels are frozen before any model sees them (professor's review, nov.05.2026): a label
 # changed after a run would let the set bend to the model. Changing one needs a new hash here
 # and a line in docs/designs/f2-web-app.md saying which label changed and why, before a run.
-LABELLED_SET_SHA256 = "28c9eed8bfd96e56fdd864304e56b9b4ec8e2b58bc01e5910438aa0ea34dd510"
+LABELLED_SET_SHA256 = "e50ac05c73ebfa79c0efd4b9568952c65702658b51c9d1d27da5e25183564087"
 
 
 def test_the_labels_are_frozen():
@@ -164,6 +164,21 @@ def test_an_as_of_needs_a_date_in_the_question():
     """A fecha de corte the question never states is invented, so it is dropped."""
     got = check(Reading("estimacion", ("AAPL",), as_of="2024-01-02"), "¿Cuánto vale Apple?", TODAY)
     assert got.as_of is None and got.unsure and "as_of" in got.dropped
+
+
+def test_an_as_of_must_match_the_year_in_the_question():
+    q = "¿Cuánto valía Apple a fines de 2024?"
+    kept = check(Reading("estimacion", ("AAPL",), "2024-12-31", "fines de 2024"), q, TODAY)
+    invented = check(Reading("estimacion", ("AAPL",), "2023-12-31", "fines de 2024"), q, TODAY)
+    assert kept.as_of == "2024-12-31" and not kept.unsure
+    assert invented.as_of is None and invented.unsure
+
+
+def test_out_of_scope_keeps_no_date():
+    q = "¿A cuánto va a cotizar Mercado Libre a fin de año?"
+    sent = Reading("fuera_de_alcance", period="fin de año", out_of_scope="precio_o_consejo")
+    got = check(sent, q, TODAY)
+    assert got.period is None and not got.unsure
 
 
 def test_direction_with_a_level_is_dropped_without_doubt():

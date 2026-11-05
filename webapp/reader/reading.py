@@ -193,7 +193,8 @@ def check(reading: Reading, question: str, today: date) -> Reading:
     period = reading.period
     if period is not None and not copied_from(period, question):
         period, dropped = None, [*dropped, "period"]
-    if as_of is not None and period is None:  # a fecha de corte the question never states
+    # a fecha de corte the question never states: its year must be in the copied period
+    if as_of is not None and (period is None or as_of[:4] not in normalise(period)):
         as_of, dropped = None, [*dropped, "as_of"]
 
     inputs = []
@@ -216,7 +217,8 @@ def check(reading: Reading, question: str, today: date) -> Reading:
         inputs, dropped = [], [*dropped, "inputs"]
 
     out_of_scope = reading.out_of_scope
-    if kind == "fuera_de_alcance":
+    if kind == "fuera_de_alcance":  # nothing is computed, so no date is kept
+        as_of = period = None
         if out_of_scope not in OUT_OF_SCOPE:
             out_of_scope, dropped = None, [*dropped, "out_of_scope"]
     elif out_of_scope is not None:
