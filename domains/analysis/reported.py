@@ -390,8 +390,9 @@ def reported_period(
 
 def _coded_warnings(caught, universe) -> list[Coded]:
     """The caught warnings, coded as a run's are (backlog #172): `beyond_history` carries
-    `history_ends` and, since #172, `ticker`, `cik`, `as_of` and `note`; since #196, `reason`
-    and `successor_cik`. A warning that is not Warren's own goes back to the log."""
+    `history_ends` and, since #172, `ticker`, `cik`, `as_of` and `note`; since #196, `reason`,
+    `successor_cik` and `successor_name`. A warning that is not Warren's own goes back to the
+    log."""
     pass_on(caught)
     return coded_warnings(caught)
 
