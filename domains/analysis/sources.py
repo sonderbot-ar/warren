@@ -252,7 +252,7 @@ FORMULAS = {
     "net_debt": "debt − cash and investments",
     "equity_value": "enterprise value − net debt − minority interest",
     "per_share": "equity value ÷ shares",
-    "wacc_set_directly": "WACC as the what-if set it, in place of the computed one",
+    "wacc_as_set": "WACC as the what-if set it, in place of the computed one",
     "revalued_at_erp_minus_1se": "value per share with the ERP one standard error lower",
     "revalued_at_erp_plus_1se": "value per share with the ERP one standard error higher",
 }
@@ -334,7 +334,7 @@ def output_trace(rows: Iterable[Assumption]) -> dict[Key, dict]:
     wacc_set = dcf.wacc_is_set(rows)
     put("cost_of_equity", one, "capm", _row("risk_free", one), _row("beta", one), _row("erp", one))
     if wacc_set:  # a what-if that sets the rate itself (backlog #171)
-        put("wacc", one, "wacc_set_directly", _row(dcf.WACC_SET, one))
+        put("wacc", one, "wacc_as_set", _row(dcf.WACC_SET, one))
     else:
         put(
             "wacc",

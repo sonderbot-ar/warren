@@ -1049,6 +1049,11 @@ def post_check_notes(
                     )
                 )
 
+    # WACC set directly on a what-if (backlog #171): it is an override, not a weighted average,
+    # so say when it lies outside the two costs it would average, and that the ERP is out of it
+    if dcf.wacc_is_set(assumptions):
+        out += _wacc_set_notes(rows, outputs)
+
     # under the value-driver terminal value the spread no longer drives the value (M4)
     if dcf.terminal_method(assumptions) != dcf.GORDON:
         return out
@@ -1109,6 +1114,41 @@ def post_check_notes(
                     f"mostly shows how the terminal value reacts to the {word} ERP",
                 )
             )
+    return out
+
+
+def _wacc_set_notes(rows: dict, outputs: dict) -> list[Coded]:
+    wacc = rows[dcf.WACC_SET][SINGLE]
+    cost_of_equity = outputs[("cost_of_equity", SINGLE)]
+    debt_after_tax = fm.after_tax_cost_of_debt(
+        rows["cost_of_debt"][SINGLE], rows["debt_tax_rate"][SINGLE]
+    )
+    out = []
+    low, high = sorted((debt_after_tax, cost_of_equity))
+    if not low <= wacc <= high:
+        params = {
+            "wacc": wacc,
+            "cost_of_equity": cost_of_equity,
+            "after_tax_cost_of_debt": debt_after_tax,
+        }
+        out.append(
+            Coded(
+                "wacc_outside_its_parts",
+                params,
+                f"The WACC set here ({wacc:.2%}) is outside the two costs a weighted average "
+                f"would lie between (debt after tax {debt_after_tax:.2%}, equity "
+                f"{cost_of_equity:.2%}): it is an override, not a weighted average of this "
+                "run's costs",
+            )
+        )
+    out.append(
+        Coded(
+            "erp_bounds_not_computed",
+            {},
+            "Value per share at ERP ± 1 standard error is not computed: with WACC set directly "
+            "the ERP no longer enters the discount rate",
+        )
+    )
     return out
 
 

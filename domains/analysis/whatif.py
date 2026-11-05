@@ -50,11 +50,18 @@ CHANGEABLE_SINGLE = (
     "cash_and_investments",
     "minority_interest",
     "shares",
+    # WACC set directly (backlog #171): not a row of the parent, whose WACC is an output; the
+    # child gets a `wacc` row that dcf reads in place of the computed rate
+    dcf.WACC_SET,
 )
 CHANGEABLE = dcf.DRIVERS + CHANGEABLE_SINGLE
+# The inputs the computed WACC is built from: with WACC set they would move nothing but the
+# cost-of-equity line, which a student would read as a result, so they are refused beside it
+WACC_INPUTS = ("risk_free", "beta", "erp", "cost_of_debt", "debt_tax_rate")
 # (low, high, low included, high included): checked before any arithmetic; None = no bound
 BOUNDS = {
     "shares": (0.0, None, False, None),
+    dcf.WACC_SET: (0.0, None, False, None),
     "cash_and_investments": (0.0, None, True, None),
     "minority_interest": (0.0, None, True, None),
     "tax_rate": (0.0, 1.0, True, False),
@@ -94,7 +101,7 @@ FRACTIONS = {"cost_of_equity", "wacc", "terminal_growth", "terminal_share", "dis
 # inputs behind it (`driven_by`) and the app never guesses a cause (design principle 8).
 _REVENUE = {"revenue_growth"}
 _CASH_FLOW = set(dcf.DRIVERS)
-_RATE = {"risk_free", "beta", "erp", "cost_of_debt", "debt_tax_rate"}
+_RATE = set(WACC_INPUTS) | {dcf.WACC_SET}
 _VALUE = _CASH_FLOW | _RATE | {"terminal_growth"}
 DEPENDS = {
     "revenue": _REVENUE,
@@ -258,8 +265,13 @@ def _targets(change: Change, periods: list[str]) -> list[str]:
     return [change.period]
 
 
-def _changed_rows(rows: list[Assumption], changes: list[Change]) -> list[RowChange]:
+def _changed_rows(
+    rows: list[Assumption], changes: list[Change], parent_outputs: dict
+) -> list[RowChange]:
     index = {(a.name, a.period): a for a in rows}
+    # the parent has no `wacc` row: a set WACC starts from the WACC the parent computed
+    before_of = {key: a.value for key, a in index.items()}
+    before_of.setdefault((dcf.WACC_SET, SINGLE), parent_outputs[("wacc", SINGLE)])
     periods = dcf.forecast_periods(dcf._index(rows))[1]
     out: dict[tuple[str, str], RowChange] = {}
     for change in changes:
@@ -272,13 +284,21 @@ def _changed_rows(rows: list[Assumption], changes: list[Change]) -> list[RowChan
                     name=change.name,
                     period=period,
                 )
-            before = index[key].value
+            before = before_of[key]
             if change.value is not None:
                 after, how = change.value, "set"
             else:
                 after, how = before + change.delta, "add"
             _check_bounds(change.name, after)
             out[key] = RowChange(change.name, period, before, after, how)
+    if (dcf.WACC_SET, SINGLE) in out:
+        for name in WACC_INPUTS:
+            if (name, SINGLE) in out:
+                raise _refuse(
+                    "wacc_with_rate_input",
+                    f"WACC is set directly, so {name} would not move it: change one or the other",
+                    name=name,
+                )
     rf_key, tg_key = ("risk_free", SINGLE), ("terminal_growth", SINGLE)
     if rf_key in out and tg_key not in out and _follows_risk_free(rows):
         before = index[tg_key].value
@@ -318,8 +338,15 @@ def _follows_risk_free(rows: list[Assumption]) -> bool:
 
 def _child_rows(rows: list[Assumption], moved: list[RowChange], parent: str) -> list[Assumption]:
     by_key = {(c.name, c.period): c for c in moved}
+    have = {(a.name, a.period) for a in rows}
+    # a row the parent doesn't have (a set WACC) goes last, after the parent's rows
+    new = [
+        Assumption(name=c.name, period=c.period, value=c.before, source="user", method="new")
+        for c in moved
+        if (c.name, c.period) not in have
+    ]
     out = []
-    for a in rows:
+    for a in rows + new:
         c = by_key.get((a.name, a.period))
         if c is None:
             out.append(a)
@@ -344,7 +371,11 @@ def _value(rows: list[Assumption]):
     try:
         return dcf.outputs_and_gaps(rows)
     except fm.FinancialMathError as e:
-        raise _refuse(e.reason, f"{REASON_WORDS[e.reason]}: {e}") from e
+        params = {}
+        if e.reason == "growth_not_below_rate":  # the two numbers, so the app can say them
+            inp = dcf.inputs(rows)
+            params = {"wacc": dcf.base_wacc(inp), "terminal_growth": inp.one["terminal_growth"]}
+        raise _refuse(e.reason, f"{REASON_WORDS[e.reason]}: {e}", **params) from e
 
 
 def _change_pct(before: float | None, after: float | None) -> float | None:
@@ -420,10 +451,10 @@ def revalue(conn: sqlite3.Connection, run_id: str, changes: list[Change]) -> Wha
     if not changes:
         raise _refuse("no_change", "name at least one input to change")
     rows = load_assumptions(conn, run_id)
-    moved = _changed_rows(rows, changes)
+    parent_rows_out = load_outputs(conn, run_id)
+    moved = _changed_rows(rows, changes, parent_rows_out)
     child_rows = _child_rows(rows, moved, run_id)
     outputs, gaps = _value(child_rows)
-    parent_rows_out = load_outputs(conn, run_id)
 
     checks = post_check_notes(child_rows, outputs)  # coded (backlog #172)
     version = code_version()  # a git call: kept outside the lock
@@ -460,6 +491,28 @@ def revalue(conn: sqlite3.Connection, run_id: str, changes: list[Change]) -> Wha
         for check in checks
     ]
     changed = {c.name for c in moved}
+    wacc_set = next((c for c in moved if c.name == dcf.WACC_SET), None)
+    if wacc_set is not None:
+        notes.append(
+            Coded(
+                "wacc_set_on_what_if",
+                {"before": wacc_set.before, "after": wacc_set.after},
+                "WACC is set directly, as an override and not a weighted average: it is the "
+                "discount rate in every period and carries the value to the as-of date; the cost "
+                "of equity, beta, the ERP and the debt weights no longer drive it, and the cost "
+                "of equity shown is the run's CAPM, for reference.",
+            )
+        )
+        if dcf.terminal_method(rows) == dcf.VALUE_DRIVER:
+            notes.append(
+                Coded(
+                    "ronic_follows_wacc",
+                    {"terminal_method": dcf.VALUE_DRIVER},
+                    "Under the value-driver formula new investment is assumed to earn exactly "
+                    "WACC, so the return on new investment after year 5 moved with the WACC set "
+                    "here.",
+                )
+            )
     if any(c.how == "follows_terminal_growth" for c in moved):
         notes.append(
             Coded(

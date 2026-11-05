@@ -298,3 +298,9 @@ def test_change_per_point():
     # 90 to 110 on a base of 100 over 2 points of the input: 10% a point
     assert fm.change_per_point(90.0, 110.0, 100.0, -0.01, 0.01) == pytest.approx(0.10)
     assert fm.change_per_point(110.0, 90.0, 100.0, -0.01, 0.01) == pytest.approx(-0.10)
+
+
+def test_after_tax_cost_of_debt_is_the_wacc_with_no_equity_weight():
+    assert fm.after_tax_cost_of_debt(0.06, 0.25) == pytest.approx(0.045)
+    # the debt-only limit of the WACC is debt's after-tax cost
+    assert fm.wacc(1e-12, 1.0, 0.10, 0.06, 0.25) == pytest.approx(0.045)
