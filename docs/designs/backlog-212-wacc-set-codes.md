@@ -62,3 +62,12 @@ Explainer, analyst, professor and product lead in one fresh-context panel. No bl
 - **Which shock ids (product lead).** Product impact says they are the ids as given.
 
 Coverage checked by the analyst: every simulation path (`simulate_checked`, `sample_lines`, `simulate`, `save_simulation`, `reproduce_simulation`, and through them the harness, the pipeline and both range modules) goes through `montecarlo._shocked`, so the refusal covers them all; a shocked range needs a stored simulation, which a refusal never leaves. Kept, with a reason: the CLI line in `__main__.py` (the product lead suggested dropping it), because a plain `FAILED: …` hides the code the app keys on.
+
+## Results on real data (Step 3, nov.06.2026)
+
+On the restored snapshot (schema 21, saved nov.05.2026), on the latest stored baseline of each Phase 1 company (as of 2026-10-30), a what-if child with WACC +1 point:
+
+- **The refusal fires on all eight.** A risk-premium shock (0 / 50 / 150 basis points) on each child is refused with `wacc_set_with_risk_premium_shock`, params the child's set rate and `["rp"]`; the simulations table has no new row after any of them.
+- **Other shocks still run at the set rate.** A revenue-growth shock (−3 / −2 / −1 points for four quarters, 2,000 samples, seed 1) on each child stores a simulation that reproduces; its baseline band equals the child's value per share to the cent (AAPL $87.84, CAT $194.14, JNJ $144.62, KO $31.69, MSFT $183.79, PG $90.48, WMT $26.88, XOM $99.64, the same values v0.9.20 recorded for +1 point), and the p50 sits 1.5–2.3% below it (AAPL $86.10, MSFT $180.40, XOM $97.31).
+- **The grid's note.** On every child `wacc_set_directly` has `run_wacc_set` true and `run_wacc` the set rate (AAPL 12.15%, XOM 7.50%); on every parent it is false. Each child's grid centre equals its stored value per share exactly.
+- `python -m domains.analysis reproduce --all`: 911 of 911 runs reproduce to the cent (903 stored runs and the 8 children made here). Full suite: 1,446 passed, 10 skipped. Each call takes under 0.1 s. Nothing here is saved to the shared snapshot.
