@@ -28,6 +28,7 @@ runs stored before them their codes, only where the rebuilt text matches the sto
 """
 
 import argparse
+import dataclasses
 import json
 import sys
 from datetime import UTC, date, datetime
@@ -374,6 +375,13 @@ def cmd_whatif(args: argparse.Namespace) -> int:
     changes = [parse_change(t, "value") for t in args.set or []]
     changes += [parse_change(t, "delta") for t in args.add or []]
     changes += [parse_switch(t) for t in args.switch or []]
+    if args.debt_use is not None:  # a debt change says what the money is for (backlog #170)
+        if not any(c.name == "debt" for c in changes):
+            print("REFUSED (use_on_other_input): --debt-use needs a --set or --add on debt")
+            return 1
+        changes = [
+            dataclasses.replace(c, use=args.debt_use) if c.name == "debt" else c for c in changes
+        ]
     with get_db_connection() as conn:
         apply_migrations(conn)
         try:
@@ -647,6 +655,12 @@ def main(argv: list[str] | None = None) -> int:
         action="append",
         metavar="terminal_method=METHOD",
         help="value under the other terminal formula (gordon_fcff or value_driver_ronic_wacc)",
+    )
+    wi.add_argument(
+        "--debt-use",
+        metavar="USE",
+        help="what a debt change is for: buyback (more debt buys shares back at the as-of price, "
+        "less debt is repaid with new shares)",
     )
     wi.add_argument("--json", action="store_true", help="print JSON for the app")
     wi.set_defaults(func=cmd_whatif)
