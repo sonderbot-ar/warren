@@ -266,12 +266,15 @@ def test_prompt_hash_changes_with_the_prompt(monkeypatch):
 # --- the recorded runs (nov.05.2026) ------------------------------------------------------
 
 RUNS = scoring.LABELLED_SET.parent / "runs"
-RECORDED = {  # file: (GGUF sha256 prefix or Claude model id, questions fully right, clears the bar)
-    "2026-11-05-qwen3-4b-q4km.jsonl": ("7485fe6f", 140, False),
-    "2026-11-05-qwen3-8b-q4km.jsonl": ("d98cdcbd", 161, False),
-    "2026-11-06-claude-haiku-5-5.jsonl": ("claude-haiku-5-5", 188, False),
+# The first prompt (commit 8b778c6) and the second, tuned only on the product lead's 70
+# questions (nov.06.2026); the earlier runs keep the first prompt's hash in their meta line.
+PROMPT_1 = "b29a95aafe5e8d100781b812bd033b9228812e8789b07d0e0be91c9b5d34548c"
+PROMPT_2 = "4609d4fd9efa3ac8af1e76a235207ceffae4cae1b8a669ea939b2cb165ba7055"
+RECORDED = {  # file: (GGUF sha256 prefix or Claude model id, prompt, fully right, clears the bar)
+    "2026-11-05-qwen3-4b-q4km.jsonl": ("7485fe6f", PROMPT_1, 140, False),
+    "2026-11-05-qwen3-8b-q4km.jsonl": ("d98cdcbd", PROMPT_1, 161, False),
+    "2026-11-06-claude-haiku-5-5.jsonl": ("claude-haiku-5-5", PROMPT_1, 188, False),
 }
-PROMPT_OF_THE_RUNS = "b29a95aafe5e8d100781b812bd033b9228812e8789b07d0e0be91c9b5d34548c"
 
 
 @pytest.mark.parametrize("name", sorted(RECORDED))
@@ -279,9 +282,9 @@ def test_a_recorded_run_reproduces_its_score(name):
     """The score in the design doc comes back from the stored answers, without the model."""
     lines = (RUNS / name).read_text(encoding="utf-8").splitlines()
     meta = json.loads(lines[0])["meta"]
-    model_prefix, right, passes = RECORDED[name]
+    model_prefix, prompt_sha, right, passes = RECORDED[name]
     assert meta["model"].get("sha256", meta["model"].get("id", "")).startswith(model_prefix)
-    assert meta["prompt_sha256"] == PROMPT_OF_THE_RUNS
+    assert meta["prompt_sha256"] == prompt_sha
     assert meta["set_sha256"] == hashlib.sha256(scoring.LABELLED_SET.read_bytes()).hexdigest()
     answers = {json.loads(x)["id"]: json.loads(x)["reading"] for x in lines[1:]}
     report = scoring.score(ROWS, answers, TODAY)
@@ -289,6 +292,6 @@ def test_a_recorded_run_reproduces_its_score(name):
     assert report["passes"] is passes
 
 
-def test_the_prompt_is_still_the_one_the_runs_used():
+def test_the_prompt_is_the_one_the_latest_run_used():
     """A prompt edit after the recorded runs needs a new run before its score is quoted."""
-    assert runner.prompt_sha256() == PROMPT_OF_THE_RUNS
+    assert runner.prompt_sha256() == PROMPT_2
