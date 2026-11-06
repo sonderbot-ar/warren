@@ -178,7 +178,8 @@ def _wacc_at(one: dict, cost_of_equity):
 
 
 def base_wacc(inp: Inputs):
-    """The run's WACC before any risk-premium shock (or the grid's override, if set)."""
+    """The run's WACC before any risk-premium shock, or the override if set (the grid's, or a
+    what-if child's `wacc` row)."""
     if inp.wacc_override is not None:
         return inp.wacc_override
     one = inp.one

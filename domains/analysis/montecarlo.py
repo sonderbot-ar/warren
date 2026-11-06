@@ -17,6 +17,7 @@ import numpy as np
 
 from domains.analysis import dcf, shocks
 from domains.analysis import financial_math as fm
+from domains.analysis.coded import SIMULATION_REFUSAL_CODES, Coded
 from domains.analysis.dcf import Inputs
 from domains.analysis.runs import CENT, code_version, load_assumptions
 from domains.analysis.schemas import SINGLE
@@ -29,7 +30,18 @@ MARGIN_BOUNDS = (-1.0, 1.0)  # an operating margin outside these is not a busine
 
 
 class SimulationError(ValueError):
-    """Samples that can't be valued, or impossible drivers: narrow the shocks' ranges."""
+    """Samples that can't be valued, or impossible drivers: narrow the shocks' ranges.
+
+    A refusal the app explains has a `code` from `coded.SIMULATION_REFUSAL_CODES` and `params`
+    (backlog #212); every other one has `code` None and is text only."""
+
+    def __init__(self, text: str, code: str | None = None, params: dict | None = None):
+        super().__init__(text)
+        assert code is None or code in SIMULATION_REFUSAL_CODES, code
+        self.text, self.code, self.params = text, code, dict(params or {})
+
+    def coded(self) -> Coded | None:
+        return None if self.code is None else Coded(self.code, self.params, self.text)
 
 
 @dataclass(frozen=True)
@@ -110,6 +122,10 @@ def rate_warnings(shocked: Inputs, n: int) -> list[str]:
     )
     # Y5's WACC at or below zero only shows here when terminal growth is at or below zero too:
     # above that, _check_samples has already stopped the run
+    if shocked.wacc_override is not None:
+        # WACC set directly (a what-if child): the cost of equity no longer enters the value, and
+        # no risk-premium shock reaches this far (backlog #212), so only the rate is checked
+        checks = checks[1:]
     out = []
     for rates, floor, what, why, advice in checks:
         bad = [np.broadcast_to(np.asarray(r) <= floor, (n,)) for r in rates]
@@ -137,10 +153,27 @@ def _shocked(rows, shock_list: list[Shock], n: int, seed: int) -> tuple[Inputs, 
     if n < 1:
         raise SimulationError("need at least one sample")
     base_inputs = dcf.inputs(rows)
+    _refuse_premium_on_set_wacc(base_inputs, shock_list)
     rng = np.random.Generator(np.random.PCG64(seed))
     z = rng.standard_normal((n, len(shock_list)))
     magnitudes = [fm.split_normal(s.low, s.base, s.high, z[:, i]) for i, s in enumerate(shock_list)]
     return base_inputs, shocks.apply(base_inputs, shock_list, magnitudes)
+
+
+def _refuse_premium_on_set_wacc(inp: Inputs, shock_list: list[Shock]) -> None:
+    """A run with WACC set directly (a what-if child, backlog #171) takes no risk-premium shock:
+    the shock moves the cost of equity, which no longer enters the discount rate, so the band
+    would leave out the shock the user asked for (backlog #212). Refused before any sample."""
+    premium = [s.shock_id for s in shock_list if s.driver == "risk_premium"]
+    if inp.wacc_override is None or not premium:
+        return
+    raise SimulationError(
+        f"this run's WACC is set directly at {inp.wacc_override:.2%}, so a risk-premium shock "
+        f"({', '.join(premium)}) would move nothing: the cost of equity no longer sets the "
+        "discount rate. Drop the shock, or simulate the run the what-if started from.",
+        code="wacc_set_with_risk_premium_shock",
+        params={"wacc": inp.wacc_override, "shock_ids": premium},
+    )
 
 
 def simulate_checked(

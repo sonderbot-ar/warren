@@ -340,6 +340,7 @@ def grid(
             run_id=run_id,
         )
     notes = _notes(own, other, method, rows, g_steps, left_out, run_wacc, run_growth)
+    notes[1:1] = [_wacc_note(run_wacc, run_wacc_set=dcf.wacc_is_set(rows))]
     return Grid(
         run_id=run_id,
         ticker=run["ticker"],
@@ -356,6 +357,24 @@ def grid(
     )
 
 
+def _wacc_note(run_wacc: float, run_wacc_set: bool) -> Coded:
+    """`wacc_set_directly`: the grid sets WACC as an override. `run_wacc_set` says the run's own
+    rate was set too, by a what-if (backlog #171), so it does not come from CAPM and the capital
+    weights either (backlog #212); the app picks its sentence from that param."""
+    if run_wacc_set:
+        text = (
+            "WACC is set directly here, as a teaching override. This run's own WACC was set "
+            "directly too, by a what-if, so neither it nor any row of this grid comes from CAPM "
+            "and the capital weights; the cost of equity is shown for reference only."
+        )
+    else:
+        text = (
+            "WACC is set directly here, as a teaching override: in the company's own valuation "
+            "it comes from CAPM and the capital weights, which this grid holds."
+        )
+    return Coded("wacc_set_directly", {"run_wacc": run_wacc, "run_wacc_set": run_wacc_set}, text)
+
+
 def _notes(own, other, method, rows, g_steps, left_out, run_wacc, run_growth) -> list[Coded]:
     notes = [
         Coded(
@@ -363,12 +382,6 @@ def _notes(own, other, method, rows, g_steps, left_out, run_wacc, run_growth) ->
             {},
             "A sensitivity: what value per share would be at other inputs, not a range of "
             "likely outcomes.",
-        ),
-        Coded(
-            "wacc_set_directly",
-            {"run_wacc": run_wacc},
-            "WACC is set directly here, as a teaching override: in the company's own valuation "
-            "it comes from CAPM and the capital weights, which this grid holds.",
         ),
         Coded(
             "growth_path_held",
