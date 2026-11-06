@@ -147,3 +147,31 @@ def test_reported_ratios_work_on_sample_arrays():
     assert fm.ratio(np.array([1.0, 2.0]), np.array([4.0, 4.0])).tolist() == [0.25, 0.5]
     with pytest.raises(fm.FinancialMathError):
         fm.ratio(np.array([1.0]), np.array([0.0]))
+
+
+beta = st.floats(min_value=0.2, max_value=2.5)
+money = st.floats(min_value=1.0, max_value=1e12)
+tax = st.floats(min_value=0.0, max_value=0.45)
+
+
+@given(beta, st.floats(min_value=0.0, max_value=1e12), money, tax)
+def test_unlever_then_relever_at_the_same_structure_gives_beta_back(b, d, e, t):
+    assert fm.relevered_beta(fm.unlevered_beta(b, d, e, t), d, e, t) == pytest.approx(b, rel=1e-12)
+
+
+@given(beta, st.floats(min_value=0.0, max_value=1e12), money, tax, st.floats(0.01, 1e11))
+def test_more_debt_never_lowers_the_equity_beta(b, d, e, t, more):
+    assert fm.relevered_beta(b, d + more, e, t) >= fm.relevered_beta(b, d, e, t)
+
+
+@given(beta, st.floats(min_value=1.0, max_value=1e12), money, tax, st.floats(0.01, 0.4))
+def test_a_higher_tax_rate_never_raises_the_relevered_beta(b, d, e, t, step):
+    assert fm.relevered_beta(b, d, e, t + step) <= fm.relevered_beta(b, d, e, t)
+
+
+@given(beta, st.floats(min_value=0.0, max_value=1e12), money, rate, rate)
+def test_no_tax_and_riskless_debt_keep_wacc_whatever_the_debt(bu, d, e, rf, erp):
+    """Modigliani–Miller without taxes, in Hamada's world (debt beta 0, so debt costs rf)."""
+    unlevered_cost = fm.capm_cost_of_equity(rf, bu, erp)
+    ke = fm.capm_cost_of_equity(rf, fm.relevered_beta(bu, d, e, 0.0), erp)
+    assert fm.wacc(e, d, ke, rf, 0.0) == pytest.approx(unlevered_cost, rel=1e-9)
