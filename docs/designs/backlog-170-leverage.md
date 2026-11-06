@@ -96,3 +96,7 @@ On the restored snapshot (schema 21, `warren-20261105T101750Z`), on the latest s
 ## PR review (nov.06.2026)
 
 Gatekeeper GO on PR #231 (1,478 passed, ruff clean; the two changed refusal tests judged a spec change, not a weakening). Two of its ideas were defects in this PR's own notes and are fixed on the branch: `cost_of_debt_held_on_leverage` said the cost "did not rise" when the floor had raised it (now `floored` and its own wording), and the swap part of the split counted a cash or minority-interest change made beside the debt (now computed with the parent's, so it lands in the rest); tests for both, and the zero-change test now asserts equality to 1e-9. The rest are a backlog issue.
+
+## Merged
+
+nov.06.2026 as v0.9.27, PR #231, merge `8b5b1cc`, after the gatekeeper's GO and green CI. Part 2 is #232; the review's other ideas are #233 and #234.
