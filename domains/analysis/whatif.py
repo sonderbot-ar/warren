@@ -360,14 +360,13 @@ def _changed_rows(
                     f"WACC is set directly, so {name} would not move it: change one or the other",
                     name=name,
                 )
-    if (DEBT, SINGLE) in out:
-        _refuse_debt_request(index, out)
+    floored = (DEBT, SINGLE) in out and _refuse_debt_request(index, out)
     # stage 3: the numbers, in the order the changes were given
     for c in list(out.values()):
         if c.how in ("set", "add"):
             _check_bounds(c.name, c.after)
     if (DEBT, SINGLE) in out:
-        out |= _leverage_rows(index, out)
+        out |= _leverage_rows(index, out, floored)
     rf_key, tg_key = ("risk_free", SINGLE), ("terminal_growth", SINGLE)
     if rf_key in out and tg_key not in out and _follows_risk_free(rows):
         before = index[tg_key].value
@@ -387,14 +386,18 @@ def _changed_rows(
 
 
 def _leverage_rows(
-    index: dict[tuple[str, str], Assumption], out: dict[tuple[str, str], RowChange]
+    index: dict[tuple[str, str], Assumption],
+    out: dict[tuple[str, str], RowChange],
+    floored: bool,
 ) -> dict[tuple[str, str], RowChange]:
     """The rows a debt change moves besides debt (backlog #170, use buyback): the change in debt
     is swapped with equity at the as-of price, so the share count and the market value of equity
     follow; beta is relevered by Hamada's rule (unlevered on the parent's structure and tax rate,
     relevered on the child's); and the cost of debt, when the student didn't set it, is held but
     never below the risk-free rate (a lender's floor, and Hamada's riskless debt: the run's book
-    interest over book debt can be below it, and would make more debt cheaper than riskless)."""
+    interest over book debt can be below it, and would make more debt cheaper than riskless).
+    `floored` is `_would_floor`'s answer, computed once in stage 2 so the refusal and the floor
+    read the same condition (backlog #238)."""
 
     def child(name: str) -> float:
         c = out.get((name, SINGLE))
@@ -425,20 +428,40 @@ def _leverage_rows(
         )
         relevered = fm.relevered_beta(unlevered, d_after, equity_after, child("debt_tax_rate"))
         moved[("beta", SINGLE)] = RowChange("beta", SINGLE, beta, relevered, "relevered")
-        kd, rf = index[("cost_of_debt", SINGLE)].value, child("risk_free")
-        if ("cost_of_debt", SINGLE) not in out and d_after > 0 and kd < rf:
+        if floored:
             moved[("cost_of_debt", SINGLE)] = RowChange(
-                "cost_of_debt", SINGLE, kd, rf, "floored_at_risk_free"
+                "cost_of_debt",
+                SINGLE,
+                index[("cost_of_debt", SINGLE)].value,
+                child("risk_free"),
+                "floored_at_risk_free",
             )
     return moved
 
 
+def _would_floor(
+    index: dict[tuple[str, str], Assumption], out: dict[tuple[str, str], RowChange]
+) -> bool:
+    """Whether a debt change floors the cost of debt at the risk-free rate (`_leverage_rows`):
+    the student didn't give a cost of debt, debt moved and is still above zero, and the run's
+    cost of debt is below the child's risk-free rate (the student's, or the run's). The one
+    place this condition lives (backlog #238): stage 2 reads it to decide a refusal, and
+    `_leverage_rows` gets its answer to write the floored row."""
+    debt = out[(DEBT, SINGLE)]
+    if ("cost_of_debt", SINGLE) in out or debt.after == debt.before or not debt.after > 0:
+        return False
+    rf = out.get(("risk_free", SINGLE))
+    rf = index[("risk_free", SINGLE)].value if rf is None else rf.after
+    return index[("cost_of_debt", SINGLE)].value < rf
+
+
 def _refuse_debt_request(
     index: dict[tuple[str, str], Assumption], out: dict[tuple[str, str], RowChange]
-) -> None:
+) -> bool:
     """Stage 2 for a debt change (see `_changed_rows`): the refusals no number in the request
-    can fix. Beta and shares follow the debt change, a buyback needs the run's price, and new
-    debt on a run that had none needs a cost of debt the run never had."""
+    can fix. Beta and shares follow the debt change, a buyback needs the run's price, and debt
+    above zero needs a cost of debt above zero. Returns `_would_floor`'s answer for
+    `_leverage_rows`."""
     for name in SET_BY_DEBT:
         if (name, SINGLE) in out:
             raise _refuse(
@@ -452,18 +475,24 @@ def _refuse_debt_request(
         raise _refuse("no_price", "the run has no positive as-of share price to trade at")
     debt = out[(DEBT, SINGLE)]
     d_before, d_after = debt.before, debt.after
+    floored = _would_floor(index, out)
     given = out.get(("cost_of_debt", SINGLE))
-    rf = out.get(("risk_free", SINGLE))
     kd = index[("cost_of_debt", SINGLE)].value if given is None else given.after
-    rf = index[("risk_free", SINGLE)].value if rf is None else rf.after
-    # the stored 0 of a run with no debt is a placeholder, not a rate to hold or floor
-    held = given is None and d_after != d_before and kd < rf  # `_leverage_rows` floors it
-    if d_after > 0 and ((held and d_before == 0) or (kd == 0 and not (held and d_before != 0))):
+    # a run with no debt stores cost of debt 0 as a placeholder, not a rate to hold or floor:
+    # new debt on it needs the student's rate, even where the floor would give one
+    new_debt_without_a_rate = d_before == 0 and floored
+    # a zero rate on debt above zero makes debt free, unless the floor replaces it (a run that
+    # had debt, held at zero, below a positive risk-free rate)
+    zero_rate_not_floored = kd == 0 and not (floored and d_before != 0)
+    if d_after > 0 and (new_debt_without_a_rate or zero_rate_not_floored):
         raise _refuse(
             "cost_of_debt_needed",
-            "the run had no debt, so it has no cost of debt: set cost_of_debt too",
+            "the run had no debt, so it has no cost of debt: set cost_of_debt above 0"
+            if d_before == 0
+            else "a cost of debt of 0 would make the debt free: set cost_of_debt above 0",
             debt_before=d_before,
         )
+    return floored
 
 
 def _switch(rows: list[Assumption], change: Change) -> RowChange:

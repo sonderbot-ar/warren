@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from domains.analysis import dcf
+from domains.analysis import dcf, whatif
 from domains.analysis import financial_math as fm
 from domains.analysis.runs import load_assumptions, load_outputs, rebuild, reproduce, run_baseline
 from domains.analysis.schemas import SINGLE
@@ -869,3 +869,130 @@ def test_index_rows_refuses_two_rows_for_one_name_and_period(company, parent):
     assert dcf.index_rows(rows)["risk_free"][SINGLE] == _single(company, parent)["risk_free"]
     with pytest.raises(dcf.DCFInputError, match="two rows for risk_free"):
         dcf.index_rows([*rows, next(a for a in rows if a.name == "risk_free")])
+
+
+# -- one "would be floored" check, and the two reasons a cost of debt is needed (backlog #238) --
+
+
+def _zero(conn, run_id, *names):
+    for name in names:
+        conn.execute(
+            "UPDATE assumptions SET value = 0 WHERE run_id = ? AND name = ? AND period = ?",
+            (run_id, name, SINGLE),
+        )
+
+
+def _stage2(conn, run_id, changes):
+    """The rows stage 2 sees: each change's before and after, no bounds (as `_changed_rows`)."""
+    index = {(a.name, a.period): a for a in load_assumptions(conn, run_id)}
+    out = {}
+    for c in changes:
+        before = index[(c.name, SINGLE)].value
+        after = c.value if c.value is not None else before + c.delta
+        out[(c.name, SINGLE)] = whatif.RowChange(c.name, SINGLE, before, after, "set")
+    return index, out
+
+
+@pytest.mark.parametrize(
+    ("changes", "floored"),
+    [
+        (_buyback(100.0, Change("risk_free", value=0.05)), True),  # book 4% < 5%
+        (_buyback(-10.0, Change("risk_free", value=0.05)), True),  # less debt, still above 0
+        (_buyback(100.0, Change("risk_free", value=0.01)), False),  # book rate above it
+        (_buyback(0.0, Change("risk_free", value=0.05)), False),  # debt did not move
+        (
+            _buyback(100.0, Change("risk_free", value=0.05), Change("cost_of_debt", value=0.03)),
+            False,
+        ),
+    ],
+)
+def test_would_floor_is_the_one_condition_behind_the_floored_row(company, parent, changes, floored):
+    index, out = _stage2(company, parent, changes)
+    assert whatif._would_floor(index, out) is floored
+    # and the row the child stores agrees with it
+    hows = {c.name: c.how for c in revalue(company, parent, changes).changes}
+    assert (hows.get("cost_of_debt") == "floored_at_risk_free") is floored
+
+
+def test_debt_down_to_zero_is_never_floored(company, parent):
+    debt = _single(company, parent)["debt"]
+    index, out = _stage2(company, parent, _buyback(-debt, Change("risk_free", value=0.05)))
+    assert whatif._would_floor(index, out) is False
+
+
+def test_a_zero_cost_of_debt_given_beside_unchanged_debt_is_refused(company, parent):
+    count = _count(company)
+    with pytest.raises(WhatIfError) as e:
+        revalue(company, parent, _buyback(0.0, Change("cost_of_debt", value=0.0)))
+    assert e.value.code == "cost_of_debt_needed"
+    assert e.value.params == {"debt_before": _single(company, parent)["debt"]}
+    assert "free" in str(e.value) and "had no debt" not in str(e.value)
+    assert _count(company) == count
+
+
+def test_a_run_with_debt_and_a_zero_book_rate_is_floored_not_refused(company, parent):
+    _zero(company, parent, "cost_of_debt")
+    rf = _single(company, parent)["risk_free"]
+    assert rf > 0
+    result = revalue(company, parent, _buyback(50.0))
+    kd = {c.name: c for c in result.changes}["cost_of_debt"]
+    assert (kd.before, kd.after, kd.how) == (0.0, rf, "floored_at_risk_free")
+    assert reproduce(company, result.run_id).ok
+
+
+def test_a_run_with_debt_and_a_zero_book_rate_unchanged_debt_is_refused(company, parent):
+    _zero(company, parent, "cost_of_debt")
+    with pytest.raises(WhatIfError) as e:
+        revalue(company, parent, _buyback(0.0))
+    assert e.value.code == "cost_of_debt_needed"
+
+
+def test_new_debt_on_a_debt_free_run_with_a_book_rate_below_risk_free_is_refused(company, parent):
+    # only `new_debt_without_a_rate`: the stored rate is not 0, so the zero-rate reason can't
+    # fire, and without the refusal the floor would quietly price the new debt at risk-free
+    _zero(company, parent, "debt")
+    with pytest.raises(WhatIfError) as e:
+        revalue(company, parent, _buyback(50.0, Change("risk_free", value=0.05)))
+    assert e.value.code == "cost_of_debt_needed" and e.value.params == {"debt_before": 0.0}
+    assert "had no debt" in str(e.value)
+    # with the book rate above risk-free nothing is floored, so the rate is held, not refused
+    result = revalue(company, parent, _buyback(50.0, Change("risk_free", value=0.03)))
+    assert "cost_of_debt" not in {c.name for c in result.changes}
+
+
+def test_a_negative_risk_free_rate_floors_nothing_and_a_zero_rate_is_refused(company, parent):
+    _zero(company, parent, "cost_of_debt")
+    with pytest.raises(WhatIfError) as e:
+        revalue(company, parent, _buyback(50.0, Change("risk_free", value=-0.005)))
+    assert e.value.code == "cost_of_debt_needed" and "free" in str(e.value)
+
+
+def test_new_debt_on_a_debt_free_run_needs_a_rate_even_with_a_zero_one_given(company, parent):
+    _zero(company, parent, "debt", "cost_of_debt")
+    with pytest.raises(WhatIfError) as e:
+        revalue(company, parent, _buyback(50.0, Change("cost_of_debt", value=0.0)))
+    assert e.value.code == "cost_of_debt_needed" and e.value.params == {"debt_before": 0.0}
+    assert "had no debt" in str(e.value)
+
+
+def test_a_nan_risk_free_beside_new_debt_on_a_debt_free_run_asks_for_a_cost_of_debt(
+    company, parent
+):
+    # stage 2 (what the run must have) comes before stage 3 (the numbers): the NaN can't be
+    # compared, so nothing is floored, and the placeholder 0 is refused before `invalid_input`
+    _zero(company, parent, "debt", "cost_of_debt")
+    count = _count(company)
+    with pytest.raises(WhatIfError) as e:
+        revalue(company, parent, _buyback(50.0, Change("risk_free", value=float("nan"))))
+    assert e.value.code == "cost_of_debt_needed"
+    assert _count(company) == count
+    # with the cost of debt given, the NaN is the refusal left
+    with pytest.raises(WhatIfError) as e:
+        revalue(
+            company,
+            parent,
+            _buyback(
+                50.0, Change("risk_free", value=float("nan")), Change("cost_of_debt", value=0.06)
+            ),
+        )
+    assert e.value.code == "invalid_input" and e.value.params["name"] == "risk_free"
