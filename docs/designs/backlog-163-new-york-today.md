@@ -1,6 +1,6 @@
 # Backlog #163: the New York day, not the machine's date, for "today" defaults
 
-Issue: https://github.com/sonderbot-ar/warren/issues/163 · Branch `backlog-163-new-york-today` · Version v0.9.24 when merged.
+Issue: https://github.com/sonderbot-ar/warren/issues/163 · Branch `backlog-163-new-york-today` · Version v0.9.24, merged nov.06.2026 (PR #224, merge `fa3c198`; gatekeeper GO, its four notes taken).
 
 ## Problem
 
