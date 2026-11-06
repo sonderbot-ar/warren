@@ -587,7 +587,7 @@ def test_a_debt_child_reproduces_and_moves_exactly_four_rows(company, parent):
 def test_no_change_in_debt_changes_no_value(company, parent):
     result = revalue(company, parent, _buyback(0.0))
     vps = _line(result, "value_per_share")
-    assert abs(vps.after - vps.before) < 0.005
+    assert vps.after == pytest.approx(vps.before, abs=1e-9)
     assert [c.name for c in result.changes] == ["debt"]
 
 
@@ -635,6 +635,8 @@ def test_a_book_cost_of_debt_below_the_risk_free_rate_is_floored(company, parent
     assert "cost_of_debt_floored_at_risk_free" in codes
     assert "cost_of_debt_held_on_leverage" in codes
     assert "cost_of_debt_held" not in codes  # one reason for one held number (product lead)
+    held = _note(result, "cost_of_debt_held_on_leverage")
+    assert held.params["floored"] is True and "risk-free floor" in held.text
     assert reproduce(company, result.run_id).ok
 
 
@@ -715,3 +717,15 @@ def test_a_debt_change_asked_again_is_reused_and_has_sources(company, parent):
         "equity_market_value": "buyback",
         "beta": "relevered",
     }
+
+
+def test_cash_changed_beside_debt_lands_in_the_rest_not_the_swap(company, parent):
+    alone = _note(revalue(company, parent, _buyback(100.0)), "buyback_at_market_price").params
+    both = revalue(company, parent, _buyback(100.0, Change("cash_and_investments", delta=30.0)))
+    split = _note(both, "buyback_at_market_price").params
+    assert split["swap_effect"] == pytest.approx(alone["swap_effect"])
+    assert split["swap_effect"] + split["enterprise_value_effect"] == pytest.approx(
+        _line(both, "value_per_share").change
+    )
+    held = _note(both, "cost_of_debt_held_on_leverage")
+    assert held.params["floored"] is False and "did not rise" in held.text

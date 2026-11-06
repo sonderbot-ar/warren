@@ -826,12 +826,14 @@ def _leverage_notes(
             "at book value as the run counts it (operating leases out).",
         )
     ]
-    # value per share at the parent's enterprise value: what the swap alone does at the price
+    # value per share at the parent's enterprise value: what the swap alone does at the price,
+    # with the parent's cash and minority interest, so a change to those made beside the debt
+    # lands in the rest, as the note says (gatekeeper)
     swapped = fm.value_per_share(
         fm.equity_value(
             parent_out[("enterprise_value_as_of", SINGLE)],
-            child_out[("net_debt", SINGLE)],
-            after["minority_interest"],
+            fm.net_debt(after[DEBT], before["cash_and_investments"]),
+            before["minority_interest"],
         ),
         after["shares"],
     )
@@ -851,8 +853,8 @@ def _leverage_notes(
             "Warren's value per share is below the price, a buyback moves value away from the "
             "shareholders who stay, and above it, towards them. Of the change in value per share, "
             f"{swapped - vps_before:+,.2f} is the swap at the run's enterprise value and "
-            f"{vps_after - swapped:+,.2f} the change in enterprise value (the new WACC and any "
-            "other input changed).",
+            f"{vps_after - swapped:+,.2f} the rest: the change in enterprise value (the new WACC "
+            "and any other input changed) and any cash or minority interest changed.",
         )
     )
     floored = next((c for c in moved if c.how == "floored_at_risk_free"), None)
@@ -872,8 +874,13 @@ def _leverage_notes(
         notes.append(
             Coded(
                 "cost_of_debt_held_on_leverage",
-                {"cost_of_debt": params["cost_of_debt_after"]},
-                "The cost of debt did not rise with the new debt, though lenders charge more "
+                {"cost_of_debt": params["cost_of_debt_after"], "floored": floored is not None},
+                (
+                    "The cost of debt rose only to the risk-free floor, not with the new debt"
+                    if floored is not None
+                    else "The cost of debt did not rise with the new debt"
+                )
+                + ", though lenders charge more "
                 "as debt grows, and the what-if counts no cost of financial distress: the fall "
                 "in WACC is the tax saving on interest, before those costs, so it overstates "
                 "the gain (Damodaran, Applied Corporate Finance, ch. 8). Set cost_of_debt to "
