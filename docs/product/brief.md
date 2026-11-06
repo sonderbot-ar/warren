@@ -164,7 +164,7 @@ Each is an issue labelled `backlog` and `front-end` (`docs/team-sync.md`, rule 4
 | Id | Ask | Questions | Size (engine lead) | Issue |
 |---|---|---|---|---|
 | R1 | Reported figures and named ratios for a company and period, with provenance, first reported and latest, revision flag (takes over #128 item 2) | 1, 2 | M | #140 (done, v0.9.6) |
-| R1b | Net margin on net income to the parent (left out of #140; serves Q2 beside operating margin) | 2 | S | #157 (done, v0.9.19) |
+| R1b | Net margin on net income to the parent (left out of #140; serves Q2 beside operating margin) | 2 | — | #157 (done, v0.9.19) |
 | R2a | What-if revaluation: a stored run revalued with named inputs changed, deterministic, stored as a linked child run that reproduces to the cent | 7, 8 | L | #141 (done, v0.9.9; debt #170 part 1 done in v0.9.27, part 2 #232; WACC and terminal method #171, done in v0.9.20 and v0.9.21) |
 | R2b | Two-input sensitivity grid on R2a | 9 | S | #142 (done, v0.9.12) |
 | R2c | The list of transmissions, starting with an unexpected policy-rate move → 10-year yield, as a sourced range (owner card: a new method) | 7 | M | #143 |
