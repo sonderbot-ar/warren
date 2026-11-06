@@ -8,7 +8,8 @@ The owner's comments on what students see, kept so the owner never says the same
 
 | Item | Sent | Answer | Date |
 |---|---|---|---|
-| The reader's model after the free local models failed the bar: test Claude Haiku (about $0.06), a second free round, or menus (`docs/designs/f2-web-app.md`, Step 3 results, part 2) | nov.05.2026 | Waiting | |
+| The reader's model after the free local models failed the bar: test Claude Haiku (about $0.06), a second free round, or menus (`docs/designs/f2-web-app.md`, Step 3 results, part 2) | nov.05.2026 | Test Haiku (card) | nov.06.2026 |
+| The reader's model after Haiku missed only the 2% line: test Sonnet (about $0.40), take Haiku with the card as the safety net (relaxes the bar), or no reader for now (`docs/designs/f2-web-app.md`, Step 3 results, part 2b) | nov.06.2026 | Waiting | |
 | Product brief (`docs/product/brief.md`) | nov.03.2026 | Approved (card) | nov.03.2026 |
 | Design principles (`docs/product/design-principles.md`) | nov.03.2026 | Approved (card), including the side-panel narrowing and the Mexico number format | nov.03.2026 |
 | The app's stack and the reader's model (`docs/designs/f2-web-app.md`) | nov.04.2026 | FastAPI + htmx, local open model (card, the recommended option) | nov.04.2026 |

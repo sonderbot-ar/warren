@@ -274,6 +274,7 @@ RECORDED = {  # file: (GGUF sha256 prefix or Claude model id, prompt, fully righ
     "2026-11-05-qwen3-4b-q4km.jsonl": ("7485fe6f", PROMPT_1, 140, False),
     "2026-11-05-qwen3-8b-q4km.jsonl": ("d98cdcbd", PROMPT_1, 161, False),
     "2026-11-06-claude-haiku-5-5.jsonl": ("claude-haiku-5-5", PROMPT_1, 188, False),
+    "2026-11-06-claude-haiku-5-5-prompt2.jsonl": ("claude-haiku-5-5", PROMPT_2, 194, False),
 }
 
 
