@@ -46,6 +46,10 @@ SIMULATION_NOTE_CODES = frozenset(
     {"pipeline_variant_differs", "shock_not_traced", "sized_elsewhere"}
 )
 
+# Every code a refused simulation can carry (backlog #212, `montecarlo.SimulationError.code`); a
+# refusal without a code is text only. The app's text catalogue covers this set too.
+SIMULATION_REFUSAL_CODES = frozenset({"wacc_set_with_risk_premium_shock"})
+
 
 def coded_warnings(caught) -> list[Coded]:
     """Warren's own data warnings caught while reading facts, one per text (the first one's

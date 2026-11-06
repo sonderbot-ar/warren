@@ -214,7 +214,8 @@ def cmd_simulate(args: argparse.Namespace) -> int:
                 conn, args.run_id, load_shocks(Path(args.shocks)), args.n, args.seed
             )
         except (SimulationError, ValueError) as e:
-            print(f"FAILED: {e}")
+            code = getattr(e, "code", None)
+            print(f"FAILED ({code}): {e}" if code else f"FAILED: {e}")
             return 1
         path = sim_report.write_report(conn, sim_id)
         vps = conn.execute(

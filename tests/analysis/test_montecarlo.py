@@ -9,8 +9,9 @@ import pytest
 
 from domains.analysis import __main__ as cli
 from domains.analysis import dcf, montecarlo, sim_report
+from domains.analysis.coded import SIMULATION_REFUSAL_CODES
 from domains.analysis.montecarlo import SimulationError
-from domains.analysis.runs import run_baseline
+from domains.analysis.runs import load_outputs, run_baseline
 from shared_kernel.database import MIGRATIONS_DIR, apply_migrations, get_db_connection
 from tests.analysis.conftest import AS_OF, CHOICES
 from tests.analysis.test_dcf import VALUE_DRIVER_ROW, rows
@@ -315,3 +316,91 @@ def test_a_run_with_no_premium_of_its_own_points_at_beta_and_erp_not_the_shocks(
     [line] = montecarlo.simulate_checked(rows(beta=0.0), [], n=10, seed=1)[1]
     assert line.startswith("10 of 10 samples (100.0%)") and "check the beta and the ERP" in line
     assert "shocks' ranges" not in line
+
+
+# -- a run with WACC set directly (backlog #212) -------------------------------------------------
+
+
+def _set_wacc_child(conn, delta=0.01):
+    from domains.analysis.whatif import Change, revalue
+
+    run_id = run_baseline(conn, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    return run_id, revalue(conn, run_id, [Change("wacc", delta=delta)]).run_id
+
+
+def _sims(conn):
+    return conn.execute("SELECT COUNT(*) FROM simulations").fetchone()[0]
+
+
+def test_a_risk_premium_shock_on_a_run_with_wacc_set_is_refused_with_a_code(company):
+    _, child = _set_wacc_child(company)
+    wacc = dcf.inputs(montecarlo.load_assumptions(company, child)).wacc_override
+    shocks = [
+        shock(**RANGE, horizon=4),
+        shock(shock_id="rp", driver="risk_premium", low=0, base=50, high=150, horizon=20),
+    ]
+    before = _sims(company)
+    with pytest.raises(SimulationError) as caught:
+        montecarlo.save_simulation(company, child, shocks, n=200, seed=1)
+    e = caught.value
+    assert e.code == "wacc_set_with_risk_premium_shock"
+    assert e.params == {"wacc": wacc, "shock_ids": ["rp"]}
+    assert e.coded().code == e.code and e.coded().text == str(e)
+    assert e.code in SIMULATION_REFUSAL_CODES
+    assert _sims(company) == before  # nothing stored
+    with pytest.raises(SimulationError, match="set directly"):
+        montecarlo.sample_lines(montecarlo.load_assumptions(company, child), shocks, n=10)
+
+
+def test_a_zero_risk_premium_shock_is_refused_too(company):
+    # a zero shock still asks for a cost-of-equity path the set rate ignores
+    _, child = _set_wacc_child(company)
+    zero = shock(shock_id="z", driver="risk_premium", low=0, base=0, high=0, horizon=20)
+    with pytest.raises(SimulationError) as caught:
+        montecarlo.save_simulation(company, child, [zero], n=10, seed=1)
+    assert caught.value.params["shock_ids"] == ["z"]
+
+
+def test_other_shocks_on_a_run_with_wacc_set_discount_at_the_set_rate(company):
+    _, child = _set_wacc_child(company)
+    rows = montecarlo.load_assumptions(company, child)
+    sim_id = montecarlo.save_simulation(company, child, [shock(**RANGE, horizon=4)], n=300, seed=2)
+    assert montecarlo.reproduce_simulation(company, sim_id).ok
+    band = montecarlo.load_bands(company, sim_id)[("value_per_share", "-")]
+    stored = load_outputs(company, child)[("value_per_share", "-")]
+    assert round(band.baseline, 2) == round(stored, 2)
+    _, shocked = montecarlo._shocked(rows, [shock(**RANGE, horizon=4)], 300, 2)
+    inp = dcf.inputs(rows)
+    assert dcf.discount_rates(shocked) == [inp.wacc_override] * len(inp.periods)
+
+
+def test_a_baseline_still_takes_a_risk_premium_shock(company):
+    run_id = run_baseline(company, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    rp = shock(shock_id="rp", driver="risk_premium", low=0, base=50, high=150, horizon=20)
+    sim_id = montecarlo.save_simulation(company, run_id, [rp], n=200, seed=3)
+    assert montecarlo.reproduce_simulation(company, sim_id).ok
+
+
+def test_a_refusal_without_a_code_is_text_only():
+    e = SimulationError("need at least one sample")
+    assert e.code is None and e.params == {} and e.coded() is None
+    with pytest.raises(AssertionError):
+        SimulationError("x", code="not_a_catalogued_code")
+
+
+def test_the_cli_prints_the_refusal_code(company, tmp_path, monkeypatch, capsys):
+    _, child = _set_wacc_child(company)
+    path = tmp_path / "shocks.csv"
+    path.write_text(
+        "shock_id,event_id,driver,low,base,high,start_period,horizon,decay,source,rationale\n"
+        "rp,,risk_premium,0,50,150,1,20,1.0,user,test\n"
+    )
+
+    @contextmanager
+    def conn(*args):
+        yield company
+
+    monkeypatch.setattr(cli, "get_db_connection", conn)
+    code = cli.main(["simulate", "--run-id", child, "--shocks", str(path), "--n", "10"])
+    assert code == 1
+    assert "FAILED (wacc_set_with_risk_premium_shock)" in capsys.readouterr().out
