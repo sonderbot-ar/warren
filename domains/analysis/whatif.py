@@ -284,11 +284,23 @@ def _targets(change: Change, periods: list[str]) -> list[str]:
 def _changed_rows(
     rows: list[Assumption], changes: list[Change], parent_outputs: dict
 ) -> list[RowChange]:
+    """The rows `changes` move, or the first refusal. A refusal about what the request is comes
+    before one about the numbers in it, so a student never fixes a number only to be told the
+    change isn't allowed at all (backlog #234). Three stages:
+
+    1. each change's shape, in the order given: a use or method where none belongs, the debt's
+       use, the terminal switch's method, the name, value or delta, the period, a duplicate;
+    2. the combination and what the run must have for it: `wacc_with_rate_input`, then for a
+       debt change `set_by_debt_change`, `no_price` and `cost_of_debt_needed`;
+    3. the numbers: `invalid_input` and `out_of_range` for each change in the order given, then
+       `buyback_exceeds_market_value`, then the bounds on rows that follow (the growth fade).
+
+    The valuation's own refusals (`_value`, such as `growth_not_below_rate`) come after."""
     index = {(a.name, a.period): a for a in rows}
     # the parent has no `wacc` row: a set WACC starts from the WACC the parent computed
     before_of = {key: a.value for key, a in index.items()}
     before_of.setdefault((dcf.WACC_SET, SINGLE), parent_outputs[("wacc", SINGLE)])
-    periods = dcf.forecast_periods(dcf._index(rows))[1]
+    periods = dcf.forecast_periods(dcf.index_rows(rows))[1]
     out: dict[tuple[str, str], RowChange] = {}
     for change in changes:
         if change.name == TERMINAL:
@@ -338,8 +350,8 @@ def _changed_rows(
                 after, how = change.value, "set"
             else:
                 after, how = before + change.delta, "add"
-            _check_bounds(change.name, after)
-            out[key] = RowChange(change.name, period, before, after, how)
+            out[key] = RowChange(change.name, period, before, after, how)  # bounds in stage 3
+    # stage 2: the combination, and what the run must have for it
     if (dcf.WACC_SET, SINGLE) in out:
         for name in WACC_INPUTS:
             if (name, SINGLE) in out:
@@ -348,6 +360,12 @@ def _changed_rows(
                     f"WACC is set directly, so {name} would not move it: change one or the other",
                     name=name,
                 )
+    if (DEBT, SINGLE) in out:
+        _refuse_debt_request(index, out)
+    # stage 3: the numbers, in the order the changes were given
+    for c in list(out.values()):
+        if c.how in ("set", "add"):
+            _check_bounds(c.name, c.after)
     if (DEBT, SINGLE) in out:
         out |= _leverage_rows(index, out)
     rf_key, tg_key = ("risk_free", SINGLE), ("terminal_growth", SINGLE)
@@ -377,23 +395,13 @@ def _leverage_rows(
     relevered on the child's); and the cost of debt, when the student didn't set it, is held but
     never below the risk-free rate (a lender's floor, and Hamada's riskless debt: the run's book
     interest over book debt can be below it, and would make more debt cheaper than riskless)."""
-    for name in SET_BY_DEBT:
-        if (name, SINGLE) in out:
-            raise _refuse(
-                "set_by_debt_change",
-                f"{name} follows the debt change (bought back at the as-of price, beta "
-                "relevered); change debt or it, not both",
-                name=name,
-            )
 
     def child(name: str) -> float:
         c = out.get((name, SINGLE))
         return index[(name, SINGLE)].value if c is None else c.after
 
     debt = out[(DEBT, SINGLE)]
-    price = index.get(("price", SINGLE))
-    if price is None or price.value is None or not price.value > 0:
-        raise _refuse("no_price", "the run has no positive as-of share price to trade at")
+    price = index[("price", SINGLE)]  # checked by _refuse_debt_request
     d_before, d_after = debt.before, debt.after
     shares, equity = index[("shares", SINGLE)].value, index[("equity_market_value", SINGLE)].value
     shares_after = shares - (d_after - d_before) / price.value
@@ -419,22 +427,43 @@ def _leverage_rows(
         moved[("beta", SINGLE)] = RowChange("beta", SINGLE, beta, relevered, "relevered")
         kd, rf = index[("cost_of_debt", SINGLE)].value, child("risk_free")
         if ("cost_of_debt", SINGLE) not in out and d_after > 0 and kd < rf:
-            if d_before == 0:  # the stored 0 is a placeholder: no rate to hold
-                raise _refuse(
-                    "cost_of_debt_needed",
-                    "the run had no debt, so it has no cost of debt: set cost_of_debt too",
-                    debt_before=d_before,
-                )
             moved[("cost_of_debt", SINGLE)] = RowChange(
                 "cost_of_debt", SINGLE, kd, rf, "floored_at_risk_free"
             )
-    if d_after > 0 and child("cost_of_debt") == 0 and ("cost_of_debt", SINGLE) not in moved:
+    return moved
+
+
+def _refuse_debt_request(
+    index: dict[tuple[str, str], Assumption], out: dict[tuple[str, str], RowChange]
+) -> None:
+    """Stage 2 for a debt change (see `_changed_rows`): the refusals no number in the request
+    can fix. Beta and shares follow the debt change, a buyback needs the run's price, and new
+    debt on a run that had none needs a cost of debt the run never had."""
+    for name in SET_BY_DEBT:
+        if (name, SINGLE) in out:
+            raise _refuse(
+                "set_by_debt_change",
+                f"{name} follows the debt change (bought back at the as-of price, beta "
+                "relevered); change debt or it, not both",
+                name=name,
+            )
+    price = index.get(("price", SINGLE))
+    if price is None or price.value is None or not price.value > 0:
+        raise _refuse("no_price", "the run has no positive as-of share price to trade at")
+    debt = out[(DEBT, SINGLE)]
+    d_before, d_after = debt.before, debt.after
+    given = out.get(("cost_of_debt", SINGLE))
+    rf = out.get(("risk_free", SINGLE))
+    kd = index[("cost_of_debt", SINGLE)].value if given is None else given.after
+    rf = index[("risk_free", SINGLE)].value if rf is None else rf.after
+    # the stored 0 of a run with no debt is a placeholder, not a rate to hold or floor
+    held = given is None and d_after != d_before and kd < rf  # `_leverage_rows` floors it
+    if d_after > 0 and ((held and d_before == 0) or (kd == 0 and not (held and d_before != 0))):
         raise _refuse(
             "cost_of_debt_needed",
             "the run had no debt, so it has no cost of debt: set cost_of_debt too",
             debt_before=d_before,
         )
-    return moved
 
 
 def _switch(rows: list[Assumption], change: Change) -> RowChange:
@@ -712,8 +741,11 @@ def revalue(conn: sqlite3.Connection, run_id: str, changes: list[Change]) -> Wha
                 "years 2–5 moved with the new terminal growth; set revenue_growth to hold them.",
             )
         )
-    # with a debt change, cost_of_debt_held_on_leverage says it (one reason, product lead)
-    if "risk_free" in changed and "cost_of_debt" not in changed and DEBT not in changed:
+    # when debt rises, cost_of_debt_held_on_leverage says it (one reason, product lead); debt
+    # lowered or unchanged leaves it to this note (backlog #234)
+    debt = next((c for c in moved if c.name == DEBT), None)
+    debt_rose = debt is not None and debt.after > debt.before
+    if "risk_free" in changed and "cost_of_debt" not in changed and not debt_rose:
         notes.append(
             Coded(
                 "cost_of_debt_held",
@@ -749,7 +781,7 @@ def revalue(conn: sqlite3.Connection, run_id: str, changes: list[Change]) -> Wha
                 f"No {name.replace('_', ' ')}: {REASON_WORDS[gap.reason]}",
             )
         )
-    periods = dcf.forecast_periods(dcf._index(rows))[1]
+    periods = dcf.forecast_periods(dcf.index_rows(rows))[1]
     currency = _currency(conn)
     return WhatIf(
         run_id=child_id,
@@ -786,7 +818,7 @@ def _leverage_notes(
 
     def coverage(row: dict, out: dict) -> float | None:
         """Year-1 forecast EBIT over the interest the debt costs (cost of debt × debt)."""
-        quarters = dcf.forecast_periods(dcf._index(child_rows))[1][:4]
+        quarters = dcf.forecast_periods(dcf.index_rows(child_rows))[1][:4]
         ebit = sum(out[("ebit", p)] for p in quarters)
         interest = row["cost_of_debt"] * row[DEBT]
         return fm.ratio(ebit, interest) if interest > 0 else None

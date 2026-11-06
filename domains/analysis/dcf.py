@@ -88,7 +88,8 @@ class Valuation:
         return out
 
 
-def _index(assumptions: Iterable[Assumption]) -> dict[str, dict[str, float]]:
+def index_rows(assumptions: Iterable[Assumption]) -> dict[str, dict[str, float]]:
+    """A run's rows as {name: {period: value}}; two rows for one name and period are refused."""
     rows: dict[str, dict[str, float]] = {}
     for a in assumptions:
         if a.period in rows.get(a.name, {}):
@@ -140,7 +141,7 @@ def terminal_method(assumptions: Iterable[Assumption]) -> str:
 
 def inputs(assumptions: Iterable[Assumption]) -> Inputs:
     assumptions = list(assumptions)
-    rows = _index(assumptions)
+    rows = index_rows(assumptions)
     seed_periods, periods = forecast_periods(rows)
     missing = [n for n in DRIVERS if set(rows.get(n, {})) != set(periods)]
     missing += [n for n in SINGLE_VALUES if SINGLE not in rows.get(n, {})]
@@ -307,7 +308,7 @@ def outputs_and_gaps(
     gaps: dict[tuple[str, str], Gap] = {}
     if wacc_is_set(rows):
         return out, gaps
-    index = _index(rows)
+    index = index_rows(rows)
     erp, std_error = index["erp"][SINGLE], index.get("erp_std_error", {}).get(SINGLE)
     if std_error is None:
         raise DCFInputError("missing assumption erp_std_error")
