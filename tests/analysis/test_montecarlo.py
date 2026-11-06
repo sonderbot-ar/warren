@@ -404,3 +404,13 @@ def test_the_cli_prints_the_refusal_code(company, tmp_path, monkeypatch, capsys)
     code = cli.main(["simulate", "--run-id", child, "--shocks", str(path), "--n", "10"])
     assert code == 1
     assert "FAILED (wacc_set_with_risk_premium_shock)" in capsys.readouterr().out
+
+
+def test_with_wacc_set_the_rate_check_skips_the_cost_of_equity(company):
+    # the run's own beta × ERP at or below zero would fail the cost-of-equity check, but with
+    # WACC set the cost of equity values nothing, so no line says to check beta and the ERP
+    _, child = _set_wacc_child(company)
+    inp = dcf.inputs(montecarlo.load_assumptions(company, child))
+    no_premium = inp.replace(one={**inp.one, "beta": 0.0})
+    assert montecarlo.rate_warnings(no_premium, 10) == []
+    assert montecarlo.rate_warnings(no_premium.replace(wacc_override=None), 10)

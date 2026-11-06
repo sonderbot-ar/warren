@@ -122,6 +122,10 @@ def rate_warnings(shocked: Inputs, n: int) -> list[str]:
     )
     # Y5's WACC at or below zero only shows here when terminal growth is at or below zero too:
     # above that, _check_samples has already stopped the run
+    if shocked.wacc_override is not None:
+        # WACC set directly (a what-if child): the cost of equity no longer enters the value, and
+        # no risk-premium shock reaches this far (backlog #212), so only the rate is checked
+        checks = checks[1:]
     out = []
     for rates, floor, what, why, advice in checks:
         bad = [np.broadcast_to(np.asarray(r) <= floor, (n,)) for r in rates]
