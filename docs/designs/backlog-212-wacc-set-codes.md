@@ -36,7 +36,7 @@ v0.9.20 (backlog #171) lets a what-if child carry a `wacc` row: the student's di
 
 ## Files to change
 
-`domains/analysis/montecarlo.py`, `domains/analysis/coded.py`, `domains/analysis/sensitivity.py`, `domains/analysis/__main__.py` (the CLI line), tests in `tests/analysis/`. At merge: `docs/versions.md`, `docs/team-sync.md`.
+`domains/analysis/montecarlo.py`, `domains/analysis/coded.py`, `domains/analysis/sensitivity.py`, `domains/analysis/dcf.py` (a docstring), `domains/analysis/__main__.py` (the CLI line), tests in `tests/analysis/`. At merge: `docs/versions.md`, `docs/team-sync.md`.
 
 ## Product impact
 
@@ -71,3 +71,7 @@ On the restored snapshot (schema 21, saved nov.05.2026), on the latest stored ba
 - **Other shocks still run at the set rate.** A revenue-growth shock (−3 / −2 / −1 points for four quarters, 2,000 samples, seed 1) on each child stores a simulation that reproduces; its baseline band equals the child's value per share to the cent (AAPL $87.84, CAT $194.14, JNJ $144.62, KO $31.69, MSFT $183.79, PG $90.48, WMT $26.88, XOM $99.64, the same values v0.9.20 recorded for +1 point), and the p50 sits 1.5–2.3% below it (AAPL $86.10, MSFT $180.40, XOM $97.31).
 - **The grid's note.** On every child `wacc_set_directly` has `run_wacc_set` true and `run_wacc` the set rate (AAPL 12.15%, XOM 7.50%); on every parent it is false. Each child's grid centre equals its stored value per share exactly.
 - `python -m domains.analysis reproduce --all`: 911 of 911 runs reproduce to the cent (903 stored runs and the 8 children made here). Full suite: 1,446 passed, 10 skipped. Each call takes under 0.1 s. Nothing here is saved to the shared snapshot.
+
+## Merged
+
+nov.06.2026 as v0.9.26, PR #228, merge `5d43647`, after CI and the gatekeeper's GO (no blockers; all 124 stored simulations reproduce). The gatekeeper's idea on the refusal order with `n=0` is #229.
