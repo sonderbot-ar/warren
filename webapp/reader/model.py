@@ -11,11 +11,16 @@ screens (F2 design, "The question reader's model"):
 - `OllamaBackend` talks to Ollama on the owner's Mac (`http://127.0.0.1:11434`, its native
   `/api/chat` with `format` set to the schema). Standard library only; nothing to install in
   the app.
+- `ClaudeBackend` asks Claude through Anthropic's API (paid, per question; the owner approved
+  testing Claude Haiku on the exam, nov.06.2026). Effort is low and the answer is held to the
+  same schema by the API's structured outputs. It keeps each call's token counts, so the
+  exam's cost is measured, not estimated.
 - `LlamaCppBackend` loads the same GGUF file in-process with llama-cpp-python (MIT), which is
   how the exam runs on a machine without Ollama. It is a measuring tool, not an app
   dependency, so it is imported only when used and is not pinned in `requirements.txt`.
 
-Both run llama.cpp underneath, at temperature 0 with a fixed seed, on the same weights.
+The two open-model backends run llama.cpp underneath, at temperature 0 with a fixed seed, on the
+same weights. Claude's current models refuse a temperature, so none is sent.
 """
 
 from __future__ import annotations
@@ -100,6 +105,72 @@ class LlamaCppBackend:
             max_tokens=MAX_TOKENS,
         )
         return result["choices"][0]["message"]["content"]
+
+
+def closed_schema(schema):
+    """`schema` in the form structured outputs accept: every object closed
+    (`additionalProperties: false`), and a nullable enum written as `anyOf` a string enum or
+    null. It allows exactly the same answers."""
+    if isinstance(schema, list):
+        return [closed_schema(v) for v in schema]
+    if not isinstance(schema, dict):
+        return schema
+    if schema.get("type") == ["string", "null"] and "enum" in schema:
+        values = [v for v in schema["enum"] if v is not None]
+        return {"anyOf": [{"type": "string", "enum": values}, {"type": "null"}]}
+    out = {k: closed_schema(v) for k, v in schema.items()}
+    if out.get("type") == "object":
+        out["additionalProperties"] = False
+    return out
+
+
+@dataclass
+class ClaudeBackend:
+    model: str = "claude-haiku-5-5"
+    effort: str = "low"
+    max_tokens: int = 2000
+    name: str = field(default="anthropic", init=False)
+    usage: list = field(default_factory=list, init=False)
+
+    def __post_init__(self) -> None:
+        import os
+
+        import anthropic  # the engine's dependency; imported only when this backend is used
+
+        from shared_kernel.config import anthropic_base_url
+
+        self._anthropic = anthropic
+        self._client = anthropic.Anthropic(
+            api_key=os.environ.get("WARREN_ANTHROPIC_API_KEY") or None,
+            base_url=anthropic_base_url(),
+            max_retries=3,
+        )
+
+    def complete(self, system: str, user: str, schema: dict) -> str:
+        try:
+            msg = self._client.messages.create(
+                model=self.model,
+                max_tokens=self.max_tokens,
+                # the rules are the same for every question, so they are cached after the first
+                system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+                messages=[{"role": "user", "content": user}],
+                output_config={
+                    "effort": self.effort,
+                    "format": {"type": "json_schema", "schema": closed_schema(schema)},
+                },
+            )
+        except self._anthropic.APIError as e:
+            raise OSError(f"{type(e).__name__}: {e}") from e
+        u = msg.usage
+        self.usage.append(
+            {
+                "input": u.input_tokens,
+                "cache_write": u.cache_creation_input_tokens or 0,
+                "cache_read": u.cache_read_input_tokens or 0,
+                "output": u.output_tokens,
+            }
+        )
+        return "".join(b.text for b in msg.content if b.type == "text")
 
 
 def unavailable() -> Reading:
