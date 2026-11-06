@@ -140,3 +140,8 @@ def test_a_pipelines_today_is_the_new_york_date(company):
     from domains.orchestration.nodes import Deps
 
     assert Deps(conn=company, now=lambda: NOW).today() == NEW_YORK_DATE
+
+
+def test_a_batch_with_no_date_is_labelled_new_york_today(company, frozen):
+    # `evaluate run` reaches this default through `run_batch`
+    assert harness.new_batch(company, [], "sha", None) == "eval_2026-07-01_1"

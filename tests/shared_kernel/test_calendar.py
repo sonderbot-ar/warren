@@ -137,6 +137,16 @@ def _naive(call: ast.Call) -> bool:
     return not values or any(isinstance(v, ast.Constant) and v.value is None for v in values)
 
 
+def _reads_the_machine(call: ast.Call, names: set[str]) -> bool:
+    """`today()`, `utcnow()`, `utcfromtimestamp()` or a naive `now()` on a clock type."""
+    func = call.func
+    if not (isinstance(func, ast.Attribute) and _is_clock(func.value, names)):
+        return False
+    return func.attr in {"today", "utcnow", "utcfromtimestamp"} or (
+        func.attr == "now" and _naive(call)
+    )
+
+
 def test_no_module_reads_the_machines_date():
     # backlog #163: `today()`, `utcnow()` and a `now()` with no time zone on the clock types read
     # the machine's clock in its own zone; defaults go through `calendar.case_today` or
@@ -146,25 +156,16 @@ def test_no_module_reads_the_machines_date():
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         names = _clock_names(tree)
         for node in ast.walk(tree):
-            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
-                continue
-            if not _is_clock(node.func.value, names):
-                continue
-            attr = node.func.attr
-            if attr in {"today", "utcnow", "utcfromtimestamp"} or (attr == "now" and _naive(node)):
-                wrong.append(f"{path.relative_to(ROOT)}:{node.lineno} .{attr}()")
+            if isinstance(node, ast.Call) and _reads_the_machine(node, names):
+                wrong.append(f"{path.relative_to(ROOT)}:{node.lineno} .{node.func.attr}()")
     assert wrong == []
 
 
 def test_the_clock_scan_catches_each_form():
     def caught(source: str) -> bool:
         tree = ast.parse(source)
-        names = _clock_names(tree)
         call = next(n for n in ast.walk(tree) if isinstance(n, ast.Call))
-        attr = call.func.attr
-        return _is_clock(call.func.value, names) and (
-            attr in {"today", "utcnow"} or (attr == "now" and _naive(call))
-        )
+        return _reads_the_machine(call, _clock_names(tree))
 
     assert caught("from datetime import date\ndate.today()")
     assert caught("from datetime import date as d\nd.today()")
@@ -173,6 +174,7 @@ def test_the_clock_scan_catches_each_form():
     assert caught("from datetime import datetime\ndatetime.now(None)")
     assert caught("from datetime import datetime\ndatetime.now(tz=None)")
     assert caught("from datetime import datetime\ndatetime.utcnow()")
+    assert caught("from datetime import datetime\ndatetime.utcfromtimestamp(0)")
     assert not caught("from datetime import UTC, datetime\ndatetime.now(UTC)")
     assert not caught("deps.now()")
 
