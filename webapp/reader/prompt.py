@@ -154,18 +154,6 @@ EXAMPLES: tuple[tuple[str, dict], ...] = (
         },
     ),
     (
-        "¿Cuánto se mueve el valor de Exxon con la beta y la prima de riesgo?",
-        {
-            "kind": "cambio_de_supuesto",
-            "companies": ["XOM"],
-            "inputs": [{"name": "beta"}, {"name": "erp"}],
-        },
-    ),
-    (
-        "How did Caterpillar's sales hold up through the 2008 financial crisis?",
-        {"kind": "evento", "companies": ["CAT"], "period": "2008"},
-    ),
-    (
         "¿Cómo afectaría a Johnson & Johnson una guerra comercial con China?",
         {"kind": "evento", "companies": ["JNJ"]},
     ),
@@ -190,21 +178,17 @@ KINDS (pick exactly one, in this order of precedence):
   Every change asked for must be a model input. If the student turns an event into an input
   change themselves ("if there is a recession and the margin drops a point"), it is still a
   cambio: label the input. A question that asks for a filed figure and a change together is a
-  cambio. A sensitivity question that names the inputs to vary ("the value's sensitivity to
-  beta and the risk premium", a grid of WACC against g) is a cambio with those inputs and
-  no values.
+  cambio.
 - "evento": the question names an event and no input change: an election, a war, a tariff, a
   recession, a strike, a merger, a buyback or new borrowing with no input named, a vague
   "what if things go badly", "growth slows" without saying which growth, or a follow-up that
-  names nothing readable on its own ("and for Microsoft?", "y si fuera 3%?"). A question about
-  how the company's figures moved around or after a named event (an acquisition, a lawsuit, a
-  pandemic, an oil crash, a crisis) is an evento, not a dato: the event is what is asked about.
-  Events get no inputs.
+  names nothing readable on its own ("and for Microsoft?", "y si fuera 3%?"). Events get no
+  inputs.
 - "dato": a figure or ratio the company filed (sales, net income, margins, debt, cash, capex,
   growth already reported) for a reported period or a reported trend.
 - "estimacion": an output of Warren's model: the DCF value, a forecast for periods not yet
-  reported, the forecast's range or error, the model's track record, a sensitivity table that
-  names no input, the assumptions the model uses.
+  reported, the forecast's range or error, the model's track record, a default sensitivity
+  table, the assumptions the model uses.
 - "fuera_de_alcance": Warren does not answer it. Set out_of_scope to:
   "precio_o_consejo" for stock prices, price targets, buy/sell/hold advice, returns on the
   stock, or trading multiples ("at how many times EBITDA does it trade") - this reason wins
@@ -226,10 +210,8 @@ question keeps no period and no as_of.
 AS_OF (the "fecha de corte"): an ISO date YYYY-MM-DD, only when the question asks for a model
 output or a change as of a past date ("con lo que se sabía al 31/03/2024", "as of the end of
 2022" is 2022-12-31; the end of a quarter is its last day). Day-first dates are read
-day-first in Spanish. A change or a model value set at a past date ("if at the end of 2021
-beta had been 1") has that date as its as_of, even inside a "what if". A filed figure's
-period is a period, never an as_of. "Today", "now", "hoy" and "in the past" are neither.
-Otherwise null.
+day-first in Spanish. A filed figure's period is a period, never an as_of. "Today", "now",
+"hoy" and "in the past" are neither. Otherwise null.
 
 INPUTS (only for cambio_de_supuesto; [] for every other kind). Names:
 {inputs}

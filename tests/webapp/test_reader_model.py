@@ -266,8 +266,8 @@ def test_prompt_hash_changes_with_the_prompt(monkeypatch):
 # --- the recorded runs (nov.05.2026) ------------------------------------------------------
 
 RUNS = scoring.LABELLED_SET.parent / "runs"
-# The first prompt (commit 8b778c6) and the second, tuned only on the product lead's 70
-# questions (nov.06.2026); the earlier runs keep the first prompt's hash in their meta line.
+# The first prompt (commit 8b778c6), which is the live one, and the second (commit 93c1674,
+# withdrawn nov.06.2026: its wording drew on held-out errors, so its held-out score is not clean).
 PROMPT_1 = "b29a95aafe5e8d100781b812bd033b9228812e8789b07d0e0be91c9b5d34548c"
 PROMPT_2 = "4609d4fd9efa3ac8af1e76a235207ceffae4cae1b8a669ea939b2cb165ba7055"
 RECORDED = {  # file: (GGUF sha256 prefix or Claude model id, prompt, fully right, clears the bar)
@@ -293,6 +293,6 @@ def test_a_recorded_run_reproduces_its_score(name):
     assert report["passes"] is passes
 
 
-def test_the_prompt_is_the_one_the_latest_run_used():
+def test_the_prompt_is_the_clean_one_the_runs_used():
     """A prompt edit after the recorded runs needs a new run before its score is quoted."""
-    assert runner.prompt_sha256() == PROMPT_2
+    assert runner.prompt_sha256() == PROMPT_1
