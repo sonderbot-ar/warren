@@ -414,3 +414,16 @@ def test_with_wacc_set_the_rate_check_skips_the_cost_of_equity(company):
     no_premium = inp.replace(one={**inp.one, "beta": 0.0})
     assert montecarlo.rate_warnings(no_premium, 10) == []
     assert montecarlo.rate_warnings(no_premium.replace(wacc_override=None), 10)
+
+
+def test_the_coded_refusal_comes_before_the_sample_count(company):
+    # backlog #229: n=0 on a run with WACC set and a risk-premium shock gets the coded refusal
+    _, child = _set_wacc_child(company)
+    rp = shock(shock_id="rp", driver="risk_premium", low=0, base=50, high=150, horizon=20)
+    with pytest.raises(SimulationError) as caught:
+        montecarlo.save_simulation(company, child, [rp], n=0, seed=1)
+    assert caught.value.code == "wacc_set_with_risk_premium_shock"
+    parent = run_baseline(company, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    with pytest.raises(SimulationError, match="need at least one sample") as plain:
+        montecarlo.save_simulation(company, parent, [rp], n=0, seed=1)
+    assert plain.value.code is None

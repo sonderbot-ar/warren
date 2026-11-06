@@ -150,10 +150,10 @@ def rate_warnings(shocked: Inputs, n: int) -> list[str]:
 
 def _shocked(rows, shock_list: list[Shock], n: int, seed: int) -> tuple[Inputs, Inputs]:
     """The run's inputs and, drawn once from the seed, the shocked inputs of every sample."""
+    base_inputs = dcf.inputs(rows)
+    _refuse_premium_on_set_wacc(base_inputs, shock_list)  # a coded refusal first (backlog #229)
     if n < 1:
         raise SimulationError("need at least one sample")
-    base_inputs = dcf.inputs(rows)
-    _refuse_premium_on_set_wacc(base_inputs, shock_list)
     rng = np.random.Generator(np.random.PCG64(seed))
     z = rng.standard_normal((n, len(shock_list)))
     magnitudes = [fm.split_normal(s.low, s.base, s.high, z[:, i]) for i, s in enumerate(shock_list)]
