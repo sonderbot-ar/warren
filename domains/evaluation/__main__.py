@@ -164,14 +164,17 @@ def cmd_ranges_origins(args: argparse.Namespace) -> int:
 
 
 def cmd_ranges_test(args: argparse.Namespace) -> int:
-    from datetime import date
+    from datetime import UTC, datetime
 
     from domains.evaluation import ranges, ranges_report
+    from shared_kernel.calendar import last_ended_day
 
     guides, sha = _guides(args)
     with get_db_connection() as conn:
         apply_migrations(conn)
-        build_id = ranges.run_build(conn, date.today(), args.batch, guides, sha)
+        build_id = ranges.run_build(
+            conn, last_ended_day(datetime.now(UTC)), args.batch, guides, sha
+        )
         text = ranges_report.render(conn, build_id)
     path = PROJECT_ROOT / "data" / "reports" / "eval" / f"{build_id}_ranges.md"
     path.parent.mkdir(parents=True, exist_ok=True)

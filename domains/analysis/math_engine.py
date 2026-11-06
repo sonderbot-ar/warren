@@ -20,7 +20,7 @@ import warnings
 from collections import defaultdict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from domains.analysis import dcf
@@ -39,6 +39,7 @@ from domains.market.prices import MARKET_INDEX, PricePoint, aligned_weekly_retur
 from domains.market.prices import split_factor as price_split_factor
 from domains.market.store import selected_fetch
 from domains.market.yields import RISK_FREE_SERIES, risk_free_rate
+from shared_kernel.calendar import case_today
 
 USER_ASSUMPTIONS_PATH = Path(__file__).parent / "user_assumptions.csv"
 # A choice added later needs a rule for runs made before it: see CHOICES_ADDED_LATER in runs.py.
@@ -322,7 +323,7 @@ def build_inputs(
     today: date | None = None,
 ) -> EngineResult:
     """Every assumption a baseline DCF of `ticker` as of `as_of` needs, known on that date."""
-    today = today or date.today()
+    today = today or case_today(datetime.now(UTC))
     if not SUPPORTED_FROM <= as_of <= today:
         raise EngineError(f"as-of date must be from {SUPPORTED_FROM} to {today}, got {as_of}")
     company = conn.execute("SELECT * FROM companies WHERE ticker = ?", (ticker.upper(),)).fetchone()

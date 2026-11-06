@@ -36,7 +36,7 @@ from domains.news import cluster, gdelt, store
 from domains.news.matching import load_aliases, load_headline_rule
 from domains.orchestration.state import PipelineState, SimSummary
 from domains.orchestration.telemetry import batch_id
-from shared_kernel.calendar import known_by
+from shared_kernel.calendar import case_today, known_by
 
 NEWS_DAYS = 7  # the case window: the 7 New York days ending on the as-of date (M5)
 
@@ -67,7 +67,8 @@ class Deps:
         return self._client
 
     def today(self) -> date:
-        return self.now().date()
+        """The date in New York now, not the UTC date (backlog #163)."""
+        return case_today(self.now())
 
 
 def _iso(ts: datetime) -> str:

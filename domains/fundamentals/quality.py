@@ -11,13 +11,14 @@ import csv
 import sqlite3
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from domains.fundamentals.concepts import concept_map_sha256, load_concept_map
 from domains.fundamentals.facts import DERIVABLE_UNITS, get_facts, newest_filing_disagreements
 from domains.fundamentals.schemas import Fact
 from domains.fundamentals.universe import FISCAL_YEARS
+from shared_kernel.calendar import last_ended_day
 
 KNOWN_GAPS_PATH = Path(__file__).parent / "known_gaps.csv"
 EDGAR_ARCHIVES = "https://www.sec.gov/Archives/edgar/data"
@@ -276,7 +277,7 @@ def build_report(
     company = conn.execute("SELECT * FROM companies WHERE ticker = ?", (ticker.upper(),)).fetchone()
     if company is None:
         raise ValueError(f"{ticker} has not been ingested")
-    as_of = as_of or date.today()
+    as_of = as_of or last_ended_day(datetime.now(UTC))
     known_gaps = load_known_gaps() if known_gaps is None else known_gaps
     concepts = [c for c in load_concept_map() if c.gate == "required"]
     names = list(dict.fromkeys(c.canonical_name for c in concepts))

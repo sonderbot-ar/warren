@@ -11,7 +11,7 @@ checks every row to the cent. Design: docs/designs/m8-backtest.md.
 import json
 import sqlite3
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import UTC, date, datetime
 
 from domains.analysis.montecarlo import DEFAULT_SAMPLES, reproduce_simulation
 from domains.analysis.runs import code_version
@@ -29,6 +29,7 @@ from domains.evaluation.harness import (
     scoring_errors,
 )
 from domains.llm import propose, review
+from shared_kernel.calendar import case_today, last_ended_day
 
 LLM_VARIANTS = {"named": "llm_named", "masked": "llm_masked"}
 MONEY = 0.005  # forecasts and bands, in currency units: to the cent
@@ -67,8 +68,9 @@ def run_backtest(
     n_samples: int = DEFAULT_SAMPLES,
 ) -> str:
     """Score every case in all five variants; the batch id. Failures are stored with a reason."""
-    today = today or date.today()
-    actuals_as_of = actuals_as_of or today
+    now = datetime.now(UTC)
+    actuals_as_of = actuals_as_of or today or last_ended_day(now)
+    today = today or case_today(now)
     plans, failures = {}, {}
     for case in cases:
         try:
