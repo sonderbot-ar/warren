@@ -86,3 +86,7 @@ On the snapshot of nov.05 (restored, no migration needed): `reproduce --all` 903
 - All eight children reproduce; `reproduce --all` then 911 of 911. The children are on this machine's copy only and are not saved to the shared snapshot.
 
 Full suite 1,495 passed, 10 skipped; ruff clean. No stored number changes.
+
+## Merged
+
+nov.06.2026 as v0.9.28, PR #237, merge `2572445`, after CI and the gatekeeper's GO (no blockers; the `cost_of_debt_needed` move checked equivalent case by case). The gatekeeper's ideas are #238.
