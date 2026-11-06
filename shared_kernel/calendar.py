@@ -17,11 +17,19 @@ def known_by(as_of: date, tz: ZoneInfo = CASE_TZ) -> datetime:
     return datetime.combine(as_of + timedelta(days=1), time(0), tzinfo=tz).astimezone(UTC)
 
 
+def case_today(now: datetime, tz: ZoneInfo = CASE_TZ) -> date:
+    """The date in the case calendar at `now`: for labels and upper bounds, never a data cut-off.
+
+    A data cut-off defaults to `last_ended_day(now)`, the day before (backlog #163).
+    """
+    if now.tzinfo is None:
+        raise ValueError("now must carry a time zone")
+    return now.astimezone(tz).date()
+
+
 def last_ended_day(now: datetime, tz: ZoneInfo = CASE_TZ) -> date:
     """The newest date that has ended in the case calendar at `now`: the default as-of date.
 
     `known_by(last_ended_day(now)) <= now < known_by(last_ended_day(now) + 1 day)` (backlog #128).
     """
-    if now.tzinfo is None:
-        raise ValueError("now must carry a time zone")
-    return now.astimezone(tz).date() - timedelta(days=1)
+    return case_today(now, tz) - timedelta(days=1)

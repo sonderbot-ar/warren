@@ -189,7 +189,7 @@ def cmd_reproduce(args: argparse.Namespace) -> int:
 
 
 def cmd_fallbacks(args: argparse.Namespace) -> int:
-    as_of = date.fromisoformat(args.as_of) if args.as_of else date.today()
+    as_of = date.fromisoformat(args.as_of) if args.as_of else last_ended_day(datetime.now(UTC))
     with get_db_connection() as conn:
         for check in fallback_backtest(conn, as_of):
             worst = check.worst
