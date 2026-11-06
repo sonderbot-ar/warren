@@ -159,6 +159,79 @@ def test_ollama_backend_sends_the_schema_and_temperature_zero(monkeypatch):
     assert body["options"]["temperature"] == 0 and body["options"]["seed"] == reader.SEED
 
 
+def test_the_schema_sent_to_claude_allows_the_same_answers():
+    closed = reader.closed_schema(prompt.answer_schema())
+    assert closed["additionalProperties"] is False
+    assert closed["properties"]["inputs"]["items"]["additionalProperties"] is False
+    reason = closed["properties"]["out_of_scope"]["anyOf"]
+    assert reason == [{"type": "string", "enum": list(OUT_OF_SCOPE)}, {"type": "null"}]
+    assert closed["required"] == prompt.answer_schema()["required"]
+
+
+def test_claude_backend_sends_the_rules_cached_and_keeps_the_tokens(monkeypatch):
+    sent = {}
+
+    class Usage:
+        input_tokens, output_tokens = 40, 60
+        cache_creation_input_tokens, cache_read_input_tokens = 0, 4300
+
+    class Block:
+        type, text = "text", '{"kind": "dato"}'
+
+    class Message:
+        content, usage = [Block()], Usage()
+
+    class Messages:
+        def create(self, **kwargs):
+            sent.update(kwargs)
+            return Message()
+
+    backend = reader.ClaudeBackend.__new__(reader.ClaudeBackend)
+    backend.model, backend.effort, backend.max_tokens, backend.usage = "m", "low", 10, []
+    backend._client = type("C", (), {"messages": Messages()})()
+    backend._anthropic = type("A", (), {"APIError": RuntimeError})
+    assert backend.complete("S", "U", {"type": "object"}) == '{"kind": "dato"}'
+    assert sent["system"][0]["cache_control"] == {"type": "ephemeral"}
+    assert sent["output_config"]["effort"] == "low"
+    assert sent["output_config"]["format"]["schema"]["additionalProperties"] is False
+    assert "temperature" not in sent
+    assert backend.usage == [{"input": 40, "cache_write": 0, "cache_read": 4300, "output": 60}]
+
+
+def test_an_api_error_reads_as_unavailable():
+    class Messages:
+        def create(self, **kwargs):
+            raise RuntimeError("overloaded")
+
+    backend = reader.ClaudeBackend.__new__(reader.ClaudeBackend)
+    backend.model, backend.effort, backend.max_tokens, backend.usage = "m", "low", 10, []
+    backend._client = type("C", (), {"messages": Messages()})()
+    backend._anthropic = type("A", (), {"APIError": RuntimeError})
+    reading = reader.read_question("¿Cuánto vendió Apple?", TODAY, backend)
+    assert reading.dropped == ("reader",) and backend.usage == []
+
+
+def test_the_runner_stores_tokens_and_null_for_a_failed_call(tmp_path):
+    class Counting(Fake):
+        usage: list
+
+    calls = iter([json.dumps({"kind": "dato"}), OSError()])
+    fake = Counting(lambda user: next(calls))
+    fake.usage = []
+    real = fake.complete
+
+    def complete(system, user, schema):
+        out = real(system, user, schema)
+        fake.usage.append({"input": 1, "cache_write": 0, "cache_read": 0, "output": 2})
+        return out
+
+    fake.complete = complete
+    out = tmp_path / "answers.jsonl"
+    runner.run(fake, ROWS[:2], out, {}, log=open("/dev/null", "w"))
+    lines = [json.loads(x) for x in out.read_text().splitlines()[1:]]
+    assert lines[0]["tokens"]["output"] == 2 and lines[1]["tokens"] is None
+
+
 # --- the runner and the scorer ------------------------------------------------------------
 
 
@@ -193,9 +266,10 @@ def test_prompt_hash_changes_with_the_prompt(monkeypatch):
 # --- the recorded runs (nov.05.2026) ------------------------------------------------------
 
 RUNS = scoring.LABELLED_SET.parent / "runs"
-RECORDED = {  # file: (model sha256 prefix, questions fully right, clears the bar)
+RECORDED = {  # file: (GGUF sha256 prefix or Claude model id, questions fully right, clears the bar)
     "2026-11-05-qwen3-4b-q4km.jsonl": ("7485fe6f", 140, False),
     "2026-11-05-qwen3-8b-q4km.jsonl": ("d98cdcbd", 161, False),
+    "2026-11-06-claude-haiku-5-5.jsonl": ("claude-haiku-5-5", 188, False),
 }
 PROMPT_OF_THE_RUNS = "b29a95aafe5e8d100781b812bd033b9228812e8789b07d0e0be91c9b5d34548c"
 
@@ -206,7 +280,7 @@ def test_a_recorded_run_reproduces_its_score(name):
     lines = (RUNS / name).read_text(encoding="utf-8").splitlines()
     meta = json.loads(lines[0])["meta"]
     model_prefix, right, passes = RECORDED[name]
-    assert meta["model"]["sha256"].startswith(model_prefix)
+    assert meta["model"].get("sha256", meta["model"].get("id", "")).startswith(model_prefix)
     assert meta["prompt_sha256"] == PROMPT_OF_THE_RUNS
     assert meta["set_sha256"] == hashlib.sha256(scoring.LABELLED_SET.read_bytes()).hexdigest()
     answers = {json.loads(x)["id"]: json.loads(x)["reading"] for x in lines[1:]}
