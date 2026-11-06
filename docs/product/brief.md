@@ -61,7 +61,7 @@ Fifteen questions, written as a student would ask them, with an English gloss. "
 *How has Coca-Cola's operating margin changed over five years compared with P&G's?*
 - Kind: Dato (two companies, a ratio).
 - Returns: operating margin by fiscal year for both, as reported (one-off charges included, and said so), each year traced to its filing, the formula, and the fiscal-year ends side by side (Coca-Cola: December; P&G: June, so the "same" year is six months apart).
-- Hoy: **Sí** (since v0.9.6): the `reported` command once per fiscal year and company (`operating_margin`, with its formula, the lines it uses and their filings; fiscal-year labels are each company's own). The app asks five periods per company, and builds the spreadsheet formula a student would type from `uses` (design principle 5); it never computes the ratio. Request R1 (#140), done.
+- Hoy: **Sí** (since v0.9.6): the `reported` command once per fiscal year and company (`operating_margin`, with its formula, the lines it uses and their filings; fiscal-year labels are each company's own). The app asks five periods per company, and builds the spreadsheet formula a student would type from `uses` (design principle 5); it never computes the ratio. Request R1 (#140), done. Net margin can sit beside it since v0.9.19 (`net_margin`, on net income to the parent, with the `includes_discontinued_operations` note; #157); a database ingested before v0.9.19 shows it as the coded gap until it is re-ingested.
 
 ### Estimaciones: what the model says
 
@@ -81,7 +81,7 @@ Fifteen questions, written as a student would ask them, with an English gloss. "
 *How much will Apple sell in the next four quarters, and how sure is that forecast?*
 - Kind: Estimación.
 - Returns: the baseline revenue path, quarter by quarter, with its p10–p90 range from Warren's own past misses known on that date (M9), and how often such ranges held: across all companies 83% (a p10–p90 range should hold about 8 times in 10), and Apple's own figure beside it, since coverage differs by company (4 of the 8 companies fell outside 65–95%, the band the team set as acceptable for an 80% range; v0.9). So the screen says plainly when Apple's own ranges held less or more often than the pooled 83%.
-- Hoy: **Sí** for the baseline's range (v0.9.8, #144): any run gets its p10–p90 per quarter, how often such ranges held across all companies and for the company, and a coded verdict against 65–95%. On a pipeline run with shocks, the range on top of each simulation (v0.9.16, #167: `run_ranges(conn, run_id, sim_id=S)` or `ranges run --sim-id S`; show `*_center` as the forecast, label `coverage_is_baseline`), and the pipeline report's section 7. Which simulation goes with a variant waits for #201.
+- Hoy: **Sí** for the baseline's range (v0.9.8, #144): any run gets its p10–p90 per quarter, how often such ranges held across all companies and for the company, and a coded verdict against 65–95%. On a pipeline run with shocks, the range on top of each simulation (v0.9.16, #167: `run_ranges(conn, run_id, sim_id=S)` or `ranges run --sim-id S`; show `*_center` as the forecast, label `coverage_is_baseline`), and the pipeline report's section 7. Which simulation goes with a variant: `run_simulations(conn, run_id)` and its `primary` pick per variant, masked first (v0.9.18, #201), so the screen goes from a `run_id` to its simulation with no checkpoint read.
 
 **6. ¿Qué tan bien ha pronosticado Warren a Procter & Gamble en el pasado?**
 *How well has Warren forecast P&G in the past?*
@@ -164,8 +164,8 @@ Each is an issue labelled `backlog` and `front-end` (`docs/team-sync.md`, rule 4
 | Id | Ask | Questions | Size (engine lead) | Issue |
 |---|---|---|---|---|
 | R1 | Reported figures and named ratios for a company and period, with provenance, first reported and latest, revision flag (takes over #128 item 2) | 1, 2 | M | #140 (done, v0.9.6) |
-| R1b | Net margin on net income to the parent (left out of #140; no brief question needs it yet) | — | — | #157 |
-| R2a | What-if revaluation: a stored run revalued with named inputs changed, deterministic, stored as a linked child run that reproduces to the cent | 7, 8 | L | #141 (done, v0.9.9; debt #170 part 1 done in v0.9.27, part 2 #232; WACC and terminal method #171) |
+| R1b | Net margin on net income to the parent (left out of #140; serves Q2 beside operating margin) | 2 | S | #157 (done, v0.9.19) |
+| R2a | What-if revaluation: a stored run revalued with named inputs changed, deterministic, stored as a linked child run that reproduces to the cent | 7, 8 | L | #141 (done, v0.9.9; debt #170 part 1 done in v0.9.27, part 2 #232; WACC and terminal method #171, done in v0.9.20 and v0.9.21) |
 | R2b | Two-input sensitivity grid on R2a | 9 | S | #142 (done, v0.9.12) |
 | R2c | The list of transmissions, starting with an unexpected policy-rate move → 10-year yield, as a sourced range (owner card: a new method) | 7 | M | #143 |
 | R3 | Error ranges (M9) and the company's own coverage on every run | 5 | S–M | #144 |
