@@ -68,7 +68,7 @@ def test_set_and_add_give_the_same_values(company, parent):
 
 
 def test_one_period_margin_moves_only_that_periods_cash_flow(company, parent):
-    periods = dcf.forecast_periods(dcf._index(load_assumptions(company, parent)))[1]
+    periods = dcf.forecast_periods(dcf.index_rows(load_assumptions(company, parent)))[1]
     result = revalue(company, parent, [Change("operating_margin", delta=0.02, period=periods[2])])
     moved = {x.period for x in result.lines if x.name == "fcff" and x.change}
     assert moved == {periods[2]}
@@ -77,7 +77,7 @@ def test_one_period_margin_moves_only_that_periods_cash_flow(company, parent):
 
 @pytest.mark.parametrize("name", ["revenue_growth", "nwc_pct"])
 def test_growth_and_working_capital_ripple_past_their_period(company, parent, name):
-    periods = dcf.forecast_periods(dcf._index(load_assumptions(company, parent)))[1]
+    periods = dcf.forecast_periods(dcf.index_rows(load_assumptions(company, parent)))[1]
     result = revalue(company, parent, [Change(name, delta=0.02, period=periods[0])])
     moved = [x.period for x in result.lines if x.name == "fcff" and x.change]
     assert periods[0] in moved and len(moved) > 1  # lag-4 compounding, or next period's ΔNWC
@@ -90,7 +90,7 @@ def test_risk_free_moves_terminal_growth_and_the_fade(company, parent):
     assert hows[("terminal_growth", SINGLE)] == "follows_risk_free"
     tg = next(c for c in result.changes if c.name == "terminal_growth")
     assert abs(tg.after - tg.before - 0.0025) < 1e-15
-    periods = dcf.forecast_periods(dcf._index(list(rows.values())))[1]
+    periods = dcf.forecast_periods(dcf.index_rows(list(rows.values())))[1]
     child = _rows(company, result.run_id)
     for i, period in enumerate(periods):
         shift = child[("revenue_growth", period)].value - rows[("revenue_growth", period)].value
@@ -729,3 +729,143 @@ def test_cash_changed_beside_debt_lands_in_the_rest_not_the_swap(company, parent
     )
     held = _note(both, "cost_of_debt_held_on_leverage")
     assert held.params["floored"] is False and "did not rise" in held.text
+
+
+# -- the order of refusals and the held cost of debt (backlog #234) -----------------------------
+
+
+@pytest.mark.parametrize(
+    ("changes", "code", "params"),
+    [
+        # a combination beats a number: fixing the number would only meet the combination
+        (
+            _buyback(10.0, Change("beta", value=1.0), Change("cash_and_investments", value=-1.0)),
+            "set_by_debt_change",
+            {"name": "beta"},
+        ),
+        (
+            [Change("wacc", value=0.09), Change("cost_of_debt", value=-0.01)],
+            "wacc_with_rate_input",
+            {"name": "cost_of_debt"},
+        ),
+        # within the combination, a set WACC first, naming the first input in WACC_INPUTS order
+        (
+            _buyback(10.0, Change("beta", value=1.0), Change("wacc", value=0.09)),
+            "wacc_with_rate_input",
+            {"name": "beta"},
+        ),
+        # the shape of a change beats a number given before it
+        (
+            [Change("cash_and_investments", value=-1.0), Change("no_such_input", value=1.0)],
+            "unknown_input",
+            {"name": "no_such_input"},
+        ),
+        # numbers in the order given
+        (
+            [Change("cash_and_investments", value=-1.0), Change("shares", value=0.0)],
+            "out_of_range",
+            {"name": "cash_and_investments"},
+        ),
+        # a number alone still gets its own refusal
+        (_buyback(-1e6), "out_of_range", {"name": "debt"}),
+        # a number beats the buyback's size check
+        (
+            _buyback(1e9, Change("cash_and_investments", value=-1.0)),
+            "out_of_range",
+            {"name": "cash_and_investments"},
+        ),
+    ],
+)
+def test_a_refusal_about_the_request_comes_before_one_about_a_number(
+    company, parent, changes, code, params
+):
+    count = _count(company)
+    with pytest.raises(WhatIfError) as e:
+        revalue(company, parent, changes)
+    assert e.value.code == code
+    assert params.items() <= e.value.params.items()
+    assert _count(company) == count
+
+
+def test_a_run_with_no_price_refuses_a_buyback_before_any_number(company, parent):
+    company.execute(
+        "UPDATE assumptions SET value = 0 WHERE run_id = ? AND name = 'price' AND period = ?",
+        (parent, SINGLE),
+    )
+    with pytest.raises(WhatIfError) as e:
+        revalue(company, parent, _buyback(10.0, Change("cash_and_investments", value=-1.0)))
+    assert e.value.code == "no_price"
+
+
+def test_a_run_with_no_debt_asks_for_a_cost_of_debt_before_any_number(company, parent):
+    for name in ("debt", "cost_of_debt"):
+        company.execute(
+            "UPDATE assumptions SET value = 0 WHERE run_id = ? AND name = ? AND period = ?",
+            (parent, name, SINGLE),
+        )
+    with pytest.raises(WhatIfError) as e:
+        revalue(company, parent, _buyback(50.0, Change("cash_and_investments", value=-1.0)))
+    assert e.value.code == "cost_of_debt_needed"
+
+
+def _codes(result):
+    return [n.code for n in result.notes]
+
+
+def test_less_debt_with_the_risk_free_rate_moved_says_the_cost_of_debt_was_held(company, parent):
+    rf = _single(company, parent)["risk_free"]
+    kd = _single(company, parent)["cost_of_debt"]
+    moved = rf + 0.0025
+    assert kd >= moved  # no floor in play, so nothing else says the cost of debt was held
+    result = revalue(company, parent, _buyback(-10.0, Change("risk_free", value=moved)))
+    assert "cost_of_debt" not in {c.name for c in result.changes}
+    codes = _codes(result)
+    assert "cost_of_debt_held" in codes
+    assert "cost_of_debt_held_on_leverage" not in codes
+    assert reproduce(company, result.run_id).ok
+
+
+def test_unchanged_debt_with_the_risk_free_rate_moved_says_the_cost_of_debt_was_held(
+    company, parent
+):
+    rf = _single(company, parent)["risk_free"]
+    result = revalue(company, parent, _buyback(0.0, Change("risk_free", value=rf + 0.0025)))
+    codes = _codes(result)
+    assert codes.count("cost_of_debt_held") == 1
+    assert "cost_of_debt_held_on_leverage" not in codes
+
+
+def test_more_debt_with_the_risk_free_rate_moved_gives_one_reason(company, parent):
+    rf = _single(company, parent)["risk_free"]
+    result = revalue(company, parent, _buyback(10.0, Change("risk_free", value=rf + 0.0025)))
+    codes = _codes(result)
+    assert "cost_of_debt_held_on_leverage" in codes
+    assert "cost_of_debt_held" not in codes
+
+
+def test_less_debt_with_a_floored_cost_of_debt_is_not_called_held(company, parent):
+    result = revalue(company, parent, _buyback(-10.0, Change("risk_free", value=0.05)))
+    assert {c.name: c.how for c in result.changes}["cost_of_debt"] == "floored_at_risk_free"
+    codes = _codes(result)
+    assert "cost_of_debt_floored_at_risk_free" in codes
+    assert "cost_of_debt_held" not in codes
+    assert "cost_of_debt_held_on_leverage" not in codes
+
+
+def test_a_cost_of_debt_set_beside_less_debt_is_not_called_held(company, parent):
+    rf = _single(company, parent)["risk_free"]
+    result = revalue(
+        company,
+        parent,
+        _buyback(-10.0, Change("risk_free", value=rf + 0.0025), Change("cost_of_debt", value=0.06)),
+    )
+    codes = _codes(result)
+    assert "cost_of_debt_held" not in codes
+    assert "cost_of_debt_held_on_leverage" not in codes
+
+
+def test_index_rows_refuses_two_rows_for_one_name_and_period(company, parent):
+    rows = load_assumptions(company, parent)
+    assert dcf.index_rows(rows)["risk_free"][SINGLE] == _single(company, parent)["risk_free"]
+    with pytest.raises(dcf.DCFInputError, match="two rows for risk_free"):
+        dcf.index_rows([*rows, next(a for a in rows if a.name == "risk_free")])

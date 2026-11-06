@@ -248,7 +248,9 @@ def test_whatif_command_changes_debt_with_a_use(company, monkeypatch, capsys):
     )
     out = capsys.readouterr().out
     assert "relevered" in out and "Hamada" in out
+    # --debt-use with no debt change is a usage mistake, not an engine refusal (backlog #234)
     assert (
-        cli.main(["whatif", "--run-id", run_id, "--add", "beta=0.1", "--debt-use", "buyback"]) == 1
+        cli.main(["whatif", "--run-id", run_id, "--add", "beta=0.1", "--debt-use", "buyback"]) == 2
     )
-    assert "use_on_other_input" in capsys.readouterr().out
+    out, err = capsys.readouterr()
+    assert "REFUSED" not in out and "--debt-use needs a --set or --add on debt" in err

@@ -376,9 +376,9 @@ def cmd_whatif(args: argparse.Namespace) -> int:
     changes += [parse_change(t, "delta") for t in args.add or []]
     changes += [parse_switch(t) for t in args.switch or []]
     if args.debt_use is not None:  # a debt change says what the money is for (backlog #170)
-        if not any(c.name == "debt" for c in changes):
-            print("REFUSED (use_on_other_input): --debt-use needs a --set or --add on debt")
-            return 1
+        if not any(c.name == "debt" for c in changes):  # a usage mistake, not an engine refusal
+            print("usage error: --debt-use needs a --set or --add on debt", file=sys.stderr)
+            return 2
         changes = [
             dataclasses.replace(c, use=args.debt_use) if c.name == "debt" else c for c in changes
         ]

@@ -272,7 +272,7 @@ def output_trace(rows: Iterable[Assumption]) -> dict[Key, dict]:
     from domains.analysis import dcf  # dcf is a sibling the engine imports first
 
     rows = list(rows)
-    index = dcf._index(rows)
+    index = dcf.index_rows(rows)
     seed, periods = dcf.forecast_periods(index)
     q = dcf.QUARTERS
     last = periods[-1]
