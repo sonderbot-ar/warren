@@ -1,6 +1,6 @@
 # Backlog #238: one "would be floored" check, two named reasons a cost of debt is needed, a NaN pin
 
-Issue: https://github.com/sonderbot-ar/warren/issues/238 · Branch `backlog-238-floor-check` · Version v0.9.29 when merged.
+Issue: https://github.com/sonderbot-ar/warren/issues/238 · Branch `backlog-238-floor-check` · Version v0.9.29, merged nov.06.2026 (PR #240, merge `1ca1188`).
 
 ## Problem
 
