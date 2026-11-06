@@ -76,3 +76,13 @@ Explainer, analyst, professor and product lead in one fresh-context panel. NO-GO
 - **Step 4 claimed a test passes unchanged (explainer).** `test_report_cli.py`'s `--add beta=0.1 --debt-use buyback` goes through the CLI branch, not the engine, so it changes: written as a spec change, and how `cmd_whatif` returns the status is spelled out.
 
 Taken from the gaps and ideas: `_switch`'s refusals are placed in stage 1; the guard is a condition on the changes with the analyst's case matrix written out; the valuation's own refusals are said to come after the three stages (professor); the combination test pins `name` beta (professor); the product impact lists every behaviour change, and the order change gets its own line in `docs/team-sync.md` at merge (product lead). Filed with #233 rather than here: with debt lowered to zero and the risk-free rate moved, `cost_of_debt_held` says "set cost_of_debt to move it too" about debt that no longer has any weight (also true today for a debt-free run).
+
+## Results (Step 6, nov.06.2026)
+
+On the snapshot of nov.05 (restored, no migration needed): `reproduce --all` 903 of 903 before the what-ifs. On each company's latest baseline (all as of 2026-10-30), a what-if with debt 10% lower (a buyback in reverse: shares issued to repay it) and the risk-free rate +25 bp:
+
+- **Caterpillar**, the one company whose stored cost of debt is above the moved risk-free rate: the cost of debt is held and `cost_of_debt_held` is now said. Before this change, the what-if carried no note on it.
+- **The other seven**: their book cost of debt is below the risk-free rate (as found in #170), so it is floored and `cost_of_debt_floored_at_risk_free` says so; no held note, as designed.
+- All eight children reproduce; `reproduce --all` then 911 of 911. The children are on this machine's copy only and are not saved to the shared snapshot.
+
+Full suite 1,495 passed, 10 skipped; ruff clean. No stored number changes.
