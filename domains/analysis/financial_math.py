@@ -282,6 +282,30 @@ def after_tax_cost_of_debt(cost_of_debt: Number, tax_rate: Number) -> Number:
     return cost_of_debt * (1 - tax_rate)
 
 
+def _leverage_factor(debt: Number, equity_market_value: Number, tax_rate: Number) -> Number:
+    """1 + (1 − t) × D ÷ E: how much leverage scales an asset beta into an equity beta."""
+    if _any(equity_market_value <= 0) or _any(debt < 0):
+        raise FinancialMathError("equity value must be positive and debt non-negative")
+    if _any(tax_rate < 0) or _any(tax_rate >= 1):
+        raise FinancialMathError(f"tax rate must be in [0, 1), got {tax_rate}")
+    return 1 + (1 - tax_rate) * debt / equity_market_value
+
+
+def unlevered_beta(
+    beta: Number, debt: Number, equity_market_value: Number, tax_rate: Number
+) -> Number:
+    """Hamada (1972), with the tax term as Damodaran teaches it: the beta of the business alone,
+    βu = βL ÷ (1 + (1 − t) D ÷ E). Assumes the debt carries no market risk (debt beta 0)."""
+    return beta / _leverage_factor(debt, equity_market_value, tax_rate)
+
+
+def relevered_beta(
+    unlevered: Number, debt: Number, equity_market_value: Number, tax_rate: Number
+) -> Number:
+    """Hamada's equity beta at a new capital structure: βL = βu × (1 + (1 − t) D ÷ E)."""
+    return unlevered * _leverage_factor(debt, equity_market_value, tax_rate)
+
+
 def cost_of_debt(interest: Number, average_debt: Number) -> Number:
     """Pre-tax cost of debt: a year's interest over the average debt outstanding in that year."""
     if _any(average_debt <= 0):

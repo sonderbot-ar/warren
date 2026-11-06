@@ -195,7 +195,7 @@ def test_whatif_command_switches_the_terminal_formula(company, monkeypatch, caps
 def test_whatif_command_refuses_with_its_code(company, monkeypatch, capsys):
     _wire(company, monkeypatch, datetime(2020, 7, 2, tzinfo=UTC))
     run_id = run(company)
-    assert cli.main(["whatif", "--run-id", run_id, "--set", "debt=0"]) == 1
+    assert cli.main(["whatif", "--run-id", run_id, "--set", "equity_market_value=0"]) == 1
     assert "REFUSED (not_changeable)" in capsys.readouterr().out
 
 
@@ -238,3 +238,17 @@ def test_sensitivity_steps_must_be_numbers():
     with pytest.raises(argparse.ArgumentTypeError):
         cli.parse_steps("0.01,abc")
     assert cli.parse_steps("-0.01, 0,0.01") == [-0.01, 0.0, 0.01]
+
+
+def test_whatif_command_changes_debt_with_a_use(company, monkeypatch, capsys):
+    _wire(company, monkeypatch, datetime(2020, 7, 2, tzinfo=UTC))
+    run_id = run(company)
+    assert (
+        cli.main(["whatif", "--run-id", run_id, "--add", "debt=100", "--debt-use", "buyback"]) == 0
+    )
+    out = capsys.readouterr().out
+    assert "relevered" in out and "Hamada" in out
+    assert (
+        cli.main(["whatif", "--run-id", run_id, "--add", "beta=0.1", "--debt-use", "buyback"]) == 1
+    )
+    assert "use_on_other_input" in capsys.readouterr().out

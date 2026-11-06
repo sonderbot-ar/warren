@@ -312,3 +312,35 @@ def test_wacc_keeps_its_m2_expression_bit_for_bit():
     for e, d, ke, kd, t in cases:
         total = e + d
         assert fm.wacc(e, d, ke, kd, t) == e / total * ke + d / total * kd * (1 - t)
+
+
+# -- relevering beta (backlog #170) -------------------------------------------------------------
+
+
+def test_hamada_by_hand():
+    # βu = 1.2 / (1 + 0.75 × 50/100) = 1.2 / 1.375
+    assert fm.unlevered_beta(1.2, 50.0, 100.0, 0.25) == pytest.approx(1.2 / 1.375)
+    # relevered at D/E = 1: βu × 1.75
+    assert fm.relevered_beta(0.8, 100.0, 100.0, 0.25) == pytest.approx(1.4)
+
+
+def test_no_debt_leaves_beta_unchanged():
+    assert fm.unlevered_beta(1.1, 0.0, 100.0, 0.21) == 1.1
+    assert fm.relevered_beta(1.1, 0.0, 100.0, 0.21) == 1.1
+
+
+@pytest.mark.parametrize(
+    "debt, equity, tax",
+    [(-1.0, 100.0, 0.2), (10.0, 0.0, 0.2), (10.0, -5.0, 0.2), (10.0, 100.0, 1.0), (1, 2, -0.1)],
+)
+def test_relevering_refuses_meaningless_inputs(debt, equity, tax):
+    for f in (fm.unlevered_beta, fm.relevered_beta):
+        with pytest.raises(fm.FinancialMathError):
+            f(1.0, debt, equity, tax)
+
+
+def test_relevering_works_on_arrays():
+    np = pytest.importorskip("numpy")
+    betas = np.array([0.8, 1.0, 1.2])
+    out = fm.relevered_beta(fm.unlevered_beta(betas, 50.0, 100.0, 0.2), 50.0, 100.0, 0.2)
+    assert np.allclose(out, betas)
