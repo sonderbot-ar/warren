@@ -396,3 +396,61 @@ def test_a_deal_closing_after_d_is_not_shown_yet(company):
     assert pc.scope_change is None and not any(q.scope_change for q in pc.quarters)
     later = call(company, [c], hs, kind="m_and_a", as_of=date(2021, 9, 2)).cases[0]
     assert later.scope_change.startswith("Deal consolidated")
+
+
+# -- backlog #252: coverage and merger notes -----------------------------------------------------
+
+
+def _ends(company, monkeypatch, ends="2020-12-31"):
+    """Give the fixture company a pinned CIK whose filings stop on `ends`."""
+    from domains.fundamentals import universe as U
+
+    cik = company.execute("SELECT cik FROM companies WHERE ticker = 'TST'").fetchone()[0]
+    row = U.UniverseCompany(
+        "TST", cik, "Test Corp moved to a new CIK.", date.fromisoformat(ends),
+        "holding_company_reorganisation", "0000000002", "Test Holdings",
+    )  # fmt: skip
+    monkeypatch.setattr(U, "PHASE1_UNIVERSE", [*U.PHASE1_UNIVERSE, row])
+    return cik
+
+
+def test_a_company_whose_filings_stopped_by_d_gets_the_runs_coverage_note(company, monkeypatch):
+    cik = _ends(company, monkeypatch)
+    rec = call(company, [case("TST_g")], {})
+    notes = [n for n in rec.notes if n.code == "beyond_history"]
+    assert len(notes) == 1
+    p = notes[0].params
+    assert (p["ticker"], p["cik"], p["as_of"], p["history_ends"]) == (
+        "TST",
+        cik,
+        ASOF.isoformat(),
+        "2020-12-31",
+    )
+    assert (p["reason"], p["successor_cik"], p["successor_name"]) == (
+        "holding_company_reorganisation", "0000000002", "Test Holdings")  # fmt: skip
+    assert "missing here" in notes[0].text and notes[0].text in P.render(rec)
+    json.dumps(rec.to_dict())
+
+
+def test_no_coverage_note_before_the_filings_stop(company, monkeypatch):
+    _ends(company, monkeypatch, ends="2021-07-02")  # the day after ASOF
+    assert not any(n.code == "beyond_history" for n in call(company, [case("TST_g")], {}).notes)
+
+
+def test_a_coverage_note_comes_from_a_case_company_too(company, monkeypatch):
+    """The question names another company; the case company's filings stopped."""
+    _ends(company, monkeypatch)
+    cik = company.execute("SELECT cik FROM companies WHERE ticker = 'TST'").fetchone()[0]
+    company.execute("INSERT INTO companies (cik, ticker, name) VALUES ('0000000099', 'OTH', 'O')")
+    rec = P.past_events(company, "OTH", "guidance", ASOF, cases=[case("TST_g")],
+                        check_basis=False, hindsight=lambda c, r, on: None)  # fmt: skip
+    assert [n.params["cik"] for n in rec.notes if n.code == "beyond_history"] == [cik]
+
+
+@pytest.mark.parametrize("kind, has", [("m_and_a", True), ("guidance", False)])
+def test_a_merger_question_carries_the_shock_sizing_caveat(company, kind, has):
+    rec = call(company, [case("TST_m", kind="m_and_a"), case("TST_g")], {}, kind=kind)
+    caveats = [n for n in rec.notes if n.code == "merger_shocks_missized"]
+    assert bool(caveats) is has
+    if has:  # no deal is named: a question dated before a deal must not learn of it
+        assert "Activision" not in caveats[0].text and "Pioneer" not in caveats[0].text

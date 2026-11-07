@@ -27,6 +27,7 @@ from domains.evaluation.cases import CASES_PATH, EVENT_TYPES, Case, cases_sha256
 from domains.evaluation.harness import EvaluationError, score
 from domains.evaluation.hindsight import Hindsight, against_actuals
 from domains.evaluation.track_record import ITEMS, MIN_QUARTERS, _group_rows
+from domains.fundamentals.universe import coverage_gap
 from shared_kernel.calendar import last_ended_day
 
 METRICS_PATH = Path(__file__).parent / "event_metrics.csv"
@@ -360,6 +361,28 @@ def _notes(event_type: str, on: date) -> list[Coded]:
     ]  # fmt: skip
 
 
+MERGER_SHOCKS = Coded(
+    "merger_shocks_missized", {"event_type": "m_and_a"},
+    "Warren's backtest found that its AI news shocks mis-size mergers: a shock's size comes from "
+    "how much the company's revenue usually moves, not from the size of the company bought. The "
+    "forecasts here are the baseline's, without news shocks, so they do not carry that error; a "
+    "forecast with news shocks after a merger would",
+)  # fmt: skip
+
+
+def coverage_notes(conn: sqlite3.Connection, tickers: set[str], on: date) -> list[Coded]:
+    """`beyond_history`, as on a run (v0.9.22), for each company in the answer whose filings
+    stop on or before `on` (Exxon from 2026-08-03): its recent quarters are missing, so its
+    reported quarters and usual misses end early (backlog #252)."""
+    out = []
+    for t in sorted(tickers):
+        row = conn.execute("SELECT cik FROM companies WHERE ticker = ?", (t,)).fetchone()
+        gap = coverage_gap(row["cik"], on) if row is not None else None
+        if gap is not None:
+            out.append(Coded("beyond_history", gap[1], gap[0]))
+    return out
+
+
 # -- one case ----------------------------------------------------------------------------------
 
 
@@ -473,6 +496,9 @@ def past_events(
     # and Coca-Cola raised their guidance; the other four cut it), so no count is enough
     thin = True
     notes.append(_thin(n, "few_cases" if n < THIN_BELOW else "direction_not_recorded"))
+    if event_type == "m_and_a":
+        notes.append(MERGER_SHOCKS)
+    notes += coverage_notes(conn, {ticker} | {c.ticker for c in chosen + others}, as_of)
     missing = None
     if n == 0:
         missing = Coded(
