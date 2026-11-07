@@ -1,6 +1,6 @@
 # Backlog #241: pin the equal-rate edge of the floor, tighten one refusal test, build the stage-2 test rows with the code's own stage 1
 
-Issue: https://github.com/sonderbot-ar/warren/issues/241 · Branch `backlog-241-floor-tests`.
+Issue: https://github.com/sonderbot-ar/warren/issues/241 · Branch `backlog-241-floor-tests` · Version v0.9.31, merged nov.07.2026 (PR #245, merge `c745cf3`).
 
 ## Problem
 
@@ -42,3 +42,7 @@ None. No code, param, output or text added, renamed or removed; no request chang
 Explainer, analyst and professor in one fresh-context panel. GO, no blockers. Explainer: clear; its two guesses (reproduces means `reproduce(...).ok`; the equal-rate test sets `risk_free` to the exact stored float) are both what the test does. Analyst: the move is exact (stages 2 and 3 unchanged), 123 what-if tests pass, and three mutations in a throwaway worktree were each caught: `<=` in `_would_floor` (only the new equal-rate test fails), the "free" sentence removed, and `add` relabelled `set` in `_shape_rows`. Professor: defensible (a rate already at the floor is left alone) and no scope creep.
 
 - **Not taken:** a NamedTuple for `_shape_rows`' three values (one caller in the code, one in the tests; not worth a new type); moving the backlog reference out of the docstring (the module cites its backlog items in docstrings throughout); a held-rate assertion in the equal-rate test (the missing `cost_of_debt` row already shows it was held).
+
+## PR review (nov.07.2026)
+
+Gatekeeper: GO, no blockers. 1,511 passed, 10 skipped (browser tests without Chromium on the review machine; CI ran them green); ruff clean. Stages 2 and 3 moved back word for word; `<=` in `_would_floor` fails exactly the new equal-rate test. Ideas not taken: a NamedTuple (as above); an exact-equality assertion in the equal-rate test (true by construction: the rate is set from the stored float and nothing rounds inputs).
