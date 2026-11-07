@@ -8,8 +8,10 @@ always gets an answer. Design: docs/designs/backlog-128-latest-day.md.
 """
 
 import sqlite3
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from datetime import date
+from types import MappingProxyType
 
 from domains.analysis.dcf import YEARS
 from domains.analysis.math_engine import CHAINS, step_quarter
@@ -148,13 +150,14 @@ class FactReads:
 
     def __init__(self, conn: sqlite3.Connection):
         self.conn = conn
-        self._facts: dict[tuple[str, date, str], dict[tuple, Fact]] = {}
+        self._facts: dict[tuple[str, date, str], Mapping[tuple, Fact]] = {}
         self._filings: dict[str, Filings] = {}
 
-    def quarterly(self, cik: str, on: date, mode: str) -> dict[tuple, Fact]:
+    def quarterly(self, cik: str, on: date, mode: str) -> Mapping[tuple, Fact]:
+        """Read-only: one run can't change what the next run reads."""
         key = (cik, on, mode)
         if key not in self._facts:
-            self._facts[key] = _quarterly(self.conn, cik, on, mode)
+            self._facts[key] = MappingProxyType(_quarterly(self.conn, cik, on, mode))
         return self._facts[key]
 
     def filings(self, cik: str) -> Filings:

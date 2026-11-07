@@ -177,3 +177,6 @@ def test_shared_reads_give_the_same_answer_and_read_each_filing_date_once(
     for r in runs:
         against_actuals(conn, r, TODAY)
     assert len(calls) > len(set(calls))  # without sharing, the second run reads them again
+    cik = conn.execute("SELECT cik FROM runs").fetchone()[0]
+    with pytest.raises(TypeError):  # read-only: one run can't change what the next one reads
+        reads.quarterly(cik, TODAY, "first_reported")[("revenue", 1, "Q1")] = None
