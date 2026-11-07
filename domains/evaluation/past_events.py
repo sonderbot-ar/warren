@@ -376,11 +376,15 @@ def build_case(
     run_id: str | None,
     seen: Hindsight | None,
     usual: dict[tuple[str, int], list[float]],
+    on: date | None = None,
 ) -> PastCase:
+    # a deal consolidated after the question's date was not public yet: no scope text, no flag
+    closed = scope_from(case.scope_change)
+    scope = "" if on is not None and closed is not None and closed > on else case.scope_change
     common = dict(
         case_id=case.case_id, ticker=case.ticker, event_date=case.event_date,
         event_type=case.event_type, description=case.description, source_url=case.source_url,
-        scope_change=case.scope_change or None, same_company=case.ticker == ticker,
+        scope_change=scope or None, same_company=case.ticker == ticker,
         same_type=case.event_type == event_type, same_mechanism=None, direction=None,
         run_id=run_id,
     )  # fmt: skip
@@ -392,7 +396,7 @@ def build_case(
     quarters, reported, compared = [], 0, 0
     for q in seen.quarters[: case.horizon_quarters]:
         by = {i.name: i for i in q.items}
-        scoped = bool(case.scope_change) and in_scope(case.scope_change, q.horizon, q.period_end)
+        scoped = bool(scope) and in_scope(scope, q.horizon, q.period_end)
         before = q.period_end is not None and q.period_end < case.event_date
         items = {}
         for name in ITEMS:
@@ -459,7 +463,7 @@ def past_events(
     def build(c: Case) -> PastCase:
         rid = runs.get(c.case_id)
         seen = hindsight(conn, rid, as_of) if rid else None
-        return build_case(c, ticker, event_type, rid, seen, usual_by[c.ticker])
+        return build_case(c, ticker, event_type, rid, seen, usual_by[c.ticker], as_of)
 
     built = [build(c) for c in chosen]
     n = sum(c.reported_quarters > 0 for c in built)
@@ -514,8 +518,12 @@ def _case_lines(c: PastCase) -> list[str]:
             u = it.usual
             if it.missing is not None:
                 cells.append([it.missing.code, "–", "–"])
-            elif u is None or u.missing is not None and u.missing.code == "scope_change":
+            elif u is not None and u.missing is not None and u.missing.code == "scope_change":
                 cells.append([_pct(it.signed_miss), "scope change", "–"])
+            elif u is not None and u.missing is not None and u.missing.code == "ended_before_event":
+                cells.append([_pct(it.signed_miss), "pre-event", "–"])
+            elif u is None:
+                cells.append([_pct(it.signed_miss), "–", "–"])
             else:
                 cells.append([_pct(it.signed_miss), _pct(u.median_miss), _pct(u.rank)])
         rev = q.items["revenue"]

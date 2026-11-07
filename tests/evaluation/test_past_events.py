@@ -372,3 +372,27 @@ def test_to_dict_is_plain_json_and_render_names_the_rule(company):
     }
     text = P.render(rec)
     assert "Rule: every case in the library of type guidance" in text and "TST_e" in text
+
+
+def test_the_question_date_reaches_the_actuals(company):
+    c = case("TST_e")
+    rid = store_case(company, c, ["FY2030Q1"])
+    asked = []
+
+    def hindsight(conn, run_id, on):
+        asked.append((run_id, on))
+        return seen(run_id, [("FY2021Q1", 90.0)])
+
+    P.past_events(company, "TST", "guidance", ASOF, cases=[c], check_basis=False,
+                  hindsight=hindsight)  # fmt: skip
+    assert asked == [(rid, ASOF)]  # actuals are cut at D, not later
+
+
+def test_a_deal_closing_after_d_is_not_shown_yet(company):
+    c = case("TST_m", kind="m_and_a", scope="Deal consolidated from 2021-09-01 (h1-h4)")
+    rid = store_case(company, c, ["FY2030Q1"])
+    hs = {rid: seen(rid, [("FY2021Q1", 90.0), ("FY2021Q2", None)])}
+    (pc,) = call(company, [c], hs, kind="m_and_a").cases
+    assert pc.scope_change is None and not any(q.scope_change for q in pc.quarters)
+    later = call(company, [c], hs, kind="m_and_a", as_of=date(2021, 9, 2)).cases[0]
+    assert later.scope_change.startswith("Deal consolidated")
