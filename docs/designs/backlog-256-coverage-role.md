@@ -1,6 +1,6 @@
 # Backlog #256: past events say whose filings stop, and the universe note can't name a later date
 
-Issue: https://github.com/sonderbot-ar/warren/issues/256 · Branch `backlog-256-coverage-role` · Version v0.9.36 (planned).
+Issue: https://github.com/sonderbot-ar/warren/issues/256 · Branch `backlog-256-coverage-role` · Version v0.9.36, merged nov.07.2026 (PR #261, merge `02a0603`; gatekeeper GO).
 
 ## Problem
 
