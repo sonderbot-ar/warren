@@ -27,6 +27,7 @@ from domains.evaluation.cases import CASES_PATH, EVENT_TYPES, Case, cases_sha256
 from domains.evaluation.harness import EvaluationError, score
 from domains.evaluation.hindsight import Hindsight, against_actuals
 from domains.evaluation.track_record import ITEMS, MIN_QUARTERS, _group_rows
+from domains.fundamentals.universe import coverage_gap, get_universe_company
 from shared_kernel.calendar import last_ended_day
 
 METRICS_PATH = Path(__file__).parent / "event_metrics.csv"
@@ -360,6 +361,30 @@ def _notes(event_type: str, on: date) -> list[Coded]:
     ]  # fmt: skip
 
 
+MERGER_SHOCKS = Coded(
+    "merger_shocks_missized", {"event_type": "m_and_a", "backtest_cases": 2},
+    "In its two merger cases, Warren's backtest found that its AI news shocks mis-size mergers: a "
+    "shock's size comes from how much the company's revenue usually moves, not from the size of "
+    "the company bought. These forecasts are the baseline's, without news shocks, so that error "
+    "is not here. They have a different one: they leave out the bought company's revenue, so "
+    "after a deal closes part of the gap is the added revenue, not a surprise (Warren marks those "
+    "quarters as a scope change and does not compare them with the usual miss)",
+)  # fmt: skip
+
+
+def coverage_notes(tickers: set[str], on: date) -> list[Coded]:
+    """`beyond_history`, as on a run (v0.9.22), for each company in the answer whose pinned CIK's
+    filings are missing from its `history_ends` on, when that is on or before `on` (Exxon from
+    2026-08-03): its recent quarters and usual misses end early (backlog #252). The CIK is the
+    one `universe.csv` pins, so a successor ingested under the same ticker can't hide the note."""
+    out = []
+    for t in sorted(tickers):
+        gap = coverage_gap(get_universe_company(t).cik, on)
+        if gap is not None:
+            out.append(Coded("beyond_history", gap[1], gap[0]))
+    return out
+
+
 # -- one case ----------------------------------------------------------------------------------
 
 
@@ -473,6 +498,9 @@ def past_events(
     # and Coca-Cola raised their guidance; the other four cut it), so no count is enough
     thin = True
     notes.append(_thin(n, "few_cases" if n < THIN_BELOW else "direction_not_recorded"))
+    if event_type == "m_and_a":
+        notes.append(MERGER_SHOCKS)
+    notes += coverage_notes({ticker} | {c.ticker for c in chosen + others}, as_of)
     missing = None
     if n == 0:
         missing = Coded(

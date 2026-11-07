@@ -8,8 +8,9 @@ from datetime import date
 import pytest
 
 from domains.analysis.runs import run_baseline
+from domains.evaluation import hindsight as HS
 from domains.evaluation.harness import evaluate_case
-from domains.evaluation.hindsight import against_actuals
+from domains.evaluation.hindsight import FactReads, against_actuals
 from tests.evaluation.conftest import CHOICES
 from tests.evaluation.test_harness import TODAY, case
 
@@ -146,3 +147,36 @@ def test_quarters_past_the_first_year_use_the_run_s_definition_and_basis(make_co
             assert "changed at FY2019Q1" in it["revenue"].missing.text
         else:
             assert it["revenue"].missing is None and it["revenue"].miss is not None
+
+
+def test_shared_reads_give_the_same_answer_and_read_each_filing_date_once(
+    make_company, monkeypatch
+):
+    """Backlog #252: several runs of one company share one FactReads; the answer is unchanged
+    (the recast fixture, so a restated_basis flag is in it) and each (date, mode) is read once."""
+
+    def recast(tag, row):
+        if tag == "Revenues" and row["end"] == "2018-09-30" and row["fy"] == 2019:
+            row = row | {"val": row["val"] * 2.0}
+        return row
+
+    conn = make_company(recast)
+    runs = [run_baseline(conn, "TST", d, choices=CHOICES, today=TODAY)
+            for d in (date(2019, 3, 31), AS_OF)]  # fmt: skip
+    alone = [against_actuals(conn, r, TODAY).to_dict() for r in runs]
+    calls = []
+    real = HS._quarterly
+    monkeypatch.setattr(HS, "_quarterly", lambda *a: calls.append(a[1:]) or real(*a))
+    reads = FactReads(conn)
+    shared = [against_actuals(conn, r, TODAY, reads).to_dict() for r in runs]
+    assert shared == alone
+    assert any(i["missing"] and i["missing"]["code"] == "restated_basis"
+               for q in shared[1]["quarters"] for i in q["items"])  # fmt: skip
+    assert len(calls) == len(set(calls))  # each (cik, date, mode) once across both runs
+    calls.clear()
+    for r in runs:
+        against_actuals(conn, r, TODAY)
+    assert len(calls) > len(set(calls))  # without sharing, the second run reads them again
+    cik = conn.execute("SELECT cik FROM runs").fetchone()[0]
+    with pytest.raises(TypeError):  # read-only: one run can't change what the next one reads
+        reads.quarterly(cik, TODAY, "first_reported")[("revenue", 1, "Q1")] = None

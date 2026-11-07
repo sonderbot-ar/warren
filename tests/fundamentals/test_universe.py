@@ -10,6 +10,7 @@ from domains.fundamentals.universe import (
     CoverageWarning,
     UniverseError,
     coverage_fields,
+    coverage_gap,
     get_universe_company,
     load_universe,
     warn_if_beyond_history,
@@ -170,3 +171,15 @@ def test_wrong_columns_are_refused(tmp_path):
     path.write_text("ticker,cik\nAAPL,\n")
     with pytest.raises(UniverseError, match="Expected columns"):
         load_universe(path)
+
+
+def test_coverage_gap_gives_the_warnings_own_text_and_fields_and_none_before_the_end():
+    """Backlog #252: the past-events call states the coverage warning as a note."""
+    assert coverage_gap(XOM_CIK, date(2026, 8, 2)) is None
+    assert coverage_gap("0000320193", date(2030, 1, 1)) is None
+    assert coverage_gap(None, date(2030, 1, 1)) is None
+    text, fields = coverage_gap(XOM_CIK, date(2026, 9, 30))
+    with pytest.warns(CoverageWarning) as caught:
+        warn_if_beyond_history(XOM_CIK, date(2026, 9, 30))
+    assert str(caught[0].message) == text and caught[0].message.fields == fields
+    assert fields["history_ends"] == "2026-08-03" and fields["successor_cik"] == XOM_SUCCESSOR

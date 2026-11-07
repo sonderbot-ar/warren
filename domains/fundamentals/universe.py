@@ -121,10 +121,16 @@ def load_universe(path: Path = UNIVERSE_PATH) -> list[UniverseCompany]:
 PHASE1_UNIVERSE = load_universe()
 
 
-def warn_if_beyond_history(cik: str, as_of: date) -> None:
-    """Warn when a query's as-of date is past the point where this CIK's filings stop."""
+def coverage_gap(cik: str | None, as_of: date) -> tuple[str, dict] | None:
+    """The coverage warning's text and fields when `as_of` is on or after the date this pinned
+    CIK's filings stop, else None (backlog #252: the past-events call states it as a note)."""
     for company in PHASE1_UNIVERSE:
-        if company.cik == cik and company.history_ends and as_of >= company.history_ends:
+        if (
+            cik is not None
+            and company.cik == cik
+            and company.history_ends
+            and as_of >= company.history_ends
+        ):
             text = (
                 f"{company.ticker} (CIK {cik}) as of {as_of.isoformat()}: filings from "
                 f"{company.history_ends.isoformat()} onward are on another CIK and are missing "
@@ -140,7 +146,16 @@ def warn_if_beyond_history(cik: str, as_of: date) -> None:
                 "successor_name": company.successor_name,
                 "note": company.note,
             }
-            warnings.warn(CoverageWarning(text, **fields), stacklevel=3)
+            return text, fields
+    return None
+
+
+def warn_if_beyond_history(cik: str, as_of: date) -> None:
+    """Warn when a query's as-of date is past the point where this CIK's filings stop."""
+    gap = coverage_gap(cik, as_of)
+    if gap is not None:
+        text, fields = gap
+        warnings.warn(CoverageWarning(text, **fields), stacklevel=3)
 
 
 COVERAGE_FIELDS = ("reason", "successor_cik", "successor_name")
