@@ -467,16 +467,53 @@ def test_a_switch_to_gordon_names_what_it_assumes_with_the_grids_codes(company, 
     out = load_outputs(company, result.run_id)
     g = _rows(company, parent)[("terminal_growth", SINGLE)].value
     reinvest = fm.reinvestment_rate(out[("fcff", "Y5")], out[("nopat", "Y5")])
+    assert reinvest > 0  # the test company reinvests in year 5: this branch, always
     assert by_code["gordon_holds_reinvestment"].params == {"reinvestment_rate": reinvest}
-    if reinvest > 0:
-        assert by_code["gordon_implied_ronic"].params == {
-            "implied_ronic": fm.implied_ronic(g, reinvest),
-            "reinvestment_rate": reinvest,
-            "terminal_growth": g,
-            "wacc": out[("wacc", SINGLE)],
-        }
-    else:
-        assert "gordon_reinvestment_not_positive" in by_code
+    assert "gordon_reinvestment_not_positive" not in by_code
+    assert by_code["gordon_implied_ronic"].params == {
+        "implied_ronic": fm.implied_ronic(g, reinvest),
+        "reinvestment_rate": reinvest,
+        "terminal_growth": g,
+        "wacc": out[("wacc", SINGLE)],
+    }
+
+
+def test_a_switch_to_gordon_on_a_year_that_takes_capital_out_implies_no_return(company, parent):
+    """The other branch end to end (backlog #216): year 5's capex set to 0 beside the switch, so
+    year 5's free cash flow is above its NOPAT and Gordon's growth comes from no investment."""
+    result = revalue(
+        company,
+        parent,
+        [
+            Change("capex_pct", value=0.0, period="Y5"),
+            Change("terminal_method", method=dcf.GORDON),
+        ],
+    )
+    out = load_outputs(company, result.run_id)
+    reinvest = fm.reinvestment_rate(out[("fcff", "Y5")], out[("nopat", "Y5")])
+    assert reinvest < 0
+    by_code = {n.code: n for n in result.notes}
+    assert by_code["gordon_holds_reinvestment"].params == {"reinvestment_rate": reinvest}
+    assert by_code["gordon_reinvestment_not_positive"].params == {"reinvestment_rate": reinvest}
+    assert "read its value as a formula" in by_code["gordon_reinvestment_not_positive"].text
+    assert "gordon_implied_ronic" not in by_code
+    assert reproduce(company, result.run_id).ok
+
+
+def test_two_terminal_switches_are_refused_and_store_nothing(company, parent):
+    count = _count(company)
+    with pytest.raises(WhatIfError) as e:
+        revalue(
+            company,
+            parent,
+            [
+                Change("terminal_method", method=dcf.GORDON),
+                Change("terminal_method", method=dcf.VALUE_DRIVER),
+            ],
+        )
+    assert e.value.code == "duplicate_change"
+    assert e.value.params == {"name": "terminal_method", "period": SINGLE}
+    assert _count(company) == count
 
 
 @pytest.mark.parametrize(
