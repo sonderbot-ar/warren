@@ -83,6 +83,24 @@ Explainer, analyst, professor and the front-end product lead, in parallel, on th
 
 Ideas taken: `n_compared` (professor), control scope quarters out of the usual set (product lead), the pandemic-quarters wording (analyst), the guidance outlook source (analyst), the guidance count corrected and the margin labelled (explainer). Ideas filed as backlog issues: matched controls as a placebo set (professor, Barber & Lyon 1996); graded closeness once tags exist (professor, Lovallo, Clarke & Camerer 2012); a coverage code for Exxon's filings stopping (product lead, #126); a note that the AI's news shocks mis-sized mergers (product lead, Q10); ASC 805 pro forma revenue to separate a deal's scope effect (analyst); a shared 2020 window out of the usual set (analyst); the case file's "(hN)" labels (analyst B1).
 
+## Results on real data (Step 4, nov.07.2026)
+
+Snapshot `warren-20261105T101750Z`, D = 2026-11-07, `check_basis` on.
+
+- **One baseline run per case:** 0 cases have more than one baseline run id in `eval_results`.
+- **Equalities:** 264 quarter-and-item rows across the calls below have an `ok` baseline row in the M8 batch `eval_2026-11-02_1`; the call's forecast and first-reported actual equal it in all 264 (tolerance 0.5 currency units; 0 differ).
+- **The brief's questions** (revenue miss per quarter, + means Warren forecast too high; "pre": the quarter ended before the event; "scope": an acquisition was consolidated):
+
+| Question | Call | n | Answer, in short | Time |
+|---|---|---|---|---|
+| Q10 Microsoft after Activision | MSFT `m_and_a` | 3 (1 compared) | MSFT_2023-10-13: h1 FY2024Q1 +1.2% pre (it ended 2023-09-30, before the close; the file's label said h1), h2–h4 scope. KO's BODYARMOR case is all scope; XOM–Pioneer h2 +39.8% (rank 0.86, not beyond), h4 scope | 15 s |
+| Q12 Apple supply problems | AAPL `supply_chain` | 1 | AAPL_2022-11-06: +22.2%, +18.5%, +17.2%, +16.4%; h1 and h2 beyond Apple's usual (ranks 0.95, 0.90 of 22 and 21 quarters). The February 2020 case comes as context of another type: +6.2%, −3.8%, +5.6%, −12.1%, none beyond | 6 s |
+| Q13 J&J and the midterms | JNJ `policy` | 0 | `no_cases`; the three policy metrics; J&J's three own cases listed as context | 5 s |
+| Q14 Exxon and OPEC | XOM `macro` | 1 | XOM_2020-03-09: h1–h2 `restated_basis` (Exxon recast 2019 in 2020), h3 +55.7% and h4 +59.6%, both above every usual quarter (13); direction not recorded | 4 s |
+| Q15 Walmart and inflation | WMT `guidance` | 6 (5 compared) | WMT_2022-07-25 first: −4.3%, −4.7%, −3.4%, −3.6%, all four beyond Walmart's usual (25 to 22 quarters); then MSFT, AAPL, CAT, KO (all `pre` or `restated_basis`), PG; thin (`direction_not_recorded`) | 35 s |
+
+Usual quarters per company and horizon run from 12 (JNJ h3–h4) to 26 (PG); none fell below the minimum at this date. A call spends most of its time in the basis check of each named company's monthly forecasts (about 5 s a company), so a `guidance` question, which names six companies, takes 35 s: the app needs a loading state, and the answer can be kept per type and date until new misses are scored.
+
 ## Where the work stopped
 
-- nov.07.2026: design reviewed; Steps 1–2 built and tested; Step 3 (command) and Step 4 (real data) next.
+- nov.07.2026: Steps 0–4 done; full suite green (1,774 passed); PR and gatekeeper next.
