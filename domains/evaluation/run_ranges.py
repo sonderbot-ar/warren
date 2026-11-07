@@ -274,15 +274,16 @@ def basis_flags(conn: sqlite3.Connection, ticker: str, on: date) -> set[tuple[st
     """This company's origin quarters whose reporting filing recast the year before
     (`hindsight` `restated_basis`, v0.9.7), with the filings public by `on`: (origin, period,
     item)."""
-    from domains.evaluation.hindsight import against_actuals
+    from domains.evaluation.hindsight import FactReads, against_actuals
 
+    reads = FactReads(conn)  # every origin of the company reads the same filings (#252)
     out = set()
     for o in conn.execute(
         "SELECT origin_id, run_id FROM forecast_origins WHERE ticker = ? AND status = 'ok' "
         "AND as_of < ? ORDER BY origin_id",
         (ticker, on.isoformat()),
     ).fetchall():
-        for q in against_actuals(conn, o["run_id"], on).quarters[:MAX_HORIZON]:
+        for q in against_actuals(conn, o["run_id"], on, reads).quarters[:MAX_HORIZON]:
             for item in q.items:
                 if item.missing is not None and item.missing.code == "restated_basis":
                     out.add((o["origin_id"], q.period, item.name))

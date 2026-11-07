@@ -137,19 +137,48 @@ def _basis_change(
     )
 
 
-def against_actuals(conn: sqlite3.Connection, run_id: str, actuals_on: date) -> Hindsight:
-    """Each forecast quarter of `run_id` against what was first reported by `actuals_on`."""
+class FactReads:
+    """One company's filing reads, kept for several runs on one connection (backlog #252).
+
+    `against_actuals` reads the same facts for every run of a company: the quarters as first
+    reported by `actuals_on`, and the latest values as of each actual's filing date. Both depend
+    only on the company, the date and the mode, never on the run, so a caller that scores many
+    runs at once (`run_ranges.basis_flags`) passes one `FactReads` and each is read once. Keep
+    one only while nothing is written to the facts: it never re-reads."""
+
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+        self._facts: dict[tuple[str, date, str], dict[tuple, Fact]] = {}
+        self._filings: dict[str, Filings] = {}
+
+    def quarterly(self, cik: str, on: date, mode: str) -> dict[tuple, Fact]:
+        key = (cik, on, mode)
+        if key not in self._facts:
+            self._facts[key] = _quarterly(self.conn, cik, on, mode)
+        return self._facts[key]
+
+    def filings(self, cik: str) -> Filings:
+        if cik not in self._filings:
+            self._filings[cik] = Filings(self.conn, cik)
+        return self._filings[cik]
+
+
+def against_actuals(
+    conn: sqlite3.Connection, run_id: str, actuals_on: date, reads: FactReads | None = None
+) -> Hindsight:
+    """Each forecast quarter of `run_id` against what was first reported by `actuals_on`.
+    `reads`: shared filing reads when scoring many runs of one company (same answer, faster)."""
     run = conn.execute("SELECT ticker, cik, as_of FROM runs WHERE run_id = ?", (run_id,)).fetchone()
     if run is None:
         raise EvaluationError(f"run {run_id} is not stored")
     cik = run["cik"]
+    reads = reads if reads is not None else FactReads(conn)
     outputs = load_outputs(conn, run_id)
     history = {(a.name, a.period): a for a in load_assumptions(conn, run_id)
                if a.name.startswith("history:")}  # fmt: skip
     periods = sorted(p for (n, p) in outputs if n == "revenue" and p not in YEARS)
-    facts = _quarterly(conn, cik, actuals_on, "first_reported")
-    at_filing: dict[date, dict] = {}
-    filings = Filings(conn, cik)
+    facts = reads.quarterly(cik, actuals_on, "first_reported")
+    filings = reads.filings(cik)
 
     # what each prior-year figure should be on the run's basis: the run's own history rows, then
     # (for quarters 5-8, whose year-earlier quarter was itself forecast) that quarter's actual
@@ -203,10 +232,8 @@ def against_actuals(conn: sqlite3.Connection, run_id: str, actuals_on: date) -> 
                 )
 
         filed = max(f.filed_at for f in [revenue, *(ebit_facts or [])])
-        if filed not in at_filing:
-            at_filing[filed] = _quarterly(conn, cik, filed, "latest")
         comp = (
-            comparative(at_filing[filed], year, q, alternative)
+            comparative(reads.quarterly(cik, filed, "latest"), year, q, alternative)
             if alternative is not None
             else (None, None)
         )
