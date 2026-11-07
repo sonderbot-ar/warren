@@ -438,15 +438,15 @@ def _lesson(own: Block, other: Block) -> Coded:
     """The brief's lesson, judged by a stated rule: the value-driver table is flatter along growth
     relative to WACC than the Gordon table when its growth-to-WACC ratio is the smaller one."""
     vd = own if own.terminal_method == dcf.VALUE_DRIVER else other
-    gordon = other if vd is own else own
-    params = {"value_driver": vd.growth_to_wacc, "gordon": gordon.growth_to_wacc}
-    if vd.growth_to_wacc is None or gordon.growth_to_wacc is None:
+    gordon_block = other if vd is own else own
+    params = {"value_driver": vd.growth_to_wacc, "gordon": gordon_block.growth_to_wacc}
+    if vd.growth_to_wacc is None or gordon_block.growth_to_wacc is None:
         return Coded(
             "lesson_not_shown",
             params,
             "One table has too few values along an axis to compare the two formulas.",
         )
-    if vd.growth_to_wacc < gordon.growth_to_wacc:
+    if vd.growth_to_wacc < gordon_block.growth_to_wacc:
         return Coded(
             "flatter_along_growth",
             params,
