@@ -1,6 +1,6 @@
 # Backlog #252 (part 1): past events say when Exxon's filings stop, warn about merger shocks, and answer in seconds
 
-Issue: https://github.com/sonderbot-ar/warren/issues/252 · Branch `backlog-252-past-events-speed` · Status: built and reviewed (nov.07.2026).
+Issue: https://github.com/sonderbot-ar/warren/issues/252 · Branch `backlog-252-past-events-speed` · Version v0.9.35, merged nov.07.2026 (PR #255, merge `780b964`; gatekeeper GO).
 
 ## Problem
 
@@ -62,4 +62,4 @@ Snapshot `warren-20261105T101750Z` (schema 21). Before = main at `6427366`, afte
 - **`basis_flags`:** old per-run reads against shared reads, all 8 companies on 2022-06-30, 2024-11-15 and 2026-11-07: 24 of 24 sets identical (KO 68, XOM 43, JNJ 87 on the later dates, PG 6, others 0). Per company: 1.2–7.0 s before, 0.1–0.5 s after.
 - **The brief's questions** (D = 2026-11-07), `past-events --json`: identical once the new notes are taken out. MSFT `m_and_a` 16.3 → 1.7 s (adds `merger_shocks_missized` and Exxon's `beyond_history`, from the Pioneer case); AAPL `supply_chain` 5.5 → 0.9 s; XOM `macro` 3.5 → 0.9 s (adds `beyond_history`); WMT `guidance` 36.4 → 3.1 s; JNJ `policy` 6.5 → 1.1 s. On D = 2026-08-02, MSFT `m_and_a` has the merger caveat and no coverage note.
 - **`track-record --json`** for all 8 companies and **`ranges run --json`** on each company's newest baseline: 16 of 16 identical byte for byte; each about 9.5 s → 4 s.
-- Tests: full suite and ruff below in the PR.
+- Tests: 1,783 passed, 10 skipped (browser tests run in CI); ruff clean; CI green.
