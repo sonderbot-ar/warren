@@ -883,13 +883,11 @@ def _zero(conn, run_id, *names):
 
 
 def _stage2(conn, run_id, changes):
-    """The rows stage 2 sees: each change's before and after, no bounds (as `_changed_rows`)."""
-    index = {(a.name, a.period): a for a in load_assumptions(conn, run_id)}
-    out = {}
-    for c in changes:
-        before = index[(c.name, SINGLE)].value
-        after = c.value if c.value is not None else before + c.delta
-        out[(c.name, SINGLE)] = whatif.RowChange(c.name, SINGLE, before, after, "set")
+    """The rows stage 2 sees, built by `whatif._shape_rows` itself (stage 1), so this helper
+    can't drift from how `_changed_rows` builds them (backlog #241)."""
+    index, out, _ = whatif._shape_rows(
+        load_assumptions(conn, run_id), changes, load_outputs(conn, run_id)
+    )
     return index, out
 
 
@@ -912,6 +910,16 @@ def test_would_floor_is_the_one_condition_behind_the_floored_row(company, parent
     # and the row the child stores agrees with it
     hows = {c.name: c.how for c in revalue(company, parent, changes).changes}
     assert (hows.get("cost_of_debt") == "floored_at_risk_free") is floored
+
+
+def test_stage2_rows_are_the_rows_stage_one_builds(company, parent):
+    # `add` and `set` labels and befores as `_changed_rows` makes them, not a copy of its logic
+    rf = _single(company, parent)["risk_free"]
+    index, out = _stage2(company, parent, _buyback(10.0, Change("risk_free", value=rf + 0.01)))
+    debt, risk_free = out[("debt", SINGLE)], out[("risk_free", SINGLE)]
+    assert (debt.how, debt.after - debt.before) == ("add", pytest.approx(10.0))
+    assert (risk_free.how, risk_free.before, risk_free.after) == ("set", rf, rf + 0.01)
+    assert index[("debt", SINGLE)].value == debt.before
 
 
 def test_debt_down_to_zero_is_never_floored(company, parent):
