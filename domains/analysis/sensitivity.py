@@ -18,7 +18,7 @@ import math
 import sqlite3
 from dataclasses import asdict, dataclass, field
 
-from domains.analysis import dcf
+from domains.analysis import dcf, gordon
 from domains.analysis import financial_math as fm
 from domains.analysis.math_engine import _thin
 from domains.analysis.montecarlo import _currency
@@ -187,10 +187,7 @@ def _block(inp, method, waccs, growths, wacc_steps, growth_steps, run_point) -> 
     reinvest = None
     if method == dcf.GORDON:
         plain = dcf.compute(inp)  # cash flows don't depend on WACC or growth on this grid
-        try:
-            reinvest = fm.reinvestment_rate(plain.lines["fcff"][-1], plain.lines["nopat"][-1])
-        except fm.FinancialMathError:
-            reinvest = None
+        reinvest = gordon.year5_reinvestment(plain.lines["fcff"][-1], plain.lines["nopat"][-1])
     cells = []
     for i, row in enumerate(valued):
         out = []
@@ -255,9 +252,7 @@ def _cell(v, gap, wacc, growth, wacc_step, growth_step, base_value, method, rein
     ev = v.dcf.enterprise_value
     share = v.dcf.terminal_share if ev > 0 else None
     terminal_base = v.lines["nopat"][-1] if method == dcf.VALUE_DRIVER else v.lines["fcff"][-1]
-    ronic = None
-    if method == dcf.GORDON and reinvest is not None and reinvest > 0:
-        ronic = fm.implied_ronic(growth, reinvest)
+    ronic = gordon.implied_ronic(growth, reinvest) if method == dcf.GORDON else None
     return Cell(
         wacc=wacc,
         terminal_growth=growth,
@@ -407,26 +402,16 @@ def _notes(own, other, method, rows, g_steps, left_out, run_wacc, run_growth) ->
             "return with it.",
         )
     )
-    gordon = own if own.terminal_method == dcf.GORDON else other
-    notes.append(
-        Coded(
-            "gordon_holds_reinvestment",
-            {"reinvestment_rate": gordon.reinvestment_rate},
-            "The Gordon formula grows year 5's free cash flow, whose reinvestment is fixed, so "
-            "more growth comes at no extra investment: part of its steepness along growth is "
-            "growth that costs nothing. Each cell shows the return on new investment it implies.",
-        )
+    gordon_block = own if own.terminal_method == dcf.GORDON else other
+    notes += gordon.reinvestment_notes(
+        gordon_block.reinvestment_rate,
+        "The Gordon formula grows year 5's free cash flow, whose reinvestment is fixed, so "
+        "more growth comes at no extra investment: part of its steepness along growth is "
+        "growth that costs nothing. Each cell shows the return on new investment it implies.",
+        "In year 5 this run reinvests nothing or takes capital out, so the Gordon "
+        "formula's growth comes from no investment and implies no return: read its "
+        "table as a formula, not a valuation.",
     )
-    if gordon.reinvestment_rate is None or gordon.reinvestment_rate <= 0:
-        notes.append(
-            Coded(
-                "gordon_reinvestment_not_positive",
-                {"reinvestment_rate": gordon.reinvestment_rate},
-                "In year 5 this run reinvests nothing or takes capital out, so the Gordon "
-                "formula's growth comes from no investment and implies no return: read its "
-                "table as a formula, not a valuation.",
-            )
-        )
     if any(s > 0 for s in g_steps) and _follows_risk_free(rows):
         notes.append(
             Coded(
@@ -453,15 +438,15 @@ def _lesson(own: Block, other: Block) -> Coded:
     """The brief's lesson, judged by a stated rule: the value-driver table is flatter along growth
     relative to WACC than the Gordon table when its growth-to-WACC ratio is the smaller one."""
     vd = own if own.terminal_method == dcf.VALUE_DRIVER else other
-    gordon = other if vd is own else own
-    params = {"value_driver": vd.growth_to_wacc, "gordon": gordon.growth_to_wacc}
-    if vd.growth_to_wacc is None or gordon.growth_to_wacc is None:
+    gordon_block = other if vd is own else own
+    params = {"value_driver": vd.growth_to_wacc, "gordon": gordon_block.growth_to_wacc}
+    if vd.growth_to_wacc is None or gordon_block.growth_to_wacc is None:
         return Coded(
             "lesson_not_shown",
             params,
             "One table has too few values along an axis to compare the two formulas.",
         )
-    if vd.growth_to_wacc < gordon.growth_to_wacc:
+    if vd.growth_to_wacc < gordon_block.growth_to_wacc:
         return Coded(
             "flatter_along_growth",
             params,

@@ -21,7 +21,7 @@ import math
 import sqlite3
 from dataclasses import asdict, dataclass, field
 
-from domains.analysis import dcf
+from domains.analysis import dcf, gordon
 from domains.analysis import financial_math as fm
 from domains.analysis import sources as src
 from domains.analysis.math_engine import post_check_notes
@@ -967,33 +967,22 @@ def _gordon_notes(outputs: dict, rows: list[Assumption]) -> list[Coded]:
     """What a Gordon value on this child assumes, with the sensitivity grid's codes and params so
     one screen string serves both (product lead): year 5's reinvestment is held while growth runs
     on, and, when year 5 reinvests nothing (or NOPAT isn't positive), its growth comes from no
-    investment; otherwise the return on new investment it implies, g ÷ the reinvestment rate."""
+    investment; otherwise the return on new investment it implies, g ÷ the reinvestment rate. The
+    rule is `gordon`'s, shared with the grid (backlog #216)."""
     last = dcf.YEARS[-1]
     growth = next(a.value for a in rows if a.name == "terminal_growth" and a.period == SINGLE)
-    try:
-        reinvest = fm.reinvestment_rate(outputs[("fcff", last)], outputs[("nopat", last)])
-    except fm.FinancialMathError:  # NOPAT at or below zero: no rate (as the grid)
-        reinvest = None
-    notes = [
-        Coded(
-            "gordon_holds_reinvestment",
-            {"reinvestment_rate": reinvest},
-            "The Gordon formula grows year 5's free cash flow, whose reinvestment is fixed, so "
-            "more growth comes at no extra investment.",
-        )
-    ]
-    if reinvest is None or reinvest <= 0:
-        notes.append(
-            Coded(
-                "gordon_reinvestment_not_positive",
-                {"reinvestment_rate": reinvest},
-                "In year 5 this run reinvests nothing or takes capital out, so the Gordon "
-                "formula's growth comes from no investment and implies no return: read its "
-                "value as a formula, not a valuation.",
-            )
-        )
+    reinvest = gordon.year5_reinvestment(outputs[("fcff", last)], outputs[("nopat", last)])
+    notes = gordon.reinvestment_notes(
+        reinvest,
+        "The Gordon formula grows year 5's free cash flow, whose reinvestment is fixed, so "
+        "more growth comes at no extra investment.",
+        "In year 5 this run reinvests nothing or takes capital out, so the Gordon "
+        "formula's growth comes from no investment and implies no return: read its "
+        "value as a formula, not a valuation.",
+    )
+    if not gordon.reinvests(reinvest):
         return notes
-    ronic = fm.implied_ronic(growth, reinvest)
+    ronic = gordon.implied_ronic(growth, reinvest)
     params = {
         "implied_ronic": ronic,
         "reinvestment_rate": reinvest,
