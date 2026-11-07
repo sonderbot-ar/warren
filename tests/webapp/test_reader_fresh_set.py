@@ -9,6 +9,7 @@ read them (`docs/designs/f2-web-app.md`, "Step 3 results, part 3").
 from __future__ import annotations
 
 import hashlib
+import json
 from collections import Counter
 from datetime import date
 
@@ -74,3 +75,27 @@ def test_the_fresh_labels_score_perfectly_against_themselves():
     report = scoring.score(FRESH, answers, TODAY)
     assert report["passes"]
     assert report["held_out"]["n"] == len(FRESH)
+
+
+# --- the one run (nov.07.2026) ---------------------------------------------------------------
+
+FRESH_RUN = scoring.LABELLED_SET.parent / "runs" / "2026-11-07-claude-haiku-5-5-prompt3-fresh.jsonl"
+PROMPT_3 = "28b34b33d9adff1c73713e2e5e991c4ea4107c53d4612a19e8e8068692d9a7bf"
+
+
+def test_the_fresh_run_reproduces_its_score():
+    """Haiku 5.5 on prompt 3, once, on the frozen fresh set: 189 of 201 fully right, 7
+    confidently wrong (the bar allows 4), so it does not clear the bar. The design doc's numbers
+    come back from the stored answers, without the model."""
+    lines = FRESH_RUN.read_text(encoding="utf-8").splitlines()
+    meta = json.loads(lines[0])["meta"]
+    assert meta["model"]["id"] == "claude-haiku-5-5"
+    assert meta["prompt_sha256"] == PROMPT_3
+    assert meta["set_sha256"] == FRESH_SET_SHA256
+    answers = {json.loads(x)["id"]: json.loads(x)["reading"] for x in lines[1:]}
+    assert len(answers) == len(FRESH)
+    report = scoring.score(FRESH, answers, TODAY)
+    assert sum(q["right"] for q in report["questions"]) == 189
+    wrong = [q["id"] for q in report["questions"] if not q["right"] and not q["unsure"]]
+    assert wrong == ["f010", "f118", "f133", "f135", "f169", "f177", "f199"]
+    assert report["passes"] is False
