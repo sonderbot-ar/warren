@@ -912,6 +912,20 @@ def test_would_floor_is_the_one_condition_behind_the_floored_row(company, parent
     assert (hows.get("cost_of_debt") == "floored_at_risk_free") is floored
 
 
+def test_a_cost_of_debt_equal_to_the_risk_free_rate_is_not_floored(company, parent):
+    # the floor is strict: a rate equal to risk-free is already at the floor, so no no-op
+    # `floored_at_risk_free` row (backlog #241; `<=` in `_would_floor` would add one)
+    kd = _single(company, parent)["cost_of_debt"]
+    assert kd > 0
+    changes = _buyback(100.0, Change("risk_free", value=kd))
+    index, out = _stage2(company, parent, changes)
+    assert whatif._would_floor(index, out) is False
+    result = revalue(company, parent, changes)
+    assert "cost_of_debt" not in {c.name for c in result.changes}
+    assert "cost_of_debt_floored_at_risk_free" not in _codes(result)
+    assert reproduce(company, result.run_id).ok
+
+
 def test_stage2_rows_are_the_rows_stage_one_builds(company, parent):
     # `add` and `set` labels and befores as `_changed_rows` makes them, not a copy of its logic
     rf = _single(company, parent)["risk_free"]
@@ -950,9 +964,13 @@ def test_a_run_with_debt_and_a_zero_book_rate_is_floored_not_refused(company, pa
 
 def test_a_run_with_debt_and_a_zero_book_rate_unchanged_debt_is_refused(company, parent):
     _zero(company, parent, "cost_of_debt")
+    count = _count(company)
     with pytest.raises(WhatIfError) as e:
         revalue(company, parent, _buyback(0.0))
     assert e.value.code == "cost_of_debt_needed"
+    assert e.value.params == {"debt_before": _single(company, parent)["debt"]}
+    assert "free" in str(e.value) and "had no debt" not in str(e.value)
+    assert _count(company) == count
 
 
 def test_new_debt_on_a_debt_free_run_with_a_book_rate_below_risk_free_is_refused(company, parent):
