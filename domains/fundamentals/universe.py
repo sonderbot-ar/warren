@@ -1,6 +1,7 @@
 """The Phase 1 universe: large US non-financial companies with clean XBRL filings."""
 
 import csv
+import re
 import warnings
 from dataclasses import dataclass
 from datetime import date
@@ -48,6 +49,28 @@ class UniverseError(ValueError):
     """universe.csv is malformed."""
 
 
+_ISO_DATE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
+_YEAR = re.compile(r"\b(19\d{2}|20\d{2})\b")
+
+
+def _later_dates(note: str, history_ends: date) -> list[str]:
+    """The note is shown on any date from `history_ends` on (backlog #256), so it may not name an
+    ISO date after the cut-off, nor a year after the cut-off's year."""
+    out = []
+    for m in _ISO_DATE.finditer(note):
+        try:
+            named = date(*map(int, m.groups()))
+        except ValueError:
+            out.append(f"note names {m.group(0)!r}, which is not a date")
+            continue
+        if named > history_ends:
+            out.append(f"note names {named.isoformat()}, after history_ends")
+    for m in _YEAR.finditer(_ISO_DATE.sub(" ", note)):
+        if int(m.group(1)) > history_ends.year:
+            out.append(f"note names the year {m.group(1)}, after history_ends")
+    return out
+
+
 def load_universe(path: Path = UNIVERSE_PATH) -> list[UniverseCompany]:
     """Read and validate the company list. Every problem found is reported at once."""
     with open(path, newline="") as f:
@@ -79,6 +102,8 @@ def load_universe(path: Path = UNIVERSE_PATH) -> list[UniverseCompany]:
                 errors.append(f"line {line}: history_ends must be an ISO date, got {ends!r}")
             if not cik:
                 errors.append(f"line {line}: history_ends needs a pinned cik")
+        if history_ends is not None:
+            errors += [f"line {line}: {e}" for e in _later_dates(r["note"], history_ends)]
         if ends and not reason:
             errors.append(f"line {line}: history_ends needs a reason")
         if reason and reason not in COVERAGE_REASONS:
