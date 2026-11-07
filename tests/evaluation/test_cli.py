@@ -190,3 +190,38 @@ def test_track_record_on_an_unknown_ticker_exits_1(company, tmp_path, monkeypatc
     wire(monkeypatch, company, tmp_path)
     assert cli.main(["track-record", "--ticker", "ZZZ", "--as-of", "2021-07-01"]) == 1
     assert "has not been ingested" in capsys.readouterr().out
+
+
+# -- past-events (backlog #146) -----------------------------------------------------------------
+
+
+def test_past_events_lists_the_rule_and_the_cases(company, tmp_path, monkeypatch, capsys):
+    from domains.evaluation import run_ranges
+
+    wire(monkeypatch, company, tmp_path)
+    monkeypatch.setattr(run_ranges, "basis_flags", lambda conn, ticker, on: set())
+    args = ["past-events", "--ticker", "TST", "--event-type", "supply_chain", "--as-of",
+            "2023-01-01"]  # fmt: skip
+    assert cli.main(args) == 0
+    out = capsys.readouterr().out
+    assert "Past supply_chain cases for a question about TST, as of 2023-01-01" in out
+    assert "AAPL_2022-11-06" in out and "no stored baseline run" in out  # not in Test Corp's db
+    assert "Metrics to watch" in out and "SEC Regulation S-K, Item 105" in out
+
+
+def test_past_events_json_with_no_case_of_the_type(company, tmp_path, monkeypatch, capsys):
+    import json
+
+    wire(monkeypatch, company, tmp_path)
+    args = ["past-events", "--ticker", "TST", "--event-type", "policy", "--as-of", "2021-07-01",
+            "--json"]  # fmt: skip
+    assert cli.main(args) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["n"] == 0 and data["missing"]["code"] == "no_cases" and data["metrics"]
+
+
+def test_past_events_on_an_unknown_event_type_exits_1(company, tmp_path, monkeypatch, capsys):
+    wire(monkeypatch, company, tmp_path)
+    args = ["past-events", "--ticker", "TST", "--event-type", "weather", "--as-of", "2021-07-01"]
+    assert cli.main(args) == 1
+    assert "not an event type of the case library" in capsys.readouterr().out
