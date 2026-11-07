@@ -48,3 +48,13 @@ Explainer, analyst, professor and product lead in parallel, after Steps 0–2 we
 - **Explainer: one blocker, rejected with a reason.** It asked how the question's company is found when a question has no ticker. `past_events` always has one: `ticker` is a required argument and an un-ingested ticker is refused (`domains/evaluation/past_events.py`, `past_events`). Gaps taken: the eight fields listed; the case sentence's template and joining stated; a missing `role` on a run's note stated; which rows are checked stated.
 - **Product lead: no blockers.** Taken: the doc says a missing `role` means the question's company, `role` is `question` or `case` only, and the app should render from params with `text` as a fallback. The ordering test already has both companies with gaps. Idea, filed: whether a case whose data ends early is still counted in the "few cases" line.
 
+
+## Results (nov.07.2026)
+
+Snapshot `warren-20261105T101750Z` (schema 21). Before = main at `527a0ae`, after = this branch. `reproduce --all`: 903 of 903 runs reproduce to the cent.
+
+- Q10, MSFT `m_and_a`, D = 2026-11-07: one `beyond_history` note, Exxon's, now `role` `case`; its params equal main's apart from `role`, and its text is main's text after the new case sentence. Every other field and note identical.
+- Q14, XOM `macro`, D = 2026-11-07: one note, Exxon's, `role` `question`; text and params equal main's apart from `role`. Everything else identical.
+- The checked-in `universe.csv` loads under the new check.
+
+Exit met.
