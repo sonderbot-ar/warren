@@ -36,3 +36,9 @@ The gatekeeper's review of PR #240 (v0.9.29) found three test gaps in the levera
 ## Product impact
 
 None. No code, param, output or text added, renamed or removed; no request changes outcome. Brief questions Q7 and Q8 (what-if) unchanged.
+
+## Design review (nov.07.2026)
+
+Explainer, analyst and professor in one fresh-context panel. GO, no blockers. Explainer: clear; its two guesses (reproduces means `reproduce(...).ok`; the equal-rate test sets `risk_free` to the exact stored float) are both what the test does. Analyst: the move is exact (stages 2 and 3 unchanged), 123 what-if tests pass, and three mutations in a throwaway worktree were each caught: `<=` in `_would_floor` (only the new equal-rate test fails), the "free" sentence removed, and `add` relabelled `set` in `_shape_rows`. Professor: defensible (a rate already at the floor is left alone) and no scope creep.
+
+- **Not taken:** a NamedTuple for `_shape_rows`' three values (one caller in the code, one in the tests; not worth a new type); moving the backlog reference out of the docstring (the module cites its backlog items in docstrings throughout); a held-rate assertion in the equal-rate test (the missing `cost_of_debt` row already shows it was held).
