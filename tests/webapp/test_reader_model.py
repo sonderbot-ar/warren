@@ -270,6 +270,10 @@ RUNS = scoring.LABELLED_SET.parent / "runs"
 # withdrawn nov.06.2026: its wording drew on held-out errors, so its held-out score is not clean).
 PROMPT_1 = "b29a95aafe5e8d100781b812bd033b9228812e8789b07d0e0be91c9b5d34548c"
 PROMPT_2 = "4609d4fd9efa3ac8af1e76a235207ceffae4cae1b8a669ea939b2cb165ba7055"
+# The third (F2 Step 3 part 3, nov.07.2026): prompt 1 with the order of precedence stated at
+# each kind and the no-size rule repeated. Written after the 204 were read, so it is judged
+# only on the fresh set, which did not exist when it was committed.
+PROMPT_3 = "28b34b33d9adff1c73713e2e5e991c4ea4107c53d4612a19e8e8068692d9a7bf"
 RECORDED = {  # file: (GGUF sha256 prefix or Claude model id, prompt, fully right, clears the bar)
     "2026-11-05-qwen3-4b-q4km.jsonl": ("7485fe6f", PROMPT_1, 140, False),
     "2026-11-05-qwen3-8b-q4km.jsonl": ("d98cdcbd", PROMPT_1, 161, False),
@@ -294,6 +298,7 @@ def test_a_recorded_run_reproduces_its_score(name):
     assert report["passes"] is passes
 
 
-def test_the_prompt_is_the_clean_one_the_runs_used():
-    """A prompt edit after the recorded runs needs a new run before its score is quoted."""
-    assert runner.prompt_sha256() == PROMPT_1
+def test_the_prompt_is_the_one_locked_before_the_fresh_set():
+    """A prompt edit needs a new, unseen set before its score is quoted (Step 3 part 3): the
+    live prompt is prompt 3, committed before any fresh question was written."""
+    assert runner.prompt_sha256() == PROMPT_3
