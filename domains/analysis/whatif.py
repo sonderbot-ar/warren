@@ -296,6 +296,49 @@ def _changed_rows(
        `buyback_exceeds_market_value`, then the bounds on rows that follow (the growth fade).
 
     The valuation's own refusals (`_value`, such as `growth_not_below_rate`) come after."""
+    index, out, periods = _shape_rows(rows, changes, parent_outputs)
+    # stage 2: the combination, and what the run must have for it
+    if (dcf.WACC_SET, SINGLE) in out:
+        for name in WACC_INPUTS:
+            if (name, SINGLE) in out:
+                raise _refuse(
+                    "wacc_with_rate_input",
+                    f"WACC is set directly, so {name} would not move it: change one or the other",
+                    name=name,
+                )
+    floored = (DEBT, SINGLE) in out and _refuse_debt_request(index, out)
+    # stage 3: the numbers, in the order the changes were given
+    for c in list(out.values()):
+        if c.how in ("set", "add"):
+            _check_bounds(c.name, c.after)
+    if (DEBT, SINGLE) in out:
+        out |= _leverage_rows(index, out, floored)
+    rf_key, tg_key = ("risk_free", SINGLE), ("terminal_growth", SINGLE)
+    if rf_key in out and tg_key not in out and _follows_risk_free(rows):
+        before = index[tg_key].value
+        out[tg_key] = RowChange(*tg_key, before, out[rf_key].after, "follows_risk_free")
+    touched_growth = any(c.name == "revenue_growth" for c in changes)
+    if tg_key in out and not touched_growth and _fades(rows):
+        shift = out[tg_key].after - out[tg_key].before
+        for i, period in enumerate(periods):
+            before = index[("revenue_growth", period)].value
+            after = before + shift * (forecast_year(i) - 1) / 4
+            if after != before:
+                _check_bounds("revenue_growth", after)
+                out[("revenue_growth", period)] = RowChange(
+                    "revenue_growth", period, before, after, "follows_terminal_growth"
+                )
+    return list(out.values())
+
+
+def _shape_rows(
+    rows: list[Assumption], changes: list[Change], parent_outputs: dict
+) -> tuple[dict[tuple[str, str], Assumption], dict[tuple[str, str], RowChange], list[str]]:
+    """Stage 1 of `_changed_rows`: each change's shape, in the order given, and the row it moves
+    (before, after, how), with no bounds checked yet. Returns the parent's rows by (name,
+    period), the moved rows by the same key, and the forecast periods. Stage 2 reads what this
+    returns; the tests build stage 2's input through it too, so they can't drift from it
+    (backlog #241)."""
     index = {(a.name, a.period): a for a in rows}
     # the parent has no `wacc` row: a set WACC starts from the WACC the parent computed
     before_of = {key: a.value for key, a in index.items()}
@@ -351,38 +394,7 @@ def _changed_rows(
             else:
                 after, how = before + change.delta, "add"
             out[key] = RowChange(change.name, period, before, after, how)  # bounds in stage 3
-    # stage 2: the combination, and what the run must have for it
-    if (dcf.WACC_SET, SINGLE) in out:
-        for name in WACC_INPUTS:
-            if (name, SINGLE) in out:
-                raise _refuse(
-                    "wacc_with_rate_input",
-                    f"WACC is set directly, so {name} would not move it: change one or the other",
-                    name=name,
-                )
-    floored = (DEBT, SINGLE) in out and _refuse_debt_request(index, out)
-    # stage 3: the numbers, in the order the changes were given
-    for c in list(out.values()):
-        if c.how in ("set", "add"):
-            _check_bounds(c.name, c.after)
-    if (DEBT, SINGLE) in out:
-        out |= _leverage_rows(index, out, floored)
-    rf_key, tg_key = ("risk_free", SINGLE), ("terminal_growth", SINGLE)
-    if rf_key in out and tg_key not in out and _follows_risk_free(rows):
-        before = index[tg_key].value
-        out[tg_key] = RowChange(*tg_key, before, out[rf_key].after, "follows_risk_free")
-    touched_growth = any(c.name == "revenue_growth" for c in changes)
-    if tg_key in out and not touched_growth and _fades(rows):
-        shift = out[tg_key].after - out[tg_key].before
-        for i, period in enumerate(periods):
-            before = index[("revenue_growth", period)].value
-            after = before + shift * (forecast_year(i) - 1) / 4
-            if after != before:
-                _check_bounds("revenue_growth", after)
-                out[("revenue_growth", period)] = RowChange(
-                    "revenue_growth", period, before, after, "follows_terminal_growth"
-                )
-    return list(out.values())
+    return index, out, periods
 
 
 def _leverage_rows(
