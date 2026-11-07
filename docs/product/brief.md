@@ -118,37 +118,37 @@ Every event answer shows, for each case: the company and date with its source, w
 *What happened to Microsoft's revenue and margins after it bought Activision Blizzard?*
 - Kind: Evento (a past event).
 - Returns: the case (Microsoft, 13 October 2023), what Warren forecast before, the four quarters reported after, and the warning that the acquisition changed the company's scope: most of the gap is Activision's revenue being added, not a forecast miss (the backtest leaves such quarters out). Also: Warren's AI news shocks have mis-sized mergers so far (`docs/phase1-review.md`).
-- Hoy: **En parte**. Cases, runs and scores are stored; no query. Request R5 (#146).
+- Hoy: **Sí** (v0.9.34, #146): `python -m domains.evaluation past-events --ticker T --event-type E --json`, or the call `domains.evaluation.past_events.past_events` with `m_and_a`. Three cases (MSFT, KO, XOM); Microsoft's first quarter ended before the close and the next three hold Activision, so they are shown with the scope warning and not compared. The AI-merger caveat is not in the answer yet.
 
 **11. ¿Qué le pasaría a Coca-Cola si el dólar se fortalece frente a las monedas de América Latina?**
 *What would happen to Coca-Cola if the dollar strengthens against Latin American currencies?*
 - Kind: Evento (the exchange rate is not an input and has no listed transmission).
 - Returns: today the library has one currency case, and it is another company (Microsoft cut its guidance for currency in June 2022: same mechanism, different company), so the answer is n = 1, thin evidence. Then the metrics to watch (share of revenue outside the US, the currency note in the 10-K), and the *cambio de supuesto* the student may mean: lower revenue growth.
-- Hoy: **No**. The nearest case is stored, but choosing cases by rule needs the theme tags of R6 (it is filed as a guidance case, not a currency case). Requests R5, R6 (#146, #147).
+- Hoy: **En parte**. The query exists (v0.9.34, #146), but it matches by event type only, so the currency case comes back among six `guidance` cases with `same_mechanism` unknown. Choosing it by rule needs R6's tags (#147).
 
 **12. Si Apple vuelve a tener problemas de producción en China como en 2022, ¿cuánto bajarían sus ventas?**
 *If Apple has production problems in China again, as in 2022, how much would its sales fall?*
 - Kind: Evento (it asks for a number, but names an event).
 - Returns: the two Apple cases (February 2020 and November 2022, same company; the 2022 case is the same mechanism, the 2020 case is close, as it mixed supply problems with lower demand): what Warren expected then, what was reported, the gap by quarter beside Apple's usual miss. It says plainly that these are past outcomes, not a forecast, and that two cases are thin evidence.
-- Hoy: **En parte** (the cases and their scores are stored). Request R5 (#146).
+- Hoy: **Sí** (v0.9.34, #146): `python -m domains.evaluation past-events --ticker T --event-type E --json`, or the call `domains.evaluation.past_events.past_events` with `supply_chain`. n = 1 (the 2022 case); the 2020 case comes as Apple's own case of another type (`guidance`), shown as context, not counted.
 
 **13. ¿Qué le pasa a Johnson & Johnson si los demócratas ganan las elecciones intermedias en Estados Unidos?**
 *What happens to J&J if the Democrats win the US midterm elections?*
 - Kind: Evento (the owner's example in #130).
 - Returns: "No hay casos parecidos en la biblioteca" first, n = 0. Then only the metrics to watch (US share of pharmaceutical sales, drug-pricing risk in the 10-K's risk factors). No number, and no weak analogy dressed up as a close one.
-- Hoy: **No**. There is no election or policy case yet. Requests R5, R6 (#146, #147).
+- Hoy: **Sí** (v0.9.34, #146): `python -m domains.evaluation past-events --ticker T --event-type E --json`, or the call `domains.evaluation.past_events.past_events` with `policy`, a type with metrics to watch and no case yet: n = 0, `no_cases`, and the metrics. J&J's own cases of other types also come back as context; the screen decides whether to show them.
 
 **14. ¿Qué le pasa a ExxonMobil si la OPEP recorta su producción?**
 *What happens to ExxonMobil if OPEC cuts production?*
 - Kind: Evento.
 - Returns: the nearest case (March 2020, the oil price war, marked "dirección opuesta": supply rose and prices fell) and what followed; the metrics to watch (realised oil price, upstream earnings); and that Exxon's filings in Warren stop in August 2026 (#126).
-- Hoy: **No**. The nearest case is stored, but choosing it by rule needs R6's tags. Requests R5, R6 (#146, #147), and #126.
+- Hoy: **En parte**. The query returns the March 2020 case with `macro` (v0.9.34, #146), but "dirección opuesta" needs R6's direction (#147), and Exxon's coverage note is not in the answer (#126).
 
 **15. ¿Qué le pasa a Walmart si sube la inflación?**
 *What happens to Walmart if inflation rises?*
 - Kind: Evento, ambiguous (tests the rule's edge: inflation is not an input and has no listed transmission).
 - Reading shown first: "Lo leo como un evento (inflación más alta), no como un cambio de supuesto." Then the nearest case (July 2022, Walmart cut its profit outlook as inflation pushed shoppers to groceries: same company, same mechanism, n = 1) and what followed; and two *cambios de supuesto* to choose from: lower operating margin, or different revenue growth.
-- Hoy: **No**. The nearest case is stored, but choosing cases by rule needs the theme tags of R6 (it is filed as a guidance case, not an inflation case). Requests R5, R6 (#146, #147).
+- Hoy: **En parte**. The query exists (v0.9.34, #146) and puts Walmart's July 2022 case first among the six `guidance` cases, but choosing only the inflation case needs R6's tags (#147); until then the answer is marked thin (`direction_not_recorded`).
 
 ## 4. Out of scope, and how Warren says so
 
@@ -170,7 +170,7 @@ Each is an issue labelled `backlog` and `front-end` (`docs/team-sync.md`, rule 4
 | R2c | The list of transmissions, starting with an unexpected policy-rate move → 10-year yield, as a sourced range (owner card: a new method) | 7 | M | #143 |
 | R3 | Error ranges (M9) and the company's own coverage on every run | 5 | S–M | #144 |
 | R4 | Track record per company from the stored batches | 6 | S | #145 (done, v0.9.14) |
-| R5 | Past-event query: cases by rule, closeness, n and a thin-evidence flag, the usual-miss comparison, scope-change warning, and a sourced "metrics to watch" table | 10–15 | M | #146 |
+| R5 | Past-event query: cases by rule, closeness, n and a thin-evidence flag, the usual-miss comparison, scope-change warning, and a sourced "metrics to watch" table | 10–15 | M | #146 (done, v0.9.34; by event type until #147's tags) |
 | R6 | Analogue cases for currency, inflation, commodity supply and elections, in a separate, unscored file | 11, 13, 14, 15 | M | #147 |
 | — | Runs default to the latest ended day; a past date shows what was reported afterwards | 3, 5 | | #128 (done, v0.9.7) |
 | — | The sorting rule and the AI reader (owner decision) | all | | #130 |

@@ -36,6 +36,13 @@ data/reports/eval/<build_id>_ranges.md; `reproduce` checks a stored build to the
 monthly forecast quarter beside its first-reported actual, the benchmark's miss and whether the
 range held, with summaries. Without --as-of it uses the last day ended in New York. It writes
 nothing.
+
+    python -m domains.evaluation past-events --ticker T --event-type E [--as-of D] [--json]
+
+`past-events` (backlog #146) answers a question about an event: the case library's past cases of
+that type, chosen by rule, each with the forecast made the day before, what was reported after
+and that miss beside the company's usual miss, plus n, the thin-evidence flag and the metrics to
+watch. Without --as-of it uses the last day ended in New York. It writes nothing.
 """
 
 import argparse
@@ -253,6 +260,28 @@ def cmd_track_record(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_past_events(args: argparse.Namespace) -> int:
+    import json
+    from datetime import date
+
+    from domains.evaluation import past_events
+    from domains.evaluation.harness import EvaluationError
+
+    as_of = date.fromisoformat(args.as_of) if args.as_of else None
+    with get_db_connection() as conn:
+        apply_migrations(conn)
+        try:
+            result = past_events.past_events(conn, args.ticker, args.event_type, as_of)
+        except EvaluationError as e:
+            print(f"FAILED: {e}")
+            return 1
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2, ensure_ascii=False))
+    else:
+        print(past_events.render(result), end="")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m domains.evaluation")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -299,6 +328,12 @@ def main(argv: list[str] | None = None) -> int:
     tr.add_argument("--as-of", help="YYYY-MM-DD; default: the last day ended in New York")
     tr.add_argument("--json", action="store_true", help="print JSON for the app")
     tr.set_defaults(func=cmd_track_record)
+    pe = commands.add_parser("past-events", help="past cases of an event type, chosen by rule")
+    pe.add_argument("--ticker", required=True, help="the company the question is about")
+    pe.add_argument("--event-type", required=True, help="e.g. guidance, m_and_a, policy")
+    pe.add_argument("--as-of", help="YYYY-MM-DD; default: the last day ended in New York")
+    pe.add_argument("--json", action="store_true", help="print JSON for the app")
+    pe.set_defaults(func=cmd_past_events)
     args = parser.parse_args(argv)
     return args.func(args)
 
