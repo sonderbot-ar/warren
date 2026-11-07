@@ -470,10 +470,10 @@ def test_a_case_companys_note_says_it_is_a_past_case(company, monkeypatch):
     (note,) = [n for n in rec.notes if n.code == "beyond_history"]
     text, params = coverage_gap(cik, ASOF)
     assert note.params == {**params, "role": "case"}
-    assert note.text.startswith(text)
-    assert note.text.endswith(
-        " TST is in this answer as a past case, not the question's company: its recent quarters "
-        "and its usual misses end early."
+    assert note.text == (
+        "TST is in this answer as a past case, not the question's company: its filings from "
+        "2020-12-31 on are missing here, so its typical forecast errors, and any of its case "
+        f"quarters reported from then on, stop at that date. {text}"
     )
     assert note.text in P.render(rec)
     json.dumps(rec.to_dict())

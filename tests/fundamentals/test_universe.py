@@ -198,6 +198,13 @@ def _xom_with_note(tmp_path, note, ends="2026-08-03"):
         ("Linked on 2026-08-04.", "line 2: note names 2026-08-04, after history_ends"),
         ("The two CIKs were linked in 2027.", "line 2: note names the year 2027, after"),
         ("Filed 2026-02-30.", "line 2: note names '2026-02-30', which is not a date"),
+        ("Linked in October 2026.", "line 2: note names 'October 2026', which begins after"),
+        ("Linked in Q4 2026.", "line 2: note names 'Q4 2026', which begins after"),
+        ("Linked in 4Q2026.", "line 2: note names '4Q2026', which begins after"),
+        ("Linked in November 2026.", "line 2: note names 'November 2026', which begins after"),
+        ("Linked 2026-11-04T00:00.", "line 2: note names 2026-11-04, after history_ends"),
+        ("Its FY2028 10-K is on the new CIK.", "line 2: note names 'FY2028', more than a year"),
+        ("Q1 FY2027 is on the new CIK; linked in 2027.", "line 2: note names the year 2027"),
     ],
 )
 def test_a_note_naming_a_date_after_the_cut_off_is_refused(tmp_path, note, message):
@@ -211,6 +218,9 @@ def test_a_note_naming_a_date_after_the_cut_off_is_refused(tmp_path, note, messa
         "History ends on 2026-08-03, the reorganisation was on 2026-07-01.",
         "Filings start in 2026; the old registrant filed since 1993.",
         "A ten-digit CIK such as 0002115436 is not a year.",
+        "The Q2 2026 10-Q was filed in August 2026; Q3 2026 began before the cut-off.",
+        "Its fiscal 2027 first-quarter 10-Q was filed 2026-06-02; FY2027 began in 2026.",
+        "Its senior notes due 2030 moved to the new CIK.",
     ],
 )
 def test_a_note_naming_the_cut_off_or_earlier_loads(tmp_path, note):
@@ -223,5 +233,6 @@ def test_a_note_on_a_row_without_a_cut_off_is_not_checked(tmp_path):
 
 
 def test_the_checked_in_universe_names_no_date_after_its_cut_offs():
-    """Exxon's note names 2026-07-01, 2026 and 2026-08-03, all on or before its cut-off."""
+    """load_universe() raising would fail this: the file has a cut-off row (Exxon), and that
+    row's note names 2026-07-01, Q2 2026 and 2026-08-03, none after its cut-off."""
     assert any(c.history_ends for c in load_universe())

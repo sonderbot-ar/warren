@@ -386,10 +386,12 @@ def coverage_notes(question: str, cases: set[str], on: date) -> list[Coded]:
             continue
         text, params = gap
         role = "question" if t == question else "case"
-        if role == "case":
-            text += (
-                f" {t} is in this answer as a past case, not the question's company: its recent "
-                "quarters and its usual misses end early."
+        if role == "case":  # said first, so the rest is not read as about the question
+            text = (
+                f"{t} is in this answer as a past case, not the question's company: its filings "
+                f"from {params['history_ends']} on are missing here, so its typical forecast "
+                "errors, and any of its case quarters reported from then on, stop at that date. "
+                f"{text}"
             )
         out.append(Coded("beyond_history", {**params, "role": role}, text))
     return out
