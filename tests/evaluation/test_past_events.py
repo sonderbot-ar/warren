@@ -447,6 +447,56 @@ def test_a_coverage_note_comes_from_a_case_company_too(company, monkeypatch):
     assert [n.params["cik"] for n in rec.notes if n.code == "beyond_history"] == [cik]
 
 
+# -- backlog #256: whose filings stop ----------------------------------------------------------
+
+
+def test_the_question_companys_note_is_the_runs_note_with_role_question(company, monkeypatch):
+    """TST is both the question's company and a case's: one note, `question`, the run's text."""
+    from domains.fundamentals.universe import coverage_gap
+
+    cik = _ends(company, monkeypatch)
+    notes = [n for n in call(company, [case("TST_g")], {}).notes if n.code == "beyond_history"]
+    text, params = coverage_gap(cik, ASOF)
+    assert [(n.text, n.params) for n in notes] == [(text, {**params, "role": "question"})]
+
+
+def test_a_case_companys_note_says_it_is_a_past_case(company, monkeypatch):
+    from domains.fundamentals.universe import coverage_gap
+
+    cik = _ends(company, monkeypatch)
+    company.execute("INSERT INTO companies (cik, ticker, name) VALUES ('0000000099', 'OTH', 'O')")
+    rec = P.past_events(company, "OTH", "guidance", ASOF, cases=[case("TST_g")],
+                        check_basis=False, hindsight=lambda c, r, on: None)  # fmt: skip
+    (note,) = [n for n in rec.notes if n.code == "beyond_history"]
+    text, params = coverage_gap(cik, ASOF)
+    assert note.params == {**params, "role": "case"}
+    assert note.text == (
+        "TST is in this answer as a past case, not the question's company: its filings from "
+        "2020-12-31 on are missing here, so its typical forecast errors, and any of its case "
+        f"quarters reported from then on, stop at that date. {text}"
+    )
+    assert note.text in P.render(rec)
+    json.dumps(rec.to_dict())
+
+
+def test_the_question_companys_note_comes_before_the_case_companies(monkeypatch):
+    from domains.fundamentals import universe as U
+
+    rows = [
+        U.UniverseCompany(
+            t, c, "moved.", date(2020, 12, 31), "holding_company_reorganisation", s, "New"
+        )  # fmt: skip
+        for t, c, s in [("AAA", "0000000101", "0000000201"), ("ZZZ", "0000000102", "0000000202")]
+    ]
+    monkeypatch.setattr(U, "PHASE1_UNIVERSE", [*U.PHASE1_UNIVERSE, *rows])
+    monkeypatch.setattr(P, "get_universe_company", lambda t: {r.ticker: r for r in rows}[t])
+    notes = P.coverage_notes("ZZZ", {"AAA", "ZZZ"}, ASOF)
+    assert [(n.params["ticker"], n.params["role"]) for n in notes] == [
+        ("ZZZ", "question"),
+        ("AAA", "case"),
+    ]
+
+
 @pytest.mark.parametrize("kind, has", [("m_and_a", True), ("guidance", False)])
 def test_a_merger_question_carries_the_shock_sizing_caveat(company, kind, has):
     rec = call(company, [case("TST_m", kind="m_and_a"), case("TST_g")], {}, kind=kind)

@@ -1,6 +1,7 @@
 """The Phase 1 universe: large US non-financial companies with clean XBRL filings."""
 
 import csv
+import re
 import warnings
 from dataclasses import dataclass
 from datetime import date
@@ -48,6 +49,53 @@ class UniverseError(ValueError):
     """universe.csv is malformed."""
 
 
+_ISO_DATE = re.compile(r"(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)")
+_MONTHS = ("january february march april may june july august september october november "
+           "december").split()  # fmt: skip
+_MONTH_YEAR = re.compile(r"\b(" + "|".join(_MONTHS) + r")\s+(19\d{2}|20\d{2})\b", re.I)
+_QUARTER_YEAR = re.compile(r"\b(?:Q([1-4])|([1-4])Q)\s*'?(19\d{2}|20\d{2})\b", re.I)
+_FISCAL_YEAR = re.compile(r"(?:\bfiscal\s+(?:year\s+)?|\bFY\s*'?)(19\d{2}|20\d{2})\b", re.I)
+_DUE_YEAR = re.compile(r"\bdue\s+(?:in\s+)?(19\d{2}|20\d{2})\b", re.I)
+_YEAR = re.compile(r"(?<!\d)(19\d{2}|20\d{2})(?!\d)")
+
+
+def _later_dates(note: str, history_ends: date) -> list[str]:
+    """A backstop for the rule that a note states only what was public on `history_ends`: it is
+    shown on any date from the cut-off on (backlog #256). Refused: an ISO date after the cut-off;
+    a month or calendar quarter that begins after it (the one holding the cut-off passes); a
+    fiscal year more than one year past the cut-off's year (Walmart's fiscal 2027 began in
+    February 2026); any other year after the cut-off's, apart from a maturity ("due 2030").
+    Phrases such as "next year", "later" or "2026/11/04" are not checked: the author keeps to
+    the rule, and the loader catches the common slips."""
+    out = []
+    for m in _ISO_DATE.finditer(note):
+        try:
+            named = date(*map(int, m.groups()))
+        except ValueError:
+            out.append(f"note names {m.group(0)!r}, which is not a date")
+            continue
+        if named > history_ends:
+            out.append(f"note names {named.isoformat()}, after history_ends")
+    rest = _ISO_DATE.sub(" ", note)
+    for m in _MONTH_YEAR.finditer(rest):
+        if date(int(m.group(2)), _MONTHS.index(m.group(1).lower()) + 1, 1) > history_ends:
+            out.append(f"note names {m.group(0)!r}, which begins after history_ends")
+    rest = _MONTH_YEAR.sub(" ", rest)
+    for m in _QUARTER_YEAR.finditer(rest):
+        q = int(m.group(1) or m.group(2))
+        if date(int(m.group(3)), 3 * q - 2, 1) > history_ends:
+            out.append(f"note names {m.group(0)!r}, which begins after history_ends")
+    rest = _QUARTER_YEAR.sub(" ", rest)
+    for m in _FISCAL_YEAR.finditer(rest):
+        if int(m.group(1)) > history_ends.year + 1:
+            out.append(f"note names {m.group(0)!r}, more than a year after history_ends")
+    rest = _DUE_YEAR.sub(" ", _FISCAL_YEAR.sub(" ", rest))
+    for m in _YEAR.finditer(rest):
+        if int(m.group(1)) > history_ends.year:
+            out.append(f"note names the year {m.group(1)}, after history_ends")
+    return out
+
+
 def load_universe(path: Path = UNIVERSE_PATH) -> list[UniverseCompany]:
     """Read and validate the company list. Every problem found is reported at once."""
     with open(path, newline="") as f:
@@ -79,6 +127,8 @@ def load_universe(path: Path = UNIVERSE_PATH) -> list[UniverseCompany]:
                 errors.append(f"line {line}: history_ends must be an ISO date, got {ends!r}")
             if not cik:
                 errors.append(f"line {line}: history_ends needs a pinned cik")
+        if history_ends is not None:
+            errors += [f"line {line}: {e}" for e in _later_dates(r["note"], history_ends)]
         if ends and not reason:
             errors.append(f"line {line}: history_ends needs a reason")
         if reason and reason not in COVERAGE_REASONS:

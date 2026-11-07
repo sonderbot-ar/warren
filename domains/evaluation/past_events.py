@@ -372,16 +372,28 @@ MERGER_SHOCKS = Coded(
 )  # fmt: skip
 
 
-def coverage_notes(tickers: set[str], on: date) -> list[Coded]:
+def coverage_notes(question: str, cases: set[str], on: date) -> list[Coded]:
     """`beyond_history`, as on a run (v0.9.22), for each company in the answer whose pinned CIK's
     filings are missing from its `history_ends` on, when that is on or before `on` (Exxon from
     2026-08-03): its recent quarters and usual misses end early (backlog #252). The CIK is the
-    one `universe.csv` pins, so a successor ingested under the same ticker can't hide the note."""
+    one `universe.csv` pins, so a successor ingested under the same ticker can't hide the note.
+    `role` says whether the company is the question's or only a past case's (backlog #256): the
+    question's company first, then the case companies by ticker."""
     out = []
-    for t in sorted(tickers):
+    for t in [question, *sorted(cases - {question})]:
         gap = coverage_gap(get_universe_company(t).cik, on)
-        if gap is not None:
-            out.append(Coded("beyond_history", gap[1], gap[0]))
+        if gap is None:
+            continue
+        text, params = gap
+        role = "question" if t == question else "case"
+        if role == "case":  # said first, so the rest is not read as about the question
+            text = (
+                f"{t} is in this answer as a past case, not the question's company: its filings "
+                f"from {params['history_ends']} on are missing here, so its typical forecast "
+                "errors, and any of its case quarters reported from then on, stop at that date. "
+                f"{text}"
+            )
+        out.append(Coded("beyond_history", {**params, "role": role}, text))
     return out
 
 
@@ -500,7 +512,7 @@ def past_events(
     notes.append(_thin(n, "few_cases" if n < THIN_BELOW else "direction_not_recorded"))
     if event_type == "m_and_a":
         notes.append(MERGER_SHOCKS)
-    notes += coverage_notes({ticker} | {c.ticker for c in chosen + others}, as_of)
+    notes += coverage_notes(ticker, {c.ticker for c in chosen + others}, as_of)
     missing = None
     if n == 0:
         missing = Coded(

@@ -183,3 +183,56 @@ def test_coverage_gap_gives_the_warnings_own_text_and_fields_and_none_before_the
         warn_if_beyond_history(XOM_CIK, date(2026, 9, 30))
     assert str(caught[0].message) == text and caught[0].message.fields == fields
     assert fields["history_ends"] == "2026-08-03" and fields["successor_cik"] == XOM_SUCCESSOR
+
+
+# -- backlog #256: the note is shown on any date from the cut-off, so it names no later date -----
+
+
+def _xom_with_note(tmp_path, note, ends="2026-08-03"):
+    return _write(tmp_path, f'XOM,0000034088,{ends},{REORG},{NEW},"{note}"\n')
+
+
+@pytest.mark.parametrize(
+    "note, message",
+    [
+        ("Linked on 2026-08-04.", "line 2: note names 2026-08-04, after history_ends"),
+        ("The two CIKs were linked in 2027.", "line 2: note names the year 2027, after"),
+        ("Filed 2026-02-30.", "line 2: note names '2026-02-30', which is not a date"),
+        ("Linked in October 2026.", "line 2: note names 'October 2026', which begins after"),
+        ("Linked in Q4 2026.", "line 2: note names 'Q4 2026', which begins after"),
+        ("Linked in 4Q2026.", "line 2: note names '4Q2026', which begins after"),
+        ("Linked in November 2026.", "line 2: note names 'November 2026', which begins after"),
+        ("Linked 2026-11-04T00:00.", "line 2: note names 2026-11-04, after history_ends"),
+        ("Its FY2028 10-K is on the new CIK.", "line 2: note names 'FY2028', more than a year"),
+        ("Q1 FY2027 is on the new CIK; linked in 2027.", "line 2: note names the year 2027"),
+    ],
+)
+def test_a_note_naming_a_date_after_the_cut_off_is_refused(tmp_path, note, message):
+    with pytest.raises(UniverseError, match=message):
+        load_universe(_xom_with_note(tmp_path, note))
+
+
+@pytest.mark.parametrize(
+    "note",
+    [
+        "History ends on 2026-08-03, the reorganisation was on 2026-07-01.",
+        "Filings start in 2026; the old registrant filed since 1993.",
+        "A ten-digit CIK such as 0002115436 is not a year.",
+        "The Q2 2026 10-Q was filed in August 2026; Q3 2026 began before the cut-off.",
+        "Its fiscal 2027 first-quarter 10-Q was filed 2026-06-02; FY2027 began in 2026.",
+        "Its senior notes due 2030 moved to the new CIK.",
+    ],
+)
+def test_a_note_naming_the_cut_off_or_earlier_loads(tmp_path, note):
+    assert load_universe(_xom_with_note(tmp_path, note))[0].note == note
+
+
+def test_a_note_on_a_row_without_a_cut_off_is_not_checked(tmp_path):
+    path = _write(tmp_path, "AMXB,0001129137,,,,,listed again in 2031\n")
+    assert load_universe(path)[0].note == "listed again in 2031"
+
+
+def test_the_checked_in_universe_names_no_date_after_its_cut_offs():
+    """load_universe() raising would fail this: the file has a cut-off row (Exxon), and that
+    row's note names 2026-07-01, Q2 2026 and 2026-08-03, none after its cut-off."""
+    assert any(c.history_ends for c in load_universe())
