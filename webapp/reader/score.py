@@ -33,6 +33,10 @@ from shared_kernel.calendar import last_ended_day
 from webapp.reader.reading import Reading, check, normalise
 
 LABELLED_SET = Path(__file__).parent / "labelled_set.jsonl"
+# The fresh exam (Step 3 part 3, nov.07.2026): written by the student-reviewer after prompt 3
+# was committed, labelled under part 1's rules and frozen before any model read it. Score it with
+# `--set`; every question is held out.
+FRESH_SET = Path(__file__).parent / "fresh_set.jsonl"
 
 # Set nov.05.2026, before any model was run. Shares of all questions unless named otherwise.
 BAR = {
