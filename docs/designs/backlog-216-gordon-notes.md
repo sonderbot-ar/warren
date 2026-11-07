@@ -1,6 +1,6 @@
 # Backlog #216: one Gordon reinvestment helper for the grid and the what-if, and the terminal switch's test gaps
 
-Issue: https://github.com/sonderbot-ar/warren/issues/216 · Branch `backlog-216-gordon-notes`.
+Issue: https://github.com/sonderbot-ar/warren/issues/216 · Branch `backlog-216-gordon-notes` · Version v0.9.32, merged nov.07.2026 (PR #247, merge `a336813`).
 
 ## Problem
 
@@ -57,3 +57,7 @@ Explainer, analyst and professor in one fresh-context panel. GO, no blockers, on
 - Full suite: 1,530 passed, 10 skipped (browser tests without Chromium here; CI runs them). Ruff clean.
 - Mutations: deleting the two-switch check fails the new refusal test; dropping the "doesn't reinvest" branch in `gordon.reinvestment_notes` fails 7 tests across the grid, the what-if and the helper.
 - Real data (snapshot of nov.05, 903 stored baselines): the sensitivity grid's JSON on every baseline, and the notes of a switch to Gordon on every baseline (on a throwaway copy of the database), are identical byte for byte before and after (903 and 903 lines). Of the 903 switches, 380 imply a return on new investment and 523 reinvest nothing in year 5, the same split in the grid's notes. 903 of 903 runs reproduce to the cent.
+
+## PR review (nov.07.2026)
+
+Gatekeeper: GO, no blockers. 1,530 passed, 10 skipped (browser tests without Chromium on the review machine; CI ran them green); ruff clean. Old and new conditions agree on every finite input; an AST diff of string constants shows no user-facing sentence changed; mutations on the two-switch check, `reinvests` (`>= 0`), the finite guard and the what-if's early return each fail tests. Idea taken before merge: the grid lesson's local `gordon` renamed `gordon_block` so it can't hide the module.
