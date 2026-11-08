@@ -16,7 +16,7 @@ import re
 import sqlite3
 import statistics
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -118,6 +118,7 @@ class PastCase:
     compared_quarters: int  # reported, not scope-changed, with a usual miss to compare
     quarters: list[EventQuarter]
     missing: Coded | None = None
+    history_cut: Coded | None = None  # its company's filings stop by D (backlog #269)
 
 
 @dataclass(frozen=True)
@@ -322,11 +323,19 @@ def _ended_before(period: str, event: date) -> Coded:
     )  # fmt: skip
 
 
+def _quarters_missing_clause(periods: list[str]) -> str:
+    one = len(periods) == 1
+    return (f"its own {'quarter' if one else 'quarters'} {', '.join(periods)} "
+            f"{'is' if one else 'are'} not in the data either")  # fmt: skip
+
+
 def _thin(n: int, reason: str, cut: list[dict] | None = None) -> Coded:
     """`cut`: the counted cases (a quarter reported by D) whose company's filings are missing by
-    D, each `{case_id, ticker, role, history_ends}` with `role` the company's `beyond_history`
-    note's (backlog #262). They stay in `n`: the event happened and its quarters may all be
-    filed; what stops early is the company's typical forecast errors."""
+    D, each `{case_id, ticker, role, history_ends, effect, quarters_missing}` with `role` the
+    company's `beyond_history` note's (backlog #262) and `effect` what the cut takes from the
+    case (backlog #269, see `history_cut`). They stay in `n`: the event happened and some of its
+    quarters are filed; what stops early is the company's typical forecast errors, and with
+    `own_quarters_missing` some of the case's own quarters too."""
     cut = sorted(cut or [], key=lambda c: c["case_id"])
     if reason == "few_cases":
         text = (f"only {n} past cases: even if every one had missed by more than usual, that "
@@ -341,7 +350,9 @@ def _thin(n: int, reason: str, cut: list[dict] | None = None) -> Coded:
         parts = []
         for c in cut:
             own = ", the question's company" if c["role"] == "question" else ""
-            parts.append(f"{c['case_id']} ({c['ticker']}{own}, from {c['history_ends']} on)")
+            lost = c.get("quarters_missing") or []
+            gone = f"; {_quarters_missing_clause(lost)}" if lost else ""
+            parts.append(f"{c['case_id']} ({c['ticker']}{own}, from {c['history_ends']} on{gone})")
         one = len(cut) == 1
         whose, their = ("its company's", "Its") if one else ("their companies'", "Their")
         text += (f". Counted, though {whose} filings are missing in Warren's data from a date "
@@ -412,6 +423,39 @@ def coverage_notes(question: str, cases: set[str], on: date) -> list[Coded]:
             )
         out.append(Coded("beyond_history", {**params, "role": role}, text))
     return out
+
+
+def history_cut(c: PastCase, stopped: dict) -> Coded:
+    """What a company's filings cut (its `beyond_history` note's params, `stopped`) takes from
+    one of its cases, as of D (backlog #269). Its typical forecast errors always stop at
+    `history_ends`. `effect`: `no_stored_run` when the case has no stored baseline run (nothing
+    of its own is in the data, cut or not); `usual_only` when every quarter of its horizon is
+    reported by D; `own_quarters_missing` when some are not, named in `quarters_missing` (each a
+    `quarters[].period` of the case). "Reported" is the revenue line, as `reported_quarters`
+    counts it. Every filing before `history_ends` is in the data, so an unreported quarter was
+    filed from then on, or not yet by D; Warren can't tell which, and the text says the quarter
+    is missing, not that the cut removed it."""
+    ends = stopped["history_ends"]
+    lost = [q.period for q in c.quarters if q.items["revenue"].actual is None]
+    text = (f"{c.ticker}'s filings from {ends} on are missing in Warren's data, so its typical "
+            "forecast errors stop at that date")  # fmt: skip
+    if c.missing is not None:
+        effect = "no_stored_run"
+        text += "; this case has no stored forecast, so none of its own quarters are compared"
+    elif lost:
+        effect = "own_quarters_missing"
+        one = len(lost) == 1
+        text += (f"; this case's {'quarter' if one else 'quarters'} {', '.join(lost)} "
+                 f"{'is' if one else 'are'} not in the data by the question's date either (not "
+                 "yet filed, or filed after that date), so they can't be compared while its "
+                 "filings stop there")  # fmt: skip
+    else:
+        effect = "usual_only"
+        text += ("; every quarter of this case is in the data, only the yardstick it is "
+                 "compared with is shorter")  # fmt: skip
+    params = {"ticker": c.ticker, "role": stopped["role"], "history_ends": ends,
+              "effect": effect, "quarters_missing": lost}  # fmt: skip
+    return Coded("history_cut", params, text)
 
 
 # -- one case ----------------------------------------------------------------------------------
@@ -519,19 +563,27 @@ def past_events(
         seen = hindsight(conn, rid, as_of) if rid else None
         return build_case(c, ticker, event_type, rid, seen, usual_by[c.ticker], as_of)
 
-    built = [build(c) for c in chosen]
+    coverage = coverage_notes(ticker, {c.ticker for c in chosen + others}, as_of)
+    stopped = {note.params["ticker"]: note.params for note in coverage}
+
+    def flagged(c: PastCase) -> PastCase:
+        if c.ticker not in stopped:
+            return c
+        return replace(c, history_cut=history_cut(c, stopped[c.ticker]))
+
+    built = [flagged(build(c)) for c in chosen]
     n = sum(c.reported_quarters > 0 for c in built)
     n_compared = sum(c.compared_quarters > 0 for c in built)
     notes = _notes(event_type, as_of)
     # until #147 records each case's direction, cases of one type may point opposite ways (P&G
     # and Coca-Cola raised their guidance; the other four cut it), so no count is enough
     thin = True
-    coverage = coverage_notes(ticker, {c.ticker for c in chosen + others}, as_of)
-    stopped = {note.params["ticker"]: note.params for note in coverage}
     cut = [
-        {"case_id": c.case_id, "ticker": c.ticker, "role": stopped[c.ticker]["role"],
-         "history_ends": stopped[c.ticker]["history_ends"]}
-        for c in built if c.reported_quarters > 0 and c.ticker in stopped
+        {"case_id": c.case_id, "ticker": c.ticker, "role": c.history_cut.params["role"],
+         "history_ends": c.history_cut.params["history_ends"],
+         "effect": c.history_cut.params["effect"],
+         "quarters_missing": c.history_cut.params["quarters_missing"]}
+        for c in built if c.reported_quarters > 0 and c.history_cut is not None
     ]  # fmt: skip
     notes.append(_thin(n, "few_cases" if n < THIN_BELOW else "direction_not_recorded", cut))
     if event_type == "m_and_a":
@@ -547,7 +599,7 @@ def past_events(
     return PastEvents(
         ticker, event_type, as_of, default, rule_text(event_type),
         cases_sha256(CASES_PATH) if cases is None else "", metrics_sha256(), n, n_compared,
-        len(built), thin, THIN_BELOW, built, [build(c) for c in others],
+        len(built), thin, THIN_BELOW, built, [flagged(build(c)) for c in others],
         load_metrics()[event_type], notes, missing,
     )  # fmt: skip
 
@@ -569,6 +621,8 @@ def _case_lines(c: PastCase) -> list[str]:
     out = ["", f"### {c.case_id}: {c.description} ({closeness})", f"Source: {c.source_url}"]
     if c.scope_change:
         out.append(f"Scope change: {c.scope_change}")
+    if c.history_cut:
+        out.append(f"Filings cut: {c.history_cut.text}")
     if c.missing:
         return [*out, c.missing.text]
     out += [f"Forecast made on {c.run_as_of} (run {c.run_id}); millions",
