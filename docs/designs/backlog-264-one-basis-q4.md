@@ -1,6 +1,6 @@
 # Backlog #264: a derived quarter is built on one basis
 
-Issue: https://github.com/sonderbot-ar/warren/issues/264 · Branch `backlog-264-one-basis-q4`.
+Issue: https://github.com/sonderbot-ar/warren/issues/264 · Branch `backlog-264-one-basis-q4` · Version v0.9.41, merged nov.08.2026 (PR #278, merge `96d921d`; analyst GO, gatekeeper GO).
 
 ## Problem
 
