@@ -70,6 +70,9 @@ def filing(fact: Fact) -> dict:
         "inputs": list(fact.inputs),
         "derived": fact.derived,
         "restated": fact.restated,
+        # derived from inputs as first filed because a newer one was restated (#264); absent on
+        # sources stored before v0.9.41, which means False
+        "one_basis": fact.one_basis,
     }
 
 

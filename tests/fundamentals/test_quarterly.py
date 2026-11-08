@@ -198,3 +198,34 @@ def test_one_basis_is_for_latest_quarterly_facts_only(ingested):
     for mode, frequency in (("first_reported", "quarterly"), ("latest", "annual")):
         with pytest.raises(ValueError, match="one_basis"):
             get_facts(conn, TEST_CIK, ["revenue"], "2025-03-01", mode, frequency, one_basis=True)
+
+
+def test_one_basis_pairs_a_twice_restated_year_with_the_nine_months_vintage(ingested):
+    conn, _ = ingested
+    recast_nine_months(conn, value=320)  # Q3 2025 10-Q
+    # the FY2026 10-K restates FY2024 a second time (KO's FY2017 operating income: 7,501 as
+    # filed, 7,599 in the next 10-K, 7,755 in the one after; the nine months recast once)
+    conn.execute(
+        "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, fiscal_year, "
+        "fiscal_period, value, unit, form, accession_no, filed_at) VALUES (?, 'us-gaap:Revenues', "
+        "'2024-01-01', '2024-12-31', 2024, 'FY', 470, 'USD', '10-K', '0000000123-27-000001', "
+        "'2027-02-15')",
+        (TEST_CIK,),
+    )
+    plain = quarters(conn, "revenue", "2027-03-01")["Q4"]
+    assert (plain.value, plain.restated, plain.mixed_vintage) == (470 - 320, True, False)
+    q4 = one_basis_quarters(conn, "2027-03-01")["Q4"]
+    # the year as the first 10-K after the recast nine months gave it (455), not the newest
+    assert (q4.value, q4.one_basis) == (455 - 320, True)
+    assert q4.filed_at == date(2026, 2, 15)
+
+
+def test_one_basis_keeps_a_quarter_with_no_first_filed_derivation(ingested):
+    from domains.fundamentals.facts import _Basis
+
+    conn, _ = ingested
+    recast_nine_months(conn)
+    q = quarters(conn, "revenue", "2025-12-01")
+    nine = get_facts(conn, TEST_CIK, ["revenue"], "2025-12-01")
+    year = {f.fiscal_period: f for f in nine if f.fiscal_year == 2024}
+    assert _Basis({}, {}).place(q["Q4"], year["FY"], [year["M9"]]) == q["Q4"]

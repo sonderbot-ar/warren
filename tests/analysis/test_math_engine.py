@@ -361,11 +361,15 @@ def test_a_fourth_quarter_is_built_on_one_basis(make_company):
     the run uses the quarters as first reported, which share the year's basis."""
     conn = make_company(recast_2018_quarters)
     as_of = date(2019, 12, 31)  # after the Q3 2019 10-Q, before the FY2019 10-K
-    rows = by_key(build_inputs(conn, "TST", as_of, choices=CHOICES, today=AS_OF))
+    result = build_inputs(conn, "TST", as_of, choices=CHOICES, today=AS_OF)
+    rows = by_key(result)
     q4 = rows[("history:revenue", "FY2018Q4")]
     assert q4.value == pytest.approx(revenue(2018, 4))
-    assert "all as first reported" in q4.method
+    assert "both as first filed" in q4.method
+    filed = result.sources[("history:revenue", "FY2018Q4")]
+    assert [(s["derived"], s["one_basis"], s["restated"]) for s in filed] == [(True, True, False)]
     for quarter in (1, 2, 3):  # the reported quarters keep their newest (recast) values
         row = rows[("history:revenue", f"FY2018Q{quarter}")]
         assert row.value == pytest.approx(0.8 * revenue(2018, quarter))
-        assert "first reported" not in row.method
+        assert "first filed" not in row.method
+        assert not result.sources[("history:revenue", f"FY2018Q{quarter}")][0]["one_basis"]

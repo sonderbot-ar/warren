@@ -209,16 +209,22 @@ def _derive(minuend: Fact, subtrahends: list[Fact], fiscal_period: str) -> Fact:
     )
 
 
-def _quarters_for_flow(year: dict[str, Fact], earliest: bool = False) -> list[Fact]:
+def _quarters_for_flow(
+    year: dict[str, Fact], earliest: bool = False, basis: "_Basis | None" = None
+) -> list[Fact]:
     """Standalone Q1-Q4 for one fiscal year of a duration item, reported where possible.
 
     With `earliest` (first_reported mode), a quarter reported on its own only in a later filing
     (e.g. a Q4 recast in the next 10-K) gives way to its derivation if that was public first.
+    With `basis` (latest mode, backlog #264), a derivation from restated inputs is put on one
+    basis (`_Basis.place`).
     """
     q = {p: year[p] for p in ("Q1", "Q2", "Q3", "Q4") if p in year}
 
     def place(period: str, minuend: str, subtrahends: list[Fact]) -> None:
         derived = _derive(year[minuend], subtrahends, period)
+        if basis is not None:
+            derived = basis.place(derived, year[minuend], subtrahends)
         if period not in q or (earliest and derived.filed_at < q[period].filed_at):
             q[period] = derived
 
@@ -269,34 +275,67 @@ def _flow_years(facts: list[Fact]) -> tuple[list[Fact], dict[tuple, dict[str, Fa
     return instants, years
 
 
-def _one_basis(quarters: list[Fact], first: dict[str, Fact] | None) -> list[Fact]:
-    """Backlog #264: a derived quarter whose inputs mix restated and first-reported versions
-    (e.g. the year from the old-basis 10-K minus nine months recast in a later 10-Q) is on no
-    basis. It is derived again from every input as first reported (the old year with the old nine
-    months), which is on one basis and was public by the same date. A derivation whose inputs
-    were all restated (the recast year with the recast nine months) is kept."""
-    if first is None:
-        return quarters
-    return [
-        first[q.fiscal_period].model_copy(update={"one_basis": True})
-        if q.derived and q.mixed_vintage and first.get(q.fiscal_period, q).derived
-        else q
-        for q in quarters
-    ]
+@dataclass(frozen=True)
+class _Basis:
+    """Puts a derived quarter on one basis (backlog #264).
+
+    A derivation is year (or half, or nine months) minus the periods before it, each input its
+    newest version. When no input was ever restated, all are as first filed: one basis, kept.
+    When some were, the newest versions can come from filings on different bases: the year from
+    the old 10-K and the nine months recast in a later 10-Q (JNJ FY2022Q4 after Kenvue), or the
+    year recast twice and the nine months once (KO's FY2017 operating income). Then the minuend
+    is taken as the first filing at or after the newest subtracted input's filing gave it (the
+    10-K that follows the recast 10-Q, on that 10-Q's basis). If no such filing is public yet,
+    the quarter is derived from every input as first filed (the old year with the old nine
+    months), which shares one basis and was public earlier. Either way it is flagged
+    `one_basis` when its value differs from the plain derivation."""
+
+    versions: dict[tuple, list[Fact]]  # (item, start, end) -> each filing's best tag, oldest first
+    first: dict[str, Fact]  # this item-year's quarters as first reported, by fiscal period
+
+    def place(self, derived: Fact, minuend: Fact, subtrahends: list[Fact]) -> Fact:
+        if not derived.restated:
+            return derived
+        newest = max(f.filed_at for f in subtrahends)
+        key = (minuend.canonical_name, minuend.period_start, minuend.period_end)
+        later = [v for v in self.versions.get(key, []) if v.filed_at >= newest]
+        if later:
+            paired = _derive(later[0], subtrahends, derived.fiscal_period)
+        else:
+            paired = self.first.get(derived.fiscal_period)
+            if paired is None or not paired.derived:
+                return derived  # no first-filed derivation of this quarter: kept as it is
+        if paired.value == derived.value:
+            return derived
+        return paired.model_copy(update={"one_basis": True})
+
+
+def _versions(periods: dict[tuple, dict[str, list[sqlite3.Row]]]) -> dict[tuple, list[Fact]]:
+    """Every filing's version (its best tag) of each duration period, oldest filing first."""
+    out = {}
+    for (_name, start, _end), filings in periods.items():
+        if start:
+            facts = [_to_fact(_best_in_filing(filings[a]), False) for a in _filing_order(filings)]
+            out[(facts[0].canonical_name, facts[0].period_start, facts[0].period_end)] = facts
+    return out
 
 
 def _quarterly(
-    facts: list[Fact], earliest: bool = False, first_reported: list[Fact] | None = None
+    facts: list[Fact],
+    earliest: bool = False,
+    first_reported: list[Fact] | None = None,
+    versions: dict[tuple, list[Fact]] | None = None,
 ) -> list[Fact]:
-    """Standalone quarters. With `first_reported` (the same query's facts as first reported), a
-    derived quarter on two bases is derived on one (`_one_basis`)."""
+    """Standalone quarters. With `first_reported` (the same query's facts as first reported) and
+    `versions`, a derived quarter is put on one basis (`_Basis`)."""
     quarters, years = _flow_years(facts)
     first_years = _flow_years(first_reported)[1] if first_reported is not None else None
     for key, year in years.items():
-        first = None
+        basis = None
         if first_years is not None:
             first = {q.fiscal_period: q for q in _quarters_for_flow(first_years.get(key, {}))}
-        quarters.extend(_one_basis(_quarters_for_flow(year, earliest), first))
+            basis = _Basis(versions or {}, first)
+        quarters.extend(_quarters_for_flow(year, earliest, basis))
     return sorted(quarters, key=lambda f: (f.canonical_name, f.period_end))
 
 
@@ -315,9 +354,8 @@ def get_facts(
     frequency="annual":   fiscal years only (FY durations and year-end balances).
     frequency="quarterly": standalone quarters Q1-Q4, deriving the ones not reported. In
                            first_reported mode each quarter is the version public first.
-                           With `one_basis` (latest mode), a quarter derived from restated and
-                           first-reported inputs together is derived from the first-reported
-                           ones instead (backlog #264; `Fact.one_basis`).
+                           With `one_basis` (latest mode), a quarter derived from restated
+                           inputs is put on one basis (backlog #264; `_Basis`, `Fact.one_basis`).
     """
     if one_basis and (mode != "latest" or frequency != "quarterly"):
         raise ValueError("one_basis applies to latest quarterly facts only")
@@ -331,8 +369,8 @@ def get_facts(
         annual = _one_per_period([f for f in facts if f.fiscal_period == "FY"])
         return sorted(annual, key=lambda f: (f.canonical_name, f.period_end))
     if frequency == "quarterly":
-        first = None
-        if one_basis:
-            first = _facts(periods, "first_reported")
-        return _quarterly(facts, earliest=mode == "first_reported", first_reported=first)
+        if not one_basis:
+            return _quarterly(facts, earliest=mode == "first_reported")
+        first = _facts(periods, "first_reported")
+        return _quarterly(facts, first_reported=first, versions=_versions(periods))
     raise ValueError(f"Unknown frequency: {frequency!r}")

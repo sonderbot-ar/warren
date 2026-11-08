@@ -197,7 +197,9 @@ def trace(fact: Fact) -> str:
     """Item, tag, period and filing of one fact: enough to find it in EDGAR."""
     source = fact.accession_no or "derived from " + ", ".join(fact.inputs)
     if fact.one_basis:  # backlog #264
-        source += " (all as first reported: the newest inputs were on two bases)"
+        source += (
+            " (year and year-to-date both as first filed: a newer version of one was restated)"
+        )
     return f"{fact.canonical_name} [{_tag(fact)}] {fact.period_end} {source}"
 
 
