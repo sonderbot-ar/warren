@@ -2,7 +2,7 @@
 
 Status: Accepted (F1, nov.03.2026) · Owner sign-off: approved nov.03.2026, with the sorting rule · Owner: front-end team (Structure Guide Decision 13)
 
-Since sign-off: v0.9.6 (backlog #140) answers questions 1 and 2, v0.9.8 (#144) question 5 (v0.9.16, #167, adds the range on shocked runs), and v0.9.9 (#141) question 8 and part of 7, so six questions work today, five in part and four not yet. The questions and answers below are unchanged; only their "Hoy" lines and section 5 move as the engine delivers.
+Since sign-off: v0.9.6 (backlog #140) answers questions 1 and 2, v0.9.8 (#144) question 5 (v0.9.16, #167, adds the range on shocked runs), v0.9.9 (#141) question 8 and part of 7, v0.9.12 (#142) question 9, v0.9.14 (#145) question 6, and v0.9.34 (#146) questions 10, 12 and 13 and part of 11, 14 and 15 (v0.9.35, v0.9.36, v0.9.38 and v0.9.39 add the notes Q10 and Q14 need), so eleven questions work today, four in part and none not yet (nov.08.2026). What is left is #143 (Q7's transmission) and #147 (the tags and direction for Q11, Q14 and Q15). The questions and answers below are unchanged; only their "Hoy" lines and section 5 move as the engine delivers.
 
 > **What you are approving.** Fifteen questions a finance student would ask Warren, in Spanish, and what Warren answers to each. Questions come in four kinds: a reported figure (*dato*), a model estimate (*estimación*), a changed assumption (*cambio de supuesto*) and an event (*evento*). Warren shows how it read the question before computing anything. Changed assumptions are recomputed by tested code. Events are answered only with similar past cases, how many there are, and what to watch: never a number an AI made up. Warren never predicts prices or gives advice. Two questions work today, eight in part and five not yet; what is missing is eight requests to the engine team (section 5). Signing commits Warren's first screens to these questions. How questions are sorted was decided on its own card (an AI reader, built from the start). How screens look comes later, with mockups.
 
@@ -118,7 +118,7 @@ Every event answer shows, for each case: the company and date with its source, w
 *What happened to Microsoft's revenue and margins after it bought Activision Blizzard?*
 - Kind: Evento (a past event).
 - Returns: the case (Microsoft, 13 October 2023), what Warren forecast before, the four quarters reported after, and the warning that the acquisition changed the company's scope: most of the gap is Activision's revenue being added, not a forecast miss (the backtest leaves such quarters out). Also: Warren's AI news shocks have mis-sized mergers so far (`docs/phase1-review.md`).
-- Hoy: **Sí** (v0.9.34, #146): `python -m domains.evaluation past-events --ticker T --event-type E --json`, or the call `domains.evaluation.past_events.past_events` with `m_and_a`. Three cases (MSFT, KO, XOM); Microsoft's first quarter ended before the close and the next three hold Activision, so they are shown with the scope warning and not compared. The AI-merger caveat is not in the answer yet.
+- Hoy: **Sí** (v0.9.34, #146): `python -m domains.evaluation past-events --ticker T --event-type E --json`, or the call `domains.evaluation.past_events.past_events` with `m_and_a`. Three cases (MSFT, KO, XOM); Microsoft's first quarter ended before the close and the next three hold Activision, so they are shown with the scope warning and not compared. The AI-merger caveat is in the answer since v0.9.35 (`merger_shocks_missized` in `notes`), and Exxon's coverage note comes with it through the Pioneer case (`beyond_history`, `role` `case`, v0.9.36), marked per case since v0.9.39 (`history_cut`: on today's data the Pioneer case is complete, only Exxon's typical errors stop early). Answers in 1–3 s (v0.9.35).
 
 **11. ¿Qué le pasaría a Coca-Cola si el dólar se fortalece frente a las monedas de América Latina?**
 *What would happen to Coca-Cola if the dollar strengthens against Latin American currencies?*
@@ -142,7 +142,7 @@ Every event answer shows, for each case: the company and date with its source, w
 *What happens to ExxonMobil if OPEC cuts production?*
 - Kind: Evento.
 - Returns: the nearest case (March 2020, the oil price war, marked "dirección opuesta": supply rose and prices fell) and what followed; the metrics to watch (realised oil price, upstream earnings); and that Exxon's filings in Warren stop in August 2026 (#126).
-- Hoy: **En parte**. The query returns the March 2020 case with `macro` (v0.9.34, #146), but "dirección opuesta" needs R6's direction (#147), and Exxon's coverage note is not in the answer (#126).
+- Hoy: **En parte**. The query returns the March 2020 case with `macro` (v0.9.34, #146), but "dirección opuesta" needs R6's direction (#147). Exxon's coverage note is in the answer since v0.9.35 (`beyond_history`, `role` `question` since v0.9.36), and the 2020 case is marked complete since v0.9.39 (`history_cut.effect` `usual_only`).
 
 **15. ¿Qué le pasa a Walmart si sube la inflación?**
 *What happens to Walmart if inflation rises?*
@@ -168,7 +168,7 @@ Each is an issue labelled `backlog` and `front-end` (`docs/team-sync.md`, rule 4
 | R2a | What-if revaluation: a stored run revalued with named inputs changed, deterministic, stored as a linked child run that reproduces to the cent | 7, 8 | L | #141 (done, v0.9.9; debt #170 part 1 done in v0.9.27, part 2 #232; WACC and terminal method #171, done in v0.9.20 and v0.9.21) |
 | R2b | Two-input sensitivity grid on R2a | 9 | S | #142 (done, v0.9.12) |
 | R2c | The list of transmissions, starting with an unexpected policy-rate move → 10-year yield, as a sourced range (owner card: a new method) | 7 | M | #143 |
-| R3 | Error ranges (M9) and the company's own coverage on every run | 5 | S–M | #144 |
+| R3 | Error ranges (M9) and the company's own coverage on every run | 5 | S–M | #144 (done, v0.9.8; on shocked runs #167, done in v0.9.16) |
 | R4 | Track record per company from the stored batches | 6 | S | #145 (done, v0.9.14) |
 | R5 | Past-event query: cases by rule, closeness, n and a thin-evidence flag, the usual-miss comparison, scope-change warning, and a sourced "metrics to watch" table | 10–15 | M | #146 (done, v0.9.34; by event type until #147's tags) |
 | R6 | Analogue cases for currency, inflation, commodity supply and elections, in a separate, unscored file | 11, 13, 14, 15 | M | #147 |
