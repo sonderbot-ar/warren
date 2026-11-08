@@ -1,6 +1,6 @@
 # Backlog #162: a change of reporting basis is shown apart from forecast error
 
-Issue: https://github.com/sonderbot-ar/warren/issues/162 · Branch `backlog-162-basis-changes`.
+Issue: https://github.com/sonderbot-ar/warren/issues/162 · Branch `backlog-162-basis-changes` · Version v0.9.37, merged nov.08.2026 (PR #266, merge `f913b08`; gatekeeper GO).
 
 ## Problem
 
@@ -73,3 +73,7 @@ Snapshot `warren-20261105T101750Z` (schema 21). Before = main at `3984fe0`, afte
 Filed: #264 (the derived fourth quarter on two bases in a run's history) and #265 (like-for-like scoring, option c).
 
 Exit met.
+
+## Gatekeeper (nov.08.2026)
+
+GO, CI green. Non-blocking notes, left for a later item: `test_counts_skip_unscored_quarters` asserts only `n <= scored`; nothing enforces the harness's horizon ≤ 4 that `basis_change` relies on (hindsight's inherited case); the M3 glossary's "unchecked" names only a mixed-vintage comparative, not a zero or missing run value.
