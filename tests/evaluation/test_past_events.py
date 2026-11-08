@@ -263,12 +263,12 @@ def test_n_counts_cases_with_a_reported_quarter_and_stays_thin_without_direction
     six = call(company, cases, hs)
     assert six.n == 6 and six.thin_evidence  # six cases, but which way each went is unknown
     assert thin(six) == {"n": 6, "threshold": 6, "reason": "direction_not_recorded",
-                         "cut_cases": 0, "cut_case_ids": []}  # fmt: skip
+                         "cut_cases": 0, "cut_case_ids": [], "cut": []}  # fmt: skip
     hs["TST_5_1"] = seen("TST_5_1", [("FY2021Q1", None)])
     five = call(company, cases, hs)
     assert five.n == 5 and five.n_listed == 6 and five.thin_evidence
     assert thin(five) == {"n": 5, "threshold": 6, "reason": "few_cases", "cut_cases": 0,
-                          "cut_case_ids": []}  # fmt: skip
+                          "cut_case_ids": [], "cut": []}  # fmt: skip
 
 
 def test_scope_is_decided_by_the_consolidation_date_not_the_label():
@@ -523,9 +523,13 @@ def test_a_counted_case_whose_filings_stop_is_named_in_the_thin_evidence_note(co
     assert rec.n == 1
     # TST_b has no reported quarter, so it is not counted in n and not named as cut
     assert (note.params["cut_cases"], note.params["cut_case_ids"]) == (1, ["TST_a"])
+    assert note.params["cut"] == [
+        {"case_id": "TST_a", "ticker": "TST", "role": "question", "history_ends": "2020-12-31"}
+    ]
     assert note.text.endswith(
-        ". 1 of the 1 counted case is of a company whose filings stop early here: still "
-        "counted, but its typical forecast errors end at that date (see the coverage note)"
+        ". Counted, though its company's filings are missing in Warren's data from a date before "
+        "this question: TST_a (TST, the question's company, from 2020-12-31 on). Its typical "
+        "forecast errors stop at that date (see the coverage note)"
     )
     assert note.text in P.render(rec)
     json.dumps(rec.to_dict())
@@ -537,21 +541,34 @@ def test_a_case_companys_cut_counts_when_the_question_names_another_company(comp
     cases, hs = _two_cases(company)
     rec = P.past_events(company, "OTH", "guidance", ASOF, cases=cases, check_basis=False,
                         hindsight=lambda c, rid, on: hs[rid])  # fmt: skip
-    assert _thin_note(rec).params["cut_case_ids"] == ["TST_a"]
+    note = _thin_note(rec)
+    assert note.params["cut_case_ids"] == ["TST_a"]
+    assert note.params["cut"][0]["role"] == "case"
+    assert "TST_a (TST, from 2020-12-31 on)" in note.text and "question's company" not in note.text
 
 
 def test_no_cut_before_the_filings_stop_and_the_text_is_unchanged(company, monkeypatch):
     _ends(company, monkeypatch, ends="2021-07-02")  # the day after ASOF
     cases, hs = _two_cases(company)
     note = _thin_note(call(company, cases, hs))
-    assert (note.params["cut_cases"], note.params["cut_case_ids"]) == (0, [])
+    assert (note.params["cut_cases"], note.params["cut_case_ids"], note.params["cut"]) == (
+        0,
+        [],
+        [],
+    )
     assert note.text == P._thin(1, "few_cases").text and "stop early" not in note.text
 
 
-def test_the_cut_sentence_counts_several_cases():
-    note = P._thin(7, "direction_not_recorded", ["B_1", "A_1"])
-    assert note.params["cut_case_ids"] == ["A_1", "B_1"]
-    assert ". 2 of the 7 counted cases are of a company" in note.text
+def test_the_cut_sentence_names_several_cases_in_case_order():
+    cut = [{"case_id": c, "ticker": t, "role": r, "history_ends": "2026-08-03"}
+           for c, t, r in [("B_1", "BBB", "case"), ("A_1", "AAA", "question")]]  # fmt: skip
+    note = P._thin(7, "direction_not_recorded", cut)
+    assert note.params["cut_case_ids"] == ["A_1", "B_1"] and note.params["cut_cases"] == 2
+    assert (
+        ". Counted, though their companies' filings are missing in Warren's data from a date "
+        "before this question: A_1 (AAA, the question's company, from 2026-08-03 on); B_1 (BBB, "
+        "from 2026-08-03 on). Their typical forecast errors stop at that date"
+    ) in note.text
 
 
 @pytest.mark.parametrize("kind, has", [("m_and_a", True), ("guidance", False)])
