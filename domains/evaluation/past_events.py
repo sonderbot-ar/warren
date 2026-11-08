@@ -24,11 +24,11 @@ from domains.analysis.financial_math import ratio
 from domains.analysis.reported import Coded, Filing
 from domains.evaluation import run_ranges as RN
 from domains.evaluation.cases import CASES_PATH, EVENT_TYPES, Case, cases_sha256, load_cases
-from domains.evaluation.harness import EvaluationError, score
+from domains.evaluation.harness import EvaluationError, label, parse_label, score
 from domains.evaluation.hindsight import Hindsight, against_actuals
 from domains.evaluation.track_record import ITEMS, MIN_QUARTERS, _group_rows
 from domains.fundamentals.universe import coverage_gap, get_universe_company
-from shared_kernel.calendar import last_ended_day
+from shared_kernel.calendar import CASE_TZ, known_by, last_ended_day
 
 METRICS_PATH = Path(__file__).parent / "event_metrics.csv"
 METRIC_COLUMNS = ("event_type", "metric_id", "metric", "where_to_find", "source", "source_url")
@@ -425,7 +425,7 @@ def coverage_notes(question: str, cases: set[str], on: date) -> list[Coded]:
     return out
 
 
-def history_cut(c: PastCase, stopped: dict) -> Coded:
+def history_cut(c: PastCase, stopped: dict, last_filed: str | None = None) -> Coded:
     """What a company's filings cut (its `beyond_history` note's params, `stopped`) takes from
     one of its cases, as of D (backlog #269). Its typical forecast errors always stop at
     `history_ends`. `effect`: `no_stored_run` when the case has no stored baseline run (nothing
@@ -434,9 +434,11 @@ def history_cut(c: PastCase, stopped: dict) -> Coded:
     `quarters[].period` of the case). "Reported" is the revenue line, as `reported_quarters`
     counts it. Every filing before `history_ends` is in the data, so an unreported quarter was
     filed from then on, or not yet by D; Warren can't tell which, and the text says the quarter
-    is missing, not that the cut removed it."""
+    is missing, not that the cut removed it. A quarter is missing when its revenue carries the
+    hindsight's `not_reported` code (backlog #272). `last_filed`: the company's newest original
+    10-Q or 10-K stored by D, beside `history_ends` (backlog #272)."""
     ends = stopped["history_ends"]
-    lost = [q.period for q in c.quarters if q.items["revenue"].actual is None]
+    lost = [q.period for q in c.quarters if _not_reported(q.items["revenue"])]
     text = (f"{c.ticker}'s filings from {ends} on are missing in Warren's data, so its typical "
             "forecast errors stop at that date")  # fmt: skip
     if c.missing is not None:
@@ -454,8 +456,111 @@ def history_cut(c: PastCase, stopped: dict) -> Coded:
         text += ("; every quarter of this case is in the data, only the yardstick it is "
                  "compared with is shorter")  # fmt: skip
     params = {"ticker": c.ticker, "role": stopped["role"], "history_ends": ends,
-              "effect": effect, "quarters_missing": lost}  # fmt: skip
+              "effect": effect, "quarters_missing": lost, "last_filed": last_filed}  # fmt: skip
     return Coded("history_cut", params, text)
+
+
+def _not_reported(it: EventItem) -> bool:
+    return it.missing is not None and it.missing.code == "not_reported"
+
+
+# -- how fresh Warren's copy is (backlog #272) --------------------------------------------------
+
+
+def pinned_cik(conn: sqlite3.Connection, ticker: str) -> str | None:
+    """The CIK `universe.csv` pins for `ticker`, else the stored company's."""
+    cik = get_universe_company(ticker).cik
+    if cik is None:
+        row = conn.execute("SELECT cik FROM companies WHERE ticker = ?", (ticker,)).fetchone()
+        cik = row[0] if row else None
+    return cik
+
+
+_QUARTER = {"Q1": 1, "Q2": 2, "H1": 2, "Q3": 3, "M9": 3, "Q4": 4, "FY": 4}
+
+
+def fundamentals_freshness(conn: sqlite3.Connection, cik: str | None, on: date) -> dict:
+    """How far Warren's copy of a CIK's SEC company facts reaches, for a question dated `on`.
+
+    `downloaded_at`: when the copy was downloaded from EDGAR, the newest `companyfacts_fetched_at`
+    over the CIK's ingests (facts are upserted, never removed, so the copy is at least that
+    fresh); None when no ingest has one. It is a fact about Warren's copy, not about
+    the company, so it is read whatever its date: it never changes a number, only whether the
+    copy can hold everything filed by `on`. `downloaded_on`: its date in New York.
+    `fresh`: downloaded at or after the instant `on` ends in New York (`known_by`, the pipeline's
+    rule). `last_filed`: the newest original 10-Q or 10-K (amendments left out: they don't report
+    a new quarter) filed on or before `on`; `last_quarter`: the newest fiscal quarter with revenue
+    in such a filing (a year's or year-to-date figure counts for the quarter it ends). Nothing
+    filed after `on` is read."""
+    run = conn.execute(
+        "SELECT MAX(companyfacts_fetched_at) FROM ingest_runs WHERE cik = ?", (cik,)
+    ).fetchone()
+    filed = conn.execute(
+        "SELECT MAX(filed_at) FROM financial_facts WHERE cik = ? AND filed_at <= ? "
+        "AND form IN ('10-Q', '10-K')",
+        (cik, on.isoformat()),
+    ).fetchone()[0]
+    rows = conn.execute(
+        "SELECT DISTINCT f.fiscal_year, f.fiscal_period FROM financial_facts f "
+        "JOIN concepts c ON c.xbrl_concept = f.xbrl_concept "
+        "WHERE f.cik = ? AND c.canonical_name = 'revenue' AND f.filed_at <= ? "
+        "AND f.form IN ('10-Q', '10-K') AND f.fiscal_year IS NOT NULL "
+        "AND f.period_start IS NOT NULL", (cik, on.isoformat()),
+    ).fetchall()  # fmt: skip
+    quarters = [(y, _QUARTER[p]) for y, p in rows if p in _QUARTER]
+    at = run[0] if run else None
+    when = datetime.fromisoformat(at.replace("Z", "+00:00")) if at else None
+    return {
+        "downloaded_at": at,
+        "downloaded_on": when.astimezone(CASE_TZ).date().isoformat() if when else None,
+        "fresh": when is not None and when >= known_by(on),
+        "last_filed": filed,
+        "last_quarter": label(*max(quarters)) if quarters else None,
+    }
+
+
+def freshness_note(
+    t: str, cik: str | None, role: str, on: date, f: dict, after: list[dict]
+) -> Coded:
+    """`downloaded_before`: the copy of `t`'s filings was downloaded before D ended in New York,
+    or at an unknown time, so a filing made after the download is missing (backlog #272). Only
+    given when `after` is not empty.
+    `quarters_after_copy`: the not-reported quarters of `t`'s cases in this answer later than
+    the copy's newest quarter with revenue; only those may have been filed since. An earlier one
+    is a gap in the data, not the download's age."""
+    if f["downloaded_at"] is None:
+        text = (f"Warren's copy of {t}'s SEC filings was loaded from a file of unknown date, so "
+                f"it may not hold everything filed by the question's date ({on})")  # fmt: skip
+    else:
+        text = (f"Warren's copy of {t}'s SEC filings was downloaded on {f['downloaded_on']} "
+                f"(New York time), before the question's date ({on}) ended")  # fmt: skip
+    if f["last_filed"]:
+        newest = (f"its newest quarter with revenue is {f['last_quarter']}" if f["last_quarter"]
+                  else "it has no quarter with revenue")  # fmt: skip
+        text += (f"; the newest 10-Q or 10-K in that copy was filed on {f['last_filed']}, and "
+                 f"{newest}")  # fmt: skip
+    else:
+        text += "; that copy holds no 10-Q or 10-K filed by the question's date"
+    periods = ", ".join(f"{a['period']} ({a['case_id']})" for a in after)
+    text += (f". Anything {t} filed after the download is missing here, so these quarters, shown "
+             f"as not reported, may in fact have been reported by then: {periods}")  # fmt: skip
+    params = {"ticker": t, "cik": cik, "role": role, "as_of": on.isoformat(),
+              "downloaded_at": f["downloaded_at"], "downloaded_on": f["downloaded_on"],
+              "last_filed": f["last_filed"], "last_quarter": f["last_quarter"],
+              "quarters_after_copy": after}  # fmt: skip
+    return Coded("downloaded_before", params, text)
+
+
+def quarters_after_copy(cases: list[PastCase], ticker: str, last_quarter: str | None) -> list:
+    """`{case_id, period}` for each not-reported quarter of `ticker`'s cases later than
+    `last_quarter` (all of them when the copy has no quarter), in case then horizon order."""
+    newest = parse_label(last_quarter) if last_quarter else None
+    return [
+        {"case_id": c.case_id, "period": q.period}
+        for c in cases if c.ticker == ticker
+        for q in c.quarters
+        if _not_reported(q.items["revenue"]) and (newest is None or parse_label(q.period) > newest)
+    ]  # fmt: skip
 
 
 # -- one case ----------------------------------------------------------------------------------
@@ -563,13 +668,18 @@ def past_events(
         seen = hindsight(conn, rid, as_of) if rid else None
         return build_case(c, ticker, event_type, rid, seen, usual_by[c.ticker], as_of)
 
-    coverage = coverage_notes(ticker, {c.ticker for c in chosen + others}, as_of)
+    companies = {c.ticker for c in chosen + others}
+    coverage = coverage_notes(ticker, companies, as_of)
     stopped = {note.params["ticker"]: note.params for note in coverage}
+    order = [ticker, *sorted(companies - {ticker})]
+    ciks = {t: pinned_cik(conn, t) for t in order}
+    freshness = {t: fundamentals_freshness(conn, ciks[t], as_of) for t in order}
 
     def flagged(c: PastCase) -> PastCase:
         if c.ticker not in stopped:
             return c
-        return replace(c, history_cut=history_cut(c, stopped[c.ticker]))
+        cut = history_cut(c, stopped[c.ticker], freshness[c.ticker]["last_filed"])
+        return replace(c, history_cut=cut)
 
     built = [flagged(build(c)) for c in chosen]
     n = sum(c.reported_quarters > 0 for c in built)
@@ -589,6 +699,13 @@ def past_events(
     if event_type == "m_and_a":
         notes.append(MERGER_SHOCKS)
     notes += coverage
+    context = [flagged(build(c)) for c in others]
+    for t in order:  # the question's company first, then case companies by ticker (backlog #272)
+        f = freshness[t]
+        after = quarters_after_copy(built + context, t, f["last_quarter"])
+        if not f["fresh"] and after:  # a stale copy that changes nothing shown says nothing
+            role = "question" if t == ticker else "case"
+            notes.append(freshness_note(t, ciks[t], role, as_of, f, after))
     missing = None
     if n == 0:
         missing = Coded(
@@ -599,7 +716,7 @@ def past_events(
     return PastEvents(
         ticker, event_type, as_of, default, rule_text(event_type),
         cases_sha256(CASES_PATH) if cases is None else "", metrics_sha256(), n, n_compared,
-        len(built), thin, THIN_BELOW, built, [flagged(build(c)) for c in others],
+        len(built), thin, THIN_BELOW, built, context,
         load_metrics()[event_type], notes, missing,
     )  # fmt: skip
 

@@ -584,9 +584,12 @@ def test_a_whole_case_of_a_cut_company_is_flagged_usual_only(company, monkeypatc
     cases, hs = _two_cases(company)
     a = _by_id(call(company, cases, hs))["TST_a"]
     assert a.history_cut.code == "history_cut"
+    cik = company.execute("SELECT cik FROM companies WHERE ticker = 'TST'").fetchone()[0]
     assert a.history_cut.params == {"ticker": "TST", "role": "question",
                                     "history_ends": "2020-12-31", "effect": "usual_only",
-                                    "quarters_missing": []}  # fmt: skip
+                                    "quarters_missing": [],
+                                    "last_filed": P.fundamentals_freshness(
+                                        company, cik, ASOF)["last_filed"]}  # fmt: skip
     assert a.history_cut.text.endswith(
         "; every quarter of this case is in the data, only the yardstick it is compared with is "
         "shorter"
@@ -664,3 +667,155 @@ def test_a_merger_question_carries_the_shock_sizing_caveat(company, kind, has):
     assert bool(caveats) is has
     if has:  # no deal is named: a question dated before a deal must not learn of it
         assert "Activision" not in caveats[0].text and "Pioneer" not in caveats[0].text
+
+
+# -- backlog #272: how fresh Warren's copy is ---------------------------------------------------
+
+
+def _downloaded(conn, at):
+    conn.execute("UPDATE ingest_runs SET companyfacts_fetched_at = ?", (at,))
+
+
+def _fresh_note(rec):
+    return [n for n in rec.notes if n.code == "downloaded_before"]
+
+
+def _stale_case(company):
+    """TST_s: FY2021Q1 reported, FY2031Q1 and FY2031Q2 not (later than any stored quarter)."""
+    c = case("TST_s", when="2020-03-01")
+    rid = store_case(company, c, ["FY2031Q1", "FY2031Q2", "FY2031Q3"], batch="eval_b_s")
+    hs = {rid: seen(rid, [("FY2021Q1", 90.0), ("FY2031Q1", None), ("FY2031Q2", None)])}
+    return [c], hs
+
+
+def test_freshness_reads_the_newest_download_and_only_filings_by_d(company):
+    cik = company.execute("SELECT cik FROM companies WHERE ticker = 'TST'").fetchone()[0]
+    dates = [r[0] for r in company.execute(
+        "SELECT DISTINCT filed_at FROM financial_facts ORDER BY filed_at DESC")]  # fmt: skip
+    on = date.fromisoformat(dates[1])  # the day of the second-newest filing: one filing is later
+    f = P.fundamentals_freshness(company, cik, on)
+    assert f["last_filed"] == dates[1]
+    assert f["downloaded_at"] == "2026-10-26T12:00:00Z" and f["fresh"]
+    assert f["last_quarter"] < P.fundamentals_freshness(company, cik, ASOF)["last_quarter"]
+
+
+def test_an_amendment_is_not_a_newer_filing(company):
+    cik = company.execute("SELECT cik FROM companies WHERE ticker = 'TST'").fetchone()[0]
+    before = P.fundamentals_freshness(company, cik, ASOF)
+    company.execute(
+        "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, fiscal_year, "
+        "fiscal_period, value, unit, form, accession_no, filed_at) SELECT cik, xbrl_concept, "
+        "period_start, period_end, fiscal_year, fiscal_period, value, unit, '10-Q/A', 'amend-1', "
+        "'2021-06-01' FROM financial_facts LIMIT 1"
+    )
+    assert P.fundamentals_freshness(company, cik, ASOF) == before
+
+
+def test_a_copy_downloaded_before_d_ended_names_the_quarters_that_may_be_filed(company):
+    cases, hs = _stale_case(company)
+    _downloaded(company, "2021-06-20T15:00:00Z")
+    rec = call(company, cases, hs)
+    notes = _fresh_note(rec)
+    assert len(notes) == 1
+    p = notes[0].params
+    assert (p["ticker"], p["role"], p["as_of"], p["downloaded_at"], p["downloaded_on"]) == (
+        "TST", "question", ASOF.isoformat(), "2021-06-20T15:00:00Z", "2021-06-20")  # fmt: skip
+    assert p["quarters_after_copy"] == [{"case_id": "TST_s", "period": "FY2031Q1"},
+                                        {"case_id": "TST_s", "period": "FY2031Q2"}]  # fmt: skip
+    assert p["last_filed"] <= ASOF.isoformat()
+    assert notes[0].text.startswith(
+        "Warren's copy of TST's SEC filings was downloaded on 2021-06-20 (New York time), before "
+        f"the question's date ({ASOF}) ended; the newest 10-Q or 10-K in that copy was filed on "
+        f"{p['last_filed']}"
+    )
+    assert notes[0].text.endswith("FY2031Q1 (TST_s), FY2031Q2 (TST_s)")
+    assert rec.notes[-1] is notes[0] and f"Note: {notes[0].text}" in P.render(rec)
+    json.dumps(rec.to_dict())
+
+
+@pytest.mark.parametrize(
+    "at, has",
+    [
+        ("2021-07-02T03:59:59Z", True),  # 23:59 on D in New York: D has not ended
+        ("2021-07-02T04:00:00Z", False),  # midnight in New York: D has ended
+        ("2026-10-26T12:00:00Z", False),
+    ],
+)
+def test_the_download_is_judged_by_the_end_of_d_in_new_york(company, at, has):
+    cases, hs = _stale_case(company)
+    _downloaded(company, at)
+    assert bool(_fresh_note(call(company, cases, hs))) is has
+
+
+def test_an_unknown_download_date_gets_its_own_text(company):
+    cases, hs = _stale_case(company)
+    _downloaded(company, None)
+    (note,) = _fresh_note(call(company, cases, hs))
+    assert note.params["downloaded_at"] is None and note.params["downloaded_on"] is None
+    assert note.text.startswith("Warren's copy of TST's SEC filings was loaded from a file of "
+                                "unknown date")  # fmt: skip
+
+
+def test_the_newest_dated_download_counts_when_a_later_ingest_has_no_date(company):
+    cik = company.execute("SELECT cik FROM companies WHERE ticker = 'TST'").fetchone()[0]
+    company.execute(
+        "INSERT INTO ingest_runs (cik, companyfacts_sha256, companyfacts_fetched_at, "
+        "concept_map_sha256, facts_kept, facts_new) VALUES (?, 'x', NULL, 'y', 0, 0)",
+        (cik,),
+    )
+    assert P.fundamentals_freshness(company, cik, ASOF)["downloaded_at"] == "2026-10-26T12:00:00Z"
+
+
+def test_a_stale_copy_says_nothing_when_no_shown_quarter_could_be_missing_from_it(company):
+    """Every not-reported quarter is at or before the copy's newest quarter: a gap, not age."""
+    c = case("TST_o", when="2020-03-01")
+    rid = store_case(company, c, ["FY2031Q1"], batch="eval_b_o")
+    cik = company.execute("SELECT cik FROM companies WHERE ticker = 'TST'").fetchone()[0]
+    newest = P.fundamentals_freshness(company, cik, ASOF)["last_quarter"]
+    _downloaded(company, "2021-06-20T15:00:00Z")
+    rec = call(company, [c], {rid: seen(rid, [(newest, None)])})
+    assert _fresh_note(rec) == []
+
+
+def test_a_case_companys_download_note_has_role_case_after_the_questions(company):
+    company.execute("INSERT INTO companies (cik, ticker, name) VALUES ('0000000099', 'OTH', 'O')")
+    cases, hs = _stale_case(company)
+    _downloaded(company, "2021-06-20T15:00:00Z")
+    rec = P.past_events(company, "OTH", "guidance", ASOF, cases=cases, check_basis=False,
+                        hindsight=lambda c, rid, on: hs[rid])  # fmt: skip
+    # OTH has no ingest and no cases: no quarter of its own is shown, so no note
+    assert [(n.params["ticker"], n.params["role"]) for n in _fresh_note(rec)] == [("TST", "case")]
+
+
+def test_a_context_cases_quarters_count_for_the_download_note(company):
+    ctx = case("TST_r", when="2020-03-01", kind="restructuring")
+    rid = store_case(company, ctx, ["FY2031Q1"], batch="eval_b_r")
+    _downloaded(company, "2021-06-20T15:00:00Z")
+    rec = call(company, [ctx], {rid: seen(rid, [("FY2031Q1", None)])})
+    assert _fresh_note(rec)[0].params["quarters_after_copy"] == [
+        {"case_id": "TST_r", "period": "FY2031Q1"}
+    ]
+
+
+def test_history_cut_carries_last_filed(company, monkeypatch):
+    _ends(company, monkeypatch)
+    cases, hs = _two_cases(company)
+    a = _by_id(call(company, cases, hs))["TST_a"]
+    cik = company.execute("SELECT cik FROM companies WHERE ticker = 'TST'").fetchone()[0]
+    assert a.history_cut.params["last_filed"] == P.fundamentals_freshness(
+        company, cik, ASOF)["last_filed"]  # fmt: skip
+
+
+def test_a_missing_quarter_is_read_from_the_not_reported_code():
+    """A revenue gap of another kind (e.g. a basis change) has an actual: never missing."""
+    other = Item("revenue", "USD", 100.0, 90.0, None, None, "fraction_of_actual",
+                 missing=Coded("basis_change", {}, "basis"))  # fmt: skip
+    assert not P._not_reported(other)
+    assert P._not_reported(item("revenue", 100.0, None))
+
+
+def test_a_copy_with_filings_but_no_revenue_quarter_says_so():
+    f = {"downloaded_at": "2021-06-20T15:00:00Z", "downloaded_on": "2021-06-20", "fresh": False,
+         "last_filed": "2020-04-30", "last_quarter": None}  # fmt: skip
+    note = P.freshness_note("TST", "1", "question", ASOF, f, [{"case_id": "c", "period": "p"}])
+    assert "it has no quarter with revenue" in note.text and "none" not in note.text
