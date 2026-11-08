@@ -286,10 +286,11 @@ class _Basis:
     year recast twice and the nine months once (KO's FY2017 operating income). Then the minuend
     is taken as the first filing at or after the newest subtracted input's vintage gave it (the
     10-K that follows the recast 10-Q, on that 10-Q's basis; an input's vintage is the first
-    filing of its value, `_vintage`). If no such filing is public yet, or it gives the year with
-    the opposite sign to the newest version (a tagging error later corrected),
+    filing of its value, `_vintage`); a version with the opposite sign to the newest is a tagging
+    error a later filing corrected, and is skipped. If no such filing is public yet,
     the quarter is derived from every input as first filed (the old year with the old nine
-    months), which shares one basis and was public earlier. Either way it is flagged
+    months), which shares one basis and was public earlier, unless the year as first filed has the
+    wrong sign (then the plain derivation is kept). Either way it is flagged
     `one_basis` when its value differs from the plain derivation."""
 
     versions: dict[tuple, list[Fact]]  # (item, start, end) -> each filing's best tag, oldest first
@@ -299,11 +300,14 @@ class _Basis:
         if not derived.restated:
             return derived
         newest = max(self._vintage(f) for f in subtrahends)
-        later = [v for v in self._of(minuend) if v.filed_at >= newest]
-        # a paired year of the opposite sign to the newest is a tagging error a later filing
-        # corrected (WMT's FY2009 tax, −7,156 in one 10-K), not a basis: not used
-        if later and later[0].value * minuend.value >= 0:
+        versions = self._of(minuend)
+        # a version of the opposite sign to the newest is a tagging error a later filing
+        # corrected (WMT's FY2009 and FY2010 tax, negative in one 10-K), not a basis: skipped
+        later = [v for v in versions if v.filed_at >= newest and v.value * minuend.value >= 0]
+        if later:
             paired = _derive(later[0], subtrahends, derived.fiscal_period)
+        elif versions and versions[0].value * minuend.value < 0:
+            return derived  # the year as first filed has the wrong sign: no fallback
         else:
             paired = self.first.get(derived.fiscal_period)
             if paired is None or not paired.derived:

@@ -249,4 +249,30 @@ def test_a_paired_year_of_the_opposite_sign_is_not_used(ingested):
     # a 10-K/A tags the year with the wrong sign; the FY2025 10-K corrects it (WMT's FY2009 tax)
     add_year(conn, -455, "0000000123-25-000090", "2025-12-01")
     q4 = one_basis_quarters(conn, "2026-03-01")["Q4"]
-    assert (q4.value, q4.one_basis) == (130, True)  # every input as first filed
+    # skipped: the corrected year (455) pairs with the recast nine months, as the plain one does
+    assert (q4.value, q4.one_basis) == (455 - 320, False)
+
+
+def test_a_year_first_filed_with_the_wrong_sign_pairs_with_the_corrected_one(ingested):
+    conn, _ = ingested
+    # WMT's FY2010 tax: −7,579 in the first 10-K, 7,579 later; the nine months never restated
+    conn.execute(
+        "UPDATE financial_facts SET value = -value WHERE accession_no = ? AND fiscal_period = 'FY' "
+        "AND period_start = '2024-01-01'",
+        (K1,),
+    )
+    q4 = one_basis_quarters(conn, "2026-03-01")["Q4"]
+    assert (q4.value, q4.one_basis) == (455 - 330, False)  # the corrected year, as plain
+
+
+def test_no_fallback_to_a_first_filed_year_of_the_wrong_sign(ingested):
+    conn, _ = ingested
+    conn.execute(
+        "UPDATE financial_facts SET value = -value WHERE accession_no = ? AND fiscal_period = 'FY' "
+        "AND period_start = '2024-01-01'",
+        (K1,),
+    )
+    add_year(conn, 455, "0000000123-25-000060", "2025-06-01")  # a 10-K/A corrects the sign
+    recast_nine_months(conn, value=320)
+    q4 = one_basis_quarters(conn, "2025-12-01")["Q4"]  # no 10-K after the recast nine months yet
+    assert (q4.value, q4.one_basis) == (455 - 320, False)  # kept as plain: no first-filed fallback
