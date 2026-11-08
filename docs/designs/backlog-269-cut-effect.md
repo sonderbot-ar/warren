@@ -1,6 +1,6 @@
 # Backlog #269: per case, what a company's filings cut takes from it
 
-Issue: https://github.com/sonderbot-ar/warren/issues/269 · Branch `backlog-269-cut-effect` · Version v0.9.39 (planned).
+Issue: https://github.com/sonderbot-ar/warren/issues/269 · Branch `backlog-269-cut-effect` · Version v0.9.39, merged nov.08.2026 (PR #273, merge `e6a4640`; gatekeeper GO).
 
 ## Problem
 
