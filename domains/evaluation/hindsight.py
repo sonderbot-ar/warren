@@ -19,6 +19,7 @@ from domains.analysis.reported import Coded, Filing
 from domains.analysis.reported import _Filings as Filings
 from domains.analysis.runs import load_assumptions, load_outputs
 from domains.evaluation.harness import (
+    BASIS_TOLERANCE,
     EvaluationError,
     _alternative,
     _quarterly,
@@ -29,9 +30,6 @@ from domains.evaluation.harness import (
 )
 from domains.fundamentals.schemas import Fact
 
-# a prior-year figure in the actual's filing that differs from the run's own by more than this
-# means the filing recast the year (a disposal, a segment change): the miss is not shown
-BASIS_TOLERANCE = 0.005
 MISS_UNITS = {"revenue": "fraction_of_actual", "ebit": "fraction_of_actual_revenue"}
 ITEMS = ("revenue", "ebit")
 

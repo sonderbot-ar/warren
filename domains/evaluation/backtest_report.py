@@ -162,6 +162,22 @@ def render(conn: sqlite3.Connection, batch_id: str) -> str:
     ]
     for v in SHOCKED[:2]:
         out += _headline(rows, v, "no_scope", scope_cases, naive)
+    flagged = [p for p in bt.pairs(rows, "baseline") if bt.basis_change(p.baseline)]
+    flagged_cases = sorted({p.case_id for p in flagged})
+    out += [
+        "",
+        "## Without changes of basis",
+        "",
+        f"Rows whose actual is on another basis than the run ({len(flagged) or 'none'}; cases "
+        f"{', '.join(flagged_cases) or 'none'}) are left out: the filing that reports the quarter "
+        "gives the year before a figure more than 0.5% away from the run's (a recast by the "
+        "company, or the run's own figure off), so part of the gap may not be forecast error. "
+        "Context only: the headline keeps them.",
+        "",
+        *HEADLINE_HEAD,
+    ]
+    for v in SHOCKED[:2]:
+        out += _headline(rows, v, "no_basis", scope_cases, naive)
 
     def reference(population: str) -> str:
         ps = bt.pairs(rows, "baseline", population, scope_cases)
@@ -173,7 +189,8 @@ def render(conn: sqlite3.Connection, batch_id: str) -> str:
     out += [
         "",
         f"For reference, the baseline's skill against the naive forecast: all cases "
-        f"{reference('all')}; without deals {reference('no_scope')}.",
+        f"{reference('all')}; without deals {reference('no_scope')}; without changes of basis "
+        f"{reference('no_basis')}.",
         "",
         "## By horizon",
         "",
@@ -382,6 +399,8 @@ def _glossary() -> list[str]:
         "with a different draw of cases.",
         "- **Coverage:** the share of actuals inside the p10–p90 band.",
         "- **Interval score:** width of the band plus 10 × how far the actual fell outside.",
+        "- **Change of basis:** the actual's filing gives the year-earlier quarter a figure more "
+        "than 0.5% away from the run's: the company recast it, or the run's own figure was off.",
         "- **Limitations:** events were chosen in hindsight as notable; 26 cases is few, so "
         "most differences can't be told from chance; the AI may remember what happened next, "
         "masked or not; the band covers shock size only; the shock sizes were set before any "
