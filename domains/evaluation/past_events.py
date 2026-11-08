@@ -322,7 +322,11 @@ def _ended_before(period: str, event: date) -> Coded:
     )  # fmt: skip
 
 
-def _thin(n: int, reason: str) -> Coded:
+def _thin(n: int, reason: str, cut: list[str] | None = None) -> Coded:
+    """`cut`: the counted cases (a quarter reported by D) whose company's filings are missing by
+    D, so their typical forecast errors stop early (backlog #262); each also has its company's
+    `beyond_history` note."""
+    cut = sorted(cut or [])
     if reason == "few_cases":
         text = (f"only {n} past cases: even if every one had missed by more than usual, that "
                 f"could be chance. From {THIN_BELOW} cases a test becomes possible, which is "
@@ -332,7 +336,14 @@ def _thin(n: int, reason: str) -> Coded:
             f"{n} past cases, but the library does not record which way each one went (a "
             "cut or a raise, a rise or a fall), so they cannot be read together as evidence"
         )
-    return Coded("thin_evidence", {"n": n, "threshold": THIN_BELOW, "reason": reason}, text)
+    if cut:
+        k = len(cut)
+        text += (f". {k} of the {n} counted {'case is' if k == 1 else 'cases are'} of a company "
+                 "whose filings stop early here: still counted, but its typical forecast errors "
+                 "end at that date (see the coverage note)")  # fmt: skip
+    params = {"n": n, "threshold": THIN_BELOW, "reason": reason, "cut_cases": len(cut),
+              "cut_case_ids": cut}  # fmt: skip
+    return Coded("thin_evidence", params, text)
 
 
 def _notes(event_type: str, on: date) -> list[Coded]:
@@ -509,10 +520,13 @@ def past_events(
     # until #147 records each case's direction, cases of one type may point opposite ways (P&G
     # and Coca-Cola raised their guidance; the other four cut it), so no count is enough
     thin = True
-    notes.append(_thin(n, "few_cases" if n < THIN_BELOW else "direction_not_recorded"))
+    coverage = coverage_notes(ticker, {c.ticker for c in chosen + others}, as_of)
+    stopped = {note.params["ticker"] for note in coverage}
+    cut = [c.case_id for c in built if c.reported_quarters > 0 and c.ticker in stopped]
+    notes.append(_thin(n, "few_cases" if n < THIN_BELOW else "direction_not_recorded", cut))
     if event_type == "m_and_a":
         notes.append(MERGER_SHOCKS)
-    notes += coverage_notes(ticker, {c.ticker for c in chosen + others}, as_of)
+    notes += coverage
     missing = None
     if n == 0:
         missing = Coded(

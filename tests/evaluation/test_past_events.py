@@ -262,11 +262,13 @@ def test_n_counts_cases_with_a_reported_quarter_and_stays_thin_without_direction
 
     six = call(company, cases, hs)
     assert six.n == 6 and six.thin_evidence  # six cases, but which way each went is unknown
-    assert thin(six) == {"n": 6, "threshold": 6, "reason": "direction_not_recorded"}
+    assert thin(six) == {"n": 6, "threshold": 6, "reason": "direction_not_recorded",
+                         "cut_cases": 0, "cut_case_ids": []}  # fmt: skip
     hs["TST_5_1"] = seen("TST_5_1", [("FY2021Q1", None)])
     five = call(company, cases, hs)
     assert five.n == 5 and five.n_listed == 6 and five.thin_evidence
-    assert thin(five) == {"n": 5, "threshold": 6, "reason": "few_cases"}
+    assert thin(five) == {"n": 5, "threshold": 6, "reason": "few_cases", "cut_cases": 0,
+                          "cut_case_ids": []}  # fmt: skip
 
 
 def test_scope_is_decided_by_the_consolidation_date_not_the_label():
@@ -495,6 +497,61 @@ def test_the_question_companys_note_comes_before_the_case_companies(monkeypatch)
         ("ZZZ", "question"),
         ("AAA", "case"),
     ]
+
+
+# -- backlog #262: a counted case whose filings stop early ------------------------------------
+
+
+def _thin_note(rec):
+    return [n for n in rec.notes if n.code == "thin_evidence"][0]
+
+
+def _two_cases(company):
+    """Two TST cases: TST_a with a quarter reported by D, TST_b with none."""
+    a, b = case("TST_a", when="2020-03-01"), case("TST_b", when="2020-04-01")
+    ra = store_case(company, a, ["FY2031Q1"], batch="eval_b_a")
+    rb = store_case(company, b, ["FY2031Q2"], batch="eval_b_b")
+    hs = {ra: seen(ra, [("FY2021Q1", 90.0)]), rb: seen(rb, [("FY2021Q1", None)])}
+    return [a, b], hs
+
+
+def test_a_counted_case_whose_filings_stop_is_named_in_the_thin_evidence_note(company, monkeypatch):
+    _ends(company, monkeypatch)
+    cases, hs = _two_cases(company)
+    rec = call(company, cases, hs)
+    note = _thin_note(rec)
+    assert rec.n == 1
+    # TST_b has no reported quarter, so it is not counted in n and not named as cut
+    assert (note.params["cut_cases"], note.params["cut_case_ids"]) == (1, ["TST_a"])
+    assert note.text.endswith(
+        ". 1 of the 1 counted case is of a company whose filings stop early here: still "
+        "counted, but its typical forecast errors end at that date (see the coverage note)"
+    )
+    assert note.text in P.render(rec)
+    json.dumps(rec.to_dict())
+
+
+def test_a_case_companys_cut_counts_when_the_question_names_another_company(company, monkeypatch):
+    _ends(company, monkeypatch)
+    company.execute("INSERT INTO companies (cik, ticker, name) VALUES ('0000000099', 'OTH', 'O')")
+    cases, hs = _two_cases(company)
+    rec = P.past_events(company, "OTH", "guidance", ASOF, cases=cases, check_basis=False,
+                        hindsight=lambda c, rid, on: hs[rid])  # fmt: skip
+    assert _thin_note(rec).params["cut_case_ids"] == ["TST_a"]
+
+
+def test_no_cut_before_the_filings_stop_and_the_text_is_unchanged(company, monkeypatch):
+    _ends(company, monkeypatch, ends="2021-07-02")  # the day after ASOF
+    cases, hs = _two_cases(company)
+    note = _thin_note(call(company, cases, hs))
+    assert (note.params["cut_cases"], note.params["cut_case_ids"]) == (0, [])
+    assert note.text == P._thin(1, "few_cases").text and "stop early" not in note.text
+
+
+def test_the_cut_sentence_counts_several_cases():
+    note = P._thin(7, "direction_not_recorded", ["B_1", "A_1"])
+    assert note.params["cut_case_ids"] == ["A_1", "B_1"]
+    assert ". 2 of the 7 counted cases are of a company" in note.text
 
 
 @pytest.mark.parametrize("kind, has", [("m_and_a", True), ("guidance", False)])
