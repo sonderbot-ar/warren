@@ -10,6 +10,7 @@ import statistics
 from collections import defaultdict
 from pathlib import Path
 
+from domains.evaluation.harness import basis_change
 from shared_kernel.config import REPORTS_DIR as ALL_REPORTS_DIR
 
 REPORTS_DIR = ALL_REPORTS_DIR / "eval"
@@ -93,6 +94,12 @@ def summary(rows: list[dict]) -> dict[tuple[str, int | None], dict]:
     return out
 
 
+def basis_counts(rows: list[dict]) -> tuple[int, int, int]:
+    """(changes of basis, scored quarters, unchecked) over the baseline's scored rows."""
+    flags = [basis_change(p["baseline"]) for p in pairs(rows)]
+    return sum(f is True for f in flags), len(flags), sum(f is None for f in flags)
+
+
 def _segment(rows: list[dict], keep) -> str:
     chosen = [p for p in pairs(rows) if keep(p["baseline"])]
     cells = []
@@ -119,6 +126,7 @@ def render(conn: sqlite3.Connection, batch_id: str) -> str:
     cases = sorted({r["case_id"] for r in rows})
     incomplete = sorted({r["case_id"] for r in rows if r["status"] == "missing"})
     stats = summary(rows)
+    n_basis, n_scored, n_unchecked = basis_counts(rows)
 
     out = [
         f"# Evaluation batch {batch_id}",
@@ -127,6 +135,10 @@ def render(conn: sqlite3.Connection, batch_id: str) -> str:
         f"`{batch['cases_sha256'][:12]}`",
         f"Cases scored: {len(cases)} · failed: {len(failures)} · incomplete (some quarters not "
         f"reported yet): {len(incomplete)}",
+        f"Changes of basis: {n_basis or 'none'} of {n_scored} scored rows (revenue and EBIT "
+        "counted apart; the actual's filing gives the year-earlier quarter more than 0.5% away "
+        f"from the run's figure; kept in the headline, shown apart under Segments) · unchecked: "
+        f"{n_unchecked}",
         "",
         "## Headline: median error, baseline vs naive",
         "",
@@ -163,6 +175,7 @@ def render(conn: sqlite3.Connection, batch_id: str) -> str:
         f"| Controls | {_segment(rows, lambda r: r['event_type'] == 'control')} |",
         f"| Without scope changes | {_segment(rows, lambda r: not r['scope_change'])} |",
         f"| Without derived Q4 actuals | {_segment(rows, lambda r: not r['derived'])} |",
+        f"| Without changes of basis | {_segment(rows, lambda r: not basis_change(r))} |",
         "",
         "Results by event type would be about two cases each: descriptive only, not shown.",
         "",
@@ -178,7 +191,13 @@ def render(conn: sqlite3.Connection, batch_id: str) -> str:
     ):  # fmt: skip
         b, n = p["baseline"], p["naive_srw"]
         flags = ", ".join(
-            f for f, on in (("derived Q4", b["derived"]), ("scope change", b["scope_change"])) if on
+            f
+            for f, on in (
+                ("derived Q4", b["derived"]),
+                ("scope change", b["scope_change"]),
+                ("basis change", basis_change(b)),
+            )  # fmt: skip
+            if on
         )
         out.append(
             f"| {b['case_id']} | {b['event_type']} | {b['period']} | {b['horizon']} | "
@@ -204,6 +223,12 @@ def render(conn: sqlite3.Connection, batch_id: str) -> str:
         "year earlier (within ±0.5% counts as flat). Compare it with the base rate: a forecast "
         "that always says 'up' hits as often as quarters rise.",
         "- **Baseline beat naive:** share of quarters where the baseline's error was smaller.",
+        "- **Change of basis:** the filing that reports a quarter gives the same quarter a year "
+        "earlier a figure more than 0.5% away from the one the run used. Either the company "
+        "recast last year (a business moved to discontinued operations, another revenue line) "
+        "or the run's own figure was off (a fourth quarter worked out from filings on different "
+        "bases). The rows stay in the headline: part of such a gap can be Warren's own error. "
+        "Unchecked: the filing's year-earlier figure itself mixes two filings' bases.",
         "",
         "## Limitations",
         "",

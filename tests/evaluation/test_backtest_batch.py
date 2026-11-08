@@ -123,3 +123,12 @@ def test_the_cli_runs_the_backtest_and_reproduces_it(company, monkeypatch, tmp_p
     assert (tmp_path / f"{batch}_backtest.md").exists()
     assert main(["reproduce", "--batch", batch, "--cases-file", str(cases_file)]) == 0
     assert "OK" in capsys.readouterr().out
+
+
+def test_the_report_shows_changes_of_basis_apart(company):
+    """Backlog #162: the section is there, and says none when no quarter is recast."""
+    two_sets(company)
+    text = backtest_report.render(company, backtest(company))
+    assert "## Without changes of basis" in text
+    assert "basis than the run (none; cases none)" in text
+    assert "without changes of basis Revenue" in text

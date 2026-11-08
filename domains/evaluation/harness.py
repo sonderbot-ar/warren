@@ -212,11 +212,13 @@ def basis_change(row: dict) -> bool | None:
 
     The actual's own filing gives the year-earlier quarter (`comparative`); the run had it as a
     history row (`prior_year_known`). More than BASIS_TOLERANCE apart, relative to the run's
-    value, and the company recast last year (a divestiture moved out, another revenue line): part
-    of the gap is accounting, not forecast error. None when it can't be told: the row isn't
-    scored, the comparative is mixed-vintage, or the run's value is zero or missing. Horizons
-    1-4 only: their year-earlier quarter is always a history row. Same rule as `hindsight`'s
-    `restated_basis`."""
+    value, and the two are not on one basis: either the company recast last year (a business
+    moved to discontinued operations, another revenue line), or the run's own figure was off (a
+    fourth quarter worked out from a year and nine months on different bases: JNJ, KO and XOM).
+    The flag says which rows; it does not say which cause. None when it can't be told: the row
+    isn't scored, the comparative is mixed-vintage, or the run's value is zero or missing.
+    Horizons 1-4 only: their year-earlier quarter is always a history row. Same rule as
+    `hindsight`'s `restated_basis`."""
     if row.get("status") != "ok":
         return None
     filing, expected = row.get("comparative"), row.get("prior_year_known")

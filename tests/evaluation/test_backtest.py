@@ -185,3 +185,12 @@ def test_opposite_moves_are_counted_per_case_and_item():
             row("C", "baseline", 0, forecast=100),
             row("C", "llm_named", 0, forecast=101)]  # fmt: skip
     assert bt.opposite_moves(rows) == [("A", "revenue")]
+
+
+def test_no_basis_drops_a_recast_quarter_for_every_variant():
+    """Backlog #162: the flag is read on the baseline row; the variant's quarter goes with it."""
+    rows = three_cases()
+    rows[0] |= {"comparative": 110.0, "prior_year_known": 100.0}  # A's filing recast last year
+    rows[2] |= {"comparative": 100.2, "prior_year_known": 100.0}  # B within the tolerance
+    assert [p.case_id for p in bt.pairs(rows, "llm_masked", "no_basis")] == ["B", "C"]
+    assert [p.case_id for p in bt.pairs(rows, "llm_masked", "all")] == ["A", "B", "C"]
