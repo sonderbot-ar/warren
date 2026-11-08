@@ -65,3 +65,7 @@ Snapshot `warren-20261105T101750Z` (schema 21). Before = main at `3e5474f`, afte
 - Full suite and ruff: see the PR.
 
 Exit met.
+
+## PR review (nov.08.2026)
+
+Gatekeeper: **GO**, no blockers (`tests/evaluation` 322 passed; ruff clean). Ideas taken before merge: a copy with filings but no quarter with revenue now says "it has no quarter with revenue" instead of "is none" (a fourth text branch, tested); the `history_cut` docstring says "newest original 10-Q or 10-K". The desk entry says plainly that no real answer carries the note yet.

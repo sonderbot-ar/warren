@@ -812,3 +812,10 @@ def test_a_missing_quarter_is_read_from_the_not_reported_code():
                  missing=Coded("basis_change", {}, "basis"))  # fmt: skip
     assert not P._not_reported(other)
     assert P._not_reported(item("revenue", 100.0, None))
+
+
+def test_a_copy_with_filings_but_no_revenue_quarter_says_so():
+    f = {"downloaded_at": "2021-06-20T15:00:00Z", "downloaded_on": "2021-06-20", "fresh": False,
+         "last_filed": "2020-04-30", "last_quarter": None}  # fmt: skip
+    note = P.freshness_note("TST", "1", "question", ASOF, f, [{"case_id": "c", "period": "p"}])
+    assert "it has no quarter with revenue" in note.text and "none" not in note.text

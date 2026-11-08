@@ -435,8 +435,8 @@ def history_cut(c: PastCase, stopped: dict, last_filed: str | None = None) -> Co
     counts it. Every filing before `history_ends` is in the data, so an unreported quarter was
     filed from then on, or not yet by D; Warren can't tell which, and the text says the quarter
     is missing, not that the cut removed it. A quarter is missing when its revenue carries the
-    hindsight's `not_reported` code (backlog #272). `last_filed`: the newest filing of the
-    company stored by D, beside `history_ends` (backlog #272)."""
+    hindsight's `not_reported` code (backlog #272). `last_filed`: the company's newest original
+    10-Q or 10-K stored by D, beside `history_ends` (backlog #272)."""
     ends = stopped["history_ends"]
     lost = [q.period for q in c.quarters if _not_reported(q.items["revenue"])]
     text = (f"{c.ticker}'s filings from {ends} on are missing in Warren's data, so its typical "
@@ -535,8 +535,10 @@ def freshness_note(
         text = (f"Warren's copy of {t}'s SEC filings was downloaded on {f['downloaded_on']} "
                 f"(New York time), before the question's date ({on}) ended")  # fmt: skip
     if f["last_filed"]:
+        newest = (f"its newest quarter with revenue is {f['last_quarter']}" if f["last_quarter"]
+                  else "it has no quarter with revenue")  # fmt: skip
         text += (f"; the newest 10-Q or 10-K in that copy was filed on {f['last_filed']}, and "
-                 f"its newest quarter with revenue is {f['last_quarter'] or 'none'}")  # fmt: skip
+                 f"{newest}")  # fmt: skip
     else:
         text += "; that copy holds no 10-Q or 10-K filed by the question's date"
     periods = ", ".join(f"{a['period']} ({a['case_id']})" for a in after)
