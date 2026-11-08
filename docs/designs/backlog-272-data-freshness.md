@@ -1,6 +1,6 @@
 # Backlog #272: say when a company's data were last downloaded
 
-Issue: https://github.com/sonderbot-ar/warren/issues/272 · Branch `backlog-272-data-freshness` · Version v0.9.40 (planned).
+Issue: https://github.com/sonderbot-ar/warren/issues/272 · Branch `backlog-272-data-freshness` · Version v0.9.40, merged nov.08.2026 (PR #276, merge `12f29e9`; gatekeeper GO).
 
 ## Problem
 
