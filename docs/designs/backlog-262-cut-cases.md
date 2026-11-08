@@ -1,6 +1,6 @@
 # Backlog #262: the "few cases" line says when a counted case's filings stop early
 
-Issue: https://github.com/sonderbot-ar/warren/issues/262 · Branch `backlog-262-cut-cases` · Status: PR open (nov.08.2026).
+Issue: https://github.com/sonderbot-ar/warren/issues/262 · Branch `backlog-262-cut-cases` · Version v0.9.38, merged nov.08.2026 (PR #268, merge `b4fd09b`; gatekeeper GO).
 
 ## Problem
 
