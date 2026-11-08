@@ -1,5 +1,7 @@
 from datetime import date
 
+import pytest
+
 from domains.fundamentals.facts import get_facts
 from tests.fundamentals.conftest import TEST_CIK
 
@@ -125,3 +127,164 @@ def test_annual_returns_fiscal_years_only(ingested):
         ("cash", 2023),
         ("cash", 2024),
     }
+
+
+# -- one basis (backlog #264) -----------------------------------------------------------------
+
+B3 = "0000000123-25-000030"  # Q3 2025 10-Q, filed 2025-11-01: recasts the 2024 nine months
+
+
+def recast_nine_months(conn, value=300):
+    """The next Q3 10-Q gives last year's nine months on a new basis (as JNJ's Q3 2023 10-Q did
+    after Kenvue), while the year itself is still only in the old-basis 10-K."""
+    conn.execute(
+        "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, fiscal_year, "
+        "fiscal_period, value, unit, form, accession_no, filed_at) VALUES (?, 'us-gaap:Revenues', "
+        "'2024-01-01', '2024-09-30', 2024, 'M9', ?, 'USD', '10-Q', ?, '2025-11-01')",
+        (TEST_CIK, value, B3),
+    )
+
+
+def one_basis_quarters(conn, as_of, fiscal_year=2024):
+    facts = get_facts(conn, TEST_CIK, ["revenue"], as_of, frequency="quarterly", one_basis=True)
+    return {f.fiscal_period: f for f in facts if f.fiscal_year == fiscal_year}
+
+
+def test_old_year_minus_recast_nine_months_is_on_no_basis_without_one_basis(ingested):
+    conn, _ = ingested
+    recast_nine_months(conn)
+    q4 = quarters(conn, "revenue", "2025-12-01")["Q4"]
+    assert q4.value == 460 - 300  # the old year minus the recast nine months
+    assert q4.mixed_vintage and not q4.one_basis
+    assert q4.inputs == [K1, B3]
+
+
+def test_one_basis_derives_the_old_year_minus_the_old_nine_months(ingested):
+    conn, _ = ingested
+    recast_nine_months(conn)
+    q4 = one_basis_quarters(conn, "2025-12-01")["Q4"]
+    assert (q4.value, q4.derived, q4.one_basis) == (130, True, True)
+    assert not q4.restated and not q4.mixed_vintage
+    assert q4.inputs == [K1, A3]
+    assert q4.filed_at == date(2025, 2, 15)  # public by then: no later input is used
+
+
+def test_one_basis_also_covers_a_restated_year_with_old_nine_months(ingested):
+    conn, _ = ingested
+    # the fixture's FY2025 10-K restates FY2024 to 455; the nine months stay as first reported
+    q4 = one_basis_quarters(conn, "2026-03-01")["Q4"]
+    assert (q4.value, q4.one_basis) == (130, True)
+
+
+def test_one_basis_keeps_a_derivation_whose_inputs_were_all_restated(ingested):
+    conn, _ = ingested
+    recast_nine_months(conn, value=320)
+    # as of 2026-03-01 the year is restated (455) and so are the nine months (320)
+    q4 = one_basis_quarters(conn, "2026-03-01")["Q4"]
+    assert (q4.value, q4.one_basis, q4.mixed_vintage) == (455 - 320, False, False)
+
+
+def test_one_basis_changes_nothing_on_one_basis(ingested):
+    conn, _ = ingested
+    plain = get_facts(conn, TEST_CIK, ["revenue", "capex", "cash"], "2025-03-01",
+                      frequency="quarterly")  # fmt: skip
+    one = get_facts(conn, TEST_CIK, ["revenue", "capex", "cash"], "2025-03-01",
+                    frequency="quarterly", one_basis=True)  # fmt: skip
+    assert one == plain
+
+
+def test_one_basis_is_for_latest_quarterly_facts_only(ingested):
+    conn, _ = ingested
+    for mode, frequency in (("first_reported", "quarterly"), ("latest", "annual")):
+        with pytest.raises(ValueError, match="one_basis"):
+            get_facts(conn, TEST_CIK, ["revenue"], "2025-03-01", mode, frequency, one_basis=True)
+
+
+def test_one_basis_pairs_a_twice_restated_year_with_the_nine_months_vintage(ingested):
+    conn, _ = ingested
+    recast_nine_months(conn, value=320)  # Q3 2025 10-Q
+    # the FY2026 10-K restates FY2024 a second time (KO's FY2017 operating income: 7,501 as
+    # filed, 7,599 in the next 10-K, 7,755 in the one after; the nine months recast once)
+    add_year(conn, 470, "0000000123-27-000001", "2027-02-15")
+    plain = quarters(conn, "revenue", "2027-03-01")["Q4"]
+    assert (plain.value, plain.restated, plain.mixed_vintage) == (470 - 320, True, False)
+    q4 = one_basis_quarters(conn, "2027-03-01")["Q4"]
+    # the year as the first 10-K after the recast nine months gave it (455), not the newest
+    assert (q4.value, q4.one_basis) == (455 - 320, True)
+    assert q4.filed_at == date(2026, 2, 15)
+
+
+def test_one_basis_keeps_a_quarter_with_no_first_filed_derivation(ingested):
+    from domains.fundamentals.facts import _Basis
+
+    conn, _ = ingested
+    recast_nine_months(conn)
+    q = quarters(conn, "revenue", "2025-12-01")
+    nine = get_facts(conn, TEST_CIK, ["revenue"], "2025-12-01")
+    year = {f.fiscal_period: f for f in nine if f.fiscal_year == 2024}
+    assert _Basis({}, {}).place(q["Q4"], year["FY"], [year["M9"]]) == q["Q4"]
+
+
+def add_year(conn, value, accession, filed_at):
+    conn.execute(
+        "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, fiscal_year, "
+        "fiscal_period, value, unit, form, accession_no, filed_at) VALUES (?, 'us-gaap:Revenues', "
+        "'2024-01-01', '2024-12-31', 2024, 'FY', ?, 'USD', '10-K', ?, ?)",
+        (TEST_CIK, value, accession, filed_at),
+    )
+
+
+def test_a_repeated_nine_months_keeps_its_first_filing_date(ingested):
+    conn, _ = ingested
+    # the Q3 2025 10-Q only repeats the old nine months (PG's FY2013 tax, 2,812 in both 10-Qs);
+    # the FY2025 10-K then recasts the year (455): pairing with it would mix bases
+    recast_nine_months(conn, value=330)
+    q4 = one_basis_quarters(conn, "2026-03-01")["Q4"]
+    assert (q4.value, q4.one_basis) == (460 - 330, True)
+
+
+def test_a_paired_year_of_the_opposite_sign_is_not_used(ingested):
+    conn, _ = ingested
+    recast_nine_months(conn, value=320)
+    # a 10-K/A tags the year with the wrong sign; the FY2025 10-K corrects it (WMT's FY2009 tax)
+    add_year(conn, -455, "0000000123-25-000090", "2025-12-01")
+    q4 = one_basis_quarters(conn, "2026-03-01")["Q4"]
+    # skipped: the corrected year (455) pairs with the recast nine months, as the plain one does
+    assert (q4.value, q4.one_basis) == (455 - 320, False)
+
+
+def test_a_year_first_filed_with_the_wrong_sign_pairs_with_the_corrected_one(ingested):
+    conn, _ = ingested
+    # WMT's FY2010 tax: −7,579 in the first 10-K, 7,579 later; the nine months never restated
+    conn.execute(
+        "UPDATE financial_facts SET value = -value WHERE accession_no = ? AND fiscal_period = 'FY' "
+        "AND period_start = '2024-01-01'",
+        (K1,),
+    )
+    q4 = one_basis_quarters(conn, "2026-03-01")["Q4"]
+    assert (q4.value, q4.one_basis) == (455 - 330, False)  # the corrected year, as plain
+
+
+def test_no_fallback_to_a_first_filed_year_of_the_wrong_sign(ingested):
+    conn, _ = ingested
+    conn.execute(
+        "UPDATE financial_facts SET value = -value WHERE accession_no = ? AND fiscal_period = 'FY' "
+        "AND period_start = '2024-01-01'",
+        (K1,),
+    )
+    add_year(conn, 455, "0000000123-25-000060", "2025-06-01")  # a 10-K/A corrects the sign
+    recast_nine_months(conn, value=320)
+    q4 = one_basis_quarters(conn, "2025-12-01")["Q4"]  # no 10-K after the recast nine months yet
+    assert (q4.value, q4.one_basis) == (455 - 320, False)  # kept as plain: no first-filed fallback
+
+
+def test_the_method_note_is_true_on_the_pairing_path(ingested):
+    from domains.analysis.math_engine import trace
+
+    conn, _ = ingested
+    recast_nine_months(conn, value=320)
+    add_year(conn, 470, "0000000123-27-000001", "2027-02-15")
+    q4 = one_basis_quarters(conn, "2027-03-01")["Q4"]  # rule 2: the year's second version
+    text = trace(q4)
+    assert "taken on one basis" in text and "first filed" not in text
+    assert "0000000123-26-" in text and "0000000123-27-" not in text
