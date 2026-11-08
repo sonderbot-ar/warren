@@ -428,26 +428,33 @@ def coverage_notes(question: str, cases: set[str], on: date) -> list[Coded]:
 def history_cut(c: PastCase, stopped: dict) -> Coded:
     """What a company's filings cut (its `beyond_history` note's params, `stopped`) takes from
     one of its cases, as of D (backlog #269). Its typical forecast errors always stop at
-    `history_ends`. `effect` is `usual_only` when every quarter of the case's horizon is reported
-    by D, and `own_quarters_missing` when some are not: those are named in `quarters_missing`.
-    Every filing before `history_ends` is in the data, so an unreported quarter was filed from
-    then on or not yet by D; Warren can't tell which, and the text says the quarter is missing,
-    not that the cut removed it."""
-    lost = [q.period for q in c.quarters if q.items["revenue"].actual is None]
-    if c.missing is not None:  # no stored run: nothing of the case's own is in the data
-        lost = []
-    effect = "own_quarters_missing" if lost else "usual_only"
+    `history_ends`. `effect`: `no_stored_run` when the case has no stored baseline run (nothing
+    of its own is in the data, cut or not); `usual_only` when every quarter of its horizon is
+    reported by D; `own_quarters_missing` when some are not, named in `quarters_missing` (each a
+    `quarters[].period` of the case). "Reported" is the revenue line, as `reported_quarters`
+    counts it. Every filing before `history_ends` is in the data, so an unreported quarter was
+    filed from then on, or not yet by D; Warren can't tell which, and the text says the quarter
+    is missing, not that the cut removed it."""
     ends = stopped["history_ends"]
-    params = {"ticker": c.ticker, "role": stopped["role"], "history_ends": ends,
-              "effect": effect, "quarters_missing": lost}  # fmt: skip
+    lost = [q.period for q in c.quarters if q.items["revenue"].actual is None]
     text = (f"{c.ticker}'s filings from {ends} on are missing in Warren's data, so its typical "
             "forecast errors stop at that date")  # fmt: skip
-    if lost:
-        text += (f"; this case's {'quarter' if len(lost) == 1 else 'quarters'} "
-                 f"{', '.join(lost)} {'is' if len(lost) == 1 else 'are'} not reported in the "
-                 "data by the question's date either, so they can't be compared")  # fmt: skip
+    if c.missing is not None:
+        effect = "no_stored_run"
+        text += "; this case has no stored forecast, so none of its own quarters are compared"
+    elif lost:
+        effect = "own_quarters_missing"
+        one = len(lost) == 1
+        text += (f"; this case's {'quarter' if one else 'quarters'} {', '.join(lost)} "
+                 f"{'is' if one else 'are'} not in the data by the question's date either (not "
+                 "yet filed, or filed after that date), so they can't be compared while its "
+                 "filings stop there")  # fmt: skip
     else:
-        text += "; every quarter of this case was reported before then, so the case is whole"
+        effect = "usual_only"
+        text += ("; every quarter of this case is in the data, only the yardstick it is "
+                 "compared with is shorter")  # fmt: skip
+    params = {"ticker": c.ticker, "role": stopped["role"], "history_ends": ends,
+              "effect": effect, "quarters_missing": lost}  # fmt: skip
     return Coded("history_cut", params, text)
 
 

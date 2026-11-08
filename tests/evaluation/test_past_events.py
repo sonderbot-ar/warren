@@ -587,7 +587,10 @@ def test_a_whole_case_of_a_cut_company_is_flagged_usual_only(company, monkeypatc
     assert a.history_cut.params == {"ticker": "TST", "role": "question",
                                     "history_ends": "2020-12-31", "effect": "usual_only",
                                     "quarters_missing": []}  # fmt: skip
-    assert "the case is whole" in a.history_cut.text and "not reported" not in a.history_cut.text
+    assert a.history_cut.text.endswith(
+        "; every quarter of this case is in the data, only the yardstick it is compared with is "
+        "shorter"
+    )
 
 
 def test_a_counted_case_with_quarters_missing_after_the_cut_names_them(company, monkeypatch):
@@ -599,7 +602,9 @@ def test_a_counted_case_with_quarters_missing_after_the_cut_names_them(company, 
     flag = _by_id(rec)["TST_c"].history_cut
     assert flag.params["effect"] == "own_quarters_missing"
     assert flag.params["quarters_missing"] == ["FY2021Q2", "FY2021Q3"]
-    assert "quarters FY2021Q2, FY2021Q3 are not reported in the data" in flag.text
+    assert "quarters FY2021Q2, FY2021Q3 are not in the data by the question's date" in flag.text
+    periods = [q.period for q in _by_id(rec)["TST_c"].quarters]
+    assert set(flag.params["quarters_missing"]) <= set(periods)  # the screen can mark the rows
     note = _thin_note(rec)
     assert rec.n == 1  # still counted: one quarter is reported
     assert note.params["cut"][0]["effect"] == "own_quarters_missing"
@@ -622,14 +627,17 @@ def test_an_uncounted_case_is_flagged_but_not_named_in_the_thin_note(company, mo
     assert _thin_note(rec).params["cut_case_ids"] == ["TST_a"]
 
 
-def test_a_case_without_a_stored_run_is_flagged_without_quarters(company, monkeypatch):
+def test_a_case_without_a_stored_run_is_flagged_as_such_not_as_complete(company, monkeypatch):
     _ends(company, monkeypatch)
     c = _by_id(call(company, [case("TST_g")], {}))["TST_g"]
     assert c.missing.code == "not_scored"
     assert (c.history_cut.params["effect"], c.history_cut.params["quarters_missing"]) == (
-        "usual_only",
+        "no_stored_run",
         [],
     )
+    assert c.history_cut.text.endswith("this case has no stored forecast, so none of its own "
+                                       "quarters are compared")  # fmt: skip
+    assert "in the data, only the yardstick" not in c.history_cut.text
 
 
 def test_a_context_case_of_a_cut_company_is_flagged_too(company, monkeypatch):
