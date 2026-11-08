@@ -1,6 +1,6 @@
 # Backlog #262: the "few cases" line says when a counted case's filings stop early
 
-Issue: https://github.com/sonderbot-ar/warren/issues/262 · Branch `backlog-262-cut-cases` · Status: In progress (nov.08.2026).
+Issue: https://github.com/sonderbot-ar/warren/issues/262 · Branch `backlog-262-cut-cases` · Status: PR open (nov.08.2026).
 
 ## Problem
 
@@ -40,3 +40,13 @@ Explainer, analyst, professor and product lead in parallel, after Step 1's first
 - **Professor: GO, no blockers.** Keeping a truncated case and saying so, rather than dropping it, is the standard guard against selection bias (Brown, Goetzmann, Ibbotson and Ross 1992, "Survivorship bias in performance studies", RFS 5(4)). Taken: "1 of the 1 counted case is of a company" and "stop early here" are gone; the sentence says "Counted, though its company's filings are missing in Warren's data from …".
 - **Product lead: GO, no blockers.** Taken: the doc says a cut case can be the question's own company's, and `role` comes with each case so the app need not match notes itself. Taken for the merge: the team-sync entry names brief Q10 and Q14. Idea, filed: a per-case flag saying whether the cut removed any of the case's own quarters or only its typical errors.
 - **Explainer: no blockers.** Gaps taken: the helper named (`coverage_notes`), the singular and plural forms given, the sort key (case id, ascending), the existing assertions named, how the app links a case to its note (`cut[].ticker` and `role`), and the unchanged text defined as `_thin(n, reason)`'s.
+
+## Results (nov.08.2026)
+
+Snapshot `warren-20261105T101750Z` (schema 21). Before = main at `e3b737e`, after = this branch, `past-events --json`. Full suite: 1,826 passed, 10 skipped.
+
+- Q10, MSFT `m_and_a`, D = 2026-11-07: n = 3 (unchanged); `cut` holds one case, `XOM_2023-10-11` (Pioneer), `role` `case`, `history_ends` 2026-08-03. The text is main's text plus the new sentence; every other field and note identical.
+- Q14, XOM `macro`, D = 2026-11-07: n = 1 (unchanged); `cut` holds `XOM_2020-03-09`, `role` `question`, and the sentence says "the question's company". Everything else identical.
+- MSFT `m_and_a`, D = 2026-06-01 (before Exxon's cut-off): identical to main apart from the three params at `0`, `[]`, `[]`.
+
+Exit met.
