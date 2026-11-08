@@ -524,8 +524,9 @@ def test_a_counted_case_whose_filings_stop_is_named_in_the_thin_evidence_note(co
     # TST_b has no reported quarter, so it is not counted in n and not named as cut
     assert (note.params["cut_cases"], note.params["cut_case_ids"]) == (1, ["TST_a"])
     assert note.params["cut"] == [
-        {"case_id": "TST_a", "ticker": "TST", "role": "question", "history_ends": "2020-12-31"}
-    ]
+        {"case_id": "TST_a", "ticker": "TST", "role": "question", "history_ends": "2020-12-31",
+         "effect": "usual_only", "quarters_missing": []}
+    ]  # fmt: skip
     assert note.text.endswith(
         ". Counted, though its company's filings are missing in Warren's data from a date before "
         "this question: TST_a (TST, the question's company, from 2020-12-31 on). Its typical "
@@ -569,6 +570,83 @@ def test_the_cut_sentence_names_several_cases_in_case_order():
         "before this question: A_1 (AAA, the question's company, from 2026-08-03 on); B_1 (BBB, "
         "from 2026-08-03 on). Their typical forecast errors stop at that date"
     ) in note.text
+
+
+# -- backlog #269: what the cut takes from each case -------------------------------------------
+
+
+def _by_id(rec):
+    return {c.case_id: c for c in rec.cases + rec.same_company_other_type}
+
+
+def test_a_whole_case_of_a_cut_company_is_flagged_usual_only(company, monkeypatch):
+    _ends(company, monkeypatch)
+    cases, hs = _two_cases(company)
+    a = _by_id(call(company, cases, hs))["TST_a"]
+    assert a.history_cut.code == "history_cut"
+    assert a.history_cut.params == {"ticker": "TST", "role": "question",
+                                    "history_ends": "2020-12-31", "effect": "usual_only",
+                                    "quarters_missing": []}  # fmt: skip
+    assert "the case is whole" in a.history_cut.text and "not reported" not in a.history_cut.text
+
+
+def test_a_counted_case_with_quarters_missing_after_the_cut_names_them(company, monkeypatch):
+    _ends(company, monkeypatch)
+    c = case("TST_c", when="2020-03-01")
+    rid = store_case(company, c, ["FY2031Q1", "FY2031Q2", "FY2031Q3"], batch="eval_b_c")
+    hs = {rid: seen(rid, [("FY2021Q1", 90.0), ("FY2021Q2", None), ("FY2021Q3", None)])}
+    rec = call(company, [c], hs)
+    flag = _by_id(rec)["TST_c"].history_cut
+    assert flag.params["effect"] == "own_quarters_missing"
+    assert flag.params["quarters_missing"] == ["FY2021Q2", "FY2021Q3"]
+    assert "quarters FY2021Q2, FY2021Q3 are not reported in the data" in flag.text
+    note = _thin_note(rec)
+    assert rec.n == 1  # still counted: one quarter is reported
+    assert note.params["cut"][0]["effect"] == "own_quarters_missing"
+    assert note.params["cut"][0]["quarters_missing"] == ["FY2021Q2", "FY2021Q3"]
+    assert ("TST_c (TST, the question's company, from 2020-12-31 on; its own quarters FY2021Q2, "
+            "FY2021Q3 are not in the data either)") in note.text  # fmt: skip
+    assert f"Filings cut: {flag.text}" in P.render(rec)
+    json.dumps(rec.to_dict())
+
+
+def test_an_uncounted_case_is_flagged_but_not_named_in_the_thin_note(company, monkeypatch):
+    _ends(company, monkeypatch)
+    cases, hs = _two_cases(company)
+    rec = call(company, cases, hs)
+    b = _by_id(rec)["TST_b"]
+    assert (b.history_cut.params["effect"], b.history_cut.params["quarters_missing"]) == (
+        "own_quarters_missing",
+        ["FY2021Q1"],
+    )
+    assert _thin_note(rec).params["cut_case_ids"] == ["TST_a"]
+
+
+def test_a_case_without_a_stored_run_is_flagged_without_quarters(company, monkeypatch):
+    _ends(company, monkeypatch)
+    c = _by_id(call(company, [case("TST_g")], {}))["TST_g"]
+    assert c.missing.code == "not_scored"
+    assert (c.history_cut.params["effect"], c.history_cut.params["quarters_missing"]) == (
+        "usual_only",
+        [],
+    )
+
+
+def test_a_context_case_of_a_cut_company_is_flagged_too(company, monkeypatch):
+    _ends(company, monkeypatch)
+    ctx = case("TST_r", when="2020-03-01", kind="restructuring")
+    rid = store_case(company, ctx, ["FY2031Q1"], batch="eval_b_r")
+    rec = call(company, [ctx], {rid: seen(rid, [("FY2021Q1", None)])})
+    assert rec.same_company_other_type[0].history_cut.params["quarters_missing"] == ["FY2021Q1"]
+    assert _thin_note(rec).params["cut"] == []  # context cases are never counted
+
+
+def test_no_case_is_flagged_before_the_filings_stop(company, monkeypatch):
+    _ends(company, monkeypatch, ends="2021-07-02")  # the day after ASOF
+    cases, hs = _two_cases(company)
+    rec = call(company, cases, hs)
+    assert all(c.history_cut is None for c in _by_id(rec).values())
+    assert "Filings cut" not in P.render(rec)
 
 
 @pytest.mark.parametrize("kind, has", [("m_and_a", True), ("guidance", False)])
