@@ -284,8 +284,10 @@ class _Basis:
     When some were, the newest versions can come from filings on different bases: the year from
     the old 10-K and the nine months recast in a later 10-Q (JNJ FY2022Q4 after Kenvue), or the
     year recast twice and the nine months once (KO's FY2017 operating income). Then the minuend
-    is taken as the first filing at or after the newest subtracted input's filing gave it (the
-    10-K that follows the recast 10-Q, on that 10-Q's basis). If no such filing is public yet,
+    is taken as the first filing at or after the newest subtracted input's vintage gave it (the
+    10-K that follows the recast 10-Q, on that 10-Q's basis; an input's vintage is the first
+    filing of its value, `_vintage`). If no such filing is public yet, or it gives the year with
+    the opposite sign to the newest version (a tagging error later corrected),
     the quarter is derived from every input as first filed (the old year with the old nine
     months), which shares one basis and was public earlier. Either way it is flagged
     `one_basis` when its value differs from the plain derivation."""
@@ -296,10 +298,11 @@ class _Basis:
     def place(self, derived: Fact, minuend: Fact, subtrahends: list[Fact]) -> Fact:
         if not derived.restated:
             return derived
-        newest = max(f.filed_at for f in subtrahends)
-        key = (minuend.canonical_name, minuend.period_start, minuend.period_end)
-        later = [v for v in self.versions.get(key, []) if v.filed_at >= newest]
-        if later:
+        newest = max(self._vintage(f) for f in subtrahends)
+        later = [v for v in self._of(minuend) if v.filed_at >= newest]
+        # a paired year of the opposite sign to the newest is a tagging error a later filing
+        # corrected (WMT's FY2009 tax, −7,156 in one 10-K), not a basis: not used
+        if later and later[0].value * minuend.value >= 0:
             paired = _derive(later[0], subtrahends, derived.fiscal_period)
         else:
             paired = self.first.get(derived.fiscal_period)
@@ -308,6 +311,18 @@ class _Basis:
         if paired.value == derived.value:
             return derived
         return paired.model_copy(update={"one_basis": True})
+
+    def _of(self, fact: Fact) -> list[Fact]:
+        return self.versions.get((fact.canonical_name, fact.period_start, fact.period_end), [])
+
+    def _vintage(self, fact: Fact) -> date:
+        """When a subtracted input's value was first filed: a later 10-Q that only repeats last
+        year's nine months doesn't move its basis (PG's FY2013 tax: 2,812 in both 10-Qs, the year
+        recast for Pet Care in between). A derived input: when its last input was filed."""
+        if fact.derived:
+            return fact.filed_at
+        same = [v.filed_at for v in self._of(fact) if v.value == fact.value]
+        return min(same, default=fact.filed_at)
 
 
 def _versions(periods: dict[tuple, dict[str, list[sqlite3.Row]]]) -> dict[tuple, list[Fact]]:
