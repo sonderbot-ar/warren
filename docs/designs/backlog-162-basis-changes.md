@@ -70,6 +70,6 @@ Snapshot `warren-20261105T101750Z` (schema 21). Before = main at `3984fe0`, afte
 
 104 flagged in all, the same count as hindsight's in the issue; 0 unchecked among scored rows. Cases: JNJ 2023–24 (Kenvue), KO 2019–20, PG 2019 (EBIT), XOM 2019–20. The baseline still beats naive on median error without them; on the M8 batch its mean skill against naive moves from −17.2% to −11.5% (revenue) and 7.4% to 12.2% (EBIT).
 
-Filed: the derived fourth quarter on two bases in a run's history, and like-for-like scoring (option c).
+Filed: #264 (the derived fourth quarter on two bases in a run's history) and #265 (like-for-like scoring, option c).
 
 Exit met.
