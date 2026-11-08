@@ -29,5 +29,5 @@ class Fact(BaseModel):
     )
     one_basis: bool = Field(
         default=False,
-        description="Derived from inputs as first reported because the newest ones mixed bases",
+        description="Derived from inputs on one basis instead of the newest ones (backlog #264)",
     )

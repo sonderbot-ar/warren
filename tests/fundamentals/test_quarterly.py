@@ -276,3 +276,15 @@ def test_no_fallback_to_a_first_filed_year_of_the_wrong_sign(ingested):
     recast_nine_months(conn, value=320)
     q4 = one_basis_quarters(conn, "2025-12-01")["Q4"]  # no 10-K after the recast nine months yet
     assert (q4.value, q4.one_basis) == (455 - 320, False)  # kept as plain: no first-filed fallback
+
+
+def test_the_method_note_is_true_on_the_pairing_path(ingested):
+    from domains.analysis.math_engine import trace
+
+    conn, _ = ingested
+    recast_nine_months(conn, value=320)
+    add_year(conn, 470, "0000000123-27-000001", "2027-02-15")
+    q4 = one_basis_quarters(conn, "2027-03-01")["Q4"]  # rule 2: the year's second version
+    text = trace(q4)
+    assert "taken on one basis" in text and "first filed" not in text
+    assert "0000000123-26-" in text and "0000000123-27-" not in text

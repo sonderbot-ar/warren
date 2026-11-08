@@ -365,11 +365,11 @@ def test_a_fourth_quarter_is_built_on_one_basis(make_company):
     rows = by_key(result)
     q4 = rows[("history:revenue", "FY2018Q4")]
     assert q4.value == pytest.approx(revenue(2018, 4))
-    assert "both as first filed" in q4.method
+    assert "taken on one basis" in q4.method
     filed = result.sources[("history:revenue", "FY2018Q4")]
     assert [(s["derived"], s["one_basis"], s["restated"]) for s in filed] == [(True, True, False)]
     for quarter in (1, 2, 3):  # the reported quarters keep their newest (recast) values
         row = rows[("history:revenue", f"FY2018Q{quarter}")]
         assert row.value == pytest.approx(0.8 * revenue(2018, quarter))
-        assert "first filed" not in row.method
+        assert "one basis" not in row.method
         assert not result.sources[("history:revenue", f"FY2018Q{quarter}")][0]["one_basis"]
