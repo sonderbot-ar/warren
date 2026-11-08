@@ -196,6 +196,8 @@ def _tag(fact: Fact) -> str:
 def trace(fact: Fact) -> str:
     """Item, tag, period and filing of one fact: enough to find it in EDGAR."""
     source = fact.accession_no or "derived from " + ", ".join(fact.inputs)
+    if fact.one_basis:  # backlog #264
+        source += " (all as first reported: the newest inputs were on two bases)"
     return f"{fact.canonical_name} [{_tag(fact)}] {fact.period_end} {source}"
 
 
@@ -241,7 +243,7 @@ class History:
 
 
 def load_history(conn: sqlite3.Connection, cik: str, as_of: date) -> History:
-    quarterly = get_facts(conn, cik, ITEMS, as_of, frequency="quarterly")
+    quarterly = get_facts(conn, cik, ITEMS, as_of, frequency="quarterly", one_basis=True)
     annual = get_facts(conn, cik, ITEMS, as_of, frequency="annual")
     instants: dict[str, list[Fact]] = defaultdict(list)
     for f in sorted(quarterly + annual, key=lambda f: f.period_end):

@@ -1,5 +1,7 @@
 from datetime import date
 
+import pytest
+
 from domains.fundamentals.facts import get_facts
 from tests.fundamentals.conftest import TEST_CIK
 
@@ -125,3 +127,74 @@ def test_annual_returns_fiscal_years_only(ingested):
         ("cash", 2023),
         ("cash", 2024),
     }
+
+
+# -- one basis (backlog #264) -----------------------------------------------------------------
+
+B3 = "0000000123-25-000030"  # Q3 2025 10-Q, filed 2025-11-01: recasts the 2024 nine months
+
+
+def recast_nine_months(conn, value=300):
+    """The next Q3 10-Q gives last year's nine months on a new basis (as JNJ's Q3 2023 10-Q did
+    after Kenvue), while the year itself is still only in the old-basis 10-K."""
+    conn.execute(
+        "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, fiscal_year, "
+        "fiscal_period, value, unit, form, accession_no, filed_at) VALUES (?, 'us-gaap:Revenues', "
+        "'2024-01-01', '2024-09-30', 2024, 'M9', ?, 'USD', '10-Q', ?, '2025-11-01')",
+        (TEST_CIK, value, B3),
+    )
+
+
+def one_basis_quarters(conn, as_of, fiscal_year=2024):
+    facts = get_facts(conn, TEST_CIK, ["revenue"], as_of, frequency="quarterly", one_basis=True)
+    return {f.fiscal_period: f for f in facts if f.fiscal_year == fiscal_year}
+
+
+def test_old_year_minus_recast_nine_months_is_on_no_basis_without_one_basis(ingested):
+    conn, _ = ingested
+    recast_nine_months(conn)
+    q4 = quarters(conn, "revenue", "2025-12-01")["Q4"]
+    assert q4.value == 460 - 300  # the old year minus the recast nine months
+    assert q4.mixed_vintage and not q4.one_basis
+    assert q4.inputs == [K1, B3]
+
+
+def test_one_basis_derives_the_old_year_minus_the_old_nine_months(ingested):
+    conn, _ = ingested
+    recast_nine_months(conn)
+    q4 = one_basis_quarters(conn, "2025-12-01")["Q4"]
+    assert (q4.value, q4.derived, q4.one_basis) == (130, True, True)
+    assert not q4.restated and not q4.mixed_vintage
+    assert q4.inputs == [K1, A3]
+    assert q4.filed_at == date(2025, 2, 15)  # public by then: no later input is used
+
+
+def test_one_basis_also_covers_a_restated_year_with_old_nine_months(ingested):
+    conn, _ = ingested
+    # the fixture's FY2025 10-K restates FY2024 to 455; the nine months stay as first reported
+    q4 = one_basis_quarters(conn, "2026-03-01")["Q4"]
+    assert (q4.value, q4.one_basis) == (130, True)
+
+
+def test_one_basis_keeps_a_derivation_whose_inputs_were_all_restated(ingested):
+    conn, _ = ingested
+    recast_nine_months(conn, value=320)
+    # as of 2026-03-01 the year is restated (455) and so are the nine months (320)
+    q4 = one_basis_quarters(conn, "2026-03-01")["Q4"]
+    assert (q4.value, q4.one_basis, q4.mixed_vintage) == (455 - 320, False, False)
+
+
+def test_one_basis_changes_nothing_on_one_basis(ingested):
+    conn, _ = ingested
+    plain = get_facts(conn, TEST_CIK, ["revenue", "capex", "cash"], "2025-03-01",
+                      frequency="quarterly")  # fmt: skip
+    one = get_facts(conn, TEST_CIK, ["revenue", "capex", "cash"], "2025-03-01",
+                    frequency="quarterly", one_basis=True)  # fmt: skip
+    assert one == plain
+
+
+def test_one_basis_is_for_latest_quarterly_facts_only(ingested):
+    conn, _ = ingested
+    for mode, frequency in (("first_reported", "quarterly"), ("latest", "annual")):
+        with pytest.raises(ValueError, match="one_basis"):
+            get_facts(conn, TEST_CIK, ["revenue"], "2025-03-01", mode, frequency, one_basis=True)

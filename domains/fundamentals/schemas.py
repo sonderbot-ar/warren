@@ -27,3 +27,7 @@ class Fact(BaseModel):
     mixed_vintage: bool = Field(
         default=False, description="Derived from a mix of restated and first-reported inputs"
     )
+    one_basis: bool = Field(
+        default=False,
+        description="Derived from inputs as first reported because the newest ones mixed bases",
+    )

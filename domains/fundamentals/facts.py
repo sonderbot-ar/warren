@@ -91,8 +91,10 @@ def get_reported_facts(
     """Every reported period for the requested items, exactly as known on `as_of` (inclusive)."""
     if mode not in ("latest", "first_reported"):
         raise ValueError(f"Unknown mode: {mode!r}")
-    periods = _rows_by_period(conn, cik, canonical_names, as_of)
+    return _facts(_rows_by_period(conn, cik, canonical_names, as_of), mode)
 
+
+def _facts(periods: dict[tuple, dict[str, list[sqlite3.Row]]], mode: Mode) -> list[Fact]:
     facts = []
     for key in sorted(periods):
         filings = periods[key]
@@ -252,18 +254,49 @@ def _one_per_period(facts: list[Fact]) -> list[Fact]:
     return list(best.values())
 
 
-def _quarterly(facts: list[Fact], earliest: bool = False) -> list[Fact]:
+def _flow_years(facts: list[Fact]) -> tuple[list[Fact], dict[tuple, dict[str, Fact]]]:
+    """Balance-sheet facts (the Q4 balance is the year-end one), and duration facts by
+    (item, fiscal year) and fiscal period."""
     years: dict[tuple, dict[str, Fact]] = defaultdict(dict)
-    quarters = []
+    instants = []
     for fact in _one_per_period(facts):
-        if fact.period_start is None:  # balance-sheet item: the Q4 balance is the year-end one
+        if fact.period_start is None:
             if fact.fiscal_period == "FY":
                 fact = fact.model_copy(update={"fiscal_period": "Q4"})
-            quarters.append(fact)
+            instants.append(fact)
         else:
             years[(fact.canonical_name, fact.fiscal_year)][fact.fiscal_period] = fact
-    for year in years.values():
-        quarters.extend(_quarters_for_flow(year, earliest))
+    return instants, years
+
+
+def _one_basis(quarters: list[Fact], first: dict[str, Fact] | None) -> list[Fact]:
+    """Backlog #264: a derived quarter whose inputs mix restated and first-reported versions
+    (e.g. the year from the old-basis 10-K minus nine months recast in a later 10-Q) is on no
+    basis. It is derived again from every input as first reported (the old year with the old nine
+    months), which is on one basis and was public by the same date. A derivation whose inputs
+    were all restated (the recast year with the recast nine months) is kept."""
+    if first is None:
+        return quarters
+    return [
+        first[q.fiscal_period].model_copy(update={"one_basis": True})
+        if q.derived and q.mixed_vintage and first.get(q.fiscal_period, q).derived
+        else q
+        for q in quarters
+    ]
+
+
+def _quarterly(
+    facts: list[Fact], earliest: bool = False, first_reported: list[Fact] | None = None
+) -> list[Fact]:
+    """Standalone quarters. With `first_reported` (the same query's facts as first reported), a
+    derived quarter on two bases is derived on one (`_one_basis`)."""
+    quarters, years = _flow_years(facts)
+    first_years = _flow_years(first_reported)[1] if first_reported is not None else None
+    for key, year in years.items():
+        first = None
+        if first_years is not None:
+            first = {q.fiscal_period: q for q in _quarters_for_flow(first_years.get(key, {}))}
+        quarters.extend(_one_basis(_quarters_for_flow(year, earliest), first))
     return sorted(quarters, key=lambda f: (f.canonical_name, f.period_end))
 
 
@@ -274,6 +307,7 @@ def get_facts(
     as_of: date | str,
     mode: Mode = "latest",
     frequency: Frequency = "reported",
+    one_basis: bool = False,
 ) -> list[Fact]:
     """Point-in-time facts.
 
@@ -281,13 +315,24 @@ def get_facts(
     frequency="annual":   fiscal years only (FY durations and year-end balances).
     frequency="quarterly": standalone quarters Q1-Q4, deriving the ones not reported. In
                            first_reported mode each quarter is the version public first.
+                           With `one_basis` (latest mode), a quarter derived from restated and
+                           first-reported inputs together is derived from the first-reported
+                           ones instead (backlog #264; `Fact.one_basis`).
     """
-    facts = get_reported_facts(conn, cik, canonical_names, as_of, mode)
+    if one_basis and (mode != "latest" or frequency != "quarterly"):
+        raise ValueError("one_basis applies to latest quarterly facts only")
+    if mode not in ("latest", "first_reported"):
+        raise ValueError(f"Unknown mode: {mode!r}")
+    periods = _rows_by_period(conn, cik, canonical_names, as_of)
+    facts = _facts(periods, mode)
     if frequency == "reported":
         return facts
     if frequency == "annual":
         annual = _one_per_period([f for f in facts if f.fiscal_period == "FY"])
         return sorted(annual, key=lambda f: (f.canonical_name, f.period_end))
     if frequency == "quarterly":
-        return _quarterly(facts, earliest=mode == "first_reported")
+        first = None
+        if one_basis:
+            first = _facts(periods, "first_reported")
+        return _quarterly(facts, earliest=mode == "first_reported", first_reported=first)
     raise ValueError(f"Unknown frequency: {frequency!r}")
