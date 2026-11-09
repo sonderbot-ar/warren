@@ -1,6 +1,6 @@
 # Backlog #188: a benchmark with drift, and a Wilson interval beside the range's record
 
-Issue: https://github.com/sonderbot-ar/warren/issues/188 · Branch `backlog-188-drift-benchmark` · Status: built, in review (nov.09.2026).
+Issue: https://github.com/sonderbot-ar/warren/issues/188 · Branch `backlog-188-drift-benchmark` · Version v0.9.43, merged nov.09.2026 (PR #288, merge `5cbaca6`; gatekeeper GO).
 
 ## Problem
 
