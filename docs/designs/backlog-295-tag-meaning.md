@@ -34,7 +34,8 @@ Periods refiled after the change carry the new meaning; periods never refiled ke
 ## Real data (Step 1 and 2, on the snapshot of nov.05.2026, as of 2026-11-09)
 
 - The scan's raw signature (before the two-period rule) fires on 8 periods: Exxon's 7 revenue periods and one JNJ balance, cash at 2023-01-01 (14,127 to 12,889 in the 10-Q of 2023-10-27, the whole 14,127 kept under the restricted-cash tag). JNJ's is the Kenvue separation moving cash to assets held for sale, a restatement, not a new meaning; the two-period rule leaves it out.
-- Growth notes: see "Where the note appears" below.
+- Growth notes, every Exxon period FY2009–FY2026 as of 2026-11-09: five carry `tag_changed_meaning`, each pairing a period refiled after the change with one never refiled: FY2017 (+21.8%, the year 244,363 against FY2016's sales), FY2018Q3 (+29.1%), FY2018Q4 (+10.1%), FY2019Q1 (−2.8%) and FY2019Q2 (−3.3%). None for the other seven companies. Exxon's FY2018 (+18.8%, both years from the 10-K of 2020) and FY2019Q3 onward sit on the new meaning throughout: no note.
+- 90 of Exxon's 100 stored runs are dated after 2019-11-06; their history crosses the change for the years it covers (follow-up below).
 
 ## Alternatives considered
 
