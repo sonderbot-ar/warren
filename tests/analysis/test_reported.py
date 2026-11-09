@@ -357,3 +357,68 @@ def test_a_line_used_twice_is_listed_once(company):
     assert _uses([fact, fact], Period(2019, "FY")) == [
         {"line": "income_tax_expense", "period": "FY2019"}
     ]
+
+
+# -- backlog #290: a quarter on one basis, as a run reads it ----------------------------------
+
+
+def test_a_quarter_put_on_one_basis_shows_the_plain_derivation_beside(make_company):
+    """The #264 fixture: the 2019 10-Qs recast 2018's quarters 20% lower, the FY2018 10-K is the
+    only year. As of 2019-12-31 the reported view shows FY2018Q4 as a run reads it, the year less
+    the quarters as first reported, and the plain derivation (old year less recast quarters)
+    beside it with a coded reason."""
+    from domains.analysis.math_engine import build_inputs
+    from tests.analysis.test_math_engine import CHOICES, by_key, recast_2018_quarters
+
+    conn = make_company(recast_2018_quarters)
+    as_of = date(2019, 12, 31)
+    r = reported_period(conn, "TST", "FY2018Q4", as_of)
+    rev = r.line("revenue")
+    plain = sum(revenue(2018, q) for q in (1, 2, 3, 4)) - 0.8 * sum(
+        revenue(2018, q) for q in (1, 2, 3)
+    )
+    assert rev.value == pytest.approx(revenue(2018, 4))
+    assert rev.one_basis
+    assert rev.plain.value == pytest.approx(plain)
+    assert rev.basis_note.code == "one_basis"
+    assert rev.basis_note.params == {
+        "item": "revenue",
+        "period": "FY2018Q4",
+        "value": rev.value,
+        "plain_value": rev.plain.value,
+        "basis": "first_filed",
+    }
+    # the figure a run reads for the same quarter on the same date
+    run = build_inputs(conn, "TST", as_of, choices=CHOICES, today=AS_OF)
+    assert by_key(run)[("history:revenue", "FY2018Q4")].value == pytest.approx(rev.value)
+    # ratios use it and say so; a line not put on one basis has no plain value
+    for name in ("operating_margin", "revenue_growth_yoy"):
+        notes = {n.code: n.params for n in r.ratio(name).notes}
+        assert notes["uses_one_basis_line"] == {"items": ["revenue"], "periods": ["FY2018Q4"]}
+    ebit = r.line("operating_income")
+    assert (ebit.one_basis, ebit.plain, ebit.basis_note) == (False, None, None)
+
+
+def test_a_reported_quarter_and_a_year_are_never_put_on_one_basis(make_company):
+    from tests.analysis.test_math_engine import recast_2018_quarters
+
+    conn = make_company(recast_2018_quarters)
+    as_of = date(2019, 12, 31)
+    q1 = reported_period(conn, "TST", "FY2018Q1", as_of).line("revenue")
+    assert (q1.one_basis, q1.plain, q1.changed) == (False, None, True)  # recast, as reported
+    year = reported_period(conn, "TST", "FY2018", as_of).line("revenue")
+    assert (year.one_basis, year.plain) == (False, None)
+    margin = reported_period(conn, "TST", "FY2018", as_of).ratio("operating_margin")
+    assert "uses_one_basis_line" not in {n.code for n in margin.notes}
+
+
+def test_the_terminal_and_json_show_the_plain_derivation(make_company):
+    from tests.analysis.test_math_engine import recast_2018_quarters
+
+    conn = make_company(recast_2018_quarters)
+    r = reported_period(conn, "TST", "FY2018Q4", date(2019, 12, 31))
+    text = cli.render_reported(r)
+    assert "on one basis; plain derivation" in text
+    line = next(x for x in json.loads(json.dumps(r.to_dict()))["lines"] if x["name"] == "revenue")
+    assert (line["one_basis"], line["basis_note"]["code"]) == (True, "one_basis")
+    assert line["plain"]["inputs"]  # the filings the plain derivation came from
