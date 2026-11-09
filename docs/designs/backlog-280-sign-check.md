@@ -1,6 +1,6 @@
 # Backlog #280: skip a version filed with the wrong sign
 
-Issue: https://github.com/sonderbot-ar/warren/issues/280 · Branch `backlog-280-sign-check` · Status: built and reviewed (nov.09.2026). The owner approved the Decision 2 amendment on nov.09.2026 (decision card). After main moved to v0.9.46, the branch was brought up to date and Step 2 run again: the same 564 changed facts, all Walmart income tax, and 903 of 903 runs reproduce with a rebuild identical to main's (821 identical, the same 82 differing on both, from #264).
+Issue: https://github.com/sonderbot-ar/warren/issues/280 · Branch `backlog-280-sign-check` · Version v0.9.47, merged nov.09.2026 (PR #284, merge `c1c9351`; analyst GO, gatekeeper GO). Status: built and reviewed (nov.09.2026). The owner approved the Decision 2 amendment on nov.09.2026 (decision card). After main moved to v0.9.46, the branch was brought up to date and Step 2 run again: the same 564 changed facts, all Walmart income tax, and 903 of 903 runs reproduce with a rebuild identical to main's (821 identical, the same 82 differing on both, from #264).
 
 ## Problem
 
