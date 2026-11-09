@@ -141,3 +141,50 @@ def test_newest_filing_disagreement_appears_in_the_report(ingested, two_years):
     markdown = report_for(conn).to_markdown()
     assert "selected Revenues, newest filing RevenueFromContractWithCustomer" in markdown
     assert "2024-12-31 0M vs 0M" in markdown  # fixture values are tiny; shown in millions
+
+
+def test_a_skipped_sign_flip_appears_in_the_report(ingested, two_years):
+    # backlog #280: a later 10-K tags FY2024 revenue with the wrong sign
+    conn, _ = ingested
+    conn.execute(
+        "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, fiscal_year, "
+        "fiscal_period, value, unit, form, accession_no, filed_at) VALUES (?, 'us-gaap:Revenues', "
+        "'2024-01-01', '2024-12-31', 2024, 'FY', -460, 'USD', '10-K', 'a-25-9', '2025-02-20')",
+        (TEST_CIK,),
+    )
+    report = report_for(conn)
+    assert [(s.value, k.value, k.accession_no) for s, k in report.sign_flips] == [
+        (460, -460, "a-25-9")
+    ]
+    markdown = report.to_markdown()
+    assert "- Versions skipped as sign-tagging errors: 1" in markdown
+    assert "skipped -0M (a-25-9)" in markdown
+    assert not report.disagreements
+
+
+def test_a_sign_flip_outside_the_report_years_is_listed(ingested, two_years):
+    # the real flips (WMT tax, CAT cost of revenue) are from 2008-2011, before the report's years
+    conn, _ = ingested
+    for value, accession, filed in (
+        (7145, "t-22-1", "2022-02-15"),
+        (-7133, "t-24-2", "2024-02-20"),
+    ):
+        conn.execute(
+            "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, "
+            "fiscal_year, fiscal_period, value, unit, form, accession_no, filed_at) VALUES (?, "
+            "'us-gaap:Revenues', '2021-01-01', '2021-12-31', 2021, 'FY', ?, 'USD', '10-K', ?, ?)",
+            (TEST_CIK, value, accession, filed),
+        )
+    flips = report_for(conn).sign_flips
+    assert [(s.fiscal_year, k.accession_no) for s, k in flips] == [(2021, "t-24-2")]
+
+
+def test_amounts_in_the_flip_section_keep_their_unit():
+    from domains.fundamentals.quality import _amount
+    from domains.fundamentals.schemas import Fact
+
+    base = dict(canonical_name="x", xbrl_concept="us-gaap:X", period_start=None,
+                period_end="2024-12-31", fiscal_year=2024, fiscal_period="FY",
+                accession_no="a", filed_at="2025-01-01", restated=False)  # fmt: skip
+    assert _amount(Fact(**base, value=-7_133e6, unit="USD")) == "-7,133M"
+    assert _amount(Fact(**base, value=2.5, unit="USD/shares")) == "2.5 USD/shares"

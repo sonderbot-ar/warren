@@ -117,3 +117,117 @@ def test_newest_filing_under_a_lower_ranked_tag_is_listed_as_a_disagreement(inge
         for p in newest_filing_disagreements(conn, TEST_CIK, ["revenue"], "2026-12-31")
         if p[0].period_end == FY2024[1]
     ]
+
+
+# -- sign-tagging errors (backlog #280) ---------------------------------------------------------
+
+FY2021 = (date(2021, 1, 1), date(2021, 12, 31))
+
+
+def tax_for(conn, period, as_of, mode="latest"):
+    facts = get_reported_facts(conn, TEST_CIK, ["income_tax_expense"], as_of, mode)
+    return next((f for f in facts if (f.period_start, f.period_end) == period), None)
+
+
+def add_tax(conn, value, accession, filed_at, period=FY2021):
+    add_fact(conn, "IncomeTaxExpenseBenefit", value, accession, filed_at, period)
+
+
+def test_a_newest_version_with_the_flipped_sign_is_skipped_on_the_usual_sign(ingested):
+    conn, _ = ingested
+    # WMT's FY2008 tax: 7,145 million first filed, -7,133 in a later 10-K, and no third version;
+    # tax is positive in the company's other periods, so the flipped one is the tagging error
+    add_tax(conn, 50, "t-23-1", "2023-02-15", FY2022)
+    add_tax(conn, 60, "t-24-1", "2024-02-15", FY2023)
+    add_tax(conn, 7145, "t-22-1", "2022-02-15")
+    add_tax(conn, -7133, "t-24-2", "2024-02-20")
+    fact = tax_for(conn, FY2021, "2024-03-01")
+    assert (fact.value, fact.accession_no, fact.restated) == (7145, "t-22-1", False)
+
+
+def test_a_flipped_first_version_is_corrected_by_the_newer_one(ingested):
+    conn, _ = ingested
+    # CAT's 2009 cost of revenue: -12,779 million first filed, 12,779 a year later
+    add_tax(conn, 50, "t-23-1", "2023-02-15", FY2022)
+    add_tax(conn, -100, "t-22-1", "2022-02-15")
+    add_tax(conn, 100, "t-23-2", "2023-02-20")
+    assert tax_for(conn, FY2021, "2024-03-01").value == 100
+
+
+def test_the_sign_most_versions_take_wins_over_the_usual_sign(ingested):
+    conn, _ = ingested
+    # WMT's FY2009 tax: 7,139, then -7,156 in one 10-K, then 7,156: the middle one is the error
+    add_tax(conn, -50, "t-23-1", "2023-02-15", FY2022)  # the usual sign alone would say negative
+    add_tax(conn, -60, "t-24-1", "2024-02-15", FY2023)
+    add_tax(conn, 7139, "t-22-1", "2022-02-15")
+    add_tax(conn, -7156, "t-23-2", "2023-02-20")
+    add_tax(conn, 7156, "t-24-2", "2024-02-20")
+    # two versions, one each way: the tie goes to the usual sign (negative here)
+    assert tax_for(conn, FY2021, "2024-02-19").value == -7156
+    # a third version: two of three are positive, so the negative one is the error
+    assert tax_for(conn, FY2021, "2024-03-01").value == 7156
+
+
+def test_no_usual_sign_keeps_the_newest_version(ingested):
+    conn, _ = ingested
+    add_tax(conn, 100, "t-22-1", "2022-02-15")  # the item's only period: nothing breaks the tie
+    add_tax(conn, -100, "t-23-2", "2023-02-20")
+    assert tax_for(conn, FY2021, "2024-03-01").value == -100
+
+
+def test_a_sign_change_with_a_new_size_is_a_restatement_not_a_flip(ingested):
+    conn, _ = ingested
+    # MSFT's FY2016 domestic pretax income: -325 million twice, then 5,125 after a recast
+    add_tax(conn, 50, "t-23-1", "2023-02-15", FY2022)
+    add_tax(conn, -325, "t-22-1", "2022-02-15")
+    add_tax(conn, -325, "t-23-2", "2023-02-20")
+    add_tax(conn, 5125, "t-24-2", "2024-02-20")
+    fact = tax_for(conn, FY2021, "2024-03-01")
+    assert (fact.value, fact.restated) == (5125, True)
+
+
+def test_the_size_tolerance_is_one_percent(ingested):
+    from domains.fundamentals.facts import SIGN_FLIP_TOLERANCE
+
+    conn, _ = ingested
+    assert SIGN_FLIP_TOLERANCE == 0.01
+    add_tax(conn, 50, "t-23-1", "2023-02-15", FY2022)
+    add_tax(conn, 1000, "t-22-1", "2022-02-15")
+    add_tax(conn, -1010, "t-23-2", "2023-02-20")  # 1.0% of the other: a flip
+    assert tax_for(conn, FY2021, "2024-03-01").value == 1000
+    add_tax(conn, -1011, "t-24-2", "2024-02-20")  # 1.1% from 1,000: not a flip of it
+    assert tax_for(conn, FY2021, "2025-03-01").value == -1011
+
+
+def test_a_flip_is_judged_only_on_versions_public_by_as_of(ingested):
+    conn, _ = ingested
+    add_tax(conn, 50, "t-23-1", "2023-02-15", FY2022)
+    add_tax(conn, -100, "t-22-1", "2022-02-15")
+    add_tax(conn, 100, "t-23-2", "2023-02-20")
+    # before the corrected version is filed, the only version is the one there is
+    assert tax_for(conn, FY2021, "2023-02-19").value == -100
+    assert tax_for(conn, FY2021, "2023-02-20").value == 100
+
+
+def test_first_reported_keeps_a_flipped_first_version(ingested):
+    conn, _ = ingested
+    add_tax(conn, 50, "t-23-1", "2023-02-15", FY2022)
+    add_tax(conn, -100, "t-22-1", "2022-02-15")
+    add_tax(conn, 100, "t-23-2", "2023-02-20")
+    assert tax_for(conn, FY2021, "2024-03-01", mode="first_reported").value == -100
+
+
+def test_a_skipped_flip_is_listed_apart_from_tag_disagreements(ingested):
+    from domains.fundamentals.facts import skipped_sign_flips
+
+    conn, _ = ingested
+    add_tax(conn, 50, "t-23-1", "2023-02-15", FY2022)
+    add_tax(conn, 7145, "t-22-1", "2022-02-15")
+    add_tax(conn, -7133, "t-24-2", "2024-02-20")
+    names = ["income_tax_expense"]
+    assert not newest_filing_disagreements(conn, TEST_CIK, names, "2024-03-01")
+    pairs = skipped_sign_flips(conn, TEST_CIK, names, "2024-03-01")
+    assert [(s.value, s.accession_no, k.value, k.accession_no) for s, k in pairs] == [
+        (7145, "t-22-1", -7133, "t-24-2")
+    ]
+    assert not skipped_sign_flips(conn, TEST_CIK, names, "2024-02-19")

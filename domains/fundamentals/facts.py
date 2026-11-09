@@ -1,8 +1,9 @@
 """Point-in-time fact queries: what a company had reported as of a given date.
 
 For each canonical item and period, the value is the newest version (public on the as-of date) of
-the highest-priority tag that reports the period. In first_reported mode it is the earliest filing,
-and the highest-priority tag within it. `restated` means the value differs from first_reported.
+the highest-priority tag that reports the period, skipping a version tagged with the wrong sign
+(backlog #280, `_sign_flips`). In first_reported mode it is the earliest filing, and the
+highest-priority tag within it. `restated` means the value differs from first_reported.
 
 Quarterly results add the quarters companies never report on their own (Q4, and standalone Q2/Q3
 for cash-flow items reported only year-to-date). They are derived at query time from the inputs
@@ -95,30 +96,99 @@ def get_reported_facts(
 
 
 def _facts(periods: dict[tuple, dict[str, list[sqlite3.Row]]], mode: Mode) -> list[Fact]:
+    usual = _UsualSigns(periods) if mode == "latest" else None
     facts = []
     for key in sorted(periods):
         filings = periods[key]
         first = _best_in_filing(filings[_filing_order(filings)[0]])
-        if mode == "first_reported":
+        if usual is None:
             facts.append(_to_fact(first, restated=False))
         else:
-            latest = _latest_of_best_tag([row for rows in filings.values() for row in rows])
+            rows = [row for rows in filings.values() for row in rows]
+            latest = _latest_of_best_tag(rows, usual.of(key))
             facts.append(_to_fact(latest, restated=latest["value"] != first["value"]))
     return facts
 
 
-def _latest_of_best_tag(rows: list[sqlite3.Row]) -> sqlite3.Row:
+# Two versions of one period are a sign flip when their signs differ and their sizes are within
+# this share of each other (WMT's FY2008 tax: 7,145 million, then -7,133 in a later 10-K: 0.2%).
+# A real restatement that changes the sign almost never keeps the size, so it is left alone
+# (MSFT's FY2016 domestic pretax income: -325, then 5,125 after a recast).
+SIGN_FLIP_TOLERANCE = 0.01
+
+
+def _sign(value: float) -> int:
+    return (value > 0) - (value < 0)
+
+
+class _UsualSigns:
+    """The sign an item usually takes for this company: the majority sign of every period's newest
+    best-tag value (public on the as-of date), leaving out the period being judged. It breaks a tie
+    between two versions of one period that flip sign (`_sign_flips`)."""
+
+    def __init__(self, periods: dict[tuple, dict[str, list[sqlite3.Row]]]) -> None:
+        self.own: dict[tuple, int] = {}
+        self.total: dict[str, int] = defaultdict(int)
+        for key, filings in periods.items():
+            rows = [row for rows in filings.values() for row in rows]
+            sign = _sign(_best_tag_rows(rows)[-1]["value"])
+            self.own[key] = sign
+            self.total[key[0]] += sign
+
+    def of(self, key: tuple) -> int:
+        return _sign(self.total[key[0]] - self.own.get(key, 0))
+
+
+def _best_tag_rows(rows: list[sqlite3.Row]) -> list[sqlite3.Row]:
+    """Rows of the highest-priority tag that reports this period, oldest filing first."""
+    best = min(r["priority"] for r in rows)
+    return sorted(
+        (r for r in rows if r["priority"] == best), key=lambda r: (r["filed_at"], r["accession_no"])
+    )
+
+
+def _sign_flips(rows: list[sqlite3.Row], usual: int) -> set[str]:
+    """Filings whose version of the period (one tag) is a sign-tagging error (backlog #280).
+
+    Only versions caught in a flip count: a version is a suspect when another version has the
+    opposite sign and nearly the same size (`SIGN_FLIP_TOLERANCE`). Among the suspects, the wrong
+    side is the sign fewer of the period's versions take (WMT's FY2009 tax: 7,139, -7,156, 7,156);
+    on a tie, the side against the item's usual sign for the company (WMT's FY2008 tax: 7,145
+    then -7,133, and tax is positive in almost every other WMT period; CAT's 2009 cost of
+    revenue: -12,779 then 12,779). With no usual sign either, nothing is skipped. Only versions
+    public on the as-of date are seen, so a flip is caught only once a second version is out."""
+    flipped = {
+        r["accession_no"]
+        for r in rows
+        for u in rows
+        if _sign(r["value"]) * _sign(u["value"]) < 0
+        and abs(abs(r["value"]) - abs(u["value"])) <= SIGN_FLIP_TOLERANCE * abs(u["value"])
+    }
+    if not flipped:
+        return set()
+    balance = sum(_sign(r["value"]) for r in rows)
+    wrong = -_sign(balance) if balance else -usual
+    if not wrong:
+        return set()
+    return {
+        r["accession_no"]
+        for r in rows
+        if r["accession_no"] in flipped and _sign(r["value"]) == wrong
+    }
+
+
+def _latest_of_best_tag(rows: list[sqlite3.Row], usual: int = 0) -> sqlite3.Row:
     """The newest version of the highest-priority tag that reports this period.
 
     Ranking the tag before the filing stops definition drift: later filings often repeat an old
     period under a broader or narrower tag (e.g. cash including restricted cash, on the cash-flow
     statement), which is a different measure, not a restatement. A restatement filed under a
-    higher-ranked tag still wins, because that tag is preferred.
+    higher-ranked tag still wins, because that tag is preferred. A version that is a sign-tagging
+    error (`_sign_flips`) is skipped, so the newest version with the right sign is used.
     """
-    best = min(r["priority"] for r in rows)
-    return max(
-        (r for r in rows if r["priority"] == best), key=lambda r: (r["filed_at"], r["accession_no"])
-    )
+    best = _best_tag_rows(rows)
+    flips = _sign_flips(best, usual)
+    return [r for r in best if r["accession_no"] not in flips][-1]
 
 
 def newest_filing_disagreements(
@@ -132,13 +202,34 @@ def newest_filing_disagreements(
     """
     pairs = []
     periods = _rows_by_period(conn, cik, canonical_names, as_of)
+    usual = _UsualSigns(periods)
     for key in sorted(periods):
         filings = periods[key]
         rows = [row for rows in filings.values() for row in rows]
-        selected = _latest_of_best_tag(rows)
+        selected = _latest_of_best_tag(rows, usual.of(key))
         newest = _best_in_filing(filings[_filing_order(filings)[-1]])
+        if newest["accession_no"] in _sign_flips(_best_tag_rows(rows), usual.of(key)):
+            continue  # a sign-tagging error, listed by `skipped_sign_flips`, not tag drift
         if newest["value"] != selected["value"]:
             pairs.append((_to_fact(selected, restated=False), _to_fact(newest, restated=False)))
+    return pairs
+
+
+def skipped_sign_flips(
+    conn: sqlite3.Connection, cik: str, canonical_names: list[str], as_of: date | str
+) -> list[tuple[Fact, Fact]]:
+    """Versions skipped as sign-tagging errors (backlog #280): (selected, skipped), one pair per
+    skipped filing, as known on `as_of`."""
+    pairs = []
+    periods = _rows_by_period(conn, cik, canonical_names, as_of)
+    usual = _UsualSigns(periods)
+    for key in sorted(periods):
+        rows = [row for rows in periods[key].values() for row in rows]
+        best = _best_tag_rows(rows)
+        flips = _sign_flips(best, usual.of(key))
+        if flips:
+            selected = _to_fact(_latest_of_best_tag(rows, usual.of(key)), restated=False)
+            pairs += [(selected, _to_fact(r, False)) for r in best if r["accession_no"] in flips]
     return pairs
 
 

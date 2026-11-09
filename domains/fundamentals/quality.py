@@ -20,6 +20,7 @@ from domains.fundamentals.facts import (
     MeaningChange,
     get_facts,
     newest_filing_disagreements,
+    skipped_sign_flips,
     tag_meaning_changes,
 )
 from domains.fundamentals.schemas import Fact
@@ -102,6 +103,8 @@ class QualityReport:
     gap_links: dict[tuple[str, int, str], str] = field(default_factory=dict)  # [inferred] gaps
     # (selected, newest filing's value) where they differ: the standing tag-change audit
     disagreements: list[tuple[Fact, Fact]] = field(default_factory=list)
+    # (selected, skipped) versions skipped as sign-tagging errors (backlog #280)
+    sign_flips: list[tuple[Fact, Fact]] = field(default_factory=list)
     # tags whose meaning changed in a later filing (backlog #295): flagged, values unchanged
     meaning_changes: list[MeaningChange] = field(default_factory=list)
 
@@ -148,6 +151,7 @@ class QualityReport:
             f"{len(self.inconsistencies)} (informational; see below)",
             f"- Periods where the newest filing disagrees with the selected value: "
             f"{len(self.disagreements)} (informational; see below)",
+            f"- Versions skipped as sign-tagging errors: {len(self.sign_flips)} (see below)",
             f"- Tags that changed meaning in a later filing: {len(self.meaning_changes)} "
             "(informational; see below)",
             "",
@@ -215,6 +219,20 @@ class QualityReport:
             "",
         ]
         lines += self._disagreement_lines() or ["None."]
+        lines += [
+            "",
+            "## Versions skipped as sign-tagging errors",
+            "",
+            "A filing's version of a period whose sign is flipped against another version of "
+            "nearly the same size, on the side fewer versions take (or, on a tie, against the "
+            "item's usual sign for the company). The newest version with the right sign is used.",
+            "",
+        ]
+        lines += [
+            f"- **{s.canonical_name}** {s.period_start} to {s.period_end}: used "
+            f"{_amount(s)} ({s.accession_no}), skipped {_amount(k)} ({k.accession_no})"
+            for s, k in self.sign_flips
+        ] or ["None."]
 
         lines += [
             "",
@@ -383,6 +401,8 @@ def build_report(
         for selected, newest in newest_filing_disagreements(conn, company["cik"], names, as_of)
         if selected.fiscal_year in years
     ]
+    # every year, not only the report's: the flips seen so far are all from 2008-2011
+    report.sign_flips = skipped_sign_flips(conn, company["cik"], names, as_of)
     report.meaning_changes = tag_meaning_changes(conn, company["cik"], names, as_of)
 
     run = conn.execute(
@@ -411,3 +431,10 @@ def _filing_link(conn: sqlite3.Connection, cik: str, fiscal_year: int, period: s
     if row is None:
         return None
     return f"{EDGAR_ARCHIVES}/{int(cik)}/{row[0].replace('-', '')}/"
+
+
+def _amount(fact: Fact) -> str:
+    """A fact's value for the report: millions for money, as is for shares or per-share units."""
+    if fact.unit == "USD":
+        return f"{fact.value / 1e6:,.0f}M"
+    return f"{fact.value:,g} {fact.unit}"
