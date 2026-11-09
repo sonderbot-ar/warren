@@ -4,13 +4,17 @@ from datetime import date
 import pytest
 
 from domains.analysis import dcf
+from domains.analysis.coded import RUN_NOTE_CODES
 from domains.analysis.math_engine import (
     EngineError,
+    basis_kind,
     build_inputs,
     fallback_backtest,
     load_user_assumptions,
     post_checks,
+    two_bases,
 )
+from domains.fundamentals.schemas import Fact
 from domains.market.erp import equity_risk_premium
 from tests.analysis.conftest import AS_OF, CHOICES, revenue
 
@@ -373,3 +377,140 @@ def test_a_fourth_quarter_is_built_on_one_basis(make_company):
         assert row.value == pytest.approx(0.8 * revenue(2018, quarter))
         assert "one basis" not in row.method
         assert not result.sources[("history:revenue", f"FY2018Q{quarter}")][0]["one_basis"]
+
+
+# -- backlog #279: a margin quarter or a seed year on two bases -------------------------------
+
+
+def fact(**flags):
+    return Fact(
+        canonical_name="revenue",
+        xbrl_concept="us-gaap:Revenues",
+        period_end=date(2018, 12, 31),
+        value=1.0,
+        unit="USD",
+        filed_at=date(2019, 2, 15),
+        **flags,
+    )
+
+
+@pytest.mark.parametrize(
+    ("flags", "kind"),
+    [
+        ({}, "unchanged"),
+        ({"restated": True}, "restated"),
+        ({"one_basis": True}, "first_filed"),
+        ({"one_basis": True, "restated": True, "mixed_vintage": True}, "restated"),  # rule 2
+        ({"restated": True, "mixed_vintage": True}, "no_basis"),
+    ],
+)
+def test_each_basis_kind(flags, kind):
+    assert basis_kind(fact(**flags)) == kind
+
+
+def test_two_bases_needs_first_filed_beside_restated_or_no_basis():
+    assert two_bases(["first_filed", "restated"])
+    assert two_bases(["no_basis"])
+    assert two_bases(["unchanged", "no_basis"])
+    # an item never restated is the same on every basis: it splits nothing
+    assert not two_bases(["first_filed", "unchanged"])
+    assert not two_bases(["restated", "unchanged"])
+    assert not two_bases(["first_filed", "first_filed"])
+
+
+def insert_year(conn, tag, value, filed, accn="0000000123-19-000999"):
+    """A later filing (an amended 10-K) giving FY2018 on the new basis."""
+    conn.execute(
+        "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, fiscal_year, "
+        "fiscal_period, value, unit, form, accession_no, filed_at) VALUES ('0000000123', ?, "
+        "'2018-01-01', '2018-12-31', 2018, 'FY', ?, 'USD', '10-K/A', ?, ?)",
+        (f"us-gaap:{tag}", value, accn, filed),
+    )
+
+
+def recast_revenue_and_operating_income(tag, row):
+    if tag in ("Revenues", "OperatingIncomeLoss"):
+        return recast_2018_quarters("Revenues", row)
+    return row
+
+
+AS_OF_RECAST = date(2019, 12, 31)  # after the Q3 2019 10-Q, before the FY2019 10-K
+
+
+def test_a_margin_quarter_on_two_bases_is_marked_and_noted(make_company):
+    """Revenue and operating income are both recast in the 2019 10-Qs, but only operating
+    income's year is given again on the new basis (an amended 10-K): Q4 revenue goes back to first
+    reported, Q4 operating income moves to the recast basis (#264 rule 2). Their margin divides
+    figures on two bases: noted, no value changed."""
+    conn = make_company(recast_revenue_and_operating_income)
+    year = 0.2 * sum(revenue(2018, q) for q in (1, 2, 3, 4))
+    insert_year(conn, "OperatingIncomeLoss", 0.8 * year, "2019-11-15")
+    result = build_inputs(conn, "TST", AS_OF_RECAST, choices=CHOICES, today=AS_OF)
+    rows = by_key(result)
+    assert rows[("history:revenue", "FY2018Q4")].value == pytest.approx(revenue(2018, 4))
+    assert rows[("history:ebit", "FY2018Q4")].value == pytest.approx(0.8 * 0.2 * revenue(2018, 4))
+    margin = rows[("operating_margin", "FY2020Q4")]
+    assert "FY2018Q4 (two bases)" in margin.method
+    (note,) = [n for n in result.notes if n.code == "margin_quarter_two_bases"]
+    assert note.params == {
+        "period": "FY2018Q4",
+        "first_filed": ["revenue"],
+        "restated": ["operating_income"],
+        "no_basis": [],
+    }
+    assert note.text == (
+        "FY2018Q4's operating margin divides figures that are not on one basis: revenue as "
+        "first reported; operating income as recast. It is one of the 12 quarters the quarterly "
+        "margins average."
+    )
+    assert note.code in RUN_NOTE_CODES
+    # the margin is still the average of the history rows' own ratios
+    q4 = [rows[(n, f"FY{y}Q4")].value for y in (2016, 2017, 2018) for n in ("history:ebit",)]
+    r4 = [rows[("history:revenue", f"FY{y}Q4")].value for y in (2016, 2017, 2018)]
+    assert margin.value == pytest.approx(sum(e / r for e, r in zip(q4, r4, strict=True)) / 3)
+
+
+def test_a_margin_quarter_put_on_one_basis_is_marked_without_a_note(make_company):
+    conn = make_company(recast_2018_quarters)  # revenue recast alone: EBIT unchanged
+    result = build_inputs(conn, "TST", AS_OF_RECAST, choices=CHOICES, today=AS_OF)
+    margin = by_key(result)[("operating_margin", "FY2020Q4")]
+    assert "FY2018Q4 (one basis)" in margin.method
+    assert "FY2018Q3 (" not in margin.method
+    assert not [n for n in result.notes if n.code == "margin_quarter_two_bases"]
+
+
+def test_a_seed_year_on_two_bases_says_so(make_company):
+    """The #264 fixture on 2019-12-31: FY2018's Q1-Q3 recast in the 2019 10-Qs, Q4 back to as
+    first reported. The seed (FY2018Q4, FY2019Q1-Q3) reads FY2018's four quarters, so its rows
+    and one note say the year is on two bases; the seed's rule and values are unchanged."""
+    conn = make_company(recast_2018_quarters)
+    result = build_inputs(conn, "TST", AS_OF_RECAST, choices=CHOICES, today=AS_OF)
+    rows = by_key(result)
+    (note,) = [n for n in result.notes if n.code == "seed_year_two_bases"]
+    assert note.params == {
+        "fiscal_year": 2018,
+        "first_filed": ["Q4"],
+        "restated": ["Q1", "Q2", "Q3"],
+        "no_basis": [],
+        "year_times_share": True,
+    }
+    assert note.text == (
+        "FY2018's revenue quarters are not on one basis: Q4 as first reported; Q1, Q2, Q3 as "
+        "recast. The forecast grows from these quarters, and because they don't add up to the "
+        "year it splits the year by their shares, so the mix also sets those shares."
+    )
+    seed = rows[(dcf.SEED, "FY2018Q4")]
+    assert seed.method.startswith("FY2018's quarters are not on one basis (Q4 as first reported;")
+    # the rule is unchanged: the year times Q4's share of the four quarters
+    year = sum(revenue(2018, q) for q in (1, 2, 3, 4))
+    quarters = 0.8 * sum(revenue(2018, q) for q in (1, 2, 3)) + revenue(2018, 4)
+    assert seed.value == pytest.approx(year * revenue(2018, 4) / quarters)
+    for quarter in (1, 2, 3):  # FY2019's quarters are all as first reported
+        assert "not on one basis" not in rows[(dcf.SEED, f"FY2019Q{quarter}")].method
+
+
+def test_years_on_one_basis_get_no_seed_note(company):
+    result = build(company)
+    assert not [n for n in result.notes if n.code in ("seed_year_two_bases",)]
+    assert not [n for n in result.notes if n.code == "margin_quarter_two_bases"]
+    assert "basis" not in by_key(result)[("operating_margin", "FY2020Q2")].method

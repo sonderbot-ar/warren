@@ -31,6 +31,8 @@ RUN_NOTE_CODES = frozenset(
         "cost_of_debt_out_of_bounds",
         "tax_rate_clipped",
         "margin_outside_history",
+        "margin_quarter_two_bases",
+        "seed_year_two_bases",
         "thin_terminal_spread",
         "thin_terminal_spread_at_erp_bound",
         "no_value_per_share",
