@@ -11,7 +11,7 @@ selected for that as-of date, so a derived value is never built from a number no
 
 import sqlite3
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Literal
 
@@ -295,12 +295,14 @@ class _Basis:
 
     versions: dict[tuple, list[Fact]]  # (item, start, end) -> each filing's best tag, oldest first
     first: dict[str, Fact]  # this item-year's quarters as first reported, by fiscal period
+    # (item, start, end) -> each filing's value under every tag it used, oldest filing first
+    tagged: dict[tuple, list[dict[str, Fact]]] = field(default_factory=dict)
 
     def place(self, derived: Fact, minuend: Fact, subtrahends: list[Fact]) -> Fact:
         if not derived.restated:
             return derived
         newest = max(self._vintage(f) for f in subtrahends)
-        versions = self._of(minuend)
+        versions = self._paired_tag(minuend, subtrahends)
         # a version of the opposite sign to the newest is a tagging error a later filing
         # corrected (WMT's FY2009 and FY2010 tax, negative in one 10-K), not a basis: skipped
         later = [v for v in versions if v.filed_at >= newest and v.value * minuend.value >= 0]
@@ -318,6 +320,23 @@ class _Basis:
 
     def _of(self, fact: Fact) -> list[Fact]:
         return self.versions.get((fact.canonical_name, fact.period_start, fact.period_end), [])
+
+    def _paired_tag(self, minuend: Fact, subtrahends: list[Fact]) -> list[Fact]:
+        """Each filing's version of the minuend, under the tag the subtracted periods use when
+        that filing gives it (backlog #290): a filing whose best tag differs from the nine
+        months' tag is a change of tag, not of basis. Apple's 2017 10-K gives FY2017 D&A as
+        10,157 (the cash-flow tag the 10-Qs use) and 8,200 (a tag ranked higher, depreciation
+        alone); the year less the nine months is 2,484, not 527."""
+        tags = {f.xbrl_concept for f in subtrahends if not f.derived}
+        best = self._of(minuend)
+        if len(tags) != 1 or any(f.derived for f in subtrahends):
+            return best
+        (tag,) = tags
+        key = (minuend.canonical_name, minuend.period_start, minuend.period_end)
+        by_filing = self.tagged.get(key, [])
+        if len(by_filing) != len(best):
+            return best
+        return [rows.get(tag, b) for rows, b in zip(by_filing, best, strict=True)]
 
     def _vintage(self, fact: Fact) -> date:
         """When a subtracted input's value was first filed: a later 10-Q that only repeats last
@@ -339,11 +358,27 @@ def _versions(periods: dict[tuple, dict[str, list[sqlite3.Row]]]) -> dict[tuple,
     return out
 
 
+def _tagged(periods: dict[tuple, dict[str, list[sqlite3.Row]]]) -> dict[tuple, list[dict]]:
+    """Every filing's value of each duration period under each tag it used, oldest filing first
+    (backlog #290), keyed as `_versions`."""
+    out = {}
+    for (_name, start, _end), filings in periods.items():
+        if start:
+            by_filing = [
+                {r["xbrl_concept"]: _to_fact(r, False) for r in filings[a]}
+                for a in _filing_order(filings)
+            ]
+            fact = next(iter(by_filing[0].values()))
+            out[(fact.canonical_name, fact.period_start, fact.period_end)] = by_filing
+    return out
+
+
 def _quarterly(
     facts: list[Fact],
     earliest: bool = False,
     first_reported: list[Fact] | None = None,
     versions: dict[tuple, list[Fact]] | None = None,
+    tagged: dict[tuple, list[dict[str, Fact]]] | None = None,
 ) -> list[Fact]:
     """Standalone quarters. With `first_reported` (the same query's facts as first reported) and
     `versions`, a derived quarter is put on one basis (`_Basis`)."""
@@ -353,7 +388,7 @@ def _quarterly(
         basis = None
         if first_years is not None:
             first = {q.fiscal_period: q for q in _quarters_for_flow(first_years.get(key, {}))}
-            basis = _Basis(versions or {}, first)
+            basis = _Basis(versions or {}, first, tagged or {})
         quarters.extend(_quarters_for_flow(year, earliest, basis))
     return sorted(quarters, key=lambda f: (f.canonical_name, f.period_end))
 
@@ -391,5 +426,7 @@ def get_facts(
         if not one_basis:
             return _quarterly(facts, earliest=mode == "first_reported")
         first = _facts(periods, "first_reported")
-        return _quarterly(facts, first_reported=first, versions=_versions(periods))
+        return _quarterly(
+            facts, first_reported=first, versions=_versions(periods), tagged=_tagged(periods)
+        )
     raise ValueError(f"Unknown frequency: {frequency!r}")
