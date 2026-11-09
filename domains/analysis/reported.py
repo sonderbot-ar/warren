@@ -30,7 +30,13 @@ from datetime import date
 from domains.analysis import financial_math as fm
 from domains.analysis.coded import Coded, coded_warnings, pass_on
 from domains.analysis.math_engine import CASH_ITEMS, CHAINS, History, basis_kind, debt_parts
-from domains.fundamentals.facts import get_facts, newest_filing_disagreements
+from domains.fundamentals.facts import (
+    MeaningChange,
+    get_facts,
+    meaning_of,
+    newest_filing_disagreements,
+    tag_meaning_changes,
+)
 from domains.fundamentals.schemas import Fact
 from domains.fundamentals.universe import PHASE1_UNIVERSE
 
@@ -405,6 +411,7 @@ def reported_period(
         filings = _Filings(conn, cik)
         lines = _lines(views, resolved, filings)
         disagreements = _disagreements(conn, cik, lines, as_of, filings)
+        changes = tag_meaning_changes(conn, cik, ["revenue"], as_of)
     prior = resolved.year_earlier()
     prior_revenue = _getter(views, prior)("revenue")
     prior_key = _key(prior_revenue, quarterly) if prior_revenue else None
@@ -429,7 +436,7 @@ def reported_period(
         as_of=as_of,
         lines=lines,
         prior_lines=prior_lines,
-        ratios=_ratios(views, resolved, lines, prior_lines),
+        ratios=_ratios(views, resolved, lines, prior_lines, changes),
         disagreements=disagreements,
         as_reported_note=Coded(AS_REPORTED["code"], {}, AS_REPORTED["text"]),
         warnings=_coded_warnings(caught, universe),
@@ -539,7 +546,13 @@ QUARTERLY_TAX_NOTE = Coded(
 )
 
 
-def _ratios(views: _Views, period: Period, lines: list[Line], prior_lines: list[Line]):
+def _ratios(
+    views: _Views,
+    period: Period,
+    lines: list[Line],
+    prior_lines: list[Line],
+    changes: list[MeaningChange] = (),
+):
     get = _getter(views, period)
     revenue = get("revenue")
     out = []
@@ -586,7 +599,7 @@ def _ratios(views: _Views, period: Period, lines: list[Line], prior_lines: list[
             )
         )
 
-    out.append(_growth(views, period, revenue, lines, prior_lines))
+    out.append(_growth(views, period, revenue, lines, prior_lines, changes))
 
     for chain, name, words in (("capex", "capex_share", "capex"), ("d_and_a", "da_share", "D&A")):
         facts, i, missing = _chain(chain, get)
@@ -635,7 +648,7 @@ def _net_margin(get, revenue: Fact, period: Period, lines: list[Line]) -> Ratio:
     )
 
 
-def _growth(views, period, revenue, lines, prior_lines) -> Ratio:
+def _growth(views, period, revenue, lines, prior_lines, changes=()) -> Ratio:
     prior_period = period.year_earlier()
     formula = f"revenue {period.label} ÷ revenue {prior_period.label} − 1"
     fid = "revenue_yoy"
@@ -690,8 +703,39 @@ def _growth(views, period, revenue, lines, prior_lines) -> Ratio:
             )
         )
     notes += _one_basis_note([x for x in [*lines, *prior_lines] if x.name == "revenue"])
+    notes += _meaning_note(revenue, prior, period, prior_period, changes)
     value = fm.growth(revenue.value, prior.value)
     return Ratio("revenue_growth_yoy", fid, formula, value, "fraction", uses, None, notes)
+
+
+def _meaning_note(revenue, prior, period, prior_period, changes) -> list[Coded]:
+    """Growth across a tag that changed meaning (backlog #295): one period's revenue carries the
+    tag's new meaning, the other its old one, so the two are not like for like."""
+    new, old = meaning_of(revenue, changes), meaning_of(prior, changes)
+    if (new is None) == (old is None):
+        return []
+    change = new or old
+    newer, older = (period, prior_period) if new else (prior_period, period)
+    return [
+        Coded(
+            "tag_changed_meaning",
+            {
+                "item": "revenue",
+                "tag": change.xbrl_concept,
+                "other_tag": change.other_concept,
+                "changed_on": change.filed_at.isoformat(),
+                "form": change.form,
+                "accession_no": change.accession_no,
+                "new_meaning": newer.label,
+                "old_meaning": older.label,
+            },
+            f"revenue for {newer.label} is {change.xbrl_concept} with the meaning the "
+            f"{change.form} filed {change.filed_at.isoformat()} gave it; {older.label} has its "
+            "earlier meaning, "
+            f"whose figures are still filed under {change.other_concept}. The two measure "
+            "different lines: not like for like",
+        )
+    ]
 
 
 def _q(line: Line) -> str:
