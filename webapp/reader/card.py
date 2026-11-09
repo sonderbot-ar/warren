@@ -134,7 +134,8 @@ def _words(text: str) -> list[str]:
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
 _RANGE_WORDS = ("entre", "between")
 _DASH_RANGE = re.compile(r"\d\s*[-–—]\s*\d")
-_NEGATIVE = re.compile(r"(?:^|\s)[-−]\s*\d|\(\s*\d[^)]*\)")
+# a minus as typed, or as Word and macOS turn it into an en or em dash
+_NEGATIVE = re.compile(r"(?:^|\s)[-−–—]\s*\d|\(\s*\d[^)]*\)")
 
 # Number words the reader's sets use, read only when the span has no digits. More than one
 # (other than an article before a fraction, "un cuarto", "half a point") is unreadable, so
@@ -154,8 +155,10 @@ _MULTIPLES = {
 }  # fmt: skip
 _SCALE_WORDS = {
     "millon": 6, "millones": 6, "million": 6, "millions": 6, "mm": 6, "m": 6,
-    "billion": 9, "billions": 9, "bn": 9, "b": 9,
+    "billion": 9, "billions": 9, "bn": 9, "b": 9, "millardo": 9, "millardos": 9,
 }  # fmt: skip
+# "billón" is 10^12 in Spanish but often an anglicism for 10^9: always asked
+_BILLON = {"billon", "billones"}
 _BP_WORDS = {"pb", "pbs", "bp", "bps"}
 _POINT_WORDS = {"punto", "puntos", "point", "points", "pp", "porcentual", "porcentuales"}
 _PERCENT_WORDS = {"ciento", "percent", "pct"}
@@ -214,7 +217,7 @@ def _unit(folded: str, words: set[str]) -> str | None:
     return None
 
 
-def parse_value(text: str, region: Region = DEFAULT_REGION) -> Value:
+def parse_value(text: str, region: Region = DEFAULT_REGION, rate_like: bool = False) -> Value:
     """The number and unit in a span the reader copied from the question. Raises `Unreadable`
     with the card's ask: `value_range`, `value_currency`, `value_ambiguous` or
     `value_unreadable`. A leading minus or parentheses make the amount negative."""
@@ -234,7 +237,8 @@ def parse_value(text: str, region: Region = DEFAULT_REGION) -> Value:
     unit = _unit(folded, words)
     numbers = _NUMBER.findall(folded)
     if numbers:
-        amount = _read_number(numbers[0], region, count=unit is None)
+        # beta reads like a rate: "1,250" is never a thousand-odd beta
+        amount = _read_number(numbers[0], region, count=unit is None and not rate_like)
     else:
         at = [i for i, w in enumerate(word_list) if w in _NUMBER_WORDS]
         found = [word_list[i] for i in at]
@@ -254,9 +258,11 @@ def parse_value(text: str, region: Region = DEFAULT_REGION) -> Value:
 
     if unit is not None:
         return Value(amount, unit, text)
+    if words & _BILLON:
+        raise Unreadable("value_ambiguous", text, readings=(amount.scaleb(9), amount.scaleb(12)))
     scale = next((_SCALE_WORDS[w] for w in word_list if w in _SCALE_WORDS), None)
-    if "mil" in words and scale == 6:  # "mil millones" is a billion
-        scale = 9
+    if "mil" in words:  # "mil millones" is a billion; "500 mil" alone is thousands
+        scale = 9 if scale == 6 else 3 if scale is None else scale
     if scale is not None:
         amount = amount.scaleb(scale)
     if "$" in text or words & _DOLLAR_WORDS:
@@ -335,7 +341,7 @@ def card_for(
                 per_input.append(Item("value_missing", {"input": item.name}))
         else:
             try:
-                value = parse_value(item.value_text, region)
+                value = parse_value(item.value_text, region, rate_like=item.name == "beta")
             except Unreadable as error:
                 params = {"input": item.name, "text": item.value_text}
                 if error.code == "value_ambiguous":

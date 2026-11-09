@@ -529,3 +529,34 @@ def test_haikus_seven_confident_errors_on_the_fresh_exam():
             v is None
             for v in card_for(Reading.from_dict(answers[row_id]), texts[row_id], day, MX).values
         )
+
+
+# --- the gatekeeper's cases (nov.09.2026) --------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "text, amount",
+    [("US$ 500 mil", "500E3"), ("500 mil dólares", "500E3"), ("US$ 2 millardos", "2E9")],
+)
+def test_mil_alone_is_thousands_and_millardos_billions(text, amount):
+    value = parse_value(text, AR)
+    assert (value.amount, value.unit) == (Decimal(amount), "money")
+
+
+def test_billones_is_asked_never_left_unscaled():
+    with pytest.raises(Unreadable) as error:
+        parse_value("US$ 2 billones", MX)
+    assert error.value.code == "value_ambiguous"
+    assert error.value.params["readings"] == (Decimal("2E9"), Decimal("2E12"))
+
+
+@pytest.mark.parametrize("text", ["–1%", "—1%", "– 1%"])
+def test_an_en_or_em_dash_is_a_minus(text):
+    assert parse_value(text, MX).amount == Decimal(-1)
+
+
+def test_three_decimals_on_beta_are_asked():
+    card = _cambio(
+        "¿y si la beta de Apple es 1,250?", NamedInput("beta", "set", None, "1,250"), company="AAPL"
+    )
+    assert _codes(card.asks) == ["value_ambiguous"]
