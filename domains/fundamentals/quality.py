@@ -15,7 +15,13 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 from domains.fundamentals.concepts import concept_map_sha256, load_concept_map
-from domains.fundamentals.facts import DERIVABLE_UNITS, get_facts, newest_filing_disagreements
+from domains.fundamentals.facts import (
+    DERIVABLE_UNITS,
+    MeaningChange,
+    get_facts,
+    newest_filing_disagreements,
+    tag_meaning_changes,
+)
 from domains.fundamentals.schemas import Fact
 from domains.fundamentals.universe import FISCAL_YEARS
 from shared_kernel.calendar import last_ended_day
@@ -96,6 +102,8 @@ class QualityReport:
     gap_links: dict[tuple[str, int, str], str] = field(default_factory=dict)  # [inferred] gaps
     # (selected, newest filing's value) where they differ: the standing tag-change audit
     disagreements: list[tuple[Fact, Fact]] = field(default_factory=list)
+    # tags whose meaning changed in a later filing (backlog #295): flagged, values unchanged
+    meaning_changes: list[MeaningChange] = field(default_factory=list)
 
     @property
     def unexplained(self) -> list[Gap]:
@@ -140,6 +148,8 @@ class QualityReport:
             f"{len(self.inconsistencies)} (informational; see below)",
             f"- Periods where the newest filing disagrees with the selected value: "
             f"{len(self.disagreements)} (informational; see below)",
+            f"- Tags that changed meaning in a later filing: {len(self.meaning_changes)} "
+            "(informational; see below)",
             "",
             "## Coverage",
             "",
@@ -205,6 +215,31 @@ class QualityReport:
             "",
         ]
         lines += self._disagreement_lines() or ["None."]
+
+        lines += [
+            "",
+            "## Tags that changed meaning",
+            "",
+            "A filing gives a tag a new value for periods filed before, and repeats the old value "
+            "under another tag of the same item: the line was redefined, not restated. Values are "
+            "kept as the selection rule gives them; growth across the change compares two "
+            "meanings (the reported view says so).",
+            "",
+        ]
+        for m in self.meaning_changes:
+            examples = ", ".join(
+                f"{end} {old / 1e6:,.0f}M to {new / 1e6:,.0f}M"
+                for _start, end, old, new in m.periods[:AUDIT_EXAMPLES]
+            )
+            more = len(m.periods) - AUDIT_EXAMPLES
+            lines.append(
+                f"- **{m.canonical_name}**: {m.xbrl_concept.split(':', 1)[1]} from the {m.form} "
+                f"filed {m.filed_at} ({m.accession_no}); old values under "
+                f"{m.other_concept.split(':', 1)[1]}; {len(m.periods)} periods: {examples}"
+                + (f", +{more} more" if more > 0 else "")
+            )
+        if not self.meaning_changes:
+            lines.append("None.")
         return "\n".join(lines) + "\n"
 
     def _disagreement_lines(self) -> list[str]:
@@ -348,6 +383,7 @@ def build_report(
         for selected, newest in newest_filing_disagreements(conn, company["cik"], names, as_of)
         if selected.fiscal_year in years
     ]
+    report.meaning_changes = tag_meaning_changes(conn, company["cik"], names, as_of)
 
     run = conn.execute(
         "SELECT * FROM ingest_runs WHERE cik = ? ORDER BY run_id DESC LIMIT 1", (company["cik"],)

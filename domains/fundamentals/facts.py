@@ -142,6 +142,104 @@ def newest_filing_disagreements(
     return pairs
 
 
+# A change of meaning shows on at least this many periods: a filing that redefines a line recasts
+# every comparative it shows (a 10-K's two or three years, a 10-Q's quarter and year to date),
+# while one recast period alone is more often a restatement (JNJ's cash at 2023-01-01, cut for
+# Kenvue in the 2023-10-27 10-Q, kept whole only under the restricted-cash tag). Backlog #295.
+MEANING_CHANGE_MIN_PERIODS = 2
+MEANING_CHANGE_MOVE = 0.005  # the tag's value moves by more than this share of its old value
+MEANING_CHANGE_MATCH = 0.001  # and another tag in the same filing holds the old value within this
+
+
+@dataclass(frozen=True)
+class MeaningChange:
+    """A tag that changed meaning for one company (backlog #295): from `filed_at`, filings give
+    the tag a new value for periods filed before, while repeating the old value under
+    `other_concept`. Exxon's `Revenues` moved from sales (FY2018 279,332) to total revenues and
+    other income (290,212) in its 2019-11-06 10-Q and 2020-02-26 10-K; `RevenueFromContract...`
+    still holds 279,332. Not a restatement: the old figure is still reported, under another tag.
+    """
+
+    canonical_name: str
+    xbrl_concept: str
+    other_concept: str
+    accession_no: str  # the first filing that shows it
+    form: str
+    filed_at: date
+    periods: list[tuple[date | None, date, float, float]]  # (start, end, old, new), by end
+
+
+def tag_meaning_changes(
+    conn: sqlite3.Connection, cik: str, canonical_names: list[str], as_of: date | str
+) -> list[MeaningChange]:
+    """Each (item, tag) whose meaning changed in filings public on `as_of`, by item.
+
+    A period's version under the filing's best tag moves by more than `MEANING_CHANGE_MOVE` from
+    the same tag's previous version, and the same filing gives another tag of the item the
+    previous value (within `MEANING_CHANGE_MATCH`). Counted when `MEANING_CHANGE_MIN_PERIODS`
+    periods show it; dated by the first filing that does. Values are not changed (a note only).
+    """
+    found: dict[tuple[str, str, str], list[tuple[sqlite3.Row, float]]] = defaultdict(list)
+    for (name, _start, _end), filings in sorted(
+        _rows_by_period(conn, cik, canonical_names, as_of).items()
+    ):
+        previous: dict[str, float] = {}
+        for accn in _filing_order(filings):
+            rows = filings[accn]
+            best = _best_in_filing(rows)
+            tag, old = best["xbrl_concept"], previous.get(best["xbrl_concept"])
+            if old and abs(best["value"] / old - 1) > MEANING_CHANGE_MOVE:
+                for row in rows:
+                    if row is not best and abs(row["value"] / old - 1) <= MEANING_CHANGE_MATCH:
+                        found[(name, tag, row["xbrl_concept"])].append((best, old))
+                        break
+            previous.update({r["xbrl_concept"]: r["value"] for r in rows})
+    out = []
+    for (name, tag, other), hits in sorted(found.items()):
+        if len(hits) < MEANING_CHANGE_MIN_PERIODS:
+            continue
+        first = min((row for row, _ in hits), key=lambda r: (r["filed_at"], r["accession_no"]))
+        periods = sorted(
+            (
+                (
+                    date.fromisoformat(r["period_start"]) if r["period_start"] else None,
+                    date.fromisoformat(r["period_end"]),
+                    old,
+                    r["value"],
+                )
+                for r, old in hits
+            ),
+            key=lambda p: (p[1], p[0] or p[1]),
+        )
+        out.append(
+            MeaningChange(
+                name,
+                tag,
+                other,
+                first["accession_no"],
+                first["form"],
+                date.fromisoformat(first["filed_at"]),
+                periods,
+            )
+        )
+    return out
+
+
+def meaning_of(fact: Fact, changes: list[MeaningChange]) -> MeaningChange | None:
+    """The change whose new meaning `fact` carries: same item, its tag (a derived quarter's tags
+    include it) and its newest input filed on or after the change. None: the old meaning, or
+    a tag that never changed."""
+    tags = set(fact.xbrl_concept.split(" − "))
+    for change in changes:
+        if (
+            change.canonical_name == fact.canonical_name
+            and change.xbrl_concept in tags
+            and fact.filed_at >= change.filed_at
+        ):
+            return change
+    return None
+
+
 @dataclass(frozen=True)
 class AnnualComparison:
     """A 10-K's current fiscal year against the prior year, both as reported in that filing."""
