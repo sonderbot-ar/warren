@@ -837,3 +837,15 @@ def test_fiscal_year_history_rows_are_not_seasonal_quarters(company):
     hist_rows(company, "TST_2021-02-01_1", {"FY2019": (500.0, 50.0)})
     d = tr(company).rows[0].items["revenue"].drift
     assert d.n_changes == 8 and d.step == pytest.approx(20.0)
+
+
+def test_the_call_checks_the_basis_and_leaves_out_the_mixed_change(company, monkeypatch):
+    values = grower(company, date(2021, 2, 1), "FY2021Q1")
+    # the filing that first reported FY2020Q3 gave FY2019Q3 another value than the run's
+    first = {("revenue", 2020, "Q3"): (values["FY2020Q3"][0], date(2020, 11, 1))}
+    by_date = {date(2020, 11, 1): {("revenue", 2019, "Q3"): (1.0, date(2020, 11, 1))}}
+    monkeypatch.setattr(T, "FactReads", lambda conn: FakeReads(first, by_date))
+    monkeypatch.setattr(RN, "basis_flags", lambda conn, ticker, on: set())
+    d = tr(company, check_basis=True).rows[0].items["revenue"].drift
+    assert d.basis_checked is True and d.left_out == ["FY2020Q3"]
+    assert d.n_changes == 7 and d.step == pytest.approx(20.0)
