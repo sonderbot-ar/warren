@@ -1,6 +1,6 @@
 # Backlog #290: the reported view shows a quarter on one basis, as a run reads it
 
-Issue: https://github.com/sonderbot-ar/warren/issues/290 · Branch `backlog-290-one-basis-reported` · Status: built, in review (nov.09.2026).
+Issue: https://github.com/sonderbot-ar/warren/issues/290 · Branch `backlog-290-one-basis-reported` · Status: merged as v0.9.45 (nov.09.2026; PR #294, merge `cbec48d`).
 
 ## Problem
 
