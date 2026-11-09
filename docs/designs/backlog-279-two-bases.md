@@ -1,6 +1,6 @@
 # Backlog #279: say when a margin quarter or a seed year sits on two bases
 
-Issue: https://github.com/sonderbot-ar/warren/issues/279 · Branch `backlog-279-one-basis-follow-ups` · Status: built, in review (nov.09.2026).
+Issue: https://github.com/sonderbot-ar/warren/issues/279 · Branch `backlog-279-one-basis-follow-ups` · Version v0.9.44, merged nov.09.2026 (PR #291, merge `b876e80`; gatekeeper GO).
 
 ## Problem
 
