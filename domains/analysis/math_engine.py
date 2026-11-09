@@ -210,7 +210,10 @@ def basis_kind(fact: Fact) -> str:
     - `restated`: on a newer basis than first filed (a restated reported quarter, a derivation
       from restated inputs only, or #264 rule 2);
     - `no_basis`: derived from restated and unrestated inputs and left so;
-    - `unchanged`: never restated, the same on every basis the filings show.
+    - `unchanged`: not refiled, no second version public by the as-of date; it may still be on
+      the old basis (analyst, #279 review).
+
+    `restated` is Warren's name (`Fact.restated`); text a student reads says "recast".
     """
     if fact.one_basis:
         return "restated" if fact.restated else "first_filed"
@@ -220,8 +223,9 @@ def basis_kind(fact: Fact) -> str:
 
 
 def two_bases(kinds: Iterable[str]) -> bool:
-    """Facts sit on two bases when one was kept as first filed while another is restated, or one
-    is on no basis; `unchanged` fits either (backlog #279)."""
+    """Facts sit on two bases when one was kept as first reported while another is recast, or one
+    is on no basis (backlog #279). `unchanged` alone never makes a split: no filing public by the
+    as-of date says which basis it is on, so a note lists it apart as `not_refiled`."""
     kinds = set(kinds)
     return {"first_filed", "restated"} <= kinds or "no_basis" in kinds
 
