@@ -357,3 +357,128 @@ def test_a_line_used_twice_is_listed_once(company):
     assert _uses([fact, fact], Period(2019, "FY")) == [
         {"line": "income_tax_expense", "period": "FY2019"}
     ]
+
+
+# -- backlog #290: a quarter on one basis, as a run reads it ----------------------------------
+
+
+def test_a_quarter_put_on_one_basis_shows_the_plain_derivation_beside(make_company):
+    """The #264 fixture: the 2019 10-Qs recast 2018's quarters 20% lower, the FY2018 10-K is the
+    only year. As of 2019-12-31 the reported view shows FY2018Q4 as a run reads it, the year less
+    the quarters as first reported, and the plain derivation (old year less recast quarters)
+    beside it with a coded reason."""
+    from domains.analysis.math_engine import build_inputs
+    from tests.analysis.test_math_engine import CHOICES, by_key, recast_2018_quarters
+
+    conn = make_company(recast_2018_quarters)
+    as_of = date(2019, 12, 31)
+    r = reported_period(conn, "TST", "FY2018Q4", as_of)
+    rev = r.line("revenue")
+    plain = sum(revenue(2018, q) for q in (1, 2, 3, 4)) - 0.8 * sum(
+        revenue(2018, q) for q in (1, 2, 3)
+    )
+    assert rev.value == pytest.approx(revenue(2018, 4))
+    assert rev.one_basis
+    assert rev.plain.value == pytest.approx(plain)
+    assert rev.basis_note.code == "one_basis"
+    assert rev.basis_note.params == {
+        "item": "revenue",
+        "period": "FY2018Q4",
+        "value": rev.value,
+        "plain_value": rev.plain.value,
+        "basis": "first_filed",
+    }
+    # the figure a run reads for the same quarter on the same date
+    run = build_inputs(conn, "TST", as_of, choices=CHOICES, today=AS_OF)
+    assert by_key(run)[("history:revenue", "FY2018Q4")].value == pytest.approx(rev.value)
+    # ratios use it and say so; a line not put on one basis has no plain value
+    for name in ("operating_margin", "revenue_growth_yoy"):
+        notes = {n.code: n.params for n in r.ratio(name).notes}
+        assert notes["uses_one_basis_line"] == {"items": ["revenue"], "periods": ["FY2018Q4"]}
+    ebit = r.line("operating_income")
+    assert (ebit.one_basis, ebit.plain, ebit.basis_note) == (False, None, None)
+
+
+def test_a_reported_quarter_and_a_year_are_never_put_on_one_basis(make_company):
+    from tests.analysis.test_math_engine import recast_2018_quarters
+
+    conn = make_company(recast_2018_quarters)
+    as_of = date(2019, 12, 31)
+    q1 = reported_period(conn, "TST", "FY2018Q1", as_of).line("revenue")
+    assert (q1.one_basis, q1.plain, q1.changed) == (False, None, True)  # recast, as reported
+    year = reported_period(conn, "TST", "FY2018", as_of).line("revenue")
+    assert (year.one_basis, year.plain) == (False, None)
+    margin = reported_period(conn, "TST", "FY2018", as_of).ratio("operating_margin")
+    assert "uses_one_basis_line" not in {n.code for n in margin.notes}
+
+
+def test_the_terminal_and_json_show_the_plain_derivation(make_company):
+    from tests.analysis.test_math_engine import recast_2018_quarters
+
+    conn = make_company(recast_2018_quarters)
+    r = reported_period(conn, "TST", "FY2018Q4", date(2019, 12, 31))
+    text = cli.render_reported(r)
+    assert "on one basis; plain derivation" in text
+    line = next(x for x in json.loads(json.dumps(r.to_dict()))["lines"] if x["name"] == "revenue")
+    assert (line["one_basis"], line["basis_note"]["code"]) == (True, "one_basis")
+    assert line["plain"]["inputs"]  # the filings the plain derivation came from
+
+
+# -- backlog #295: growth across a tag that changed meaning -----------------------------------
+
+CONTRACT = "RevenueFromContractWithCustomerExcludingAssessedTax"
+
+
+def _redefine_revenues(tag, row):
+    """From the Q3 2019 10-Q (filed 2019-10-30), `Revenues` also counts other income (4% more),
+    for the comparatives too; the old figures stay under the contract-revenue tag, as Exxon's
+    did from its 2019-11-06 10-Q."""
+    if tag != "Revenues" or row["filed"] < "2019-10-30":
+        return row
+    return [(tag, {**row, "val": row["val"] * 1.04}), (CONTRACT, row)]
+
+
+def test_growth_across_a_tag_that_changed_meaning_says_so(make_company):
+    conn = make_company(_redefine_revenues)
+    r = reported_period(conn, "TST", "FY2019Q1", AS_OF)
+    assert r.line("revenue").latest.xbrl_concept == "us-gaap:Revenues"
+    growth = r.ratio("revenue_growth_yoy")
+    assert growth.value == pytest.approx(1.04 * revenue(2019, 1) / revenue(2018, 1) - 1)
+    notes = {n.code: n for n in growth.notes}
+    note = notes["tag_changed_meaning"]
+    assert note.params == {
+        "item": "revenue",
+        "tag": "us-gaap:Revenues",
+        "other_tag": f"us-gaap:{CONTRACT}",
+        "changed_on": "2019-10-30",
+        "form": "10-Q",
+        "accession_no": note.params["accession_no"],
+        "new_meaning": "FY2019Q1",
+        "old_meaning": "FY2018Q1",
+    }
+    assert "measure different lines" in note.text and "not like for like" in note.text
+
+
+@pytest.mark.parametrize("period", ["FY2019Q3", "FY2019Q2", "FY2019"])
+def test_growth_on_one_meaning_has_no_note(make_company, period):
+    """Q3 against Q3 and the year against the year come from one filing on the new meaning; Q2
+    against Q2 are both on the old one."""
+    conn = make_company(_redefine_revenues)
+    growth = reported_period(conn, "TST", period, AS_OF).ratio("revenue_growth_yoy")
+    assert "tag_changed_meaning" not in {n.code for n in growth.notes}
+
+
+def test_a_change_of_meaning_needs_two_periods_public(make_company):
+    """FY2018Q3 is on the new meaning from the Q3 2019 10-Q, FY2017Q3 on the old. On 2019-12-31
+    that 10-Q's one comparative is all that shows the change: no note yet. The FY2019 10-K adds
+    two years, and the note dates the change by the 10-Q."""
+    conn = make_company(_redefine_revenues)
+
+    def codes(as_of):
+        growth = reported_period(conn, "TST", "FY2018Q3", as_of).ratio("revenue_growth_yoy")
+        return {n.code: n.params for n in growth.notes}
+
+    assert "tag_changed_meaning" not in codes(date(2019, 12, 31))
+    later = codes(AS_OF)["tag_changed_meaning"]
+    assert (later["new_meaning"], later["old_meaning"]) == ("FY2018Q3", "FY2017Q3")
+    assert later["changed_on"] == "2019-10-30"

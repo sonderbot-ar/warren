@@ -201,6 +201,35 @@ def trace(fact: Fact) -> str:
     return f"{fact.canonical_name} [{_tag(fact)}] {fact.period_end} {source}"
 
 
+def basis_kind(fact: Fact) -> str:
+    """Which basis a quarter fact the run reads sits on (backlog #279), from the flags
+    `get_facts(one_basis=True)` sets:
+
+    - `first_filed`: put back on the basis it was first filed on, because a newer version of an
+      input was restated (#264 rule 3);
+    - `restated`: on a newer basis than first filed (a restated reported quarter, a derivation
+      from restated inputs only, or #264 rule 2);
+    - `no_basis`: derived from restated and unrestated inputs and left so;
+    - `unchanged`: not refiled, no second version public by the as-of date; it may still be on
+      the old basis (analyst, #279 review).
+
+    `restated` is Warren's name (`Fact.restated`); text a student reads says "recast".
+    """
+    if fact.one_basis:
+        return "restated" if fact.restated else "first_filed"
+    if fact.mixed_vintage:
+        return "no_basis"
+    return "restated" if fact.restated else "unchanged"
+
+
+def two_bases(kinds: Iterable[str]) -> bool:
+    """Facts sit on two bases when one was kept as first reported while another is recast, or one
+    is on no basis (backlog #279). `unchanged` alone never makes a split: no filing public by the
+    as-of date says which basis it is on, so a note lists it apart as `not_refiled`."""
+    kinds = set(kinds)
+    return {"first_filed", "restated"} <= kinds or "no_basis" in kinds
+
+
 @dataclass(frozen=True)
 class Resolved:
     value: float
@@ -406,13 +435,14 @@ def _history_years(history: History, last_year: int, result: EngineResult) -> li
 
 def _revenue_seed(history: History, last_year: int, last_quarter: int, result: EngineResult):
     """The last 4 actual quarters, the base that forecast quarters grow from (D2)."""
+    noted: dict[int, str] = {}  # a year whose quarters sit on two bases: its method words (#279)
     for step in range(-3, 1):
         year, quarter = step_quarter(last_year, last_quarter, step)
         period = f"Q{quarter}"
         fact = history.quarterly.get(("revenue", year, period))
         if fact is None:
             raise EngineError(f"{result.ticker}: revenue for FY{year} {period} is not reported")
-        value, method, used = fact.value, trace(fact), [fact]
+        value, method, used, shared = fact.value, trace(fact), [fact], False
         # a fiscal year whose quarters don't add up to it mixes restatement bases: use the
         # year (newest basis) times this quarter's share of it
         quarters = [history.quarterly.get(("revenue", year, f"Q{q}")) for q in range(1, 5)]
@@ -421,6 +451,7 @@ def _revenue_seed(history: History, last_year: int, last_quarter: int, result: E
             total = sum(q.value for q in quarters)
             gap = (total - annual.value) / abs(annual.value)
             if abs(gap) > CONSISTENCY_TOLERANCE:
+                shared = True
                 value = annual.value * fact.value / total
                 method = (
                     f"FY{year} quarters differ from the year by {gap:+.1%}: year × this "
@@ -428,6 +459,10 @@ def _revenue_seed(history: History, last_year: int, last_quarter: int, result: E
                 )
                 # the share's denominator is all four quarters (analyst, #175)
                 used = [annual, fact] + [q for q in quarters if q is not fact]
+        if all(quarters) and two_bases(basis_kind(q) for q in quarters):
+            if year not in noted:
+                noted[year] = _seed_basis_note(result, year, quarters, shared)
+            method = f"{noted[year]}; {method}"
         result.add(
             SEED,
             value,
@@ -435,6 +470,38 @@ def _revenue_seed(history: History, last_year: int, last_quarter: int, result: E
             quarter_label(year, quarter),
             sources=[src.filing(f) for f in used],
         )
+
+
+def _seed_basis_note(
+    result: EngineResult, year: int, quarters: list[Fact], year_times_share: bool
+) -> str:
+    """One note for a seed year whose revenue quarters sit on two bases (backlog #279); returns
+    the words the year's seed rows put in their method. The seed rule is unchanged (#265)."""
+    kinds = {f"Q{q}": basis_kind(f) for q, f in enumerate(quarters, start=1)}
+    groups = {
+        BASIS_PARAMS[k]: sorted(q for q, kind in kinds.items() if kind == k) for k in BASIS_WORDS
+    }
+    words = "; ".join(
+        f"{', '.join(groups[BASIS_PARAMS[k]])} {BASIS_WORDS[k]}"
+        for k in BASIS_WORDS
+        if groups[BASIS_PARAMS[k]]
+    )
+    text = (
+        f"FY{year}'s revenue quarters are not on one basis: {words}. The forecast grows from "
+        "these quarters"
+        + (
+            ", and because they don't add up to the year it splits the year by their shares, "
+            "so the mix also sets those shares."
+            if year_times_share
+            else "."
+        )
+    )
+    result.warn(
+        "seed_year_two_bases",
+        {"fiscal_year": year, **groups, "year_times_share": year_times_share},
+        text,
+    )
+    return f"FY{year}'s quarters are not on one basis ({words})"
 
 
 def _history_rows(history: History, fiscal_years: list[int], result: EngineResult) -> None:
@@ -901,8 +968,12 @@ def _drivers(
             continue
         ebit = resolve("ebit", get, f"FY{year} Q{quarter}")
         margins[quarter].append(ebit.value / revenue.value)
-        used.append(f"FY{year}Q{quarter}" + (" (fallback)" if ebit.fallback else ""))
         label = quarter_label(year, quarter)
+        used.append(
+            label
+            + (" (fallback)" if ebit.fallback else "")
+            + _basis_mark(result, label, revenue, ebit.facts)
+        )
         result.add(
             "history:ebit",
             ebit.value,
@@ -983,6 +1054,50 @@ def _drivers(
         f"effective tax rate, {span}",
         sources=[src.derived(*ratio_inputs["tax_rate"])],
     )
+
+
+def _basis_mark(result: EngineResult, label: str, revenue: Fact, ebit: Iterable[Fact]) -> str:
+    """A margin quarter's mark in the margin method, and a note when its revenue and EBIT sit on
+    two bases (backlog #279): "(two bases)", "(one basis)" when a fact was put on one basis, or
+    nothing."""
+    facts = [revenue, *ebit]
+    kinds = {f.canonical_name: basis_kind(f) for f in facts}
+    if not two_bases(kinds.values()):
+        return " (one basis)" if any(f.one_basis for f in facts) else ""
+    groups = {
+        BASIS_PARAMS[k]: sorted(n for n, kind in kinds.items() if kind == k) for k in BASIS_WORDS
+    }
+    words = [
+        f"{' and '.join(n.replace('_', ' ') for n in groups[BASIS_PARAMS[k]])} {BASIS_WORDS[k]}"
+        for k in BASIS_WORDS
+        if groups[BASIS_PARAMS[k]]
+    ]
+    result.warn(
+        "margin_quarter_two_bases",
+        {"period": label, **groups},
+        f"{label}'s operating margin divides figures that are not on one basis: "
+        f"{'; '.join(words)}. It is one of the {HISTORY_QUARTERS} quarters the quarterly "
+        "margins average.",
+    )
+    return " (two bases)"
+
+
+# the basis kinds a note names, in order, with their English words (professor, #279 review:
+# "restated" is kept for the code, the text says "recast", the term for a change of basis).
+# `unchanged` only means no second version is public yet, so a figure not given again may still
+# be on the old basis (analyst, #279 review): a note lists it apart, never as fine.
+BASIS_WORDS = {
+    "first_filed": "as first reported",
+    "restated": "as recast",
+    "no_basis": "worked out from recast and unrecast figures together",
+    "unchanged": "not given again since first reported, so possibly still on the old basis",
+}
+BASIS_PARAMS = {
+    "first_filed": "first_filed",
+    "restated": "restated",
+    "no_basis": "no_basis",
+    "unchanged": "not_refiled",
+}
 
 
 def _yearly(items: tuple[str, ...], fiscal_years: list[int]) -> list[tuple[str, str]]:

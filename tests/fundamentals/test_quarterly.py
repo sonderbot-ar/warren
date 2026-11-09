@@ -300,3 +300,48 @@ def test_a_derived_quarter_uses_the_year_with_the_right_sign(ingested):
     # with one basis, the restated year (455) beside the old nine months falls back to the
     # quarter as first filed (#264), as it did before the flipped version came out
     assert one_basis_quarters(conn, "2027-03-01")["Q4"].value == 130
+
+
+# -- backlog #290: a change of tag is not a change of basis -----------------------------------
+
+CONTRACT = "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax"  # ranked below Revenues
+
+
+def tag_switch(conn):
+    """Apple's FY2017 D&A: the 10-Qs tag the nine months under one tag; the 10-K gives the year
+    under that tag (10,157) and under a higher-ranked one holding another figure (8,200); later
+    10-Ks give the higher-ranked tag the full figure (10,157). Here the nine months move to the
+    lower tag, the first 10-K adds the year under it (460) and holds 400 under Revenues, and the
+    next 10-K gives Revenues 460."""
+    conn.execute(
+        "UPDATE financial_facts SET xbrl_concept = ? WHERE xbrl_concept = 'us-gaap:Revenues' "
+        "AND period_start = '2024-01-01' AND fiscal_period = 'M9'",
+        (CONTRACT,),
+    )
+    conn.execute(
+        "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, fiscal_year, "
+        "fiscal_period, value, unit, form, accession_no, filed_at) VALUES (?, ?, '2024-01-01', "
+        "'2024-12-31', 2024, 'FY', 460, 'USD', '10-K', ?, '2025-02-15')",
+        (TEST_CIK, CONTRACT, K1),
+    )
+    conn.execute(
+        "UPDATE financial_facts SET value = 400 WHERE xbrl_concept = 'us-gaap:Revenues' "
+        "AND accession_no = ? AND fiscal_period = 'FY' AND period_start = '2024-01-01'",
+        (K1,),
+    )
+    conn.execute(
+        "UPDATE financial_facts SET value = 460 WHERE xbrl_concept = 'us-gaap:Revenues' "
+        "AND accession_no != ? AND fiscal_period = 'FY' AND period_start = '2024-01-01'",
+        (K1,),
+    )
+
+
+def test_one_basis_reads_a_filing_under_the_nine_months_tag(ingested):
+    conn, _ = ingested
+    tag_switch(conn)
+    plain = quarters(conn, "revenue", "2026-03-01")["Q4"]
+    assert (plain.value, plain.restated) == (460 - 330, True)  # Revenues went 400 -> 460
+    q4 = one_basis_quarters(conn, "2026-03-01")["Q4"]
+    # the first 10-K gives the year as 460 under the nine months' own tag: no change of basis,
+    # so the quarter stays the plain one (before #290 it was 400 - 330 = 70, "on one basis")
+    assert (q4.value, q4.one_basis) == (460 - 330, False)

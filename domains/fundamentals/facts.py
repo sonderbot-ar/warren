@@ -12,7 +12,7 @@ selected for that as-of date, so a derived value is never built from a number no
 
 import sqlite3
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Literal
 
@@ -233,6 +233,104 @@ def skipped_sign_flips(
     return pairs
 
 
+# A change of meaning shows on at least this many periods: a filing that redefines a line recasts
+# every comparative it shows (a 10-K's two or three years, a 10-Q's quarter and year to date),
+# while one recast period alone is more often a restatement (JNJ's cash at 2023-01-01, cut for
+# Kenvue in the 2023-10-27 10-Q, kept whole only under the restricted-cash tag). Backlog #295.
+MEANING_CHANGE_MIN_PERIODS = 2
+MEANING_CHANGE_MOVE = 0.005  # the tag's value moves by more than this share of its old value
+MEANING_CHANGE_MATCH = 0.001  # and another tag in the same filing holds the old value within this
+
+
+@dataclass(frozen=True)
+class MeaningChange:
+    """A tag that changed meaning for one company (backlog #295): from `filed_at`, filings give
+    the tag a new value for periods filed before, while repeating the old value under
+    `other_concept`. Exxon's `Revenues` moved from sales (FY2018 279,332) to total revenues and
+    other income (290,212) in its 2019-11-06 10-Q and 2020-02-26 10-K; `RevenueFromContract...`
+    still holds 279,332. Not a restatement: the old figure is still reported, under another tag.
+    """
+
+    canonical_name: str
+    xbrl_concept: str
+    other_concept: str
+    accession_no: str  # the first filing that shows it
+    form: str
+    filed_at: date
+    periods: list[tuple[date | None, date, float, float]]  # (start, end, old, new), by end
+
+
+def tag_meaning_changes(
+    conn: sqlite3.Connection, cik: str, canonical_names: list[str], as_of: date | str
+) -> list[MeaningChange]:
+    """Each (item, tag) whose meaning changed in filings public on `as_of`, by item.
+
+    A period's version under the filing's best tag moves by more than `MEANING_CHANGE_MOVE` from
+    the same tag's previous version, and the same filing gives another tag of the item the
+    previous value (within `MEANING_CHANGE_MATCH`). Counted when `MEANING_CHANGE_MIN_PERIODS`
+    periods show it; dated by the first filing that does. Values are not changed (a note only).
+    """
+    found: dict[tuple[str, str, str], list[tuple[sqlite3.Row, float]]] = defaultdict(list)
+    for (name, _start, _end), filings in sorted(
+        _rows_by_period(conn, cik, canonical_names, as_of).items()
+    ):
+        previous: dict[str, float] = {}
+        for accn in _filing_order(filings):
+            rows = filings[accn]
+            best = _best_in_filing(rows)
+            tag, old = best["xbrl_concept"], previous.get(best["xbrl_concept"])
+            if old and abs(best["value"] / old - 1) > MEANING_CHANGE_MOVE:
+                for row in rows:
+                    if row is not best and abs(row["value"] / old - 1) <= MEANING_CHANGE_MATCH:
+                        found[(name, tag, row["xbrl_concept"])].append((best, old))
+                        break
+            previous.update({r["xbrl_concept"]: r["value"] for r in rows})
+    out = []
+    for (name, tag, other), hits in sorted(found.items()):
+        if len(hits) < MEANING_CHANGE_MIN_PERIODS:
+            continue
+        first = min((row for row, _ in hits), key=lambda r: (r["filed_at"], r["accession_no"]))
+        periods = sorted(
+            (
+                (
+                    date.fromisoformat(r["period_start"]) if r["period_start"] else None,
+                    date.fromisoformat(r["period_end"]),
+                    old,
+                    r["value"],
+                )
+                for r, old in hits
+            ),
+            key=lambda p: (p[1], p[0] or p[1]),
+        )
+        out.append(
+            MeaningChange(
+                name,
+                tag,
+                other,
+                first["accession_no"],
+                first["form"],
+                date.fromisoformat(first["filed_at"]),
+                periods,
+            )
+        )
+    return out
+
+
+def meaning_of(fact: Fact, changes: list[MeaningChange]) -> MeaningChange | None:
+    """The change whose new meaning `fact` carries: same item, its tag (a derived quarter's tags
+    include it) and its newest input filed on or after the change. None: the old meaning, or
+    a tag that never changed."""
+    tags = set(fact.xbrl_concept.split(" − "))
+    for change in changes:
+        if (
+            change.canonical_name == fact.canonical_name
+            and change.xbrl_concept in tags
+            and fact.filed_at >= change.filed_at
+        ):
+            return change
+    return None
+
+
 @dataclass(frozen=True)
 class AnnualComparison:
     """A 10-K's current fiscal year against the prior year, both as reported in that filing."""
@@ -386,12 +484,14 @@ class _Basis:
 
     versions: dict[tuple, list[Fact]]  # (item, start, end) -> each filing's best tag, oldest first
     first: dict[str, Fact]  # this item-year's quarters as first reported, by fiscal period
+    # (item, start, end) -> each filing's value under every tag it used, oldest filing first
+    tagged: dict[tuple, list[dict[str, Fact]]] = field(default_factory=dict)
 
     def place(self, derived: Fact, minuend: Fact, subtrahends: list[Fact]) -> Fact:
         if not derived.restated:
             return derived
         newest = max(self._vintage(f) for f in subtrahends)
-        versions = self._of(minuend)
+        versions = self._paired_tag(minuend, subtrahends)
         # a version of the opposite sign to the newest is a tagging error a later filing
         # corrected (WMT's FY2009 and FY2010 tax, negative in one 10-K), not a basis: skipped
         later = [v for v in versions if v.filed_at >= newest and v.value * minuend.value >= 0]
@@ -409,6 +509,23 @@ class _Basis:
 
     def _of(self, fact: Fact) -> list[Fact]:
         return self.versions.get((fact.canonical_name, fact.period_start, fact.period_end), [])
+
+    def _paired_tag(self, minuend: Fact, subtrahends: list[Fact]) -> list[Fact]:
+        """Each filing's version of the minuend, under the tag the subtracted periods use when
+        that filing gives it (backlog #290): a filing whose best tag differs from the nine
+        months' tag is a change of tag, not of basis. Apple's 2017 10-K gives FY2017 D&A as
+        10,157 (the cash-flow tag the 10-Qs use) and 8,200 (a tag ranked higher, depreciation
+        alone); the year less the nine months is 2,484, not 527."""
+        tags = {f.xbrl_concept for f in subtrahends if not f.derived}
+        best = self._of(minuend)
+        if len(tags) != 1 or any(f.derived for f in subtrahends):
+            return best
+        (tag,) = tags
+        key = (minuend.canonical_name, minuend.period_start, minuend.period_end)
+        by_filing = self.tagged.get(key, [])
+        if len(by_filing) != len(best):
+            return best
+        return [rows.get(tag, b) for rows, b in zip(by_filing, best, strict=True)]
 
     def _vintage(self, fact: Fact) -> date:
         """When a subtracted input's value was first filed: a later 10-Q that only repeats last
@@ -430,11 +547,27 @@ def _versions(periods: dict[tuple, dict[str, list[sqlite3.Row]]]) -> dict[tuple,
     return out
 
 
+def _tagged(periods: dict[tuple, dict[str, list[sqlite3.Row]]]) -> dict[tuple, list[dict]]:
+    """Every filing's value of each duration period under each tag it used, oldest filing first
+    (backlog #290), keyed as `_versions`."""
+    out = {}
+    for (_name, start, _end), filings in periods.items():
+        if start:
+            by_filing = [
+                {r["xbrl_concept"]: _to_fact(r, False) for r in filings[a]}
+                for a in _filing_order(filings)
+            ]
+            fact = next(iter(by_filing[0].values()))
+            out[(fact.canonical_name, fact.period_start, fact.period_end)] = by_filing
+    return out
+
+
 def _quarterly(
     facts: list[Fact],
     earliest: bool = False,
     first_reported: list[Fact] | None = None,
     versions: dict[tuple, list[Fact]] | None = None,
+    tagged: dict[tuple, list[dict[str, Fact]]] | None = None,
 ) -> list[Fact]:
     """Standalone quarters. With `first_reported` (the same query's facts as first reported) and
     `versions`, a derived quarter is put on one basis (`_Basis`)."""
@@ -444,7 +577,7 @@ def _quarterly(
         basis = None
         if first_years is not None:
             first = {q.fiscal_period: q for q in _quarters_for_flow(first_years.get(key, {}))}
-            basis = _Basis(versions or {}, first)
+            basis = _Basis(versions or {}, first, tagged or {})
         quarters.extend(_quarters_for_flow(year, earliest, basis))
     return sorted(quarters, key=lambda f: (f.canonical_name, f.period_end))
 
@@ -482,5 +615,7 @@ def get_facts(
         if not one_basis:
             return _quarterly(facts, earliest=mode == "first_reported")
         first = _facts(periods, "first_reported")
-        return _quarterly(facts, first_reported=first, versions=_versions(periods))
+        return _quarterly(
+            facts, first_reported=first, versions=_versions(periods), tagged=_tagged(periods)
+        )
     raise ValueError(f"Unknown frequency: {frequency!r}")

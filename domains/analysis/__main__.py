@@ -267,6 +267,8 @@ def render_reported(r: ReportedPeriod) -> str:
         line = f"  {x.name:32} {_fmt(x.value, x.unit):>26}  {x.latest.xbrl_concept}  {where}"
         if x.changed:
             line += f"  (first reported {_fmt(x.first_reported.value, x.unit)})"
+        if x.one_basis:
+            line += f"  (on one basis; plain derivation {_fmt(x.plain.value, x.unit)})"
         out.append(line)
     out.append("Ratios (" + r.as_reported_note.text + "):")
     for ratio in r.ratios:

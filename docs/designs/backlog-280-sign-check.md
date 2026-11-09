@@ -1,6 +1,6 @@
 # Backlog #280: skip a version filed with the wrong sign
 
-Issue: https://github.com/sonderbot-ar/warren/issues/280 · Branch `backlog-280-sign-check` · Status: built, in review (nov.09.2026). Steps 0–2 done; merge waits for the owner's answer on Decision 2 (below).
+Issue: https://github.com/sonderbot-ar/warren/issues/280 · Branch `backlog-280-sign-check` · Status: built and reviewed (nov.09.2026). The owner approved the Decision 2 amendment on nov.09.2026 (decision card). After main moved to v0.9.46, the branch was brought up to date and Step 2 run again: the same 564 changed facts, all Walmart income tax, and 903 of 903 runs reproduce with a rebuild identical to main's (821 identical, the same 82 differing on both, from #264).
 
 ## Problem
 
@@ -73,7 +73,7 @@ Stored runs, `analysis reproduce --all --rebuild`, on main and on the branch: 90
 
 ## Files to change
 
-`docs/structure-guide.md` (Decision 2, "Which version wins", and its log row; owner's answer first), `domains/fundamentals/facts.py`, `domains/fundamentals/quality.py`, `tests/fundamentals/test_facts.py`, `tests/fundamentals/test_quarterly.py`, `tests/fundamentals/test_quality.py`, this doc. At merge: `docs/versions.md`, `docs/team-sync.md`.
+`docs/structure-guide.md` (Decision 2, "Which version wins", and its log row; approved by the owner nov.09.2026), `domains/fundamentals/facts.py`, `domains/fundamentals/quality.py`, `tests/fundamentals/test_facts.py`, `tests/fundamentals/test_quarterly.py`, `tests/fundamentals/test_quality.py`, this doc. At merge: `docs/versions.md`, `docs/team-sync.md`.
 
 ## Product impact
 
@@ -88,6 +88,6 @@ No call, field, code or English text the app uses is added, renamed or removed. 
 Explainer, analyst, professor and product lead, as fresh-context subagents, on the first draft.
 
 - **Analyst: GO, no blockers.** Every period of every item for the eight companies, all tags: only the five named versions are skipped; MSFT FY2016 and PG's discontinued operations untouched; point in time checked on every filing date (each skip appears the day the second version is filed, never earlier); the only cross-tag sign disagreement (PG Jul–Sep 2014) sits under a lower tag and is rightly ignored. Ideas taken: the CAT 2008 lone wrong versions and copy-forward under Limits; the quality section now lists flips in every year (it would have said "None." for every company); amounts keep their unit. Idea weighed and not taken: the usual sign before the majority (Alternatives). Filed: #283.
-- **Professor: two doc blockers, taken.** (1) The rule changes Decision 2's "which version wins" (the newest filing of the best tag): the Structure Guide is amended in this PR and the change goes to the owner first (CLAUDE.md). (2) The missing alternative, correcting the newest version's sign (+7,133), is now under Alternatives, rejected for provenance. Sources for the method: Debreceny et al. (2010, *JAPP*), Du, Vasarhelyi & Zheng (2013, *JIS*) on sign errors as a main XBRL error type; SEC staff observations on negative values; Croushore & Stark (2001) on vintages. Ideas taken: the 1% rule explained, copy-forward listed, `restated` wording in #282; DQC_0015 cross-check in #283.
+- **Professor: two doc blockers, taken.** (1) The rule changes Decision 2's "which version wins" (the newest filing of the best tag): the Structure Guide is amended in this PR, and the owner approved it (nov.09.2026). (2) The missing alternative, correcting the newest version's sign (+7,133), is now under Alternatives, rejected for provenance. Sources for the method: Debreceny et al. (2010, *JAPP*), Du, Vasarhelyi & Zheng (2013, *JIS*) on sign errors as a main XBRL error type; SEC staff observations on negative values; Croushore & Stark (2001) on vintages. Ideas taken: the 1% rule explained, copy-forward listed, `restated` wording in #282; DQC_0015 cross-check in #283.
 - **Product lead: three blockers, taken.** "Latest" can now be an older filing and the revised flag goes off for Walmart's Jan 2009 year, with nothing telling the student: now stated plainly in Product impact, and filed as #282 (`backlog`, `front-end`). The wrong sentence about disagreement rows is reworded.
 - **Explainer: gaps, taken.** The even-split rule matches the code (any even split of the period's versions, not only two); which split "no usual sign" means; the invariant stated with its condition; the stored run dates' span; the Step 2 result written here; the year labels; Brief Q1–Q2 named; the quality section described; the 564 broken down.
