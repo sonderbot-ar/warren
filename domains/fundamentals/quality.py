@@ -224,8 +224,7 @@ class QualityReport:
         ]
         lines += [
             f"- **{s.canonical_name}** {s.period_start} to {s.period_end}: used "
-            f"{s.value / 1e6:,.0f}M ({s.accession_no}), skipped {k.value / 1e6:,.0f}M "
-            f"({k.accession_no})"
+            f"{_amount(s)} ({s.accession_no}), skipped {_amount(k)} ({k.accession_no})"
             for s, k in self.sign_flips
         ] or ["None."]
         return "\n".join(lines) + "\n"
@@ -371,11 +370,8 @@ def build_report(
         for selected, newest in newest_filing_disagreements(conn, company["cik"], names, as_of)
         if selected.fiscal_year in years
     ]
-    report.sign_flips = [
-        (selected, skipped)
-        for selected, skipped in skipped_sign_flips(conn, company["cik"], names, as_of)
-        if selected.fiscal_year in years
-    ]
+    # every year, not only the report's: the flips seen so far are all from 2008-2011
+    report.sign_flips = skipped_sign_flips(conn, company["cik"], names, as_of)
 
     run = conn.execute(
         "SELECT * FROM ingest_runs WHERE cik = ? ORDER BY run_id DESC LIMIT 1", (company["cik"],)
@@ -403,3 +399,10 @@ def _filing_link(conn: sqlite3.Connection, cik: str, fiscal_year: int, period: s
     if row is None:
         return None
     return f"{EDGAR_ARCHIVES}/{int(cik)}/{row[0].replace('-', '')}/"
+
+
+def _amount(fact: Fact) -> str:
+    """A fact's value for the report: millions for money, as is for shares or per-share units."""
+    if fact.unit == "USD":
+        return f"{fact.value / 1e6:,.0f}M"
+    return f"{fact.value:,g} {fact.unit}"
