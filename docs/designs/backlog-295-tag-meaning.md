@@ -1,6 +1,6 @@
 # Backlog #295 item 3: growth across a tag that changed meaning
 
-Issue: https://github.com/sonderbot-ar/warren/issues/295 · Branch `backlog-295-tag-meaning` · Status: in progress (nov.09.2026). Items 1, 2 and 4 of the issue stay open there.
+Issue: https://github.com/sonderbot-ar/warren/issues/295 · Branch `backlog-295-tag-meaning` · Status: merged as v0.9.46 (nov.09.2026; PR #298, merge `f141ab0`). Items 1, 2 and 4 of the issue stay open there.
 
 ## Problem
 
@@ -66,7 +66,7 @@ Serves brief Q1–Q2 (what a company reported, and how it grew). One note code a
 
 ## Where the work stopped
 
-Steps 1 and 2 built with tests; design review taken (below); PR next.
+Done: merged as v0.9.46 after gatekeeper GO (1998 passed, 10 skipped). Follow-ups in #297.
 
 ## Design review
 
