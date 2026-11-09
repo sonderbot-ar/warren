@@ -456,7 +456,7 @@ def test_growth_across_a_tag_that_changed_meaning_says_so(make_company):
         "new_meaning": "FY2019Q1",
         "old_meaning": "FY2018Q1",
     }
-    assert "redefined it" in note.text and "not like for like" in note.text
+    assert "measure different lines" in note.text and "not like for like" in note.text
 
 
 @pytest.mark.parametrize("period", ["FY2019Q3", "FY2019Q2", "FY2019"])

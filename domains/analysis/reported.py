@@ -729,9 +729,11 @@ def _meaning_note(revenue, prior, period, prior_period, changes) -> list[Coded]:
                 "new_meaning": newer.label,
                 "old_meaning": older.label,
             },
-            f"revenue for {newer.label} uses {change.xbrl_concept} as the {change.form} filed "
-            f"{change.filed_at.isoformat()} redefined it, {older.label} its old meaning (the old "
-            f"figures are still filed under {change.other_concept}): not like for like",
+            f"revenue for {newer.label} is {change.xbrl_concept} with the meaning the "
+            f"{change.form} filed {change.filed_at.isoformat()} gave it; {older.label} has its "
+            "earlier meaning, "
+            f"whose figures are still filed under {change.other_concept}. The two measure "
+            "different lines: not like for like",
         )
     ]
 
