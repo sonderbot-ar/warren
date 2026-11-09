@@ -457,6 +457,7 @@ def test_a_margin_quarter_on_two_bases_is_marked_and_noted(make_company):
         "first_filed": ["revenue"],
         "restated": ["operating_income"],
         "no_basis": [],
+        "not_refiled": [],
     }
     assert note.text == (
         "FY2018Q4's operating margin divides figures that are not on one basis: revenue as "
@@ -492,6 +493,7 @@ def test_a_seed_year_on_two_bases_says_so(make_company):
         "first_filed": ["Q4"],
         "restated": ["Q1", "Q2", "Q3"],
         "no_basis": [],
+        "not_refiled": [],
         "year_times_share": True,
     }
     assert note.text == (
@@ -514,3 +516,31 @@ def test_years_on_one_basis_get_no_seed_note(company):
     assert not [n for n in result.notes if n.code in ("seed_year_two_bases",)]
     assert not [n for n in result.notes if n.code == "margin_quarter_two_bases"]
     assert "basis" not in by_key(result)[("operating_margin", "FY2020Q2")].method
+
+
+def test_quarters_not_given_again_are_listed_apart_never_as_fine(make_company):
+    """Only the Q3 2019 10-Q recasts its 2018 comparative: Q4 goes back to first reported, Q3 is
+    recast, and Q1-Q2 were never given again, so they may still be on the old basis (JNJ FY2022
+    on 2023-11-01, analyst, #279 review). The note lists them apart."""
+
+    def recast_q3(tag, row):
+        if row["fp"] == "Q3" and row["fy"] == 2019:
+            return recast_2018_quarters(tag, row)
+        return row
+
+    result = build_inputs(
+        make_company(recast_q3), "TST", AS_OF_RECAST, choices=CHOICES, today=AS_OF
+    )
+    (note,) = [n for n in result.notes if n.code == "seed_year_two_bases"]
+    assert note.params == {
+        "fiscal_year": 2018,
+        "first_filed": ["Q4"],
+        "restated": ["Q3"],
+        "no_basis": [],
+        "not_refiled": ["Q1", "Q2"],
+        "year_times_share": True,
+    }
+    assert note.text.startswith(
+        "FY2018's revenue quarters are not on one basis: Q4 as first reported; Q3 as recast; "
+        "Q1, Q2 not given again since first reported, so possibly still on the old basis. "
+    )

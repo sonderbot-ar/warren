@@ -1,6 +1,6 @@
 # Backlog #279: say when a margin quarter or a seed year sits on two bases
 
-Issue: https://github.com/sonderbot-ar/warren/issues/279 · Branch `backlog-279-one-basis-follow-ups` · Status: in progress (nov.09.2026).
+Issue: https://github.com/sonderbot-ar/warren/issues/279 · Branch `backlog-279-one-basis-follow-ups` · Status: built, in review (nov.09.2026).
 
 ## Problem
 
@@ -17,28 +17,30 @@ This item does 2, 3 and 4: they are engine-only, change no number, and only make
 
 ## What "basis" means here
 
-Every quarter fact the run reads gets one of four basis kinds, from flags `get_facts(one_basis=True)` already sets (`Fact.restated`, `Fact.one_basis`, `Fact.mixed_vintage`):
+Every quarter fact the run reads gets one of four basis kinds (`math_engine.basis_kind`), from flags `get_facts(one_basis=True)` already sets (`Fact.restated`, `Fact.one_basis`, `Fact.mixed_vintage`). The rows are checked in this order; `mixed_vintage` implies `restated` (`facts._derive`), so a fact matches exactly one:
 
-| Kind | When | Meaning |
+| Kind | When | Meaning (teach it as) |
 |---|---|---|
-| `first_filed` | `one_basis` and not `restated` | put back on the basis it was first filed on, because a newer version of one input was restated (#264 rule 3) |
-| `restated` | `restated` and not (`mixed_vintage` without `one_basis`) | on a newer basis than first filed: a reported quarter whose newest version was restated, a derivation whose inputs were all restated, or #264 rule 2 |
-| `none` | `mixed_vintage` and not `one_basis` | derived from restated and unrestated inputs and left so (no one-basis version public) |
-| `unchanged` | not `restated`, not `one_basis` | never restated: the same on any basis the filings show |
+| `first_filed` | `one_basis`, not `restated` | old basis: put back on the basis it was first reported on, because a newer version of an input was recast (#264 rule 3) |
+| `restated` | `one_basis` and `restated`; or `restated`, not `mixed_vintage` | new basis: a reported quarter recast later, a derivation from recast inputs only, or #264 rule 2 |
+| `no_basis` | `mixed_vintage`, not `one_basis` | no basis: derived from recast and unrecast inputs and left so (no one-basis version public) |
+| `unchanged` | otherwise | not refiled: no second version public by the as-of date. It may still be on the old basis if no later filing has given it again yet (analyst) |
 
-Two facts **sit on two bases** when one is `first_filed` and another `restated`: one was deliberately kept old while a newer basis exists, and the other is on that newer one. `unchanged` fits with either, so it never makes a split (XOM FY2018Q4: revenue `first_filed`, EBIT never restated, one basis as far as the filings show). A `none` fact is on no basis on its own.
+Two facts **sit on two bases** when one is `first_filed` and another `restated`: one was kept old while a newer basis exists, and the other is on that newer one. A `no_basis` fact is on no basis on its own, so it is a split too. An `unchanged` fact alone never triggers a note: no filing public by the as-of date says which basis it is on, and a rule that guesses (old basis when its last filing predates a recast sibling's) gave false positives on KO FY2019, JNJ FY2023 and CAT FY2017 (analyst). When a note fires, its `unchanged` facts are listed apart as `not_refiled` ("not given again since first reported, so possibly still on the old basis"), so the note never implies they are fine (JNJ FY2022 on 2023-11-01: Q1 and Q2 were later recast too).
+
+**Words.** The code keeps `restated` (it is `Fact.restated`, Warren's flag for "the newest version differs from the first"). Text a student reads says "as first reported" and "as recast": most of these are reclassifications (ASC 205-20-45-3) or retrospective application of a new principle (ASC 250), not restatements, which ASC 250-10-20 and IAS 8 keep for corrections of errors (professor, review below).
 
 ## Plan
 
 - **Step 0.** This design doc. No build plan change (backlog item).
-- **Step 1. The margin quarters (items 2 and 3).** `math_engine.basis_kind(fact)` returns the kind above. In `_drivers`, for each of the 12 margin quarters:
-  - the "quarters used" list in the quarterly `operating_margin` method marks a quarter whose revenue or any EBIT fact is `one_basis` with "(one basis)", beside the existing "(fallback)" mark (item 3);
-  - a quarter whose revenue and EBIT facts sit on two bases, or include a `none` fact, gets one coded note `margin_quarter_two_bases`, params `period` (`FYyyyyQn`), `first_filed` (canonical item names, sorted), `restated` (same), `no_basis` (same; usually empty), and the English text "FY2017Q4's operating margin divides figures on two accounting bases: revenue as first filed, operating_income restated. The quarter is one of the 12 the quarterly margins average." The mark in the method is "(two bases)" instead of "(one basis)".
-  No value changes. Tests (`tests/analysis/test_math_engine.py`, `test_build_warning_codes.py`): the kinds on hand-built facts (each row of the table, and `unchanged` beside either kind is no split); on Test Corp with revenue recast in the 2019 10-Qs and operating income recast there and in a later filing of the year, FY2018Q4's margin is marked "(two bases)" and carries the note with its params; with revenue recast alone (the #264 fixture) it is marked "(one basis)" with no note; every margin and every value is the same as without the change; the new code is in `RUN_NOTE_CODES`.
+- **Step 1. The margin quarters (items 2 and 3).** In `_drivers`, for each of the 12 margin quarters, the facts checked are the quarter's revenue and the facts its EBIT is built from (`resolve("ebit")`: `operating_income`, or `pretax_income` and `interest_expense`):
+  - the "quarters used" list in the quarterly `operating_margin` method marks a quarter with "(one basis)" when any of those facts is `one_basis` (item 3), after the existing "(fallback)" mark when both apply (e.g. "FY2018Q4 (fallback) (one basis)");
+  - a quarter whose facts sit on two bases gets "(two bases)" instead, and one coded note `margin_quarter_two_bases`: params `period` (`FYyyyyQn`), `first_filed`, `restated`, `no_basis`, `not_refiled` (each a sorted list of canonical item names from the four above, possibly empty); English text, naming each non-empty group in that order, items joined by "and", underscores as spaces: "FY2017Q4's operating margin divides figures that are not on one basis: revenue as first reported; operating income as recast. It is one of the 12 quarters the quarterly margins average." A `no_basis` group reads "pretax income worked out from recast and unrecast figures together".
+  No value changes. Tests (`tests/analysis/test_math_engine.py`): each kind on hand-built facts; `unchanged` beside either kind is no split, `no_basis` alone is; Test Corp with revenue and operating income recast in the 2019 10-Qs and operating income's FY2018 given again on the new basis in an amended 10-K (filed 2019-11-15), as of 2019-12-31: FY2018Q4 revenue is as first reported, operating income as recast, the margin is marked "(two bases)", the note has its params and text, and the margin is still the average of the history rows' ratios; revenue recast alone (the #264 fixture): "(one basis)", no note; Test Corp unrecast: no mark, no note; both codes are in `RUN_NOTE_CODES`.
   Exit: tests pass, ruff clean.
-- **Step 2. The seed (item 4).** In `_revenue_seed`, for each fiscal year among the four seed quarters, if its four quarters (as the run reads them) sit on two bases, the seed rows of that year say so in their method ("FY2022's quarters sit on two bases: Q4 as first filed, Q3 restated; …"), and the run gets one coded note per year, `seed_year_two_bases`, params `fiscal_year`, `first_filed` and `restated` (quarter labels `Qn`, sorted), `year_times_share` (true when the year × share rule ran for the year, so the mixed quarters also set the shares), and English text. The seed rule is unchanged: choosing another rule is #265's work (like-for-like scoring), and changing it here would move forecasts. Tests: the #264 fixture (Q1–Q3 recast, Q4 as first filed) gives the note and the method words for FY2018, `year_times_share` true when the year differs; a year all `unchanged` or all `restated` gives none; values unchanged.
+- **Step 2. The seed (item 4).** The seed is the last four reported revenue quarters; they span one or two fiscal years. For each such year whose four revenue quarters (Q1–Q4 of the year, as the run reads them, all present) sit on two bases, every seed row in that year starts its method with "FY2018's quarters are not on one basis (Q4 as first reported; Q1, Q2, Q3 as recast)", and the run gets one note per year, `seed_year_two_bases`: params `fiscal_year`, `first_filed`, `restated`, `no_basis`, `not_refiled` (sorted lists of `Qn`), `year_times_share` (true when the quarters differ from the year by more than the tolerance, so the seed is the year × each quarter's share and the mix also sets those shares). English text: "FY2018's revenue quarters are not on one basis: Q4 as first reported; Q1, Q2, Q3 as recast. The forecast grows from these quarters, and because they don't add up to the year it splits the year by their shares, so the mix also sets those shares." (the clause after "quarters" only when `year_times_share`; otherwise the sentence ends there). The seed rule is unchanged: choosing another rule is #265's work (like-for-like scoring), and changing it here would move forecasts on 17 run dates. Tests: the #264 fixture as of 2019-12-31 (seed FY2018Q4 and FY2019Q1–Q3; FY2018's Q1–Q3 recast, Q4 as first reported) gives the note with its params and text, the method words on FY2018Q4's seed row only, and the seed value of the unchanged rule; only the Q3 10-Q recast (Q4 first reported, Q3 recast, Q1–Q2 never given again) lists Q1 and Q2 under `not_refiled` with their words; an unrecast company gives none.
   Exit: tests pass, ruff clean.
-- **Step 3. Real data** (snapshot `warren-20261105T101750Z`). Scan every stored run date (899) for both cases, and rebuild all 903 stored runs on main and on the branch. Expect: every value identical to main; the only changes are the method text of quarterly `operating_margin` rows and seed rows, and the new notes, on the runs the scan names. Results below.
+- **Step 3. Real data** (snapshot `warren-20261105T101750Z`). Scan every stored run date for both cases (899 dates: some dates hold two runs, e.g. a run and its rerun), and rebuild every stored baseline run on main and on the branch. Expect: every value identical to main; the only changes are the method text of quarterly `operating_margin` rows and seed rows, and the new notes, on the runs the scan names. Results below.
   Exit: as expected; every stored run still reproduces.
 
 **Point in time.** No new query: the kinds come from facts `load_history` already read as of the run's date. **LLMs.** None. **Invariants.** No number changes; stored runs reproduce from their stored rows; `rebuild` of runs the scan names differs in method text and notes only.
@@ -48,8 +50,23 @@ Two facts **sit on two bases** when one is `first_filed` and another `restated`:
 `load_history` on all 899 stored run dates, the 12 margin quarters each (10,755 quarter-dates) and the seed years:
 
 - 88 margin quarter-dates have a `one_basis` fact (item 3's mark).
-- **Margin quarters on two bases:** one, KO FY2017Q4 (13 run dates from 2020-03-01): revenue `first_filed` (7,512 million, no later version of the year at or after the recast nine months), operating income `restated` (1,354, #264 rule 2 on the FY2018 10-K's year). No `none` fact in any margin window. The analyst's three examples are not splits by this definition or are outside the window: XOM FY2018Q4's EBIT was never restated (`unchanged`); PG FY2015Q4 and WMT FY2011Q4 are outside the 12-quarter window of every stored run (as #264's Limits say).
+- **Margin quarters on two bases:** one, KO FY2017Q4 (13 run dates from 2020-03-01): revenue `first_filed` (7,512 million, no later version of the year at or after the recast nine months), operating income `restated` (1,354, #264 rule 2 on the FY2018 10-K's year). No `no_basis` fact in any margin window. The analyst's three examples are not splits by this definition or are outside the window: XOM FY2018Q4's EBIT was never restated (`unchanged`); PG FY2015Q4 and WMT FY2011Q4 are outside the 12-quarter window of every stored run (as #264's Limits say).
 - **Seed years on two bases:** JNJ FY2022 (6 run dates from 2023-11-01; Q3 `restated`, Q4 `first_filed`), KO FY2018 (6 from 2019-11-01; Q2–Q3 `restated`, Q4 `first_filed`), XOM FY2018 (5 from 2019-11-15; Q3 `restated`, Q4 `first_filed`): 17 run dates, the 17 #264 named.
+
+## Results (nov.09.2026)
+
+Rebuild of all 903 stored baseline runs on main and on the branch (snapshot `warren-20261105T101750Z`, as of each run's date): no errors on either. Main: 821 exact, 82 differ (the #264 runs, as v0.9.41 recorded). The branch adds differences only on those 82 runs and only in method text: the quarterly `operating_margin` method (656 rows, the 8 quarterly periods of each), now with "(one basis)" or "(two bases)" marks. No value or source differs from main on any run; the seed rows' new words sit on rows that already differ from their stored version since v0.9.41.
+
+Notes on the rebuilt runs, matching the scan above:
+
+| Code | Company, period | Runs | Params |
+|---|---|---|---|
+| `margin_quarter_two_bases` | KO FY2017Q4 | 13 | `first_filed` [revenue], `restated` [operating_income] |
+| `seed_year_two_bases` | KO FY2018 | 6 | `first_filed` [Q4], `restated` [Q2, Q3], `not_refiled` [Q1], `year_times_share` true |
+| `seed_year_two_bases` | XOM FY2018 | 5 | `first_filed` [Q4], `restated` [Q3], `not_refiled` [Q1, Q2], `year_times_share` true |
+| `seed_year_two_bases` | JNJ FY2022 | 6 | `first_filed` [Q4], `restated` [Q3], `not_refiled` [Q1, Q2], `year_times_share` true |
+
+Stored runs keep their stored rows and notes; a new run on these dates (after the next ingest, `_same_inputs`) gets the notes. Reproduce is unaffected (it values stored rows).
 
 ## Alternatives considered
 
@@ -62,13 +79,34 @@ Two facts **sit on two bases** when one is `first_filed` and another `restated`:
 
 `domains/analysis/math_engine.py`, `domains/analysis/coded.py`, `tests/analysis/test_math_engine.py`, `tests/analysis/test_build_warning_codes.py`, this doc. At merge: `docs/versions.md`, `docs/team-sync.md`.
 
+## Limits
+
+- **A figure not yet refiled can still be old (analyst, professor).** `unchanged` only means no second version is public by the as-of date. So a split whose old-basis side is a figure not yet given again is not caught. The analyst found, by comparing with the history a year later, on stored run dates:
+  - KO FY2018 seed, 3 run dates (2019-08-01 to 2019-10-01): Q2 recast (CCBA), Q3 and Q4 later recast too; quarters miss the year by +1.55%, so year × share runs on a mixed year without a note.
+  - XOM FY2019 seed, 3 run dates (2020-06-01 to 2020-08-01): Q1 recast, Q2 later recast (67,491 → 69,091); gap −0.6%.
+  - JNJ FY2023Q1 and Q2 margins, 7 quarter-dates from 2024-03-01: EBIT falls back to pretax + interest; revenue and pretax recast, interest expense later recast (Q2 346 → 217, about 0.6 points of margin).
+  - JNJ FY2022 seed, 6 run dates: caught, but Q1 and Q2 are old basis too; the note lists them as `not_refiled`.
+  No rule using only filings public by the as-of date separates these from the false positives above, so they stay documented, not flagged.
+- **The seed stays as it is.** A practitioner would put a broken year on the newest basis in full (recast quarters as given, the rest scaled by the recast year-to-date) instead of year × share across bases; the note alone leaves JNJ FY2022's seed off by up to 4% (its quarters miss the year by −4.0%). That belongs with #265 (analyst).
+- **No size.** The notes say that figures are on two bases, not by how much. A size (the first-reported vs recast gap, or the quarters' gap to the year) is an idea for the app's screen and #265.
+- **The seed's four quarters only.** The note covers the years the seed reads; the margin window and the seed are the two places where quarters on different bases meet in one number.
+
+## Design review (nov.09.2026)
+
+Explainer, analyst, professor and product lead, as fresh-context subagents, on the first draft.
+
+- **Analyst: NO-GO, one blocker, taken.** "`unchanged` fits either" was false on real data: `restated` means "differs from the first version public", so `unchanged` only means not refiled yet (facts.py `_facts`, `_derive`). Checked against the history a year later: JNJ FY2022 Q1–Q2 were still old basis beside the note; KO FY2018 and XOM FY2019 seeds (3 run dates each) and JNJ FY2023Q1–Q2 margins (7 quarter-dates) mix bases unnoticed. Taken: the definition rewritten; `not_refiled` added to both notes, listing such facts apart with words that say they may be old; the missed cases listed under Limits. The analyst's test rule (old when its last filing predates a recast sibling's) was rejected on the analyst's own evidence (false positives on KO FY2019, JNJ FY2023, CAT FY2017). Scan claims confirmed (KO FY2017Q4; 17 seed dates; XOM FY2018Q4 pretax refiled 2019-11-06 at the same value). Ideas: the practitioner's seed fix and JNJ's −4.0% gap noted for #265 under Limits; the `one_basis` and `restated` row made explicit in the table and tested; JNJ FY2022Q1–Q2 at 2023-11-01 goes to the item-6 spot-check issue.
+- **Professor: NO-GO on wording, method GO; taken.** "Restated" / "reexpresada" is wrong for most cases (ASC 250-10-20 and NIC 8 keep it for error corrections; ASC 205-20-45-3 reclassification; NIC 29 inflation adjustment in Argentina). Student-facing text now says "as first reported" / "as recast", Spanish "presentación original" / "presentación nueva"; item names print as words. The seed note's English text is written out in full, with what `year_times_share` does to the forecast. Ideas taken: teach the kinds as old basis / new basis / no basis / not refiled; "ejercicio 2017" and "4.º trimestre" in Spanish. Idea not taken here: a size in the note (Limits). Idea for #265: pre-2021 10-Ks carried unaudited quarterly data (S-K Item 302(a)), which may give a later-basis Q4.
+- **Product lead: GO, three gaps taken.** The item names that can occur are listed; a Spanish sentence for `no_basis` (and now `not_refiled`); a second Spanish sentence when `year_times_share`. Item 1: chose (b), recorded above.
+- **Explainer: gaps, taken.** The kinds are checked in order and can't overlap; which facts count as EBIT's; how "(fallback)" and the basis marks combine; the text for each group and for several items; what the seed's "four quarters" are; the 899 vs 903 count; results section added; where the texts live.
+
 ## Product impact
 
-Two run-note codes added to `RUN_NOTE_CODES`, nothing renamed or removed:
+Two run-note codes added to `RUN_NOTE_CODES`, nothing renamed or removed. English texts are built in `math_engine` (`_basis_mark`, `_seed_basis_note`) as the fallback; the Spanish below is a suggestion for the app's catalogue, which owns the words.
 
-- `margin_quarter_two_bases`: params `period`, `first_filed`, `restated`, `no_basis` (lists of canonical item names). Suggested Spanish: "El margen operativo de FY2017Q4 divide cifras en dos bases contables: los ingresos tal como se presentaron por primera vez y la utilidad operativa reexpresada."
-- `seed_year_two_bases`: params `fiscal_year`, `first_filed`, `restated` (lists of `Qn`), `year_times_share` (bool). Suggested Spanish: "Los trimestres de FY2022 de los que parte el pronóstico están en dos bases contables: Q4 tal como se presentó por primera vez y Q3 reexpresado."
+- `margin_quarter_two_bases`: params `period` (`FYyyyyQn`), `first_filed`, `restated`, `no_basis`, `not_refiled`: sorted lists of item names, each one of `revenue`, `operating_income`, `pretax_income`, `interest_expense` (the app needs a Spanish label for each). Suggested Spanish (product lead and professor, review below; "reexpresado" avoided: under NIC 8 it means correcting an error, and in Argentina it reads as inflation-adjusted, NIC 29): "El margen operativo del 4.º trimestre del ejercicio 2017 divide la utilidad operativa con la presentación nueva (cifras reclasificadas o ajustadas por la empresa en un reporte posterior) entre los ingresos tal como se informaron originalmente. Es uno de los 12 trimestres que promedia el supuesto de margen." For a non-empty `no_basis`: "X se calculó con cifras de la presentación original y de la nueva a la vez." For a non-empty `not_refiled`: "X no se ha vuelto a informar desde su presentación original, así que puede seguir en la base anterior."
+- `seed_year_two_bases`: params `fiscal_year`, `first_filed`, `restated`, `no_basis`, `not_refiled` (sorted lists of `Qn`), `year_times_share` (bool). Suggested Spanish: "Los trimestres del ejercicio 2018 de los que parte el pronóstico no están todos en la misma presentación: el 4.º tal como se informó originalmente, el 1.º al 3.º con la presentación nueva." When `year_times_share`: "Como el pronóstico reparte el año según el peso de cada trimestre, la mezcla también afecta ese reparto."
 
-Brief questions: Q3 and Q5 (a run's value, assumptions and forecast) can explain these runs; values are unchanged. Q1–Q2: no change.
+Brief questions: Q3 and Q5 (a run's value, assumptions and forecast) can explain these runs; values are unchanged. Q1–Q2, Q6: no change.
 
-**For the product lead (item 1, not built here).** The reported view (`reported_period`, brief Q1–Q2) shows the plain derivation with its `mixed_vintage` note. Options: (a) keep it, and add a code saying the run uses another figure for that quarter; (b) show the one-basis figure beside the plain one, with a code saying which is which; (c) show only the one-basis figure. (b) and (c) turn `one_basis` on for a caller that reads every item and quarter, so the gatekeeper's spot-check of those quarters (item 6; e.g. MSFT FY2017Q4 pretax 1,206 → 5,545) comes first. The choice is the front-end team's; it gets its own issue.
+**Item 1, the reported view: the front-end team chose (b)** (product lead, review below): the engine returns the one-basis figure beside the plain derivation, with a code saying which is which; the screen shows the one-basis figure as the main number, so Q1 agrees with the run, and the plain one in the side panel with the reason, as Q1 already shows first-reported beside latest. The gatekeeper's spot-check of the quarters no run reads (item 6) comes first. Both go to one new issue (`backlog`, `front-end`), not this PR.

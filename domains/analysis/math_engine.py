@@ -474,8 +474,14 @@ def _seed_basis_note(
     """One note for a seed year whose revenue quarters sit on two bases (backlog #279); returns
     the words the year's seed rows put in their method. The seed rule is unchanged (#265)."""
     kinds = {f"Q{q}": basis_kind(f) for q, f in enumerate(quarters, start=1)}
-    groups = {k: sorted(q for q, kind in kinds.items() if kind == k) for k in BASIS_WORDS}
-    words = "; ".join(f"{', '.join(groups[k])} {BASIS_WORDS[k]}" for k in BASIS_WORDS if groups[k])
+    groups = {
+        BASIS_PARAMS[k]: sorted(q for q, kind in kinds.items() if kind == k) for k in BASIS_WORDS
+    }
+    words = "; ".join(
+        f"{', '.join(groups[BASIS_PARAMS[k]])} {BASIS_WORDS[k]}"
+        for k in BASIS_WORDS
+        if groups[BASIS_PARAMS[k]]
+    )
     text = (
         f"FY{year}'s revenue quarters are not on one basis: {words}. The forecast grows from "
         "these quarters"
@@ -1054,11 +1060,13 @@ def _basis_mark(result: EngineResult, label: str, revenue: Fact, ebit: Iterable[
     kinds = {f.canonical_name: basis_kind(f) for f in facts}
     if not two_bases(kinds.values()):
         return " (one basis)" if any(f.one_basis for f in facts) else ""
-    groups = {k: sorted(n for n, kind in kinds.items() if kind == k) for k in BASIS_WORDS}
+    groups = {
+        BASIS_PARAMS[k]: sorted(n for n, kind in kinds.items() if kind == k) for k in BASIS_WORDS
+    }
     words = [
-        f"{' and '.join(n.replace('_', ' ') for n in groups[k])} {BASIS_WORDS[k]}"
+        f"{' and '.join(n.replace('_', ' ') for n in groups[BASIS_PARAMS[k]])} {BASIS_WORDS[k]}"
         for k in BASIS_WORDS
-        if groups[k]
+        if groups[BASIS_PARAMS[k]]
     ]
     result.warn(
         "margin_quarter_two_bases",
@@ -1071,11 +1079,20 @@ def _basis_mark(result: EngineResult, label: str, revenue: Fact, ebit: Iterable[
 
 
 # the basis kinds a note names, in order, with their English words (professor, #279 review:
-# "restated" is kept for the code, the text says "recast", the term for a change of basis)
+# "restated" is kept for the code, the text says "recast", the term for a change of basis).
+# `unchanged` only means no second version is public yet, so a figure not given again may still
+# be on the old basis (analyst, #279 review): a note lists it apart, never as fine.
 BASIS_WORDS = {
     "first_filed": "as first reported",
     "restated": "as recast",
     "no_basis": "worked out from recast and unrecast figures together",
+    "unchanged": "not given again since first reported, so possibly still on the old basis",
+}
+BASIS_PARAMS = {
+    "first_filed": "first_filed",
+    "restated": "restated",
+    "no_basis": "no_basis",
+    "unchanged": "not_refiled",
 }
 
 
