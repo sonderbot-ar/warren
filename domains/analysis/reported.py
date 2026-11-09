@@ -13,6 +13,9 @@ latest values, and the ratios a student asks about, computed here and never by t
   division goes through `financial_math`.
 - Reader-facing words are not the contract: every ratio, gap, note and warning carries a stable
   code with its parameters, and the English `text` beside it is a fallback (front-end review).
+- A derived quarter whose inputs were recast is put on one basis, as a run reads it (backlog #264,
+  #290): the line's value is the one-basis figure, the plain derivation sits beside it in
+  `plain`, and `basis_note` says why; ratios use the one-basis figure and say so.
 - Values are raw, unrounded, in the line's unit (USD, shares); ratios are fractions (0.2 = 20%).
 """
 
@@ -26,7 +29,7 @@ from datetime import date
 
 from domains.analysis import financial_math as fm
 from domains.analysis.coded import Coded, coded_warnings, pass_on
-from domains.analysis.math_engine import CASH_ITEMS, CHAINS, History, debt_parts
+from domains.analysis.math_engine import CASH_ITEMS, CHAINS, History, basis_kind, debt_parts
 from domains.fundamentals.facts import get_facts, newest_filing_disagreements
 from domains.fundamentals.schemas import Fact
 from domains.fundamentals.universe import PHASE1_UNIVERSE
@@ -119,6 +122,11 @@ class Line:
     changed: bool  # latest differs from first reported (the engine knows that, not why)
     derived: bool  # computed by Warren from other periods, e.g. Q4 = FY − nine months
     mixed_vintage: bool  # derived from restated and first-reported inputs together
+    # backlog #290: a derived quarter put on one basis, as a run reads it (#264), carries the
+    # plain derivation it replaced and a coded reason (`one_basis`); otherwise False and None
+    one_basis: bool = False
+    plain: Version | None = None
+    basis_note: Coded | None = None
 
 
 @dataclass(frozen=True)
@@ -195,6 +203,7 @@ class _Views:
     latest: History
     first: dict[tuple, Fact]
     names: list[str]
+    plain: dict[tuple, Fact] = field(default_factory=dict)  # quarters before one basis (#290)
 
 
 def _key(fact: Fact, quarterly: bool) -> tuple:
@@ -206,8 +215,12 @@ def _key(fact: Fact, quarterly: bool) -> tuple:
 def _views(conn: sqlite3.Connection, cik: str, as_of: date, quarterly: bool) -> _Views:
     names = [r[0] for r in conn.execute("SELECT DISTINCT canonical_name FROM concepts")]
     frequency = "quarterly" if quarterly else "annual"
-    latest = get_facts(conn, cik, names, as_of, frequency=frequency)
+    # quarters on one basis, as a run reads them (#290); the plain derivation is kept beside
+    latest = get_facts(conn, cik, names, as_of, frequency=frequency, one_basis=quarterly)
     first = get_facts(conn, cik, names, as_of, mode="first_reported", frequency=frequency)
+    plain = {}
+    if quarterly:
+        plain = {_key(f, True): f for f in get_facts(conn, cik, names, as_of, frequency=frequency)}
     instants: dict[str, list[Fact]] = defaultdict(list)
     for f in sorted(latest, key=lambda f: f.period_end):
         if f.period_start is None:
@@ -217,7 +230,7 @@ def _views(conn: sqlite3.Connection, cik: str, as_of: date, quarterly: bool) -> 
         annual={} if quarterly else {_key(f, False): f for f in latest},
         instants=dict(instants),
     )
-    return _Views(history, {_key(f, quarterly): f for f in first}, sorted(names))
+    return _Views(history, {_key(f, quarterly): f for f in first}, sorted(names), plain)
 
 
 def _getter(views: _Views, period: Period) -> Callable[[str], Fact | None]:
@@ -265,8 +278,9 @@ class _Filings:
         return Version(fact.value, fact.xbrl_concept, fact.filed_at, self.get(fact.accession_no))
 
 
-def _line(fact: Fact, first: Fact | None, filings: _Filings) -> Line:
+def _line(fact: Fact, first: Fact | None, filings: _Filings, plain: Fact | None = None) -> Line:
     first = first or fact
+    replaced = fact.one_basis and plain is not None and plain.value != fact.value
     return Line(
         name=fact.canonical_name,
         unit=fact.unit,
@@ -280,6 +294,38 @@ def _line(fact: Fact, first: Fact | None, filings: _Filings) -> Line:
         changed=fact.value != first.value,
         derived=fact.derived,
         mixed_vintage=fact.mixed_vintage,
+        one_basis=replaced,
+        plain=filings.version(plain) if replaced else None,
+        basis_note=_basis_note(fact, plain) if replaced else None,
+    )
+
+
+def _basis_note(fact: Fact, plain: Fact) -> Coded:
+    """Why a derived quarter's value is not the plain derivation (backlog #264, #290)."""
+    kind = basis_kind(fact)
+    period = f"FY{fact.fiscal_year}{fact.fiscal_period}"
+    if kind == "first_filed":
+        why = (
+            "a newer filing recast part of the year and no filing on the new basis gives the "
+            "whole year yet, so the quarter is worked out from the figures as first reported, "
+            "which share one basis"
+        )
+    else:
+        why = (
+            "a newer filing recast part of the year, so the quarter is worked out from the first "
+            "filing that gives the year on the same new basis"
+        )
+    return Coded(
+        "one_basis",
+        {
+            "item": fact.canonical_name,
+            "period": period,
+            "value": fact.value,
+            "plain_value": plain.value,
+            "basis": kind,
+        },
+        f"{fact.canonical_name} {period} is {fact.value:,.0f}, not {plain.value:,.0f} "
+        f"(the year less the other quarters, each its newest version): {why}",
     )
 
 
@@ -296,7 +342,8 @@ def _lines(views: _Views, period: Period, filings: _Filings) -> list[Line]:
             continue
         if fact.period_start is None and fact.period_end != revenue.period_end:
             continue  # a balance dated elsewhere is not this period's line
-        lines.append(_line(fact, views.first.get(_key(fact, period.quarterly)), filings))
+        key = _key(fact, period.quarterly)
+        lines.append(_line(fact, views.first.get(key), filings, views.plain.get(key)))
     return lines
 
 
@@ -360,8 +407,9 @@ def reported_period(
         disagreements = _disagreements(conn, cik, lines, as_of, filings)
     prior = resolved.year_earlier()
     prior_revenue = _getter(views, prior)("revenue")
+    prior_key = _key(prior_revenue, quarterly) if prior_revenue else None
     prior_lines = (
-        [_line(prior_revenue, views.first.get(_key(prior_revenue, quarterly)), filings)]
+        [_line(prior_revenue, views.first.get(prior_key), filings, views.plain.get(prior_key))]
         if prior_revenue
         else []
     )
@@ -421,14 +469,34 @@ def _uses(facts: list[Fact], period: Period) -> list[dict]:
 
 
 def _changed_note(facts: list[Fact], lines: list[Line]) -> list[Coded]:
-    changed = [x.name for x in lines if x.changed and x.name in {f.canonical_name for f in facts}]
-    if not changed:
+    names = {f.canonical_name for f in facts}
+    changed = [x.name for x in lines if x.changed and x.name in names]
+    out = []
+    if changed:
+        out.append(
+            Coded(
+                "uses_changed_line",
+                {"items": changed},
+                f"uses the latest value of {', '.join(changed)}, which differs from the first "
+                "reported",
+            )
+        )
+    return out + _one_basis_note([x for x in lines if x.name in names])
+
+
+def _one_basis_note(lines: list[Line]) -> list[Coded]:
+    """A ratio that uses a quarter put on one basis says so (backlog #290)."""
+    used = [x for x in lines if x.one_basis]
+    if not used:
         return []
+    items = list(dict.fromkeys(x.name for x in used))
+    periods = sorted({f"FY{x.fiscal_year}{_q(x)}" for x in used})
     return [
         Coded(
-            "uses_changed_line",
-            {"items": changed},
-            f"uses the latest value of {', '.join(changed)}, which differs from the first reported",
+            "uses_one_basis_line",
+            {"items": items, "periods": periods},
+            f"uses {', '.join(items)} for {', '.join(periods)} on one basis, not the plain "
+            "derivation (see the line)",
         )
     ]
 
@@ -621,6 +689,7 @@ def _growth(views, period, revenue, lines, prior_lines) -> Ratio:
                 + ", ".join(periods),
             )
         )
+    notes += _one_basis_note([x for x in [*lines, *prior_lines] if x.name == "revenue"])
     value = fm.growth(revenue.value, prior.value)
     return Ratio("revenue_growth_yoy", fid, formula, value, "fraction", uses, None, notes)
 
