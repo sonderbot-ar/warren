@@ -288,3 +288,15 @@ def test_the_method_note_is_true_on_the_pairing_path(ingested):
     text = trace(q4)
     assert "taken on one basis" in text and "first filed" not in text
     assert "0000000123-26-" in text and "0000000123-27-" not in text
+
+
+def test_a_derived_quarter_uses_the_year_with_the_right_sign(ingested):
+    # backlog #280: WMT's FY2008 Q4 tax was -12,319 million, from a year tagged -7,133 in its
+    # newest 10-K against 7,145 first filed; the year with the right sign gives the real quarter
+    conn, _ = ingested
+    add_year(conn, -455, "0000000123-27-000001", "2027-02-15")
+    q4 = quarters(conn, "revenue", "2027-03-01")["Q4"]
+    assert (q4.value, q4.inputs[0]) == (455 - 330, "0000000123-26-000001")
+    # with one basis, the restated year (455) beside the old nine months falls back to the
+    # quarter as first filed (#264), as it did before the flipped version came out
+    assert one_basis_quarters(conn, "2027-03-01")["Q4"].value == 130

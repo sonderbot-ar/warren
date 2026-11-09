@@ -141,3 +141,22 @@ def test_newest_filing_disagreement_appears_in_the_report(ingested, two_years):
     markdown = report_for(conn).to_markdown()
     assert "selected Revenues, newest filing RevenueFromContractWithCustomer" in markdown
     assert "2024-12-31 0M vs 0M" in markdown  # fixture values are tiny; shown in millions
+
+
+def test_a_skipped_sign_flip_appears_in_the_report(ingested, two_years):
+    # backlog #280: a later 10-K tags FY2024 revenue with the wrong sign
+    conn, _ = ingested
+    conn.execute(
+        "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, fiscal_year, "
+        "fiscal_period, value, unit, form, accession_no, filed_at) VALUES (?, 'us-gaap:Revenues', "
+        "'2024-01-01', '2024-12-31', 2024, 'FY', -460, 'USD', '10-K', 'a-25-9', '2025-02-20')",
+        (TEST_CIK,),
+    )
+    report = report_for(conn)
+    assert [(s.value, k.value, k.accession_no) for s, k in report.sign_flips] == [
+        (460, -460, "a-25-9")
+    ]
+    markdown = report.to_markdown()
+    assert "- Versions skipped as sign-tagging errors: 1" in markdown
+    assert "skipped -0M (a-25-9)" in markdown
+    assert not report.disagreements

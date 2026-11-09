@@ -15,7 +15,12 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 from domains.fundamentals.concepts import concept_map_sha256, load_concept_map
-from domains.fundamentals.facts import DERIVABLE_UNITS, get_facts, newest_filing_disagreements
+from domains.fundamentals.facts import (
+    DERIVABLE_UNITS,
+    get_facts,
+    newest_filing_disagreements,
+    skipped_sign_flips,
+)
 from domains.fundamentals.schemas import Fact
 from domains.fundamentals.universe import FISCAL_YEARS
 from shared_kernel.calendar import last_ended_day
@@ -96,6 +101,8 @@ class QualityReport:
     gap_links: dict[tuple[str, int, str], str] = field(default_factory=dict)  # [inferred] gaps
     # (selected, newest filing's value) where they differ: the standing tag-change audit
     disagreements: list[tuple[Fact, Fact]] = field(default_factory=list)
+    # (selected, skipped) versions skipped as sign-tagging errors (backlog #280)
+    sign_flips: list[tuple[Fact, Fact]] = field(default_factory=list)
 
     @property
     def unexplained(self) -> list[Gap]:
@@ -140,6 +147,7 @@ class QualityReport:
             f"{len(self.inconsistencies)} (informational; see below)",
             f"- Periods where the newest filing disagrees with the selected value: "
             f"{len(self.disagreements)} (informational; see below)",
+            f"- Versions skipped as sign-tagging errors: {len(self.sign_flips)} (see below)",
             "",
             "## Coverage",
             "",
@@ -205,6 +213,21 @@ class QualityReport:
             "",
         ]
         lines += self._disagreement_lines() or ["None."]
+        lines += [
+            "",
+            "## Versions skipped as sign-tagging errors",
+            "",
+            "A filing's version of a period whose sign is flipped against another version of "
+            "nearly the same size, on the side fewer versions take (or, on a tie, against the "
+            "item's usual sign for the company). The newest version with the right sign is used.",
+            "",
+        ]
+        lines += [
+            f"- **{s.canonical_name}** {s.period_start} to {s.period_end}: used "
+            f"{s.value / 1e6:,.0f}M ({s.accession_no}), skipped {k.value / 1e6:,.0f}M "
+            f"({k.accession_no})"
+            for s, k in self.sign_flips
+        ] or ["None."]
         return "\n".join(lines) + "\n"
 
     def _disagreement_lines(self) -> list[str]:
@@ -346,6 +369,11 @@ def build_report(
     report.disagreements = [
         (selected, newest)
         for selected, newest in newest_filing_disagreements(conn, company["cik"], names, as_of)
+        if selected.fiscal_year in years
+    ]
+    report.sign_flips = [
+        (selected, skipped)
+        for selected, skipped in skipped_sign_flips(conn, company["cik"], names, as_of)
         if selected.fiscal_year in years
     ]
 
