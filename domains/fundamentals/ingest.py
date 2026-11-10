@@ -170,9 +170,32 @@ def filing_periods(
     return {accn: p for accn, p in placed.items() if p is not None}
 
 
+# How many months a filing's own period can span, by form: a 10-K's year, a 10-Q's quarter or
+# its year to date (backlog #310). Lengths in days come from MONTHS_BY_DAYS, as for labels.
+OWN_PERIOD_MONTHS = {"10-K": {12}, "10-Q": {3, 6, 9}}
+
+
+def _own_length(form: str, start: str | None, end: str) -> bool:
+    """True when a duration fact has the length of its filing's own period."""
+    if start is None:
+        return False
+    days = (date.fromisoformat(end) - date.fromisoformat(start)).days
+    months = next((m for span, m in MONTHS_BY_DAYS if days in span), None)
+    return months in OWN_PERIOD_MONTHS[form.removesuffix("/A")]
+
+
 def _primary_periods(facts_json: dict[str, Any]) -> dict[str, tuple[date, int, str]]:
-    """accession -> (its own period end, the filing's fy, the filing's fp)."""
+    """accession -> (its own period end, the filing's fy, the filing's fp).
+
+    A filing's own period is the latest end among its duration facts of the form's length (a
+    year for a 10-K; a quarter, half or nine months for a 10-Q) that end by its filing date:
+    comparatives always end earlier. Counting which end most facts share instead put three
+    10-Ks a year or two early, because their comparatives outnumbered their own year (Apple's
+    fiscal 2009 10-K and its amendment, Caterpillar's 2009 10-K; backlog #310). A filing with
+    no such duration falls back to that majority end.
+    """
     ends_by_accession: dict[str, Counter] = defaultdict(Counter)
+    own_ends: dict[str, set[str]] = defaultdict(set)
     label_by_accession: dict[str, tuple[int, str]] = {}
     for taxonomy, _tag, _unit, row in _iter_facts(facts_json):
         if taxonomy != "us-gaap" or row.get("form") not in FORMS:
@@ -181,11 +204,16 @@ def _primary_periods(facts_json: dict[str, Any]) -> dict[str, tuple[date, int, s
             continue
         ends_by_accession[row["accn"]][row["end"]] += 1
         label_by_accession.setdefault(row["accn"], (row["fy"], row["fp"]))
+        if row["end"] <= row["filed"] and _own_length(row["form"], row.get("start"), row["end"]):
+            own_ends[row["accn"]].add(row["end"])
 
     periods = {}
     for accn, ends in ends_by_accession.items():
-        top = max(ends.values())
-        primary_end = max(end for end, n in ends.items() if n == top)
+        if own_ends[accn]:
+            primary_end = max(own_ends[accn])
+        else:
+            top = max(ends.values())
+            primary_end = max(end for end, n in ends.items() if n == top)
         periods[accn] = (date.fromisoformat(primary_end), *label_by_accession[accn])
     return periods
 

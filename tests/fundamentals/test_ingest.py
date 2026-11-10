@@ -6,6 +6,7 @@ from domains.fundamentals.edgar_client import EdgarError
 from domains.fundamentals.ingest import (
     CalendarEntry,
     _continuous_year_numbers,
+    _primary_periods,
     build_filing_calendar,
     content_sha256,
     ingest_company,
@@ -319,3 +320,82 @@ def test_filing_calendar_renumbers_a_changed_numbering_from_the_filings_own_fy()
     ]
     assert renumbered_entries(facts) == 2
     assert renumbered_entries(FakeEdgar().facts) == 0
+
+
+# -- a filing's own period is its latest period of the form's length (backlog #310) -----------
+
+
+def _row(accn, start, end, fy, fp="FY", form="10-K", filed=None):
+    return {
+        "accn": accn,
+        "start": start,
+        "end": end,
+        "fy": fy,
+        "fp": fp,
+        "form": form,
+        "filed": filed or f"{int(end[:4]) + 1}-01-25",
+        "val": 1,
+    }
+
+
+def _facts(rows):
+    return {"facts": {"us-gaap": {"Revenues": {"units": {"USD": rows}}}}}
+
+
+def _apple_like_10k(accn="k09", filed="2009-10-27"):
+    """Apple's fiscal 2009 10-K: more facts at the prior year end (balances and the opening of
+    the equity statement) than at its own, so the most common end is a year early."""
+    prior = [_row(accn, None, "2008-09-27", 2009, filed=filed) for _ in range(5)]
+    for row in prior:
+        del row["start"]
+    years = [
+        _row(accn, "2006-10-01", "2007-09-29", 2009, filed=filed),
+        _row(accn, "2007-09-30", "2008-09-27", 2009, filed=filed),
+        _row(accn, "2008-09-28", "2009-09-26", 2009, filed=filed),
+    ]
+    return prior + years
+
+
+def test_a_10k_whose_comparatives_outnumber_its_own_year_is_placed_at_its_own_year():
+    periods = _primary_periods(_facts(_apple_like_10k()))
+    assert periods["k09"] == (date(2009, 9, 26), 2009, "FY")
+
+
+def test_a_10q_is_placed_at_its_latest_quarter_or_year_to_date():
+    rows = [_row("q", None, "2024-12-31", 2025, "Q2", "10-Q", "2025-08-01") for _ in range(4)]
+    for row in rows:
+        del row["start"]
+    rows += [
+        _row("q", "2024-04-01", "2024-06-30", 2025, "Q2", "10-Q", "2025-08-01"),
+        _row("q", "2025-01-01", "2025-06-30", 2025, "Q2", "10-Q/A", "2025-08-01"),  # 6 months
+    ]
+    assert _primary_periods(_facts(rows))["q"] == (date(2025, 6, 30), 2025, "Q2")
+
+
+def test_a_fact_dated_after_its_filing_is_not_the_filings_own_period():
+    rows = [
+        _row("k", "2010-02-01", "2011-01-31", 2010, filed="2011-03-30"),
+        _row("k", "2011-02-01", "2012-01-31", 2010, filed="2011-03-30"),  # mis-dated
+    ]
+    assert _primary_periods(_facts(rows))["k"][0] == date(2011, 1, 31)
+
+
+def test_a_filing_with_only_instants_keeps_the_most_common_end():
+    rows = [_row("k", None, "2024-12-31", 2024), _row("k", None, "2024-12-31", 2024)]
+    rows += [_row("k", None, "2023-12-31", 2024)]
+    for row in rows:
+        del row["start"]
+    assert _primary_periods(_facts(rows))["k"][0] == date(2024, 12, 31)
+
+
+def test_an_apple_like_history_gets_one_label_per_year():
+    rows = _apple_like_10k() + _apple_like_10k("k09a", "2010-01-25")  # and its amendment
+    rows += [_row("k10", "2009-09-27", "2010-09-25", 2010, filed="2010-10-27")]
+    rows += [_row("k10", "2008-09-28", "2009-09-26", 2010, filed="2010-10-27")]
+    calendar = build_filing_calendar(_facts(rows))
+    assert [(e.end.isoformat(), e.fiscal_year) for e in calendar] == [
+        ("2009-09-26", 2009),
+        ("2010-09-25", 2010),
+    ]
+    assert label_fact(calendar, "2007-09-30", "2008-09-27") == (2008, "FY", None)
+    assert label_fact(calendar, "2008-09-28", "2009-09-26") == (2009, "FY", None)
