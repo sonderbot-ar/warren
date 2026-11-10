@@ -49,6 +49,58 @@ class CalendarEntry:
     quarter: int  # 1-4; 4 is the fiscal year end
 
 
+@dataclass(frozen=True)
+class LabelCollision:
+    """One fiscal label given to periods with different ends (backlog #310)."""
+
+    fiscal_year: int
+    fiscal_period: str
+    kind: str  # "duration" or "instant"
+    ends: tuple[str, ...]  # ISO period ends, oldest first
+
+    def __str__(self) -> str:
+        return f"{self.fiscal_period}{self.fiscal_year} {self.kind}: {', '.join(self.ends)}"
+
+
+@dataclass(frozen=True)
+class YearBreak:
+    """Two fiscal year ends one year apart whose labels are not consecutive (backlog #310)."""
+
+    older_end: date
+    older_year: int
+    newer_end: date
+    newer_year: int
+
+    def __str__(self) -> str:
+        return f"FY{self.older_year} ({self.older_end}) then FY{self.newer_year} ({self.newer_end})"
+
+
+@dataclass(frozen=True)
+class Renumbered:
+    """A filing-calendar entry whose fiscal year `_continuous_year_numbers` moved (#306, #310)."""
+
+    end: date
+    filed_label: str  # as the filings number it, e.g. "FY2013" or "FY2013Q3"
+    label: str  # Warren's, e.g. "FY2014"
+
+    def __str__(self) -> str:
+        return f"{self.end} {self.filed_label} -> {self.label}"
+
+
+@dataclass(frozen=True)
+class FilingLabel:
+    """A filing's own period: the SEC's fy/fp for it beside Warren's label (backlog #310)."""
+
+    accession_no: str
+    form: str
+    filed_at: str
+    period_end: date | None  # None when the filing has no us-gaap facts
+    filed_fiscal_year: int | None
+    filed_fiscal_period: str | None  # Q1-Q3 or FY, as the SEC's fp
+    fiscal_year: int | None
+    fiscal_period: str | None
+
+
 @dataclass
 class IngestResult:
     ticker: str
@@ -58,7 +110,10 @@ class IngestResult:
     facts_new: int = 0
     calendar_entries: int = 0
     unlabelled: int = 0  # stored, but no fiscal period could be assigned
-    renumbered: int = 0  # filing periods whose fiscal year was renumbered (backlog #306)
+    renumbered: list[Renumbered] = field(default_factory=list)  # backlog #306, by name in #310
+    filing_labels: list[FilingLabel] = field(default_factory=list)  # backlog #310
+    label_collisions: list[LabelCollision] = field(default_factory=list)  # backlog #310
+    year_breaks: list[YearBreak] = field(default_factory=list)  # backlog #310
     skipped: Counter = field(default_factory=Counter)
 
 
@@ -153,10 +208,89 @@ def _continuous_year_numbers(entries: list[CalendarEntry]) -> list[CalendarEntry
     ]
 
 
-def renumbered_entries(facts_json: dict[str, Any]) -> int:
-    """How many filing-calendar entries `_continuous_year_numbers` renumbered (0 for most)."""
+def label_collisions(rows: list[tuple]) -> list[LabelCollision]:
+    """Labels that name more than one period among `extract_facts` rows.
+
+    Rows are grouped by (fiscal year, fiscal period, duration or instant); a group whose period
+    ends lie more than SAME_END_TOLERANCE_DAYS apart is a collision. Cover-page (`dei`) facts
+    are left out: they are dated near the filing day and take the filing's own label by design.
+    """
+    ends: dict[tuple[int, str, str], set[str]] = defaultdict(set)
+    for row in rows:
+        _cik, concept, start, end, fy, fp = row[:6]
+        if fy is None or concept.startswith("dei:"):
+            continue
+        ends[(fy, fp, "instant" if start is None else "duration")].add(end)
+    found = []
+    for (fy, fp, kind), group in sorted(ends.items()):
+        dates = sorted(date.fromisoformat(e) for e in group)
+        if (dates[-1] - dates[0]).days > SAME_END_TOLERANCE_DAYS:
+            found.append(LabelCollision(fy, fp, kind, tuple(d.isoformat() for d in dates)))
+    return found
+
+
+def year_breaks(calendar: list[CalendarEntry]) -> list[YearBreak]:
+    """Consecutive fiscal year ends one year apart whose fiscal years are not consecutive.
+
+    A year left without a label (Apple had no FY2008 before backlog #310) or a renumbering
+    `_continuous_year_numbers` declined shows here.
+    """
+    year_ends = [e for e in calendar if e.quarter == 4]
+    return [
+        YearBreak(older.end, older.fiscal_year, newer.end, newer.fiscal_year)
+        for older, newer in zip(year_ends, year_ends[1:], strict=False)
+        if _one_year_apart(older, newer) and newer.fiscal_year != older.fiscal_year + 1
+    ]
+
+
+def _label(fiscal_year: int, quarter: int) -> str:
+    return f"FY{fiscal_year}" if quarter == 4 else f"FY{fiscal_year}Q{quarter}"
+
+
+def renumbered_entries(facts_json: dict[str, Any]) -> list[Renumbered]:
+    """The filing-calendar entries `_continuous_year_numbers` renumbered (none for most)."""
     raw = _raw_calendar(facts_json)
-    return sum(a != b for a, b in zip(raw, _continuous_year_numbers(raw), strict=True))
+    return [
+        Renumbered(a.end, _label(a.fiscal_year, a.quarter), _label(b.fiscal_year, b.quarter))
+        for a, b in zip(raw, _continuous_year_numbers(raw), strict=True)
+        if a != b
+    ]
+
+
+def filing_labels(facts_json: dict[str, Any], calendar: list[CalendarEntry]) -> list[FilingLabel]:
+    """One row per 10-K, 10-Q or amendment: its own period, the SEC's fy/fp, Warren's label.
+
+    fy/fp are the filing's first fact's that carries them (they describe the filing, so all its
+    facts share them). A filing with no us-gaap facts (a cover-only 10-Q/A) has no own period.
+    """
+    primary = _primary_periods(facts_json)
+    seen: dict[str, dict[str, Any]] = {}
+    for _taxonomy, _tag, _unit, row in _iter_facts(facts_json):
+        if row.get("form") not in FORMS:
+            continue
+        info = seen.setdefault(row["accn"], {"form": row["form"], "filed": row["filed"]})
+        if "fy" not in info and row.get("fy") and row.get("fp") in FP_TO_QUARTER:
+            info["fy"], info["fp"] = row["fy"], row["fp"]
+    labels = []
+    for accn, info in sorted(seen.items(), key=lambda kv: (kv[1]["filed"], kv[0])):
+        end = primary[accn][0] if accn in primary else None
+        placed = place_period_end(calendar, end) if end is not None else None
+        fiscal_year, fiscal_period = (None, None)
+        if placed is not None:
+            fiscal_year, fiscal_period = placed[0], "FY" if placed[1] == 4 else f"Q{placed[1]}"
+        labels.append(
+            FilingLabel(
+                accn,
+                info["form"],
+                info["filed"],
+                end,
+                info.get("fy"),
+                info.get("fp"),
+                fiscal_year,
+                fiscal_period,
+            )  # fmt: skip
+        )
+    return labels
 
 
 def filing_periods(
@@ -170,9 +304,32 @@ def filing_periods(
     return {accn: p for accn, p in placed.items() if p is not None}
 
 
+# How many months a filing's own period can span, by form: a 10-K's year, a 10-Q's quarter or
+# its year to date (backlog #310). Lengths in days come from MONTHS_BY_DAYS, as for labels.
+OWN_PERIOD_MONTHS = {"10-K": {12}, "10-Q": {3, 6, 9}}
+
+
+def _own_length(form: str, start: str | None, end: str) -> bool:
+    """True when a duration fact has the length of its filing's own period."""
+    if start is None:
+        return False
+    days = (date.fromisoformat(end) - date.fromisoformat(start)).days
+    months = next((m for span, m in MONTHS_BY_DAYS if days in span), None)
+    return months in OWN_PERIOD_MONTHS[form.removesuffix("/A")]
+
+
 def _primary_periods(facts_json: dict[str, Any]) -> dict[str, tuple[date, int, str]]:
-    """accession -> (its own period end, the filing's fy, the filing's fp)."""
+    """accession -> (its own period end, the filing's fy, the filing's fp).
+
+    A filing's own period is the latest end among its duration facts of the form's length (a
+    year for a 10-K; a quarter, half or nine months for a 10-Q) that end by its filing date:
+    comparatives always end earlier. Counting which end most facts share instead put three
+    10-Ks a year or two early, because their comparatives outnumbered their own year (Apple's
+    fiscal 2009 10-K and its amendment, Caterpillar's 2009 10-K; backlog #310). A filing with
+    no such duration falls back to that majority end.
+    """
     ends_by_accession: dict[str, Counter] = defaultdict(Counter)
+    own_ends: dict[str, set[str]] = defaultdict(set)
     label_by_accession: dict[str, tuple[int, str]] = {}
     for taxonomy, _tag, _unit, row in _iter_facts(facts_json):
         if taxonomy != "us-gaap" or row.get("form") not in FORMS:
@@ -181,11 +338,16 @@ def _primary_periods(facts_json: dict[str, Any]) -> dict[str, tuple[date, int, s
             continue
         ends_by_accession[row["accn"]][row["end"]] += 1
         label_by_accession.setdefault(row["accn"], (row["fy"], row["fp"]))
+        if row["end"] <= row["filed"] and _own_length(row["form"], row.get("start"), row["end"]):
+            own_ends[row["accn"]].add(row["end"])
 
     periods = {}
     for accn, ends in ends_by_accession.items():
-        top = max(ends.values())
-        primary_end = max(end for end, n in ends.items() if n == top)
+        if own_ends[accn]:
+            primary_end = max(own_ends[accn])
+        else:
+            top = max(ends.values())
+            primary_end = max(end for end, n in ends.items() if n == top)
         periods[accn] = (date.fromisoformat(primary_end), *label_by_accession[accn])
     return periods
 
@@ -267,6 +429,12 @@ DO UPDATE SET fiscal_year = excluded.fiscal_year, fiscal_period = excluded.fisca
 """
 
 
+INSERT_FILING_LABEL = """
+INSERT INTO filing_labels (cik, accession_no, form, filed_at, period_end, filed_fiscal_year,
+                           filed_fiscal_period, fiscal_year, fiscal_period)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
 INSERT_RUN = """
 INSERT INTO ingest_runs (cik, companyfacts_sha256, companyfacts_fetched_at, concept_map_sha256,
                          facts_kept, facts_new)
@@ -283,6 +451,8 @@ def extract_facts(
     own_period = filing_periods(facts_json, calendar)
     result.calendar_entries = len(calendar)
     result.renumbered = renumbered_entries(facts_json)
+    result.filing_labels = filing_labels(facts_json, calendar)
+    result.year_breaks = year_breaks(calendar)
 
     rows: dict[tuple, tuple] = {}
     for taxonomy, tag, unit, fact in _iter_facts(facts_json):
@@ -323,6 +493,7 @@ def extract_facts(
             result.skipped["conflicting_duplicate"] += 1  # same filing, two values: keep the first
             continue
         rows.setdefault(key, row)
+    result.label_collisions = label_collisions(list(rows.values()))
     return list(rows.values())
 
 
@@ -357,6 +528,24 @@ def ingest_company(
         conn.executemany(UPSERT_FACT, rows)
         after = conn.execute("SELECT COUNT(*) FROM financial_facts").fetchone()[0]
         result.facts_new = after - before
+        conn.execute("DELETE FROM filing_labels WHERE cik = ?", (company["cik"],))
+        conn.executemany(
+            INSERT_FILING_LABEL,
+            [
+                (
+                    company["cik"],
+                    f.accession_no,
+                    f.form,
+                    f.filed_at,
+                    f.period_end.isoformat() if f.period_end else None,
+                    f.filed_fiscal_year,
+                    f.filed_fiscal_period,
+                    f.fiscal_year,
+                    f.fiscal_period,
+                )  # fmt: skip
+                for f in result.filing_labels
+            ],
+        )
         conn.execute(
             INSERT_RUN,
             (

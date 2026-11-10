@@ -21,8 +21,8 @@ def test_0017_adds_tables_and_keeps_stored_rows(db_path, tmp_path):
         conn.execute("INSERT INTO companies (cik, ticker, name) VALUES ('0000000123', 'TST', 'T')")
         conn.commit()
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        assert apply_migrations(conn) == [17, 19, 20, 21]
-        assert current_schema_version(conn) == 21
+        assert apply_migrations(conn) == [17, 19, 20, 21, 22]
+        assert current_schema_version(conn) == 22
         after = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert after - tables == {
             "forecast_origins",
@@ -31,6 +31,7 @@ def test_0017_adds_tables_and_keeps_stored_rows(db_path, tmp_path):
             "range_results",
             "assumption_sources",  # 0020 (backlog #175)
             "run_notes",  # 0021 (backlog #172)
+            "filing_labels",  # 0022 (backlog #310)
         }
         assert conn.execute("SELECT ticker FROM companies").fetchone()[0] == "TST"
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
