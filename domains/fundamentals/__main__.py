@@ -39,12 +39,14 @@ def cmd_ingest(args: argparse.Namespace) -> int:
             print(
                 f"{result.ticker:5} CIK {result.cik}: {result.facts_kept} facts kept "
                 f"({result.facts_new} new) of {result.facts_seen} mapped; "
-                f"{result.calendar_entries} filing periods ({result.renumbered} renumbered); "
+                f"{result.calendar_entries} filing periods ({len(result.renumbered)} renumbered); "
                 f"{result.unlabelled} without a fiscal "
                 f"period; skipped: {skipped}"
             )
             # a fiscal label must name one period, and years one apart must be numbered so
             # (backlog #310): said by name, and the command fails, but the rows are kept
+            for entry in result.renumbered:
+                print(f"      renumbered: {entry}")
             for problem in result.label_collisions:
                 print(f"      label names two periods: {problem}")
             for problem in result.year_breaks:

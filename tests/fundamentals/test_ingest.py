@@ -320,8 +320,11 @@ def test_filing_calendar_renumbers_a_changed_numbering_from_the_filings_own_fy()
         (2015, 2015),
         (2016, 2016),
     ]
-    assert renumbered_entries(facts) == 2
-    assert renumbered_entries(FakeEdgar().facts) == 0
+    assert [str(r) for r in renumbered_entries(facts)] == [
+        "2013-01-31 FY2012 -> FY2013",
+        "2014-01-31 FY2013 -> FY2014",
+    ]
+    assert renumbered_entries(FakeEdgar().facts) == []
 
 
 # -- a filing's own period is its latest period of the form's length (backlog #310) -----------
@@ -486,3 +489,62 @@ def test_ingest_command_names_each_label_problem_and_fails(monkeypatch, db_path,
 
     monkeypatch.setattr(cli, "EdgarClient", lambda: FakeEdgar())
     assert cli.main(["ingest", "--ticker", "AAPL"]) == 0
+
+
+# -- each filing's own label kept beside Warren's (backlog #310) -------------------------------
+
+
+def _stored_labels(conn):
+    return [
+        tuple(r)
+        for r in conn.execute(
+            "SELECT accession_no, form, period_end, filed_fiscal_year, filed_fiscal_period, "
+            "fiscal_year, fiscal_period FROM filing_labels ORDER BY filed_at, accession_no"
+        )
+    ]
+
+
+def test_ingest_stores_one_label_row_per_filing_and_replaces_them_on_reingest(ingested):
+    conn, result = ingested
+    stored = _stored_labels(conn)
+    assert len(stored) == len(result.filing_labels) == len({r[0] for r in stored})
+    assert all(r[1] in ("10-K", "10-Q", "10-K/A", "10-Q/A") for r in stored)
+    # the fixture numbers its years consecutively: the SEC's fy is Warren's year everywhere
+    assert all(r[3] == r[5] and r[4] == r[6] for r in stored if r[2] is not None)
+    ingest_company(conn, "TST", client=FakeEdgar())
+    assert _stored_labels(conn) == stored
+
+
+def test_a_renumbered_filing_keeps_the_secs_fy_beside_warrens_label(conn):
+    fake = FakeEdgar()
+
+    def year(accn, end, fy):
+        start = f"{int(end[:4]) - 1}-02-01"
+        return {"accn": accn, "start": start, "end": end, "fy": fy, "fp": "FY", "form": "10-K",
+                "filed": f"{end[:4]}-03-25", "val": 1.0}  # fmt: skip
+
+    fake.facts = _facts(
+        [
+            year("w13", "2013-01-31", 2012),
+            year("w14", "2014-01-31", 2013),
+            year("w15", "2015-01-31", 2015),
+            year("w16", "2016-01-31", 2016),
+        ]
+    )
+    cover = {"accn": "cover", "end": "2015-05-30", "fy": 2016, "fp": "Q1", "form": "10-Q/A",
+             "filed": "2015-06-01", "val": 5.0}  # fmt: skip
+    fake.facts["facts"]["dei"] = {
+        "EntityCommonStockSharesOutstanding": {"units": {"shares": [cover]}}
+    }
+    result = ingest_company(conn, "TST", client=fake)
+    assert [str(r) for r in result.renumbered] == [
+        "2013-01-31 FY2012 -> FY2013",
+        "2014-01-31 FY2013 -> FY2014",
+    ]
+    assert _stored_labels(conn) == [
+        ("w13", "10-K", "2013-01-31", 2012, "FY", 2013, "FY"),
+        ("w14", "10-K", "2014-01-31", 2013, "FY", 2014, "FY"),
+        ("w15", "10-K", "2015-01-31", 2015, "FY", 2015, "FY"),
+        ("cover", "10-Q/A", None, 2016, "Q1", None, None),  # cover-only: no own period
+        ("w16", "10-K", "2016-01-31", 2016, "FY", 2016, "FY"),
+    ]

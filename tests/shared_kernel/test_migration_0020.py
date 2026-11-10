@@ -18,7 +18,7 @@ def test_0020_adds_the_table_and_keeps_stored_runs(db_path, tmp_path):
             "VALUES ('TST_2020-06-30_1', 'beta', '-', 1.1, 'computed', 'm')"
         )
         conn.commit()
-        assert apply_migrations(conn) == [20, 21]
+        assert apply_migrations(conn) == [20, 21, 22]
         assert conn.execute("SELECT COUNT(*) FROM assumptions").fetchone()[0] == 1
         assert conn.execute("SELECT COUNT(*) FROM assumption_sources").fetchone()[0] == 0
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
