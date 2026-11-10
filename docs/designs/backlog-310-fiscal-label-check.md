@@ -109,7 +109,7 @@ Snapshot of nov.10.2026 (`warren-20261110T153650Z`), re-ingested from the cached
   | Caterpillar FY2008 | 51,324; growth not computed | same; growth +14.2% |
   | Caterpillar FY2009, FY2010, 2009 quarters | unchanged | unchanged |
 
-  Apple's FY2007 to FY2009 revenue is restated (the 10-K/A of 2010-01-25 changed how iPhone sales are recognised), while its FY2008 quarters were never refiled. So Apple FY2009Q4 growth compares a restated quarter with an unrestated one: +54.6% as computed, about +4.5% on the restated basis. The figure carries `uses_changed_line` and `uses_one_basis_line`, but nothing yet says the two quarters sit on different bases; that is #297 item 13 (a series or growth across restated and unrestated periods), noted there.
+  Apple's FY2007 to FY2009 revenue is restated (the 10-K/A of 2010-01-25 changed how iPhone sales are recognised), while its FY2008 quarters were never refiled. So Apple FY2009Q4 growth compares a restated quarter with an unrestated one: +54.6% as computed, far above what the two quarters would show on one basis (the restated FY2008Q4 is not in Warren's data). The figure carries `uses_changed_line` and `uses_one_basis_line`, but nothing yet says the two quarters sit on different bases; that is #297 item 13 (a series or growth across restated and unrestated periods), noted there.
 - `python -m domains.analysis reproduce --all`: 903 of 903 runs reproduce to the cent. `python -m domains.fundamentals report --all`: 0 unexplained gaps for every company.
 
 ## Design review (nov.10.2026)
