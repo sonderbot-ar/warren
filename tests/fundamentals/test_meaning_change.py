@@ -3,12 +3,13 @@ periods filed before, and repeats the old value under another tag of the same it
 Exxon's revenue: `Revenues` moved from sales to total revenues and other income in its
 2019-11-06 10-Q, while `RevenueFromContractWithCustomerExcludingAssessedTax` kept the sales."""
 
+from dataclasses import replace
 from datetime import date
 
 import pytest
 
 from domains.fundamentals.concepts import load_concept_map, sync_concepts
-from domains.fundamentals.facts import Fact, meaning_of, tag_meaning_changes
+from domains.fundamentals.facts import Fact, meaning_of, meaning_state, tag_meaning_changes
 
 CIK = "0000000123"
 BEST, OTHER = "us-gaap:Revenues", "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax"
@@ -112,7 +113,7 @@ def test_periods_counted_across_filings_and_dated_by_the_first(db):
     assert (change.accession_no, len(change.periods)) == ("b-2019-q3", 2)
 
 
-def _fact(tag, filed_at, derived=False):
+def _fact(tag, filed_at, derived=False, inputs=()):
     return Fact(
         canonical_name="revenue",
         xbrl_concept=tag,
@@ -122,6 +123,7 @@ def _fact(tag, filed_at, derived=False):
         unit="USD",
         filed_at=filed_at,
         derived=derived,
+        inputs=list(inputs),
     )
 
 
@@ -135,3 +137,79 @@ def test_meaning_of_reads_the_tag_and_the_newest_input(db):
     derived = _fact(f"{BEST} − {OTHER}", date(2020, 2, 26), derived=True)
     assert meaning_of(derived, changes) is changes[0]
     assert meaning_of(_fact(BEST, date(2020, 1, 1)), []) is None
+
+
+# -- backlog #297: old, new or mixed ----------------------------------------------------------
+
+
+def test_a_derived_quarter_with_inputs_on_both_sides_is_mixed(db):
+    """Exxon FY2017Q4 plain: the year from the 2020 10-K (new) less nine months from 2017 (old)."""
+    first_filings(db)
+    redefine(db)
+    changes = tag_meaning_changes(db, CIK, ["revenue"], "2026-11-09")
+    filed = {"k-2020": date(2020, 2, 26), "q-2017": date(2017, 11, 7), "q-2019": date(2019, 11, 6)}
+    mixed = _fact(BEST, date(2020, 2, 26), derived=True, inputs=["k-2020", "q-2017"])
+    assert meaning_state(mixed, changes, filed) == ("mixed", changes[0])
+    assert meaning_of(mixed, changes, filed) is None
+    new = _fact(BEST, date(2020, 2, 26), derived=True, inputs=["k-2020", "q-2019"])
+    assert meaning_state(new, changes, filed) == ("new", changes[0])
+    old = _fact(BEST, date(2017, 11, 7), derived=True, inputs=["q-2017"])
+    assert meaning_state(old, changes, filed) == ("old", changes[0])
+    # without the inputs' dates a derived quarter is judged on its newest input, as in v0.9.46
+    assert meaning_state(mixed, changes) == ("new", changes[0])
+
+
+def test_a_reported_value_is_never_mixed_and_an_unchanged_tag_has_no_change(db):
+    first_filings(db)
+    redefine(db)
+    changes = tag_meaning_changes(db, CIK, ["revenue"], "2026-11-09")
+    filed = {"x": date(2017, 1, 1)}
+    assert meaning_state(_fact(BEST, date(2020, 1, 1)), changes, filed) == ("new", changes[0])
+    assert meaning_state(_fact(OTHER, date(2020, 1, 1)), changes, filed) == ("old", None)
+
+
+def test_two_changes_of_one_tag_are_dated_by_the_earliest(db):
+    """If one tag ever shows two "other tags", the earliest change dates the fact."""
+    first_filings(db)
+    redefine(db)
+    (change,) = tag_meaning_changes(db, CIK, ["revenue"], "2026-11-09")
+    later = replace(change, other_concept="us-gaap:SalesRevenueNet", filed_at=date(2020, 2, 26))
+    for changes in ([change, later], [later, change]):
+        assert meaning_state(_fact(BEST, date(2020, 3, 1)), changes) == ("new", change)
+        assert meaning_state(_fact(BEST, date(2019, 12, 1)), changes) == ("new", change)
+
+
+def test_the_quality_report_keeps_only_periods_in_its_fiscal_years(db):
+    """Like `disagreements`, the report's meaning changes are cut to its fiscal years (#297)."""
+    from domains.fundamentals.quality import QualityReport, _within_years
+
+    first_filings(db)
+    redefine(db)
+    changes = tag_meaning_changes(db, CIK, ["revenue"], "2026-11-09")
+
+    def cells(start, end):
+        span = {"period_start": date.fromisoformat(start), "period_end": date.fromisoformat(end)}
+        fact = _fact(BEST, date(2020, 1, 1)).model_copy(update=span)
+        return {("revenue", 2018, "FY"): fact}
+
+    (kept,) = _within_years(changes, cells("2018-01-01", "2018-12-31"))
+    assert len(kept.periods) == 2 and kept.filed_at == date(2019, 11, 6)
+    assert _within_years(changes, cells("2018-10-01", "2018-12-31")) == []  # both end 2018-09-30
+    assert _within_years(changes, cells("2020-01-01", "2020-12-31")) == []
+    assert _within_years(changes, {}) == []
+
+    report = QualityReport("TST", CIK, "Test Corp", date(2026, 11, 9), ["revenue"])
+    report.meaning_changes = changes
+    text = report.to_markdown()
+    assert "measure different lines" in text and "redefined" not in text
+
+
+def test_mixed_is_judged_by_the_inputs_dates_not_their_tags(db):
+    """A known limit, pinned so it can't drift silently (analyst): an input filed before the
+    change counts as old even when its own tag is not the one that changed."""
+    first_filings(db)
+    redefine(db)
+    changes = tag_meaning_changes(db, CIK, ["revenue"], "2026-11-09")
+    filed = {"k-2020": date(2020, 2, 26), "other-2017": date(2017, 11, 7)}
+    fact = _fact(f"{BEST} − {OTHER}", date(2020, 2, 26), True, ["k-2020", "other-2017"])
+    assert meaning_state(fact, changes, filed) == ("mixed", changes[0])

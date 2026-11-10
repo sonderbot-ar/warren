@@ -10,7 +10,7 @@ that uses one records it in its assumptions.
 import csv
 import sqlite3
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -239,9 +239,10 @@ class QualityReport:
             "## Tags that changed meaning",
             "",
             "A filing gives a tag a new value for periods filed before, and repeats the old value "
-            "under another tag of the same item: the line was redefined, not restated. Values are "
-            "kept as the selection rule gives them; growth across the change compares two "
-            "meanings (the reported view says so).",
+            "under another tag of the same item: the two values measure different lines, so the "
+            "change is not a restatement. Values are kept as the selection rule gives them; "
+            "growth across the change compares two meanings, and the reported view says so on "
+            "growth and on the line.",
             "",
         ]
         for m in self.meaning_changes:
@@ -403,7 +404,9 @@ def build_report(
     ]
     # every year, not only the report's: the flips seen so far are all from 2008-2011
     report.sign_flips = skipped_sign_flips(conn, company["cik"], names, as_of)
-    report.meaning_changes = tag_meaning_changes(conn, company["cik"], names, as_of)
+    report.meaning_changes = _within_years(
+        tag_meaning_changes(conn, company["cik"], names, as_of), report.cells
+    )
 
     run = conn.execute(
         "SELECT * FROM ingest_runs WHERE cik = ? ORDER BY run_id DESC LIMIT 1", (company["cik"],)
@@ -438,3 +441,19 @@ def _amount(fact: Fact) -> str:
     if fact.unit == "USD":
         return f"{fact.value / 1e6:,.0f}M"
     return f"{fact.value:,g} {fact.unit}"
+
+
+def _within_years(changes: list[MeaningChange], cells: dict) -> list[MeaningChange]:
+    """Each change cut to the periods that end within the report's fiscal years (backlog #297,
+    as `disagreements` are): from the earliest start to the latest end of the report's cells.
+    A change with no period left is dropped; its filing date stays the first filing's."""
+    if not cells:
+        return []
+    first = min(f.period_start or f.period_end for f in cells.values())
+    last = max(f.period_end for f in cells.values())
+    out = []
+    for change in changes:
+        periods = [p for p in change.periods if first <= p[1] <= last]
+        if periods:
+            out.append(replace(change, periods=periods))
+    return out

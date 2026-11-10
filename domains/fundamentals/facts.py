@@ -12,6 +12,7 @@ selected for that as-of date, so a derived value is never built from a number no
 
 import sqlite3
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Literal
@@ -233,10 +234,11 @@ def skipped_sign_flips(
     return pairs
 
 
-# A change of meaning shows on at least this many periods: a filing that redefines a line recasts
-# every comparative it shows (a 10-K's two or three years, a 10-Q's quarter and year to date),
-# while one recast period alone is more often a restatement (JNJ's cash at 2023-01-01, cut for
-# Kenvue in the 2023-10-27 10-Q, kept whole only under the restricted-cash tag). Backlog #295.
+# A change of meaning shows on at least this many periods: a filing that gives a tag a new
+# meaning recasts every comparative it shows (a 10-K's two or three years, a 10-Q's quarter and
+# year to date), while one recast period alone is more often a restatement (JNJ's cash at
+# 2023-01-01, cut for Kenvue in the 2023-10-27 10-Q, kept whole only under the restricted-cash
+# tag). Backlog #295.
 MEANING_CHANGE_MIN_PERIODS = 2
 MEANING_CHANGE_MOVE = 0.005  # the tag's value moves by more than this share of its old value
 MEANING_CHANGE_MATCH = 0.001  # and another tag in the same filing holds the old value within this
@@ -316,19 +318,46 @@ def tag_meaning_changes(
     return out
 
 
-def meaning_of(fact: Fact, changes: list[MeaningChange]) -> MeaningChange | None:
-    """The change whose new meaning `fact` carries: same item, its tag (a derived quarter's tags
-    include it) and its newest input filed on or after the change. None: the old meaning, or
-    a tag that never changed."""
+Meaning = Literal["old", "new", "mixed"]
+
+
+def meaning_state(
+    fact: Fact, changes: list[MeaningChange], filed_at: Mapping[str, date] | None = None
+) -> tuple[Meaning, MeaningChange | None]:
+    """Which meaning of a changed tag `fact` carries (backlog #295, #297), with the change.
+
+    "new": same item, its tag (a derived quarter's tags include it) and its newest input filed
+    on or after the change. "mixed": a derived quarter whose newest input is on or after the
+    change while another input was filed before it (Exxon FY2017Q4 plain, 72,513 = 244,363 new
+    − 171,850 old); needs `filed_at`, each input accession's filing date, and without it a
+    derived quarter is judged on its newest input alone. "old": anything else, with the change
+    when the fact's tag is one that changed later, else None. When one tag shows more than one
+    change (two "other tags"), the earliest filed dates the fact (then the accession number).
+    """
     tags = set(fact.xbrl_concept.split(" − "))
-    for change in changes:
-        if (
-            change.canonical_name == fact.canonical_name
-            and change.xbrl_concept in tags
-            and fact.filed_at >= change.filed_at
-        ):
-            return change
-    return None
+    matching = sorted(
+        (c for c in changes if c.canonical_name == fact.canonical_name and c.xbrl_concept in tags),
+        key=lambda c: (c.filed_at, c.accession_no),
+    )
+    if not matching:
+        return "old", None
+    change = matching[0]
+    if fact.filed_at < change.filed_at:
+        return "old", change
+    if fact.derived and filed_at is not None:
+        dates = [filed_at[a] for a in fact.inputs if a in filed_at]
+        if dates and min(dates) < change.filed_at:
+            return "mixed", change
+    return "new", change
+
+
+def meaning_of(
+    fact: Fact, changes: list[MeaningChange], filed_at: Mapping[str, date] | None = None
+) -> MeaningChange | None:
+    """The change whose new meaning `fact` carries throughout (`meaning_state` "new"). None: the
+    old meaning, a mix of both (only told apart with `filed_at`), or a tag that never changed."""
+    state, change = meaning_state(fact, changes, filed_at)
+    return change if state == "new" else None
 
 
 @dataclass(frozen=True)
