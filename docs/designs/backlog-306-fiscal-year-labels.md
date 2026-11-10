@@ -1,6 +1,6 @@
 # Backlog #306: a company that changed how it numbers its fiscal years
 
-Issue: https://github.com/sonderbot-ar/warren/issues/306 · Branch `backlog-306-fiscal-year-labels` · Status: in review (PR #311).
+Issue: https://github.com/sonderbot-ar/warren/issues/306 · Branch `backlog-306-fiscal-year-labels` · Status: merged as v0.9.51 (nov.10.2026; PR #311, merge `5e5ee08`). Gatekeeper NO-GO on the first pass (a wrong year in a middle filing), fixed, then GO.
 
 ## Problem
 
