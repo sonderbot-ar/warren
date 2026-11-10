@@ -16,6 +16,8 @@ latest values, and the ratios a student asks about, computed here and never by t
 - A derived quarter whose inputs were recast is put on one basis, as a run reads it (backlog #264,
   #290): the line's value is the one-basis figure, the plain derivation sits beside it in
   `plain`, and `basis_note` says why; ratios use the one-basis figure and say so.
+- A version filed with its sign flipped is skipped (backlog #280); the line it would have been
+  says so in `sign_notes`, naming both filings, and ratios that use the line say so (#282).
 - Values are raw, unrounded, in the line's unit (USD, shares); ratios are fractions (0.2 = 20%).
 """
 
@@ -24,7 +26,7 @@ import sqlite3
 import warnings
 from collections import defaultdict
 from collections.abc import Callable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import date
 
 from domains.analysis import financial_math as fm
@@ -35,6 +37,7 @@ from domains.fundamentals.facts import (
     get_facts,
     meaning_of,
     newest_filing_disagreements,
+    skipped_sign_flips,
     tag_meaning_changes,
 )
 from domains.fundamentals.schemas import Fact
@@ -50,7 +53,8 @@ AS_REPORTED = {
     "code": "as_reported",
     "text": (
         "Ratios are as reported: one-off charges and gains are included, and each uses the "
-        "latest value known on the as-of date."
+        "latest value known on the as-of date (a version whose sign is flipped against another "
+        "filing's version of the same period is skipped, and the line says so)."
     ),
 }
 
@@ -133,6 +137,9 @@ class Line:
     one_basis: bool = False
     plain: Version | None = None
     basis_note: Coded | None = None
+    # backlog #282: one `sign_flip_skipped` note per version filed with its sign flipped that
+    # was skipped for this line (#280), its own period's or a derivation input's; usually empty
+    sign_notes: list[Coded] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -389,6 +396,72 @@ def _disagreements(conn, cik, lines, as_of, filings) -> list[Disagreement]:
     return out
 
 
+def _rests_on(line: Line, used: Fact) -> bool:
+    """The line's value was read from `used`: its own period's version, or for a derived quarter
+    an input of the derivation (same fiscal year, ending by the line's end, and its filing one of
+    the derivation's inputs)."""
+    if not _in_scope((used, used), line):
+        return False
+    if not line.derived:
+        return True
+    return used.accession_no in {i.accession_no for i in line.latest.inputs}
+
+
+def _with_sign_notes(line: Line, flips: list[tuple[Fact, Fact]], filings: _Filings) -> Line:
+    """The line with a `sign_flip_skipped` note for each skipped version it rests on (#282)."""
+    notes = [
+        _sign_note(line, used, skipped, filings) for used, skipped in flips if _rests_on(line, used)
+    ]
+    return replace(line, sign_notes=notes) if notes else line
+
+
+def _filing_params(fact: Fact, filings: _Filings) -> dict:
+    filing = filings.get(fact.accession_no)
+    return {
+        "accession_no": fact.accession_no,
+        "form": filing.form,
+        "filed_at": fact.filed_at.isoformat(),
+        "value": fact.value,
+    }
+
+
+def _sign_note(line: Line, used: Fact, skipped: Fact, filings: _Filings) -> Coded:
+    """Why the line's figure is not the version a filing tagged with the opposite sign (#280)."""
+    period = f"FY{line.fiscal_year}{_q(line)}"
+    first = line.first_reported
+    first_filings = [first.filing] if first.filing else first.inputs
+    first_skipped = skipped.accession_no in {f.accession_no for f in first_filings}
+    skip, use = _filing_params(skipped, filings), _filing_params(used, filings)
+    text = (
+        f"{line.name} {period}: the {skip['form']} filed {skip['filed_at']} tagged "
+        f"{skipped.value:,.0f} for {used.period_start or ''}–{used.period_end}, the opposite sign "
+        f"of {used.value:,.0f} in the {use['form']} filed {use['filed_at']}; treated as a "
+        "sign-tagging error and skipped"
+    )
+    size_differs = abs(skipped.value) != abs(used.value)
+    if first_skipped and not size_differs:
+        text += " (the figure differs from the first reported because of this, not a restatement)"
+    elif first_skipped:
+        text += (
+            " (the figure differs from the first reported because of this; the size changed "
+            "too, so part of the change is a revision)"
+        )
+    return Coded(
+        "sign_flip_skipped",
+        {
+            "item": line.name,
+            "period": period,
+            "input_start": used.period_start.isoformat() if used.period_start else None,
+            "input_end": used.period_end.isoformat(),
+            "used": use,
+            "skipped": skip,
+            "first_reported_skipped": first_skipped,
+            "size_differs": size_differs,
+        },
+        text,
+    )
+
+
 def reported_period(
     conn: sqlite3.Connection, ticker: str, period: str | Period, as_of: date
 ) -> ReportedPeriod:
@@ -412,6 +485,7 @@ def reported_period(
         lines = _lines(views, resolved, filings)
         disagreements = _disagreements(conn, cik, lines, as_of, filings)
         changes = tag_meaning_changes(conn, cik, ["revenue"], as_of)
+        flips = skipped_sign_flips(conn, cik, sorted({x.name for x in lines}), as_of)
     prior = resolved.year_earlier()
     prior_revenue = _getter(views, prior)("revenue")
     prior_key = _key(prior_revenue, quarterly) if prior_revenue else None
@@ -420,6 +494,8 @@ def reported_period(
         if prior_revenue
         else []
     )
+    lines = [_with_sign_notes(x, flips, filings) for x in lines]
+    prior_lines = [_with_sign_notes(x, flips, filings) for x in prior_lines]
     revenue = next(x for x in lines if x.name == "revenue")
     universe = next((c for c in PHASE1_UNIVERSE if c.cik == cik), None)
     return ReportedPeriod(
@@ -488,7 +564,8 @@ def _changed_note(facts: list[Fact], lines: list[Line]) -> list[Coded]:
                 "reported",
             )
         )
-    return out + _one_basis_note([x for x in lines if x.name in names])
+    used = [x for x in lines if x.name in names]
+    return out + _one_basis_note(used) + _sign_checked_note(used)
 
 
 def _one_basis_note(lines: list[Line]) -> list[Coded]:
@@ -504,6 +581,23 @@ def _one_basis_note(lines: list[Line]) -> list[Coded]:
             {"items": items, "periods": periods},
             f"uses {', '.join(items)} for {', '.join(periods)} on one basis, not the plain "
             "derivation (see the line)",
+        )
+    ]
+
+
+def _sign_checked_note(lines: list[Line]) -> list[Coded]:
+    """A ratio that uses a line where a version filed with its sign flipped was skipped (#282)."""
+    used = [x for x in lines if x.sign_notes]
+    if not used:
+        return []
+    items = list(dict.fromkeys(x.name for x in used))
+    periods = sorted({f"FY{x.fiscal_year}{_q(x)}" for x in used})
+    return [
+        Coded(
+            "uses_sign_checked_line",
+            {"items": items, "periods": periods},
+            f"uses {', '.join(items)} for {', '.join(periods)}, where a version filed with its "
+            "sign flipped was skipped (see the line)",
         )
     ]
 
@@ -703,6 +797,7 @@ def _growth(views, period, revenue, lines, prior_lines, changes=()) -> Ratio:
             )
         )
     notes += _one_basis_note([x for x in [*lines, *prior_lines] if x.name == "revenue"])
+    notes += _sign_checked_note([x for x in [*lines, *prior_lines] if x.name == "revenue"])
     notes += _meaning_note(revenue, prior, period, prior_period, changes)
     value = fm.growth(revenue.value, prior.value)
     return Ratio("revenue_growth_yoy", fid, formula, value, "fraction", uses, None, notes)
