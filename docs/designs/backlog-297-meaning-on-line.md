@@ -1,6 +1,6 @@
 # Backlog #297: a tag that changed meaning, said on the line, and quarters that mix both meanings
 
-Issue: https://github.com/sonderbot-ar/warren/issues/297 · Branch `backlog-297-meaning-on-line` · Status: in review.
+Issue: https://github.com/sonderbot-ar/warren/issues/297 · Branch `backlog-297-meaning-on-line` · Status: merged as v0.9.49 (nov.10.2026; PR #304, merge `d76c051`).
 
 Items built here: 1 (first half: "mixed"), 3 (the note on the line), 8, 9 and 10 (gatekeeper tidy-ups from PR #298). Item 6 was answered by the front-end in the brief (PR #303). Items 1 (second half: a run note), 2 (sums and series), 4 (like-for-like growth), 5 (line labels) and 7 (a change first shown in a Q1 10-Q) stay open in #297.
 
@@ -81,7 +81,7 @@ Serves brief Q1 and Q2 (what a company reported, and how it grew).
 
 ## Where the work stopped
 
-nov.10.2026: Steps 0–2 built and reviewed, full suite green. Next: PR, gatekeeper, merge.
+Done: merged as v0.9.49 after gatekeeper GO (2,038 passed, 10 skipped; 903 of 903 runs reproduce). Follow-ups in #297.
 
 ## Design review
 
