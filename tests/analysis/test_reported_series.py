@@ -52,7 +52,7 @@ def test_years_across_the_change_say_where_the_break_is(make_company):
         "other_tag_periods": [],
         "ratios": REVENUE_RATIOS,
     }
-    assert "FY2016 carry the tag's earlier meaning" in note.text
+    assert "FY2016 carries the tag's earlier meaning" in note.text
     assert "FY2017, FY2018 and FY2019 the meaning the 10-Q filed 2019-10-30" in note.text
     assert (
         f"earlier meaning, under us-gaap:{CONTRACT}" in note.text
@@ -152,6 +152,7 @@ def test_a_period_under_another_tag_is_not_called_the_earlier_meaning(make_compa
     assert note.params["other_tag_periods"] == ["FY2015"]
     assert (note.params["old_periods"], note.params["new_periods"]) == (["FY2016"], ["FY2017"])
     assert "FY2015 another tag, of unknown meaning" in note.text
+    assert "FY2016 carries" in note.text and note.text.endswith("within either side.")
 
 
 def test_old_and_other_tags_without_the_new_meaning_have_no_note(make_company):

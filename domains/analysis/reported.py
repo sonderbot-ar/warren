@@ -1148,7 +1148,8 @@ def _series_note(change: MeaningChange, of: dict[str, str], ratios: list[str]) -
     day = change.filed_at.isoformat()
     parts = []
     if groups["old"]:
-        parts.append(f"{_and(groups['old'])} carry the tag's earlier meaning")
+        verb = "carries" if len(groups["old"]) == 1 else "carry"
+        parts.append(f"{_and(groups['old'])} {verb} the tag's earlier meaning")
     if groups["new"]:
         parts.append(f"{_and(groups['new'])} the meaning the {change.form} filed {day} gave it")
     if groups["mixed"]:
@@ -1162,7 +1163,7 @@ def _series_note(change: MeaningChange, of: dict[str, str], ratios: list[str]) -
         f"revenue in this series is {change.xbrl_concept} with more than one meaning: "
         f"{'; '.join(parts)}. Across that break revenue{on} are not like for like. Only the "
         f"periods the change shows are also filed on the earlier meaning, under "
-        f"{change.other_concept}. This says nothing about other changes within either side"
+        f"{change.other_concept}. This says nothing about other changes within either side."
     )
     return Coded(
         "series_mixes_meanings",
