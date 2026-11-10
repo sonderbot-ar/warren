@@ -28,6 +28,7 @@ def _companies(args: argparse.Namespace):
 
 def cmd_ingest(args: argparse.Namespace) -> int:
     client = EdgarClient()
+    label_problems = 0
     with get_db_connection() as conn:
         apply_migrations(conn)
         for company in _companies(args):
@@ -42,7 +43,14 @@ def cmd_ingest(args: argparse.Namespace) -> int:
                 f"{result.unlabelled} without a fiscal "
                 f"period; skipped: {skipped}"
             )
-    return 0
+            # a fiscal label must name one period, and years one apart must be numbered so
+            # (backlog #310): said by name, and the command fails, but the rows are kept
+            for problem in result.label_collisions:
+                print(f"      label names two periods: {problem}")
+            for problem in result.year_breaks:
+                print(f"      fiscal years not consecutive: {problem}")
+            label_problems += len(result.label_collisions) + len(result.year_breaks)
+    return 1 if label_problems else 0
 
 
 def cmd_report(args: argparse.Namespace) -> int:

@@ -49,6 +49,32 @@ class CalendarEntry:
     quarter: int  # 1-4; 4 is the fiscal year end
 
 
+@dataclass(frozen=True)
+class LabelCollision:
+    """One fiscal label given to periods with different ends (backlog #310)."""
+
+    fiscal_year: int
+    fiscal_period: str
+    kind: str  # "duration" or "instant"
+    ends: tuple[str, ...]  # ISO period ends, oldest first
+
+    def __str__(self) -> str:
+        return f"{self.fiscal_period}{self.fiscal_year} {self.kind}: {', '.join(self.ends)}"
+
+
+@dataclass(frozen=True)
+class YearBreak:
+    """Two fiscal year ends one year apart whose labels are not consecutive (backlog #310)."""
+
+    older_end: date
+    older_year: int
+    newer_end: date
+    newer_year: int
+
+    def __str__(self) -> str:
+        return f"FY{self.older_year} ({self.older_end}) then FY{self.newer_year} ({self.newer_end})"
+
+
 @dataclass
 class IngestResult:
     ticker: str
@@ -59,6 +85,8 @@ class IngestResult:
     calendar_entries: int = 0
     unlabelled: int = 0  # stored, but no fiscal period could be assigned
     renumbered: int = 0  # filing periods whose fiscal year was renumbered (backlog #306)
+    label_collisions: list[LabelCollision] = field(default_factory=list)  # backlog #310
+    year_breaks: list[YearBreak] = field(default_factory=list)  # backlog #310
     skipped: Counter = field(default_factory=Counter)
 
 
@@ -150,6 +178,41 @@ def _continuous_year_numbers(entries: list[CalendarEntry]) -> list[CalendarEntry
     return [
         CalendarEntry(end=e.end, fiscal_year=e.fiscal_year + shift_for(e.end), quarter=e.quarter)
         for e in entries
+    ]
+
+
+def label_collisions(rows: list[tuple]) -> list[LabelCollision]:
+    """Labels that name more than one period among `extract_facts` rows.
+
+    Rows are grouped by (fiscal year, fiscal period, duration or instant); a group whose period
+    ends lie more than SAME_END_TOLERANCE_DAYS apart is a collision. Cover-page (`dei`) facts
+    are left out: they are dated near the filing day and take the filing's own label by design.
+    """
+    ends: dict[tuple[int, str, str], set[str]] = defaultdict(set)
+    for row in rows:
+        _cik, concept, start, end, fy, fp = row[:6]
+        if fy is None or concept.startswith("dei:"):
+            continue
+        ends[(fy, fp, "instant" if start is None else "duration")].add(end)
+    found = []
+    for (fy, fp, kind), group in sorted(ends.items()):
+        dates = sorted(date.fromisoformat(e) for e in group)
+        if (dates[-1] - dates[0]).days > SAME_END_TOLERANCE_DAYS:
+            found.append(LabelCollision(fy, fp, kind, tuple(d.isoformat() for d in dates)))
+    return found
+
+
+def year_breaks(calendar: list[CalendarEntry]) -> list[YearBreak]:
+    """Consecutive fiscal year ends one year apart whose fiscal years are not consecutive.
+
+    A year left without a label (Apple had no FY2008 before backlog #310) or a renumbering
+    `_continuous_year_numbers` declined shows here.
+    """
+    year_ends = [e for e in calendar if e.quarter == 4]
+    return [
+        YearBreak(older.end, older.fiscal_year, newer.end, newer.fiscal_year)
+        for older, newer in zip(year_ends, year_ends[1:], strict=False)
+        if _one_year_apart(older, newer) and newer.fiscal_year != older.fiscal_year + 1
     ]
 
 
@@ -311,6 +374,7 @@ def extract_facts(
     own_period = filing_periods(facts_json, calendar)
     result.calendar_entries = len(calendar)
     result.renumbered = renumbered_entries(facts_json)
+    result.year_breaks = year_breaks(calendar)
 
     rows: dict[tuple, tuple] = {}
     for taxonomy, tag, unit, fact in _iter_facts(facts_json):
@@ -351,6 +415,7 @@ def extract_facts(
             result.skipped["conflicting_duplicate"] += 1  # same filing, two values: keep the first
             continue
         rows.setdefault(key, row)
+    result.label_collisions = label_collisions(list(rows.values()))
     return list(rows.values())
 
 

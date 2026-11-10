@@ -10,8 +10,10 @@ from domains.fundamentals.ingest import (
     build_filing_calendar,
     content_sha256,
     ingest_company,
+    label_collisions,
     label_fact,
     renumbered_entries,
+    year_breaks,
 )
 from tests.fundamentals.conftest import TEST_CIK, FakeEdgar
 
@@ -399,3 +401,88 @@ def test_an_apple_like_history_gets_one_label_per_year():
     ]
     assert label_fact(calendar, "2007-09-30", "2008-09-27") == (2008, "FY", None)
     assert label_fact(calendar, "2008-09-28", "2009-09-26") == (2009, "FY", None)
+
+
+# -- a fiscal label names one period (backlog #310) --------------------------------------------
+
+
+def _fact_row(concept, start, end, fy, fp):
+    return ("C", concept, start, end, fy, fp, 1.0, "USD", "10-K", "a", "2010-01-01")
+
+
+def test_two_year_ends_under_one_label_are_a_collision():
+    rows = [
+        _fact_row("us-gaap:Revenues", "2007-09-30", "2008-09-27", 2009, "FY"),
+        _fact_row("us-gaap:Revenues", "2008-09-28", "2009-09-26", 2009, "FY"),
+        _fact_row("us-gaap:Assets", None, "2009-09-26", 2009, "FY"),
+    ]
+    found = label_collisions(rows)
+    assert [str(c) for c in found] == ["FY2009 duration: 2008-09-27, 2009-09-26"]
+    assert found[0].kind == "duration"
+
+
+def test_ends_within_the_tolerance_cover_facts_and_unlabelled_rows_are_not_collisions():
+    rows = [
+        _fact_row("us-gaap:Revenues", "2008-09-28", "2009-09-26", 2009, "FY"),
+        _fact_row("us-gaap:Revenues", "2008-09-28", "2009-09-30", 2009, "FY"),  # 4 days
+        _fact_row("us-gaap:Assets", None, "2009-09-26", 2009, "FY"),  # an instant, same label
+        _fact_row("dei:EntityCommonStockSharesOutstanding", None, "2009-10-16", 2009, "FY"),
+        _fact_row("dei:EntityCommonStockSharesOutstanding", None, "2009-10-16", 2009, "FY"),
+        _fact_row("us-gaap:Assets", None, "2009-10-16", None, None),
+    ]
+    assert label_collisions(rows) == []
+
+
+def test_a_cover_fact_far_from_the_period_end_is_not_a_collision():
+    rows = [
+        _fact_row("us-gaap:Assets", None, "2025-12-31", 2025, "FY"),
+        _fact_row("dei:EntityCommonStockSharesOutstanding", None, "2026-01-31", 2025, "FY"),
+    ]
+    assert label_collisions(rows) == []
+
+
+def test_the_fixture_company_has_no_label_problem(ingested):
+    _conn, result = ingested
+    assert result.label_collisions == []
+    assert result.year_breaks == []
+
+
+def test_year_ends_one_year_apart_must_be_numbered_one_apart():
+    calendar = [
+        CalendarEntry(date(2007, 9, 29), 2007, 4),
+        CalendarEntry(date(2008, 6, 28), 2008, 3),
+        CalendarEntry(date(2008, 9, 27), 2009, 4),  # FY2008 skipped
+        CalendarEntry(date(2010, 9, 25), 2010, 4),  # two years later: not compared
+    ]
+    assert [str(b) for b in year_breaks(calendar)] == [
+        "FY2007 (2007-09-29) then FY2009 (2008-09-27)"
+    ]
+    assert year_breaks(build_filing_calendar(FakeEdgar().facts)) == []
+
+
+def test_ingest_command_names_each_label_problem_and_fails(monkeypatch, db_path, capsys):
+    import domains.fundamentals.__main__ as cli
+    from domains.fundamentals.universe import get_universe_company
+    from shared_kernel.database import get_db_connection
+
+    fake = FakeEdgar()
+    rows = fake.facts["facts"]["us-gaap"]["Revenues"]["units"]["USD"]
+    clash = next(r for r in rows if r.get("start") == "2024-01-01" and r["end"] == "2024-12-31")
+    # an old 10-K (two years before the next) tagged fy 2024: its year end takes FY2024 too
+    rows.append(
+        {**clash, "start": "2021-01-01", "end": "2021-12-31", "accn": "x-clash", "fy": 2024,
+         "fp": "FY", "form": "10-K", "filed": "2022-02-01"}
+    )  # fmt: skip
+    monkeypatch.setattr(cli, "EdgarClient", lambda: fake)
+    monkeypatch.setattr(cli, "get_db_connection", lambda: get_db_connection(db_path))
+    company = get_universe_company("AAPL")
+    monkeypatch.setattr(cli, "_companies", lambda args: [company])
+    monkeypatch.setattr(
+        cli, "ingest_company", lambda conn, ticker, **kw: ingest_company(conn, "TST", **kw)
+    )
+    assert cli.main(["ingest", "--ticker", "AAPL"]) == 1
+    out = capsys.readouterr().out
+    assert "label names two periods: FY2024 duration: 2021-12-31, 2024-12-31" in out
+
+    monkeypatch.setattr(cli, "EdgarClient", lambda: FakeEdgar())
+    assert cli.main(["ingest", "--ticker", "AAPL"]) == 0
