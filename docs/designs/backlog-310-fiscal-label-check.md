@@ -1,6 +1,6 @@
 # Backlog #310: one label per year, a check that says so, and the filing's own year kept
 
-Issue: https://github.com/sonderbot-ar/warren/issues/310 · Branch `backlog-310-fiscal-label-check` · Status: PR open (nov.10.2026); Steps 0–4 built
+Issue: https://github.com/sonderbot-ar/warren/issues/310 · Branch `backlog-310-fiscal-label-check` · Status: Merged as v0.9.52 (nov.10.2026, `9a4585f`, PR #315)
 
 ## Problem
 
@@ -134,3 +134,4 @@ Gatekeeper on PR #315, first pass: NO-GO. Blocker: a symlink named `data` (from 
 ## Where the work stopped
 
 - nov.10.2026: Steps 0–4 built, data re-labelled and checked; PR #315 open; gatekeeper blocker fixed, second pass next.
+- nov.10.2026: gatekeeper GO on the second pass, CI green; merged as v0.9.52.
