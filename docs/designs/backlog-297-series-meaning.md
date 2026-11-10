@@ -42,6 +42,21 @@ A five-year series FY2015–FY2019 therefore divides by sales for two years and 
 
 **Step 3. Real data** (latest snapshot, as of 2026-11-09). Every run of five consecutive fiscal years starting FY2009–FY2021 for the eight companies, and of eight consecutive quarters: list each note. Expected: notes only for Exxon, on year runs that include FY2016 or earlier together with FY2017 or later, and on quarter runs that cross the change; nothing for the other seven. Results written here.
 
+## Step 3 results (snapshot of nov.05.2026, as of 2026-11-09)
+
+Every run of five consecutive fiscal years starting FY2009–FY2021 (13 per company) and of eight consecutive quarters starting FY2009Q1–FY2025Q4 (68 per company), eight companies.
+
+| Company | Year runs with a note | Year runs refused | Quarter runs with a note | Quarter runs refused |
+|---|---|---|---|---|
+| AAPL, MSFT, KO, PG, JNJ, CAT | 0 | 0 | 0 | 2–5 each (runs reaching quarters not yet reported) |
+| WMT | 0 | 5 | 0 | 12 |
+| XOM | 4 | 0 | 6 | 38 |
+
+- **Exxon, years.** Notes on exactly the four runs that hold FY2016 or earlier together with FY2017 or later (starting FY2013 to FY2016), e.g. FY2015–FY2019: old FY2015, FY2016; new FY2017–FY2019; nothing mixed or other. Ratios: `capex_share`, `da_share`, `net_margin`, `operating_margin`, `revenue_growth_yoy` (Exxon tags no cost of revenue, so no gross margin). FY2017–FY2021 gets none, as designed; its first year's growth carries v0.9.46's note.
+- **Exxon, quarters.** Six runs, those starting FY2017Q1 to FY2018Q2: old up to FY2018Q2, new from FY2018Q3 (the quarters the 10-Q of 2019-11-06 and later filings refiled). No quarter is mixed: on one basis, FY2017Q4 and FY2018Q4 are worked out on a single meaning (v0.9.49's table). Runs starting FY2018Q3 or later are all new; before FY2017 all old.
+- **Refusals.** A run refuses when any of its periods is not reported by the as-of date, as `reported_period` does: Exxon's quarters before FY2011 (its first 10-Qs in the data are 2011) and after FY2026Q1 (filings on this CIK stop 2026-08-03); the other companies' runs reaching quarters after their last 10-Q. **Walmart** refuses every five-year run holding FY2014: the year ending January 2014 is labelled FY2013, beside the year ending January 2013, and there is no FY2014 (the year ending January 2015 is FY2015). That label gap is older than this item and also hits `reported_period`; filed as a backlog issue. A screen asking Walmart's last five years (FY2022–FY2026) is not affected.
+- Nothing for the other seven, as expected. The known untagged breaks (Exxon FY2014/FY2015, MSFT, JNJ, KO; Limits) get no note.
+
 ## Design review (nov.10.2026)
 
 - **Analyst (NO-GO, one blocker).** The old side would read as one consistent line, but Exxon's FY2014 and FY2015 differ by an untagged 8% cut in the 10-K of 2018-02-28. Fixed by wording, not detection: the text and the Spanish no longer say the old side is "sales" or like for like ("This says nothing about other changes within either side"), and the cut is named above and in Limits. Detecting it is #297 item 13, a separate scan; the analyst's evidence (and MSFT's ASC 606 restatement of FY2016–FY2017, JNJ's Kenvue recast of FY2022–FY2023, KO FY2018) is added to #297. Ideas taken: other-tag periods kept apart (`other_tag_periods`); the first year's growth stated; `net_debt` left out on purpose; FY2016's filing date corrected.
