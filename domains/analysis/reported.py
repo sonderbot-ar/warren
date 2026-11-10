@@ -1041,3 +1041,148 @@ def _net_debt(views: _Views, revenue: Fact, period: Period, lines: list[Line]) -
         notes.append(Coded("net_cash", {}, "negative: the company holds more cash than debt"))
     notes += _changed_note(facts, lines)
     return Ratio("net_debt", fid, formula, value, revenue.unit, uses, None, notes)
+
+
+# -- backlog #297 item 2: a series of periods across a tag that changed meaning ---------------
+
+SERIES_MAX_PERIODS = 20
+
+
+@dataclass(frozen=True)
+class ReportedSeries:
+    """Several fiscal periods asked together (brief Q2), each exactly as `reported_period` gives
+    it, in time order, with notes about the series as a whole."""
+
+    ticker: str
+    cik: str
+    company_name: str
+    as_of: date
+    periods: list[ReportedPeriod]
+    notes: list[Coded]
+
+    def to_dict(self) -> dict:
+        """Plain JSON types: dates as ISO text, numbers unrounded."""
+        return _plain(asdict(self))
+
+
+def reported_series(
+    conn: sqlite3.Connection, ticker: str, periods: list[str | Period], as_of: date
+) -> ReportedSeries:
+    """Several fiscal years, or several quarters, as known on `as_of`, and a
+    `series_mixes_meanings` note when their revenue figures do not all carry one meaning of a
+    tag that changed meaning (Exxon's FY2016 revenue is sales, its FY2017 total revenues and
+    other income, so a margin series across them is not like for like)."""
+    if not periods:
+        raise ReportedError("a series needs at least one period")
+    if len(periods) > SERIES_MAX_PERIODS:
+        raise ReportedError(f"a series takes at most {SERIES_MAX_PERIODS} periods")
+    answers = [reported_period(conn, ticker, p, as_of) for p in periods]
+    labels = [r.period for r in answers]
+    if len(set(labels)) != len(labels):
+        twice = sorted({x for x in labels if labels.count(x) > 1})
+        raise ReportedError(f"a period is asked twice: {', '.join(twice)}")
+    if len({r.fiscal_period == "FY" for r in answers}) > 1:
+        raise ReportedError("a series is all fiscal years or all quarters, not both")
+    answers.sort(key=lambda r: r.period_end)
+    first = answers[0]
+    return ReportedSeries(
+        ticker=first.ticker,
+        cik=first.cik,
+        company_name=first.company_name,
+        as_of=as_of,
+        periods=answers,
+        notes=_series_meaning_notes(conn, answers, as_of),
+    )
+
+
+def _series_meaning_notes(
+    conn: sqlite3.Connection, answers: list[ReportedPeriod], as_of: date
+) -> list[Coded]:
+    """One `series_mixes_meanings` note per change of meaning whose periods in the series do not
+    all carry its new meaning, when at least one does (or any is a mix). A period's state is
+    `meaning_state` on the very fact its revenue line shows (one-basis for a quarter). A period
+    filed under the changed tag, or under the tag that keeps the earlier meaning, before the
+    change is "old"; one filed under any other tag is "other" (nothing is known of its meaning).
+    The note says where this break is; it says nothing about other changes on either side (a
+    restatement that no other tag records is not detected, #297 item 13)."""
+    cik, quarterly = answers[0].cik, answers[0].fiscal_period != "FY"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # each period already carries its coded warnings
+        changes = tag_meaning_changes(conn, cik, ["revenue"], as_of)
+        if not changes:
+            return []
+        views = _views(conn, cik, as_of, quarterly)
+    filed_at = _Filings(conn, cik).filed_at
+    states = {}
+    for r in answers:
+        fact = _getter(views, parse_period(r.period))("revenue")
+        state, change = meaning_state(fact, changes, filed_at)
+        states[r.period] = (state, change, set(fact.xbrl_concept.split(" − ")))
+    ratios = sorted(
+        {x.name for r in answers for x in r.ratios if any(u["line"] == "revenue" for u in x.uses)}
+    )
+    notes = []
+    seen = {}
+    for _s, c, _t in states.values():
+        if c is not None:
+            seen.setdefault((c.filed_at, c.accession_no, c.xbrl_concept, c.other_concept), c)
+    for key in sorted(seen):
+        change = seen[key]
+        of = {}
+        for k, (s, c, tags) in states.items():
+            if c is change:
+                of[k] = s
+            elif tags & {change.xbrl_concept, change.other_concept}:
+                of[k] = "old"
+            else:
+                of[k] = "other"
+        kinds = set(of.values())
+        if "mixed" in kinds or ("new" in kinds and len(kinds) > 1):
+            notes.append(_series_note(change, of, ratios))
+    return notes
+
+
+def _series_note(change: MeaningChange, of: dict[str, str], ratios: list[str]) -> Coded:
+    kinds = ("old", "new", "mixed", "other")
+    groups = {s: [k for k, v in of.items() if v == s] for s in kinds}
+    day = change.filed_at.isoformat()
+    parts = []
+    if groups["old"]:
+        verb = "carries" if len(groups["old"]) == 1 else "carry"
+        parts.append(f"{_and(groups['old'])} {verb} the tag's earlier meaning")
+    if groups["new"]:
+        parts.append(f"{_and(groups['new'])} the meaning the {change.form} filed {day} gave it")
+    if groups["mixed"]:
+        parts.append(
+            f"{_and(groups['mixed'])} a mix of both (worked out from figures filed on both sides)"
+        )
+    if groups["other"]:
+        parts.append(f"{_and(groups['other'])} another tag, of unknown meaning")
+    on = f", and the ratios on it ({', '.join(ratios)})," if ratios else ""
+    text = (
+        f"revenue in this series is {change.xbrl_concept} with more than one meaning: "
+        f"{'; '.join(parts)}. Across that break revenue{on} are not like for like. Only the "
+        f"periods the change shows are also filed on the earlier meaning, under "
+        f"{change.other_concept}. This says nothing about other changes within either side."
+    )
+    return Coded(
+        "series_mixes_meanings",
+        {
+            "item": change.canonical_name,
+            "tag": change.xbrl_concept,
+            "other_tag": change.other_concept,
+            "changed_on": day,
+            "form": change.form,
+            "accession_no": change.accession_no,
+            "old_periods": groups["old"],
+            "new_periods": groups["new"],
+            "mixed_periods": groups["mixed"],
+            "other_tag_periods": groups["other"],
+            "ratios": ratios,
+        },
+        text,
+    )
+
+
+def _and(labels: list[str]) -> str:
+    return labels[0] if len(labels) == 1 else ", ".join(labels[:-1]) + " and " + labels[-1]

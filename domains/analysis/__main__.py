@@ -9,6 +9,7 @@
     python -m domains.analysis reproduce-sim --sim-id AAPL_2024-03-31_1_sim1
     python -m domains.analysis reported --ticker AAPL --period latest-quarter [--as-of 2026-11-02]
         [--period FY2024 ...] [--json]
+    python -m domains.analysis series --ticker XOM --period FY2015 --period FY2016 ... [--json]
 
 Without `--as-of`, `dcf` and `reported` use the last day that has ended in New York (backlog #128)
 and say so, with the date of the company's last EDGAR download and a warning when that download
@@ -23,6 +24,8 @@ fails. `reproduce` values stored runs again from their assumptions and exits 1 o
 data/reports/sim/<sim_id>.md; `reproduce-sim` runs it again from its seed and compares to the cent.
 `reported` prints a fiscal period's reported lines, with their filings, and the named ratios, as
 known on the as-of date (backlog #140); `--json` prints the same for the app. Nothing is stored.
+`series` prints several years or quarters together, with a note where their revenue carries
+different meanings of a tag that changed meaning (backlog #297).
 `notes` prints a stored run's warnings as codes with parameters (backlog #172); `--backfill` gives
 runs stored before them their codes, only where the rebuilt text matches the stored text exactly.
 """
@@ -45,7 +48,13 @@ from domains.analysis.montecarlo import (
     save_simulation,
 )
 from domains.analysis.report import write_report
-from domains.analysis.reported import ReportedError, ReportedPeriod, reported_period
+from domains.analysis.reported import (
+    ReportedError,
+    ReportedPeriod,
+    ReportedSeries,
+    reported_period,
+    reported_series,
+)
 from domains.analysis.runs import (
     RunNotes,
     backfill_notes,
@@ -314,6 +323,44 @@ def cmd_reported(args: argparse.Namespace) -> int:
         print(json.dumps([r.to_dict() for r in results], indent=2, ensure_ascii=False))
     else:
         print("\n\n".join(render_reported(r) for r in results))
+    return 0
+
+
+def render_series(s: ReportedSeries) -> str:
+    """A series' revenue and margins per period, then its notes, as plain text."""
+    out = [f"{s.ticker} {s.company_name} · {len(s.periods)} periods · as of {s.as_of}"]
+    names = ("operating_margin", "gross_margin", "net_margin")
+    out.append(f"  {'period':10} {'revenue':>26}  " + "  ".join(f"{n:>16}" for n in names))
+    for r in s.periods:
+        line = r.line("revenue")
+        ratios = {x.name: x for x in r.ratios}
+        cells = "  ".join(
+            f"{_fmt(ratios[n].value, ratios[n].unit) if n in ratios else '':>16}" for n in names
+        )
+        value = _fmt(line.value, line.unit)
+        out.append(f"  {r.period:10} {value:>26}  {cells}  {line.latest.xbrl_concept}")
+    for note in s.notes:
+        out.append(f"NOTE: {note.text}")
+    for w in dict.fromkeys(w.text for r in s.periods for w in r.warnings):
+        out.append(f"WARNING: {w}")
+    return "\n".join(out)
+
+
+def cmd_series(args: argparse.Namespace) -> int:
+    as_of = date.fromisoformat(args.as_of) if args.as_of else last_ended_day(now())
+    with get_db_connection() as conn:
+        apply_migrations(conn)
+        if not args.as_of:  # to standard error, so --json output stays plain JSON
+            print("\n".join(chosen_day_notes(conn, [args.ticker], as_of)), file=sys.stderr)
+        try:
+            series = reported_series(conn, args.ticker, args.period, as_of)
+        except ReportedError as e:
+            print(f"FAILED: {e}")
+            return 1
+    if args.json:
+        print(json.dumps(series.to_dict(), indent=2, ensure_ascii=False))
+    else:
+        print(render_series(series))
     return 0
 
 
@@ -646,6 +693,22 @@ def main(argv: list[str] | None = None) -> int:
     )
     rp.add_argument("--json", action="store_true", help="print JSON for the app")
     rp.set_defaults(func=cmd_reported)
+
+    rs = commands.add_parser("series", help="several years or quarters together (backlog #297)")
+    rs.add_argument("--ticker", required=True)
+    rs.add_argument(
+        "--period",
+        action="append",
+        required=True,
+        help="FY2025 or FY2025Q4 (or latest-year, latest-quarter); repeat, all years or all "
+        "quarters",
+    )
+    rs.add_argument(
+        "--as-of",
+        help="YYYY-MM-DD: only filings public by then (default: the last day ended in New York)",
+    )
+    rs.add_argument("--json", action="store_true", help="print JSON for the app")
+    rs.set_defaults(func=cmd_series)
 
     wi = commands.add_parser("whatif", help="a stored run valued again with inputs changed")
     wi.add_argument("--run-id", required=True)
