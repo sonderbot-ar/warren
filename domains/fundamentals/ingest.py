@@ -111,8 +111,10 @@ def _continuous_year_numbers(entries: list[CalendarEntry]) -> list[CalendarEntry
     it. The shift chains through newer shifts and can be up or down by any number of years.
 
     - The newer numbering must hold for at least two consecutive year ends (the newer year end
-      and the one after it, one year apart and consecutive as filed); otherwise the break is
-      left as filed, so one wrong `fy` in the newest 10-K cannot renumber a whole history.
+      and the one after it, one year apart and consecutive once renumbered); otherwise the
+      break is left as filed, so one wrong `fy` in the newest 10-K cannot renumber a whole
+      history. A wrong `fy` in an older 10-K is renumbered to fit its neighbours, and the
+      years before it are compared with that corrected number, so they keep theirs.
     - Across year ends further apart (a gap in the calendar, or a change of year end) the
       shift carries on unchanged, since nothing there says the numbering changed.
     - An entry takes the shift of the first year end on or after its own end (within
@@ -127,13 +129,14 @@ def _continuous_year_numbers(entries: list[CalendarEntry]) -> list[CalendarEntry
     for i in range(len(year_ends) - 2, -1, -1):
         older, newer = year_ends[i], year_ends[i + 1]
         after = year_ends[i + 2] if i + 2 < len(year_ends) else None
+        newer_number = newer.fiscal_year + shifts.get(newer.end, 0)
         newer_holds = (
             after is not None
             and _one_year_apart(newer, after)
-            and after.fiscal_year == newer.fiscal_year + 1
+            and after.fiscal_year + shifts.get(after.end, 0) == newer_number + 1
         )
         if _one_year_apart(older, newer) and newer_holds:
-            shift = newer.fiscal_year + shifts.get(newer.end, 0) - 1 - older.fiscal_year
+            shift = newer_number - 1 - older.fiscal_year
         shifts[older.end] = shift
     if not any(shifts.values()):
         return entries

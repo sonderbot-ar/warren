@@ -261,6 +261,21 @@ def test_one_wrong_year_in_the_newest_filing_does_not_renumber_the_history():
     assert _continuous_year_numbers(calendar) == calendar
 
 
+def test_one_wrong_year_in_a_middle_filing_moves_only_that_year():
+    calendar = [
+        CalendarEntry(date(2019 + i, 12, 31), fy, 4)
+        for i, fy in enumerate([2019, 2020, 2021, 2025, 2023, 2024])
+    ]
+    assert [e.fiscal_year for e in _continuous_year_numbers(calendar)] == [
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+    ]
+
+
 def test_a_numbering_that_moves_down_shifts_older_years_down():
     calendar = [
         CalendarEntry(date(2012, 12, 31), 2013, 4),

@@ -1,6 +1,6 @@
 # Backlog #306: a company that changed how it numbers its fiscal years
 
-Issue: https://github.com/sonderbot-ar/warren/issues/306 · Branch `backlog-306-fiscal-year-labels` · Status: in review (PR to come).
+Issue: https://github.com/sonderbot-ar/warren/issues/306 · Branch `backlog-306-fiscal-year-labels` · Status: in review (PR #311).
 
 ## Problem
 
@@ -27,14 +27,14 @@ The same check on the other seven companies' company facts (fetched nov.10.2026)
 **Step 1. Continuous year numbers in the filing calendar.**
 
 - `ingest._continuous_year_numbers(entries)`, applied at the end of `build_filing_calendar` to the calendar as filed (`_raw_calendar`). Year ends are the calendar's quarter-4 entries (a filing's own fiscal year end; a year with no 10-K has none). Walking them from the newest back, two year ends one year apart (365.25 days within `YEAR_DRIFT_TOLERANCE_DAYS`, so 52/53-week years pass) must carry consecutive fiscal years. When they don't, the older one is shifted to meet the newer one's number (after the newer one's own shift, so shifts chain; a shift can be up or down and by more than one year).
-- The newer numbering must hold for at least two consecutive year ends: the newer year end and the one after it, one year apart and consecutive as filed. Otherwise the break is left as filed, so one wrong `fy` in the newest 10-K cannot renumber a whole history (analyst). Walmart's newer numbering holds for twelve year ends.
+- The newer numbering must hold for at least two consecutive year ends: the newer year end and the one after it, one year apart and consecutive once renumbered. Otherwise the break is left as filed, so one wrong `fy` in the newest 10-K cannot renumber a whole history (analyst). Walmart's newer numbering holds for twelve year ends.
 - Which entries move: an entry takes the shift of the first year end on or after its own end (within `SAME_END_TOLERANCE_DAYS`), so a quarter moves with the fiscal year it belongs to; entries after the newest year end never move.
 - Across year ends further apart (a hole in the calendar, a change of year end) nothing says the numbering changed, so the shift accumulated so far carries on unchanged; with no shift, nothing moves.
 - Periods older than the oldest calendar entry (comparatives in the first 10-Ks) are placed a whole number of years from a renumbered entry by `place_period_end`, so they move with it: Walmart's years ending January 2008 and 2009 become FY2008 and FY2009 (were FY2007 and FY2008).
 - `IngestResult.renumbered` counts the calendar entries renumbered and the `ingest` command prints it ("69 filing periods (19 renumbered)" for Walmart), so a renumbering is never silent (analyst, professor).
 - `label_fact` and `filing_periods` place every fact against this calendar, so comparatives in later filings take the same labels.
 - Only labels move. Values, dates, filings and the facts kept are unchanged (`UPSERT_FACT` already updates only the labels on re-ingest).
-- Tests (`tests/fundamentals/test_ingest.py`): a Walmart-like calendar is renumbered (FY2013 → 2014 and its quarters with it, the later years unchanged) and a comparative year, a comparative fourth quarter and an older quarter are labelled to match; the test company's consecutive calendar is unchanged; year ends two years apart keep their labels; a shift carries across an older gap; one wrong year in the newest filing (2021, 2022, 2025) leaves the history alone; a numbering that moves down (2013, 2014, 2014, 2015) shifts older years down; `build_filing_calendar` on raw filings with `fy` 2012, 2013, 2015, 2016 gives 2013–2016 and `renumbered_entries` counts 2 (0 for the test company).
+- Tests (`tests/fundamentals/test_ingest.py`): a Walmart-like calendar is renumbered (FY2013 → 2014 and its quarters with it, the later years unchanged) and a comparative year, a comparative fourth quarter and an older quarter are labelled to match; the test company's consecutive calendar is unchanged; year ends two years apart keep their labels; a shift carries across an older gap; one wrong year in the newest filing (2021, 2022, 2025) leaves the history alone; one wrong year in a middle filing (2019, 2020, 2021, 2025, 2023, 2024) moves only that year; a numbering that moves down (2013, 2014, 2014, 2015) shifts older years down; `build_filing_calendar` on raw filings with `fy` 2012, 2013, 2015, 2016 gives 2013–2016 and `renumbered_entries` counts 2 (0 for the test company).
 - Exit: the suite passes.
 
 **Step 2. Re-label the stored data and check nothing else moved.**
@@ -62,7 +62,7 @@ Labels are the period's name, not information about its value. A query as of 201
 
 - `domains/fundamentals/ingest.py`: `_raw_calendar`, `_continuous_year_numbers` (called by `build_filing_calendar`), `renumbered_entries`, `IngestResult.renumbered`.
 - `domains/fundamentals/__main__.py`: `ingest` prints the renumbered count.
-- `tests/fundamentals/test_ingest.py`: seven tests.
+- `tests/fundamentals/test_ingest.py`: eight tests.
 - `docs/designs/backlog-306-fiscal-year-labels.md`: this doc.
 
 ## Product impact
@@ -87,3 +87,7 @@ Explainer, analyst, professor and the front-end lead (Product impact), nov.10.20
 - Professor 4 (a tooltip for retailers' fiscal years): front-end idea, left to F2.
 - Explainer gaps 1–4 and 6 (which year end a quarter belongs to, entries after the newest year end, chaining and direction, year ends without a 10-K, old and new labels for the range): answered in Step 1 and Step 2. Gap 5 (is the calendar rebuilt as of a date): no; labels are built once from all filings, as before this change, and only names move (Point in time). Gap 7: `place_period_end` handles comparatives older than the oldest entry by whole years; Step 1 says so.
 - Front-end lead 1–3 (exact range, the sign notes, latest quarter and runs unchanged): accepted in Product impact.
+
+## PR review
+
+Gatekeeper, first pass on PR #311: NO-GO. Blocker: one wrong `fy` in a middle 10-K (year ends 2019–2024 filed as 2019, 2020, 2021, 2025, 2023, 2024) came out 2016, 2017, 2018, 2022, 2023, 2024, because the years before the bad one kept its correction. Fixed: the "newer numbering holds" check compares renumbered numbers, so the years before compare with the corrected 2022 and keep theirs; test added. Walmart's result and the other seven companies are unchanged (19 and 0 renumbered). Doc status updated.
