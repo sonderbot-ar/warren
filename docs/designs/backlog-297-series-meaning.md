@@ -1,6 +1,6 @@
 # Backlog #297 item 2 (series part): a run of periods that crosses a tag's change of meaning
 
-Issue: https://github.com/sonderbot-ar/warren/issues/297 · Branch `backlog-297-series-meaning` · Status: built (nov.10.2026); PR #307. Gatekeeper GO; its ideas 1, 2 and 4 taken ("carries" for one period, a full stop, the issue number).
+Issue: https://github.com/sonderbot-ar/warren/issues/297 · Branch `backlog-297-series-meaning` · Status: merged as v0.9.50 (nov.10.2026; PR #307, merge `5888454`). Gatekeeper GO; its ideas 1, 2 and 4 taken ("carries" for one period, a full stop, the issue number).
 
 Built here: item 2 for the case the front-end is waiting on, a series of periods asked together (brief Q2, "how has the operating margin changed over five years"). Left in #297: item 2 for trailing sums, track records and forecast errors; items 1 (run note), 4, 5, 7, 11, 12, 13.
 
