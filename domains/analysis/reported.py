@@ -435,8 +435,8 @@ def _sign_note(line: Line, used: Fact, skipped: Fact, filings: _Filings) -> Code
     text = (
         f"{line.name} {period}: the {skip['form']} filed {skip['filed_at']} tagged "
         f"{skipped.value:,.0f} for {used.period_start or ''}–{used.period_end}, the opposite sign "
-        f"of {used.value:,.0f} in the {use['form']} filed {use['filed_at']}; a sign-tagging "
-        "error, so it was skipped"
+        f"of {used.value:,.0f} in the {use['form']} filed {use['filed_at']}; treated as a "
+        "sign-tagging error and skipped"
     )
     size_differs = abs(skipped.value) != abs(used.value)
     if first_skipped and not size_differs:

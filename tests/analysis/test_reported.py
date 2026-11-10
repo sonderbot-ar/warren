@@ -603,3 +603,22 @@ def test_a_corrected_flip_with_a_new_size_is_partly_a_revision(make_company):
     [note] = reported_period(conn, "TST", "FY2018", AS_OF).line("income_tax_expense").sign_notes
     assert note.params["first_reported_skipped"] and note.params["size_differs"]
     assert "not a restatement" not in note.text and "revision" in note.text
+
+
+def test_a_flipped_prior_year_revenue_is_noted_on_growth(make_company):
+    """The newest 10-K flips 2018's revenue: FY2019's growth reads the prior year from the older
+    filing, its prior line carries the note and growth says so (gatekeeper)."""
+
+    def edit(tag, row):
+        if tag == "Revenues" and row["accn"] == FY2019_10K and row["end"] == "2018-12-31":
+            if row.get("start") == "2018-01-01":
+                return {**row, "val": -row["val"]}
+        return row
+
+    conn = make_company(edit)
+    r = reported_period(conn, "TST", "FY2019", AS_OF)
+    [prior] = r.prior_lines
+    assert prior.value > 0 and prior.sign_notes[0].params["period"] == "FY2018"
+    assert r.line("revenue").sign_notes == []
+    growth = {n.code: n.params for n in r.ratio("revenue_growth_yoy").notes}
+    assert growth["uses_sign_checked_line"] == {"items": ["revenue"], "periods": ["FY2018"]}
