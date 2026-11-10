@@ -36,6 +36,7 @@ from domains.analysis import financial_math as fm
 from domains.analysis.coded import Coded, coded_warnings, pass_on
 from domains.analysis.math_engine import CASH_ITEMS, CHAINS, History, basis_kind, debt_parts
 from domains.fundamentals.facts import (
+    MEANING_CHANGE_MATCH,
     MeaningChange,
     get_facts,
     meaning_state,
@@ -515,16 +516,21 @@ def _meaning_line_note(line: Line, change: MeaningChange, meaning: dict[str, str
         return _MEANING_WORDS[state].format(form=change.form, day=day)
 
     first_differs = meaning["first_reported"] != meaning["latest"]
+    whole = _whole_change(line, change) if first_differs else None
     text = f"{line.name} {period} is {change.xbrl_concept} with {words(meaning['latest'])}"
     if first_differs:
         text += (
             f"; the first-reported {line.first_reported.value:,.0f} has "
             f"{words(meaning['first_reported'])}, whose figures are still filed under "
-            f"{change.other_concept}. The change from the first reported is a different line, "
-            "not a restatement"
+            f"{change.other_concept}. "
         )
-        if line.derived:
-            text += " (a derived quarter may also hold a real revision)"
+        text += (
+            "The difference from the first reported comes from the move to a different line, "
+            "not a restatement"
+            if whole
+            else "At least part of the difference from the first reported comes from the move "
+            "to a different line, not a restatement; the rest may be a revision"
+        )
     if "plain" in meaning and meaning["plain"] != meaning["latest"]:
         text += (
             f"; the year less the other quarters, each its newest version, would have "
@@ -544,9 +550,26 @@ def _meaning_line_note(line: Line, change: MeaningChange, meaning: dict[str, str
             "first_reported_meaning": meaning["first_reported"],
             "plain_meaning": meaning.get("plain"),
             "first_reported_differs": first_differs,
+            "whole_change": whole,
         },
         text,
     )
+
+
+def _whole_change(line: Line, change: MeaningChange) -> bool | None:
+    """Whether the new meaning explains all of the change from the first reported: the line's
+    own period is one the change shows, its first-reported figure is the tag's value before the
+    change and its value the tag's value after (within `MEANING_CHANGE_MATCH`). False when the
+    period shows the change but either differs (part is a revision); None when the period is not
+    one the change shows, as for a derived quarter (not known, so the text hedges)."""
+    for start, end, old, new in change.periods:
+        if (start, end) == (line.period_start, line.period_end) and not line.derived:
+            return _close(line.first_reported.value, old) and _close(line.value, new)
+    return None
+
+
+def _close(value: float, target: float) -> bool:
+    return abs(value - target) <= MEANING_CHANGE_MATCH * abs(target)
 
 
 def reported_period(

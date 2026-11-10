@@ -515,8 +515,10 @@ def test_a_line_refiled_with_the_new_meaning_says_its_change_is_not_a_restatemen
         "first_reported_meaning": "old",
         "plain_meaning": None,
         "first_reported_differs": True,
+        "whole_change": True,
     }
-    assert "not a restatement" in note.text and "still filed under" in note.text
+    assert "comes from the move to a different line, not a restatement" in note.text
+    assert "still filed under" in note.text and "At least part" not in note.text
     assert line.value == pytest.approx(1.04 * line.first_reported.value)
 
 
@@ -560,6 +562,8 @@ def test_a_derived_quarter_across_the_change_is_mixed_and_growth_says_so(make_co
     r = reported_period(conn, "TST", "FY2018Q4", AS_OF)
     params = r.line("revenue").meaning_note.params
     assert (params["meaning"], params["first_reported_meaning"]) == ("mixed", "old")
+    assert params["whole_change"] is None  # a derived quarter: not known, so the text hedges
+    assert "At least part of the difference" in r.line("revenue").meaning_note.text
     note = next(n for n in r.ratio("revenue_growth_yoy").notes if n.code == "tag_changed_meaning")
     assert (note.params["new_meaning"], note.params["old_meaning"], note.params["mixed"]) == (
         None,
@@ -567,6 +571,27 @@ def test_a_derived_quarter_across_the_change_is_mixed_and_growth_says_so(make_co
         ["FY2018Q4"],
     )
     assert "mixes two different lines" in note.text
+
+
+def _restate_then_redefine(tag, row):
+    """FY2017 is restated 1% up in the FY2018 10-K (a real revision, old meaning), then the tag
+    changes meaning as in `_redefine_revenues`, the contract tag keeping the restated figure."""
+    fy2017 = row.get("start") == "2017-01-01" and row["end"] == "2017-12-31"
+    if tag == "Revenues" and fy2017 and row["filed"] >= "2019-02-15":
+        row = {**row, "val": row["val"] * 1.01}
+    return _redefine_revenues(tag, row)
+
+
+def test_a_change_that_is_partly_a_revision_is_not_called_not_a_restatement(make_company):
+    """Professor: deny a restatement only when the data proves it. FY2017's first-reported figure
+    is not the one the redefinition replaced (a 1% restatement came between), so `whole_change`
+    is False and the text says only part of the change is a different line."""
+    conn = make_company(_restate_then_redefine)
+    note = _meaning(conn, "FY2017")
+    assert (note.params["first_reported_differs"], note.params["whole_change"]) == (True, False)
+    assert "At least part of the difference from the first reported comes from" in note.text
+    assert "the rest may be a revision" in note.text
+    assert _meaning(conn, "FY2018").params["whole_change"] is True
 
 
 def test_other_lines_and_companies_without_a_change_have_no_note(company, make_company):

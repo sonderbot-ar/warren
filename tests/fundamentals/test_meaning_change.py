@@ -202,3 +202,14 @@ def test_the_quality_report_keeps_only_periods_in_its_fiscal_years(db):
     report.meaning_changes = changes
     text = report.to_markdown()
     assert "measure different lines" in text and "redefined" not in text
+
+
+def test_mixed_is_judged_by_the_inputs_dates_not_their_tags(db):
+    """A known limit, pinned so it can't drift silently (analyst): an input filed before the
+    change counts as old even when its own tag is not the one that changed."""
+    first_filings(db)
+    redefine(db)
+    changes = tag_meaning_changes(db, CIK, ["revenue"], "2026-11-09")
+    filed = {"k-2020": date(2020, 2, 26), "other-2017": date(2017, 11, 7)}
+    fact = _fact(f"{BEST} − {OTHER}", date(2020, 2, 26), True, ["k-2020", "other-2017"])
+    assert meaning_state(fact, changes, filed) == ("mixed", changes[0])
