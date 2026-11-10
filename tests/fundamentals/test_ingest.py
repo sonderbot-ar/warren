@@ -5,10 +5,12 @@ import pytest
 from domains.fundamentals.edgar_client import EdgarError
 from domains.fundamentals.ingest import (
     CalendarEntry,
+    _continuous_year_numbers,
     build_filing_calendar,
     content_sha256,
     ingest_company,
     label_fact,
+    renumbered_entries,
 )
 from tests.fundamentals.conftest import TEST_CIK, FakeEdgar
 
@@ -182,3 +184,138 @@ def test_mid_quarter_balance_is_stored_without_a_label(conn):
     assert result.unlabelled == 1
     row = conn.execute("SELECT fiscal_year FROM financial_facts WHERE period_end = '2025-05-15'")
     assert row.fetchone()[0] is None
+
+
+# -- a company that changed how it numbers its fiscal years (backlog #306) ---------------------
+
+
+def _walmart_like_calendar():
+    """Year ends in January; filings up to January 2014 numbered a year by the year it started
+    in, later ones by the year it ends in (Walmart: fy=2013, then fy=2015)."""
+    return [
+        CalendarEntry(date(2013, 1, 31), 2012, 4),
+        CalendarEntry(date(2013, 4, 30), 2013, 1),
+        CalendarEntry(date(2013, 10, 31), 2013, 3),
+        CalendarEntry(date(2014, 1, 31), 2013, 4),
+        CalendarEntry(date(2014, 4, 30), 2015, 1),
+        CalendarEntry(date(2015, 1, 31), 2015, 4),
+        CalendarEntry(date(2015, 4, 30), 2016, 1),
+        CalendarEntry(date(2016, 1, 31), 2016, 4),
+    ]
+
+
+def test_older_years_take_the_newer_numbering_when_a_company_changes_it():
+    fixed = _continuous_year_numbers(_walmart_like_calendar())
+    assert [(e.end.isoformat(), e.fiscal_year, e.quarter) for e in fixed] == [
+        ("2013-01-31", 2013, 4),
+        ("2013-04-30", 2014, 1),
+        ("2013-10-31", 2014, 3),
+        ("2014-01-31", 2014, 4),
+        ("2014-04-30", 2015, 1),
+        ("2015-01-31", 2015, 4),
+        ("2015-04-30", 2016, 1),
+        ("2016-01-31", 2016, 4),
+    ]
+    # A comparative year and quarter in a later filing take the same label.
+    assert label_fact(fixed, "2013-02-01", "2014-01-31") == (2014, "FY", None)
+    assert label_fact(fixed, "2013-11-01", "2014-01-31") == (2014, "Q4", None)
+    assert label_fact(fixed, "2012-02-01", "2012-04-30") == (2013, "Q1", None)
+
+
+def test_consecutive_numbering_is_left_alone():
+    calendar = build_filing_calendar(FakeEdgar().facts)
+    assert _continuous_year_numbers(calendar) == calendar
+
+
+def test_year_ends_more_than_a_year_apart_keep_their_gap():
+    # A two-year hole: nothing says the numbering changed, so the labels stay as filed.
+    calendar = [
+        CalendarEntry(date(2008, 9, 27), 2008, 4),
+        CalendarEntry(date(2010, 9, 25), 2010, 4),
+        CalendarEntry(date(2011, 9, 24), 2011, 4),
+    ]
+    assert _continuous_year_numbers(calendar) == calendar
+
+
+def test_a_shift_carries_across_a_gap_older_than_the_change():
+    calendar = [
+        CalendarEntry(date(2010, 1, 31), 2009, 4),
+        CalendarEntry(date(2012, 1, 31), 2011, 4),  # two years later, same old numbering
+        CalendarEntry(date(2013, 1, 31), 2013, 4),  # the change
+        CalendarEntry(date(2014, 1, 31), 2014, 4),
+    ]
+    assert [e.fiscal_year for e in _continuous_year_numbers(calendar)] == [
+        2010,
+        2012,
+        2013,
+        2014,
+    ]
+
+
+def test_one_wrong_year_in_the_newest_filing_does_not_renumber_the_history():
+    calendar = [
+        CalendarEntry(date(2021, 12, 31), 2021, 4),
+        CalendarEntry(date(2022, 12, 31), 2022, 4),
+        CalendarEntry(date(2023, 12, 31), 2025, 4),  # a typo, held by no later year
+    ]
+    assert _continuous_year_numbers(calendar) == calendar
+
+
+def test_one_wrong_year_in_a_middle_filing_moves_only_that_year():
+    calendar = [
+        CalendarEntry(date(2019 + i, 12, 31), fy, 4)
+        for i, fy in enumerate([2019, 2020, 2021, 2025, 2023, 2024])
+    ]
+    assert [e.fiscal_year for e in _continuous_year_numbers(calendar)] == [
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+    ]
+
+
+def test_a_numbering_that_moves_down_shifts_older_years_down():
+    calendar = [
+        CalendarEntry(date(2012, 12, 31), 2013, 4),
+        CalendarEntry(date(2013, 12, 31), 2014, 4),
+        CalendarEntry(date(2014, 12, 31), 2014, 4),
+        CalendarEntry(date(2015, 12, 31), 2015, 4),
+    ]
+    assert [e.fiscal_year for e in _continuous_year_numbers(calendar)] == [
+        2012,
+        2013,
+        2014,
+        2015,
+    ]
+
+
+def test_filing_calendar_renumbers_a_changed_numbering_from_the_filings_own_fy():
+    def filing(accn, end, fy, fp, start):
+        return {
+            "accn": accn,
+            "end": end,
+            "start": start,
+            "fy": fy,
+            "fp": fp,
+            "form": "10-K",
+            "filed": f"{int(end[:4])}-03-25",
+            "val": 1,
+        }
+
+    rows = [
+        filing("a1", "2013-01-31", 2012, "FY", "2012-02-01"),
+        filing("a2", "2014-01-31", 2013, "FY", "2013-02-01"),
+        filing("a3", "2015-01-31", 2015, "FY", "2014-02-01"),
+        filing("a4", "2016-01-31", 2016, "FY", "2015-02-01"),
+    ]
+    facts = {"facts": {"us-gaap": {"Revenues": {"units": {"USD": rows}}}}}
+    assert [(e.end.year, e.fiscal_year) for e in build_filing_calendar(facts)] == [
+        (2013, 2013),
+        (2014, 2014),
+        (2015, 2015),
+        (2016, 2016),
+    ]
+    assert renumbered_entries(facts) == 2
+    assert renumbered_entries(FakeEdgar().facts) == 0

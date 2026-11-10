@@ -9,7 +9,7 @@ import json
 import sqlite3
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from domains.fundamentals.concepts import (
@@ -58,6 +58,7 @@ class IngestResult:
     facts_new: int = 0
     calendar_entries: int = 0
     unlabelled: int = 0  # stored, but no fiscal period could be assigned
+    renumbered: int = 0  # filing periods whose fiscal year was renumbered (backlog #306)
     skipped: Counter = field(default_factory=Counter)
 
 
@@ -77,8 +78,14 @@ def build_filing_calendar(facts_json: dict[str, Any]) -> list[CalendarEntry]:
     """Label each 10-K/10-Q's own period end with the filing's fy/fp.
 
     A filing's own period is the end date most of its facts share (comparatives are a minority).
-    When filings disagree about an end date, the majority label wins.
+    When filings disagree about an end date, the majority label wins. A company that changed
+    how it numbers its fiscal years is renumbered to its newer numbering (backlog #306).
     """
+    return _continuous_year_numbers(_raw_calendar(facts_json))
+
+
+def _raw_calendar(facts_json: dict[str, Any]) -> list[CalendarEntry]:
+    """The calendar exactly as the filings number it."""
     votes: dict[date, Counter] = defaultdict(Counter)
     for primary_end, fy, fp in _primary_periods(facts_json).values():
         votes[primary_end][(fy, FP_TO_QUARTER[fp])] += 1
@@ -88,6 +95,68 @@ def build_filing_calendar(facts_json: dict[str, Any]) -> list[CalendarEntry]:
         (fy, quarter), _ = counter.most_common(1)[0]
         entries.append(CalendarEntry(end=end, fiscal_year=fy, quarter=quarter))
     return entries
+
+
+def _one_year_apart(older: CalendarEntry, newer: CalendarEntry) -> bool:
+    return abs((newer.end - older.end).days - 365.25) <= YEAR_DRIFT_TOLERANCE_DAYS
+
+
+def _continuous_year_numbers(entries: list[CalendarEntry]) -> list[CalendarEntry]:
+    """Renumber older fiscal years when a company changed how it numbers them.
+
+    Two fiscal year ends one year apart must carry consecutive fiscal years. When they don't
+    (Walmart's filings named the year ending January 2014 fy=2013 and the next one fy=2015,
+    because it switched from the year a fiscal year starts in to the year it ends in), the
+    newer filings' numbering wins and every entry up to the older year end is shifted to meet
+    it. The shift chains through newer shifts and can be up or down by any number of years.
+
+    - The newer numbering must hold for at least two consecutive year ends (the newer year end
+      and the one after it, one year apart and consecutive once renumbered); otherwise the
+      break is left as filed, so one wrong `fy` in the newest 10-K cannot renumber a whole
+      history. A wrong `fy` in an older 10-K is renumbered to fit its neighbours, and the
+      years before it are compared with that corrected number, so they keep theirs.
+    - Across year ends further apart (a gap in the calendar, or a change of year end) the
+      shift carries on unchanged, since nothing there says the numbering changed.
+    - An entry takes the shift of the first year end on or after its own end (within
+      SAME_END_TOLERANCE_DAYS); entries after the newest year end never move.
+    - Only quarter-4 entries (a filing's own fiscal year end) define year ends.
+
+    Only labels move; no value or date changes.
+    """
+    year_ends = [e for e in entries if e.quarter == 4]
+    shifts: dict[date, int] = {}  # year end -> how many years its fiscal year moves
+    shift = 0
+    for i in range(len(year_ends) - 2, -1, -1):
+        older, newer = year_ends[i], year_ends[i + 1]
+        after = year_ends[i + 2] if i + 2 < len(year_ends) else None
+        newer_number = newer.fiscal_year + shifts.get(newer.end, 0)
+        newer_holds = (
+            after is not None
+            and _one_year_apart(newer, after)
+            and after.fiscal_year + shifts.get(after.end, 0) == newer_number + 1
+        )
+        if _one_year_apart(older, newer) and newer_holds:
+            shift = newer_number - 1 - older.fiscal_year
+        shifts[older.end] = shift
+    if not any(shifts.values()):
+        return entries
+
+    def shift_for(end: date) -> int:
+        for year_end in year_ends:
+            if year_end.end >= end - timedelta(days=SAME_END_TOLERANCE_DAYS):
+                return shifts.get(year_end.end, 0)
+        return 0
+
+    return [
+        CalendarEntry(end=e.end, fiscal_year=e.fiscal_year + shift_for(e.end), quarter=e.quarter)
+        for e in entries
+    ]
+
+
+def renumbered_entries(facts_json: dict[str, Any]) -> int:
+    """How many filing-calendar entries `_continuous_year_numbers` renumbered (0 for most)."""
+    raw = _raw_calendar(facts_json)
+    return sum(a != b for a, b in zip(raw, _continuous_year_numbers(raw), strict=True))
 
 
 def filing_periods(
@@ -213,6 +282,7 @@ def extract_facts(
     calendar = build_filing_calendar(facts_json)
     own_period = filing_periods(facts_json, calendar)
     result.calendar_entries = len(calendar)
+    result.renumbered = renumbered_entries(facts_json)
 
     rows: dict[tuple, tuple] = {}
     for taxonomy, tag, unit, fact in _iter_facts(facts_json):
