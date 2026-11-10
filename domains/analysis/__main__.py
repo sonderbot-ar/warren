@@ -269,6 +269,13 @@ def render_reported(r: ReportedPeriod) -> str:
             line += f"  (first reported {_fmt(x.first_reported.value, x.unit)})"
         if x.one_basis:
             line += f"  (on one basis; plain derivation {_fmt(x.plain.value, x.unit)})"
+        for note in x.sign_notes:
+            skipped = note.params["skipped"]
+            line += (
+                f"  (a version filed with the opposite sign, {_fmt(skipped['value'], x.unit)} in "
+                f"{skipped['form']} {skipped['accession_no']} filed {skipped['filed_at']}, "
+                "was skipped)"
+            )
         out.append(line)
     out.append("Ratios (" + r.as_reported_note.text + "):")
     for ratio in r.ratios:

@@ -482,3 +482,124 @@ def test_a_change_of_meaning_needs_two_periods_public(make_company):
     later = codes(AS_OF)["tag_changed_meaning"]
     assert (later["new_meaning"], later["old_meaning"]) == ("FY2018Q3", "FY2017Q3")
     assert later["changed_on"] == "2019-10-30"
+
+
+# -- backlog #282: a version filed with its sign flipped, skipped, says so --------------------
+
+TAX = "IncomeTaxExpenseBenefit"
+FY2018_10K = "0000000123-19-000011"  # filed 2019-02-15
+
+
+def _flip_2018_tax_in(accession):
+    def edit(tag, row):
+        if tag == TAX and row["accn"] == accession and row["end"] == "2018-12-31":
+            if row.get("start") == "2018-01-01":
+                return {**row, "val": -row["val"]}
+        return row
+
+    return edit
+
+
+def test_a_flipped_newest_version_is_skipped_and_the_line_says_so(make_company):
+    """Walmart's case: the newest 10-K tags the year's tax with the wrong sign, and the year has
+    only two versions, so the older filing's figure is used and the line names both."""
+    conn = make_company(_flip_2018_tax_in(FY2019_10K))
+    r = reported_period(conn, "TST", "FY2018", AS_OF)
+    tax = r.line("income_tax_expense")
+    assert tax.value > 0 and not tax.changed
+    assert tax.latest.filing.accession_no == FY2018_10K
+    [note] = tax.sign_notes
+    assert note.code == "sign_flip_skipped"
+    assert note.params == {
+        "item": "income_tax_expense",
+        "period": "FY2018",
+        "input_start": "2018-01-01",
+        "input_end": "2018-12-31",
+        "used": {
+            "accession_no": FY2018_10K,
+            "form": "10-K",
+            "filed_at": "2019-02-15",
+            "value": tax.value,
+        },
+        "skipped": {
+            "accession_no": FY2019_10K,
+            "form": "10-K",
+            "filed_at": "2020-02-15",
+            "value": -tax.value,
+        },
+        "first_reported_skipped": False,
+        "size_differs": False,
+    }
+    rate = {n.code: n.params for n in r.ratio("effective_tax_rate").notes}
+    expected = {"items": ["income_tax_expense"], "periods": ["FY2018"]}
+    assert rate["uses_sign_checked_line"] == expected
+    # lines resting on no skipped version carry no note, ratios not using tax neither
+    assert r.line("revenue").sign_notes == []
+    assert "uses_sign_checked_line" not in {n.code for n in r.ratio("operating_margin").notes}
+
+
+def test_a_derived_quarter_from_the_year_carries_the_note(make_company):
+    conn = make_company(_flip_2018_tax_in(FY2019_10K))
+    r = reported_period(conn, "TST", "FY2018Q4", AS_OF)
+    tax = r.line("income_tax_expense")
+    assert tax.derived and tax.value > 0
+    [note] = tax.sign_notes
+    assert (note.params["period"], note.params["input_start"], note.params["input_end"]) == (
+        "FY2018Q4",
+        "2018-01-01",
+        "2018-12-31",
+    )
+    assert note.params["skipped"]["accession_no"] == FY2019_10K
+    # a quarter reported on its own rests on no year: no note
+    q3 = reported_period(conn, "TST", "FY2018Q3", AS_OF).line("income_tax_expense")
+    assert q3.sign_notes == []
+
+
+def test_a_flipped_first_version_corrected_later_is_not_a_restatement(make_company):
+    """Caterpillar's case: the first filing has the wrong sign and the next corrects it, so the
+    figure differs from the first reported because of the tag, which the note says."""
+    conn = make_company(_flip_2018_tax_in(FY2018_10K))
+    r = reported_period(conn, "TST", "FY2018", AS_OF)
+    tax = r.line("income_tax_expense")
+    assert tax.value > 0 and tax.changed
+    assert tax.first_reported.value == -tax.value
+    [note] = tax.sign_notes
+    assert note.params["first_reported_skipped"] is True
+    assert note.params["skipped"]["accession_no"] == FY2018_10K
+    assert "not a restatement" in note.text
+    # the derived Q4's first-reported derivation used the flipped year too
+    q4 = reported_period(conn, "TST", "FY2018Q4", AS_OF).line("income_tax_expense")
+    assert [n.params["first_reported_skipped"] for n in q4.sign_notes] == [True]
+
+
+def test_a_flip_is_noted_only_once_the_second_version_is_public(make_company):
+    conn = make_company(_flip_2018_tax_in(FY2019_10K))
+    before = reported_period(conn, "TST", "FY2018", date(2020, 2, 14)).line("income_tax_expense")
+    assert before.sign_notes == [] and before.value > 0
+
+
+def test_the_terminal_and_json_show_the_skipped_version(make_company):
+    conn = make_company(_flip_2018_tax_in(FY2019_10K))
+    r = reported_period(conn, "TST", "FY2018", AS_OF)
+    assert f"10-K {FY2019_10K} filed 2020-02-15, was skipped" in cli.render_reported(r)
+    assert "flipped against another filing" in r.as_reported_note.text
+    lines = json.loads(json.dumps(r.to_dict()))["lines"]
+    tax = next(x for x in lines if x["name"] == "income_tax_expense")
+    assert tax["sign_notes"][0]["code"] == "sign_flip_skipped"
+    assert all(x["sign_notes"] == [] for x in lines if x["name"] != "income_tax_expense")
+
+
+def test_a_corrected_flip_with_a_new_size_is_partly_a_revision(make_company):
+    """Within the 1% flip tolerance a real revision can hide (professor): the note says so."""
+
+    def edit(tag, row):
+        row = _flip_2018_tax_in(FY2018_10K)(tag, row)
+        if tag == TAX and row["accn"] == FY2018_10K and row["end"] == "2018-12-31":
+            if row.get("start") == "2018-01-01":
+                return {**row, "val": row["val"] * 1.005}
+        return row
+
+    conn = make_company(edit)
+    [note] = reported_period(conn, "TST", "FY2018", AS_OF).line("income_tax_expense").sign_notes
+    assert note.params["first_reported_skipped"] and note.params["size_differs"]
+    assert "not a restatement" not in note.text and "revision" in note.text
