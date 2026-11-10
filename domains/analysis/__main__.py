@@ -277,6 +277,8 @@ def render_reported(r: ReportedPeriod) -> str:
                 "was skipped)"
             )
         out.append(line)
+        if x.meaning_note:
+            out.append(f"  {'':32} {'':>26}  note: {x.meaning_note.text}")
     out.append("Ratios (" + r.as_reported_note.text + "):")
     for ratio in r.ratios:
         out.append(f"  {ratio.name:20} {_fmt(ratio.value, ratio.unit):>22}  {ratio.formula}")

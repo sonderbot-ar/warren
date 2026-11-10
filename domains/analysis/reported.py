@@ -18,6 +18,9 @@ latest values, and the ratios a student asks about, computed here and never by t
   `plain`, and `basis_note` says why; ratios use the one-basis figure and say so.
 - A version filed with its sign flipped is skipped (backlog #280); the line it would have been
   says so in `sign_notes`, naming both filings, and ratios that use the line say so (#282).
+- A tag that changed meaning (#295) is noted on growth and, since #297, on the line itself
+  (`meaning_note`): which meaning its figure, its first-reported figure and its plain derivation
+  carry, "mixed" for a derived quarter worked out from figures filed on both sides of the change.
 - Values are raw, unrounded, in the line's unit (USD, shares); ratios are fractions (0.2 = 20%).
 """
 
@@ -35,7 +38,7 @@ from domains.analysis.math_engine import CASH_ITEMS, CHAINS, History, basis_kind
 from domains.fundamentals.facts import (
     MeaningChange,
     get_facts,
-    meaning_of,
+    meaning_state,
     newest_filing_disagreements,
     skipped_sign_flips,
     tag_meaning_changes,
@@ -140,6 +143,11 @@ class Line:
     # backlog #282: one `sign_flip_skipped` note per version filed with its sign flipped that
     # was skipped for this line (#280), its own period's or a derivation input's; usually empty
     sign_notes: list[Coded] = field(default_factory=list)
+    # backlog #297: a `tag_changed_meaning` note when the line's figure, its first-reported figure
+    # or its plain derivation do not all carry the same meaning of a tag that changed meaning
+    # (#295), e.g. Exxon's FY2018 revenue, first reported as sales and now total revenues and
+    # other income; otherwise None
+    meaning_note: Coded | None = None
 
 
 @dataclass(frozen=True)
@@ -274,6 +282,7 @@ class _Filings:
                 (cik,),
             )
         }
+        self.filed_at = {a: date.fromisoformat(d) for a, (_form, d) in self.rows.items() if d}
 
     def get(self, accession_no: str) -> Filing:
         form, filed_at = self.rows.get(accession_no, (None, None))
@@ -291,10 +300,16 @@ class _Filings:
         return Version(fact.value, fact.xbrl_concept, fact.filed_at, self.get(fact.accession_no))
 
 
-def _line(fact: Fact, first: Fact | None, filings: _Filings, plain: Fact | None = None) -> Line:
+def _line(
+    fact: Fact,
+    first: Fact | None,
+    filings: _Filings,
+    plain: Fact | None = None,
+    changes: list[MeaningChange] | None = None,
+) -> Line:
     first = first or fact
     replaced = fact.one_basis and plain is not None and plain.value != fact.value
-    return Line(
+    line = Line(
         name=fact.canonical_name,
         unit=fact.unit,
         period_start=fact.period_start,
@@ -311,6 +326,10 @@ def _line(fact: Fact, first: Fact | None, filings: _Filings, plain: Fact | None 
         plain=filings.version(plain) if replaced else None,
         basis_note=_basis_note(fact, plain) if replaced else None,
     )
+    if not changes:
+        return line
+    facts = {"latest": fact, "first_reported": first, "plain": plain if replaced else None}
+    return _with_meaning_note(line, facts, changes, filings)
 
 
 def _basis_note(fact: Fact, plain: Fact) -> Coded:
@@ -342,7 +361,9 @@ def _basis_note(fact: Fact, plain: Fact) -> Coded:
     )
 
 
-def _lines(views: _Views, period: Period, filings: _Filings) -> list[Line]:
+def _lines(
+    views: _Views, period: Period, filings: _Filings, changes: list[MeaningChange]
+) -> list[Line]:
     """Every item the period reports: its flows, and the balances dated at its end."""
     get = _getter(views, period)
     revenue = get("revenue")
@@ -356,7 +377,7 @@ def _lines(views: _Views, period: Period, filings: _Filings) -> list[Line]:
         if fact.period_start is None and fact.period_end != revenue.period_end:
             continue  # a balance dated elsewhere is not this period's line
         key = _key(fact, period.quarterly)
-        lines.append(_line(fact, views.first.get(key), filings, views.plain.get(key)))
+        lines.append(_line(fact, views.first.get(key), filings, views.plain.get(key), changes))
     return lines
 
 
@@ -462,6 +483,72 @@ def _sign_note(line: Line, used: Fact, skipped: Fact, filings: _Filings) -> Code
     )
 
 
+def _with_meaning_note(
+    line: Line, facts: dict[str, Fact | None], changes: list[MeaningChange], filings: "_Filings"
+) -> Line:
+    """The line with a `tag_changed_meaning` note when its figures carry different meanings of
+    a changed tag (backlog #297). `facts` holds the line's latest, first-reported and plain
+    `Fact`s (the plain one only when it was replaced by a one-basis figure)."""
+    states = {
+        k: meaning_state(f, changes, filings.filed_at) for k, f in facts.items() if f is not None
+    }
+    change = next((c for _s, c in states.values() if c is not None), None)
+    meaning = {k: s for k, (s, _c) in states.items()}
+    if change is None or (len(set(meaning.values())) == 1 and "mixed" not in meaning.values()):
+        return line
+    return replace(line, meaning_note=_meaning_line_note(line, change, meaning))
+
+
+_MEANING_WORDS = {
+    "new": "the meaning the {form} filed {day} gave the tag",
+    "old": "the tag's earlier meaning",
+    "mixed": "both meanings: it is worked out from figures filed before and after the change",
+}
+
+
+def _meaning_line_note(line: Line, change: MeaningChange, meaning: dict[str, str]) -> Coded:
+    """Which meaning each of the line's figures carries, and what that does to `changed`."""
+    period = f"FY{line.fiscal_year}{_q(line)}"
+    day = change.filed_at.isoformat()
+
+    def words(state: str) -> str:
+        return _MEANING_WORDS[state].format(form=change.form, day=day)
+
+    first_differs = meaning["first_reported"] != meaning["latest"]
+    text = f"{line.name} {period} is {change.xbrl_concept} with {words(meaning['latest'])}"
+    if first_differs:
+        text += (
+            f"; the first-reported {line.first_reported.value:,.0f} has "
+            f"{words(meaning['first_reported'])}, whose figures are still filed under "
+            f"{change.other_concept}. The change from the first reported is a different line, "
+            "not a restatement"
+        )
+        if line.derived:
+            text += " (a derived quarter may also hold a real revision)"
+    if "plain" in meaning and meaning["plain"] != meaning["latest"]:
+        text += (
+            f"; the year less the other quarters, each its newest version, would have "
+            f"{words(meaning['plain'])}"
+        )
+    return Coded(
+        "tag_changed_meaning",
+        {
+            "item": line.name,
+            "period": period,
+            "tag": change.xbrl_concept,
+            "other_tag": change.other_concept,
+            "changed_on": day,
+            "form": change.form,
+            "accession_no": change.accession_no,
+            "meaning": meaning["latest"],
+            "first_reported_meaning": meaning["first_reported"],
+            "plain_meaning": meaning.get("plain"),
+            "first_reported_differs": first_differs,
+        },
+        text,
+    )
+
+
 def reported_period(
     conn: sqlite3.Connection, ticker: str, period: str | Period, as_of: date
 ) -> ReportedPeriod:
@@ -482,15 +569,23 @@ def reported_period(
         views = _views(conn, cik, as_of, quarterly)
         resolved = resolved or latest_period(views, quarterly)
         filings = _Filings(conn, cik)
-        lines = _lines(views, resolved, filings)
-        disagreements = _disagreements(conn, cik, lines, as_of, filings)
         changes = tag_meaning_changes(conn, cik, ["revenue"], as_of)
+        lines = _lines(views, resolved, filings, changes)
+        disagreements = _disagreements(conn, cik, lines, as_of, filings)
         flips = skipped_sign_flips(conn, cik, sorted({x.name for x in lines}), as_of)
     prior = resolved.year_earlier()
     prior_revenue = _getter(views, prior)("revenue")
     prior_key = _key(prior_revenue, quarterly) if prior_revenue else None
     prior_lines = (
-        [_line(prior_revenue, views.first.get(prior_key), filings, views.plain.get(prior_key))]
+        [
+            _line(
+                prior_revenue,
+                views.first.get(prior_key),
+                filings,
+                views.plain.get(prior_key),
+                changes,
+            )
+        ]
         if prior_revenue
         else []
     )
@@ -512,7 +607,7 @@ def reported_period(
         as_of=as_of,
         lines=lines,
         prior_lines=prior_lines,
-        ratios=_ratios(views, resolved, lines, prior_lines, changes),
+        ratios=_ratios(views, resolved, lines, prior_lines, changes, filings.filed_at),
         disagreements=disagreements,
         as_reported_note=Coded(AS_REPORTED["code"], {}, AS_REPORTED["text"]),
         warnings=_coded_warnings(caught, universe),
@@ -646,6 +741,7 @@ def _ratios(
     lines: list[Line],
     prior_lines: list[Line],
     changes: list[MeaningChange] = (),
+    filed_at: dict[str, date] | None = None,
 ):
     get = _getter(views, period)
     revenue = get("revenue")
@@ -693,7 +789,7 @@ def _ratios(
             )
         )
 
-    out.append(_growth(views, period, revenue, lines, prior_lines, changes))
+    out.append(_growth(views, period, revenue, lines, prior_lines, changes, filed_at))
 
     for chain, name, words in (("capex", "capex_share", "capex"), ("d_and_a", "da_share", "D&A")):
         facts, i, missing = _chain(chain, get)
@@ -742,7 +838,7 @@ def _net_margin(get, revenue: Fact, period: Period, lines: list[Line]) -> Ratio:
     )
 
 
-def _growth(views, period, revenue, lines, prior_lines, changes=()) -> Ratio:
+def _growth(views, period, revenue, lines, prior_lines, changes=(), filed_at=None) -> Ratio:
     prior_period = period.year_earlier()
     formula = f"revenue {period.label} ÷ revenue {prior_period.label} − 1"
     fid = "revenue_yoy"
@@ -798,19 +894,41 @@ def _growth(views, period, revenue, lines, prior_lines, changes=()) -> Ratio:
         )
     notes += _one_basis_note([x for x in [*lines, *prior_lines] if x.name == "revenue"])
     notes += _sign_checked_note([x for x in [*lines, *prior_lines] if x.name == "revenue"])
-    notes += _meaning_note(revenue, prior, period, prior_period, changes)
+    notes += _meaning_note(revenue, prior, period, prior_period, changes, filed_at)
     value = fm.growth(revenue.value, prior.value)
     return Ratio("revenue_growth_yoy", fid, formula, value, "fraction", uses, None, notes)
 
 
-def _meaning_note(revenue, prior, period, prior_period, changes) -> list[Coded]:
+def _meaning_note(revenue, prior, period, prior_period, changes, filed_at) -> list[Coded]:
     """Growth across a tag that changed meaning (backlog #295): one period's revenue carries the
-    tag's new meaning, the other its old one, so the two are not like for like."""
-    new, old = meaning_of(revenue, changes), meaning_of(prior, changes)
-    if (new is None) == (old is None):
+    tag's new meaning, the other its old one, so the two are not like for like. Since #297 a
+    derived quarter worked out from figures filed on both sides of the change is "mixed", and
+    growth with a mixed period is noted too (`mixed` names it; `new_meaning` or `old_meaning`
+    is null when no period carries that meaning alone)."""
+    state, change = meaning_state(revenue, changes, filed_at)
+    prior_state, prior_change = meaning_state(prior, changes, filed_at)
+    change = change or prior_change
+    if change is None or (state == prior_state and state != "mixed"):
         return []
-    change = new or old
-    newer, older = (period, prior_period) if new else (prior_period, period)
+    labels = {period.label: state, prior_period.label: prior_state}
+    newer = next((k for k, v in labels.items() if v == "new"), None)
+    older = next((k for k, v in labels.items() if v == "old"), None)
+    mixed = [k for k, v in labels.items() if v == "mixed"]
+    day = change.filed_at.isoformat()
+    if not mixed:
+        text = (
+            f"revenue for {newer} is {change.xbrl_concept} with the meaning the {change.form} "
+            f"filed {day} gave it; {older} has its earlier meaning, whose figures are still "
+            f"filed under {change.other_concept}. The two measure different lines: not like "
+            "for like"
+        )
+    else:
+        text = (
+            f"revenue for {' and '.join(mixed)} is worked out from {change.xbrl_concept} figures "
+            f"filed before and after the {change.form} of {day} gave the tag a new meaning, so "
+            "it mixes two different lines (the earlier meaning is still filed under "
+            f"{change.other_concept}): not like for like"
+        )
     return [
         Coded(
             "tag_changed_meaning",
@@ -818,17 +936,14 @@ def _meaning_note(revenue, prior, period, prior_period, changes) -> list[Coded]:
                 "item": "revenue",
                 "tag": change.xbrl_concept,
                 "other_tag": change.other_concept,
-                "changed_on": change.filed_at.isoformat(),
+                "changed_on": day,
                 "form": change.form,
                 "accession_no": change.accession_no,
-                "new_meaning": newer.label,
-                "old_meaning": older.label,
+                "new_meaning": newer,
+                "old_meaning": older,
+                "mixed": mixed,
             },
-            f"revenue for {newer.label} is {change.xbrl_concept} with the meaning the "
-            f"{change.form} filed {change.filed_at.isoformat()} gave it; {older.label} has its "
-            "earlier meaning, "
-            f"whose figures are still filed under {change.other_concept}. The two measure "
-            "different lines: not like for like",
+            text,
         )
     ]
 

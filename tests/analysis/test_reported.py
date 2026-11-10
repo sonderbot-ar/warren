@@ -455,6 +455,7 @@ def test_growth_across_a_tag_that_changed_meaning_says_so(make_company):
         "accession_no": note.params["accession_no"],
         "new_meaning": "FY2019Q1",
         "old_meaning": "FY2018Q1",
+        "mixed": [],
     }
     assert "measure different lines" in note.text and "not like for like" in note.text
 
@@ -482,6 +483,110 @@ def test_a_change_of_meaning_needs_two_periods_public(make_company):
     later = codes(AS_OF)["tag_changed_meaning"]
     assert (later["new_meaning"], later["old_meaning"]) == ("FY2018Q3", "FY2017Q3")
     assert later["changed_on"] == "2019-10-30"
+
+
+# -- backlog #297: the line says which meaning its figures carry -------------------------------
+
+
+def _meaning(conn, period, as_of=AS_OF):
+    return reported_period(conn, "TST", period, as_of).line("revenue").meaning_note
+
+
+@pytest.mark.parametrize("period", ["FY2018Q3", "FY2018", "FY2017", "FY2019Q1"])
+def test_a_line_refiled_with_the_new_meaning_says_its_change_is_not_a_restatement(
+    make_company, period
+):
+    """Each was first reported on the old meaning and refiled after the Q3 2019 10-Q on the new
+    one: `changed` is on, and the note says why."""
+    conn = make_company(_redefine_revenues)
+    line = reported_period(conn, "TST", period, AS_OF).line("revenue")
+    assert line.changed
+    note = line.meaning_note
+    assert note.code == "tag_changed_meaning"
+    assert note.params == {
+        "item": "revenue",
+        "period": period,
+        "tag": "us-gaap:Revenues",
+        "other_tag": f"us-gaap:{CONTRACT}",
+        "changed_on": "2019-10-30",
+        "form": "10-Q",
+        "accession_no": note.params["accession_no"],
+        "meaning": "new",
+        "first_reported_meaning": "old",
+        "plain_meaning": None,
+        "first_reported_differs": True,
+    }
+    assert "not a restatement" in note.text and "still filed under" in note.text
+    assert line.value == pytest.approx(1.04 * line.first_reported.value)
+
+
+@pytest.mark.parametrize("period", ["FY2019Q2", "FY2019", "FY2019Q3", "FY2020Q1", "FY2017Q1"])
+def test_a_line_on_one_meaning_has_no_note(make_company, period):
+    """Q2 2019 was never refiled (old); the 2019 year and Q3 2019 were first reported on the new
+    meaning; Q1 2017 is older than any filing that shows the change."""
+    conn = make_company(_redefine_revenues)
+    assert _meaning(conn, period) is None
+
+
+def test_the_line_note_waits_for_the_change_to_be_public(make_company):
+    """On 2019-12-31 the Q3 2019 10-Q's one comparative is all that shows the change (the
+    two-period rule), so FY2018Q3 has no note yet; after the FY2019 10-K it has."""
+    conn = make_company(_redefine_revenues)
+    assert _meaning(conn, "FY2018Q3", date(2019, 12, 31)) is None
+    assert _meaning(conn, "FY2018Q3") is not None
+
+
+def test_a_plain_derivation_across_the_change_is_mixed(make_company):
+    """FY2017Q4 on one basis is the year less the quarters as first reported (old); the plain
+    derivation takes the 2017 year from the FY2019 10-K (new) and the quarters from 2017
+    (old): a mix, named in `plain_meaning`."""
+    conn = make_company(_redefine_revenues)
+    line = reported_period(conn, "TST", "FY2017Q4", AS_OF).line("revenue")
+    assert line.one_basis and not line.changed
+    params = line.meaning_note.params
+    assert (params["meaning"], params["first_reported_meaning"], params["plain_meaning"]) == (
+        "old",
+        "old",
+        "mixed",
+    )
+    assert params["first_reported_differs"] is False
+    assert "both meanings" in line.meaning_note.text
+
+
+def test_a_derived_quarter_across_the_change_is_mixed_and_growth_says_so(make_company):
+    """FY2018Q4 is the 2018 year from the FY2019 10-K (new) less Q1 and Q2 2018 (old, never
+    refiled) and Q3 2018 (new): mixed. Growth against FY2017Q4 (old) is noted as a mix."""
+    conn = make_company(_redefine_revenues)
+    r = reported_period(conn, "TST", "FY2018Q4", AS_OF)
+    params = r.line("revenue").meaning_note.params
+    assert (params["meaning"], params["first_reported_meaning"]) == ("mixed", "old")
+    note = next(n for n in r.ratio("revenue_growth_yoy").notes if n.code == "tag_changed_meaning")
+    assert (note.params["new_meaning"], note.params["old_meaning"], note.params["mixed"]) == (
+        None,
+        "FY2017Q4",
+        ["FY2018Q4"],
+    )
+    assert "mixes two different lines" in note.text
+
+
+def test_other_lines_and_companies_without_a_change_have_no_note(company, make_company):
+    conn = make_company(_redefine_revenues)
+    r = reported_period(conn, "TST", "FY2018", AS_OF)
+    assert [x.name for x in r.lines if x.meaning_note] == ["revenue"]
+    plain = reported_period(company, "TST", "FY2018Q4", AS_OF)
+    assert all(x.meaning_note is None for x in plain.lines + plain.prior_lines)
+
+
+def test_the_json_carries_the_line_note(make_company):
+    conn = make_company(_redefine_revenues)
+    data = json.loads(json.dumps(reported_period(conn, "TST", "FY2018", AS_OF).to_dict()))
+    line = next(x for x in data["lines"] if x["name"] == "revenue")
+    assert line["meaning_note"]["code"] == "tag_changed_meaning"
+    assert line["meaning_note"]["params"]["changed_on"] == "2019-10-30"
+    prior = data["prior_lines"][0]
+    assert prior["meaning_note"]["params"]["period"] == "FY2017"
+    text = cli.render_reported(reported_period(conn, "TST", "FY2018", AS_OF))
+    assert "note: revenue FY2018 is us-gaap:Revenues" in text
 
 
 # -- backlog #282: a version filed with its sign flipped, skipped, says so --------------------
