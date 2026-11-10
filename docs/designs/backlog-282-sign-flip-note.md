@@ -1,6 +1,6 @@
 # Backlog #282: the reported view says when a version was skipped for a flipped sign
 
-Issue: https://github.com/sonderbot-ar/warren/issues/282 (`backlog`, `front-end`) · Branch `backlog-282-sign-flip-note` · Status: built and reviewed (nov.10.2026).
+Issue: https://github.com/sonderbot-ar/warren/issues/282 (`backlog`, `front-end`) · Branch `backlog-282-sign-flip-note` · Status: merged as v0.9.48 (nov.10.2026; PR #301, merge `d03e131`; gatekeeper GO).
 
 ## Problem
 
