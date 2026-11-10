@@ -93,17 +93,17 @@ Labels name a period; they are not information about its value. The own-period r
 
 ## Results on the stored data (Step 4, nov.10.2026)
 
-Snapshot of nov.10.2026 (`warren-20261110T153650Z`), re-ingested from the cached company facts, as of 2026-11-09.
+The cloud machine's copy of the snapshot of nov.10.2026 (`warren-20261110T153650Z`), re-ingested from the cached company facts, as of 2026-11-09; saved afterwards as `warren-20261110T202538Z` (schema 22).
 
 - **Labels moved, and nothing else.** 33,490 facts before and after, same ids; every value, period, filing and filing date unchanged. Moved: Apple's facts ending 2008-09-27 (35 durations, 20 balances) FY2009 → FY2008; Caterpillar's ending 2007-12-31 (12 durations, 6 balances) FY2009 → FY2007. No quarter label moved (Apple's three-month quarters were already placed from the right neighbours), so Apple FY2008Q4 and Caterpillar's 2009 quarters keep their names; the sign note on Caterpillar's Q2 2009 cost of revenue keeps its period. Walmart's 19 renumbered entries are as in v0.9.51, now listed by name.
-- **Checks.** 0 label collisions and 0 year breaks on all eight companies (before Step 1: Apple and Caterpillar FY2009, duration and instant each). `filing_labels`: 558 filings; 20 where the SEC's `fy` differs from Warren's year, all Walmart's renumbered years; 1 with no own period (Coca-Cola's cover-only 10-Q/A).
+- **Checks.** 0 label collisions and 0 year breaks on all eight companies (before Step 1: Apple and Caterpillar FY2009, duration and instant each). `filing_labels`: 558 filings; 20 where the SEC's `fy` differs from Warren's year, all Walmart's renumbered years (the 19 renumbered calendar entries plus the 10-Q/A 0000104169-13-000039, which amends the quarter ending 2013-07-31); 1 with no own period (Coca-Cola's cover-only 10-Q/A).
 - **`reported_period` revenue, before → after** (million USD):
 
   | Period | Before | After |
   |---|---|---|
   | Apple FY2008 | refused (no FY2008) | 2007-09-30 to 2008-09-27: 37,491 latest, 32,479 first reported, `changed`; growth +52.5% on FY2007's 24,578 |
   | Apple FY2009 | 42,905 latest, 36,537 first; growth not computed (no prior year) | same figures; growth +14.4% |
-  | Apple FY2008Q4 | refused | 7,895 (2008-06-29 to 2008-09-27), not changed |
+  | Apple FY2008Q4 | refused | 7,895 (2008-06-29 to 2008-09-27), not changed, `one_basis` with a basis note: the plain derivation on the newer, restated basis gives 12,907 |
   | Apple FY2009Q4 | 12,207 latest, 9,870 first; growth not computed | same; growth +54.6%, with `uses_changed_line` and `uses_one_basis_line` |
   | Caterpillar FY2007 | refused | 44,958 (2007) |
   | Caterpillar FY2008 | 51,324; growth not computed | same; growth +14.2% |
@@ -127,6 +127,10 @@ Explainer, analyst, professor, and the front-end lead on Product impact. Profess
 - Front-end lead 1–3 (quarters, before/after answers, note periods): answered in Results (no quarter moved; the answers table; the Caterpillar sign note keeps its period). Idea 4 (the SEC's `fy` is not the company's name): accepted, reworded, kept off the reported view. Ideas 5–6: done.
 - Explainer gaps: fallback, filing date, tolerance, label sets, the calendar rule, the moved quarters, restore and snapshot commands, the Renumbered fields, the test files, the accession join and the garbled Files line are answered in the text above. Gap 16 (how `reported_period` picks a filing): unchanged by this item; it reads facts by label and period as before (`docs/designs/backlog-290-one-basis-reported.md`).
 
+## PR review
+
+Gatekeeper on PR #315, first pass: NO-GO. Blocker: a symlink named `data` (from the build's worktree) was committed in Step 1, because `.gitignore`'s `data/` matches only directories. Fixed: the link is removed from the branch and `/data` is ignored as well. Ideas taken: the database re-ingested is named in Results; the 20th Walmart filing is named; Apple FY2008Q4's basis note is in the table. Idea left: a test that later companies still ingest after an earlier one reports a label problem (the loop has no early exit; `__main__.cmd_ingest`).
+
 ## Where the work stopped
 
-- nov.10.2026: Steps 0–4 built, data re-labelled and checked; PR next, then the gatekeeper.
+- nov.10.2026: Steps 0–4 built, data re-labelled and checked; PR #315 open; gatekeeper blocker fixed, second pass next.
