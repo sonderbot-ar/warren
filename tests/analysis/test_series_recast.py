@@ -1,0 +1,160 @@
+"""A series across a recast that left some of its periods unchanged (backlog #297 item 13), on
+Test Corp (tests/analysis/conftest.py). `_recast_revenues`: from its FY2018 10-K (filed
+2019-02-15), every filing gives revenue for periods ending in 2017 or later 5% lower, with no
+other tag keeping the old figures (a recast, as Exxon's 10-K of 2018-02-28 cut FY2015 and
+FY2016). That 10-K covers 2016 to 2018, so FY2017 moves, FY2016 is filed again unchanged, and
+FY2015 (last in the FY2017 10-K, filed 2018-02-15) is never filed again."""
+
+import json
+from datetime import date
+
+import pytest
+
+from domains.analysis.reported import reported_series
+from domains.fundamentals.facts import RECAST_MOVE, Recast, item_recasts, side_of_recast
+from domains.fundamentals.schemas import Fact
+from tests.analysis.conftest import AS_OF
+from tests.analysis.test_reported import _redefine_revenues
+from tests.analysis.test_reported_series import REVENUE_RATIOS
+
+TEN_K_2018 = "2019-02-15"
+
+
+def _recast_revenues(tag, row, factor=0.95):
+    if tag != "Revenues" or row["filed"] < TEN_K_2018 or row["end"] < "2017-01-01":
+        return row
+    return {**row, "val": row["val"] * factor}
+
+
+def _notes(series):
+    return [n for n in series.notes if n.code == "series_mixes_vintages"]
+
+
+def _note(series):
+    notes = _notes(series)
+    assert len(notes) == 1
+    return notes[0]
+
+
+def test_the_recast_is_found_and_dated_by_its_filing(make_company):
+    conn = make_company(_recast_revenues)
+    cik = conn.execute("SELECT cik FROM companies WHERE ticker = 'TST'").fetchone()[0]
+    recasts = item_recasts(conn, cik, "revenue", AS_OF)
+    first = recasts[0]
+    assert (first.form, first.filed_at.isoformat()) == ("10-K", TEN_K_2018)
+    years = [(s, e) for s, e, _o, _n in first.periods if (e - s).days > 300]
+    assert years == [(date(2017, 1, 1), date(2017, 12, 31))]
+    assert first.largest_move(300) == pytest.approx(-0.05)
+    # the 2019 10-Qs recast the 2018 comparative quarters, each on its own filing
+    assert {r.form for r in recasts[1:]} == {"10-Q"}
+
+
+def test_years_across_the_recast_say_which_kept_the_old_figures(make_company):
+    conn = make_company(_recast_revenues)
+    s = reported_series(conn, "TST", ["FY2015", "FY2016", "FY2017", "FY2018"], AS_OF)
+    note = _note(s)
+    assert note.params == {
+        "item": "revenue",
+        "recast_on": TEN_K_2018,
+        "form": "10-K",
+        "accession_no": note.params["accession_no"],
+        "largest_move": pytest.approx(-0.05),
+        "moved_periods": ["FY2017"],
+        "before_periods": ["FY2015"],
+        "after_periods": ["FY2016", "FY2017", "FY2018"],
+        "mixed_periods": [],
+        "ratios": REVENUE_RATIOS,
+    }
+    assert "the 10-K filed 2019-02-15 changed revenue figures already reported" in note.text
+    assert "(by up to 5.0%), including FY2017" in note.text
+    assert "FY2015 keeps figures filed before it, never filed again" in note.text
+    assert "may not be like for like" in note.text
+    assert "do not say why" in note.text
+    assert json.loads(json.dumps(s.to_dict()))["notes"][0]["code"] == "series_mixes_vintages"
+
+
+@pytest.mark.parametrize(
+    "periods",
+    [
+        ["FY2016", "FY2017", "FY2018", "FY2019"],  # all filed again on or after the recast
+        ["FY2014", "FY2015"],  # all before it
+    ],
+)
+def test_a_series_on_one_side_has_no_note(make_company, periods):
+    conn = make_company(_recast_revenues)
+    assert _notes(reported_series(conn, "TST", periods, AS_OF)) == []
+
+
+def test_the_note_waits_for_the_recast_to_be_public(make_company):
+    conn = make_company(_recast_revenues)
+    years = ["FY2015", "FY2016", "FY2017"]
+    assert _notes(reported_series(conn, "TST", years, date(2019, 2, 14))) == []
+    assert _note(reported_series(conn, "TST", years, date(2019, 2, 15))) is not None
+
+
+def test_a_move_within_the_threshold_is_not_a_recast(make_company):
+    conn = make_company(lambda tag, row: _recast_revenues(tag, row, 1 - RECAST_MOVE / 2))
+    s = reported_series(conn, "TST", ["FY2015", "FY2016", "FY2017", "FY2018"], AS_OF)
+    assert _notes(s) == []
+
+
+def test_a_tag_that_changed_meaning_is_not_a_recast(make_company):
+    """The old figures stay under another tag: the meaning note's case, not this one."""
+    conn = make_company(_redefine_revenues)
+    s = reported_series(conn, "TST", ["FY2015", "FY2016", "FY2017", "FY2018", "FY2019"], AS_OF)
+    assert _notes(s) == []
+    assert [n.code for n in s.notes] == ["series_mixes_meanings"]
+
+
+def test_a_company_without_a_recast_has_no_note(company):
+    s = reported_series(company, "TST", ["FY2014", "FY2015", "FY2016", "FY2017"], AS_OF)
+    assert s.notes == []
+
+
+def test_quarters_name_before_and_after(make_company):
+    """Against the 10-K of 2019-02-15: Q1 2017 was last filed in the Q1 2018 10-Q (before); Q4
+    2017 on one basis is the 2017 year as first filed less three quarters filed with it (#264),
+    so before too; Q1 2018 was filed again in the Q1 2019 10-Q (after). The Q1 2019 10-Q's own
+    recast of Q1 2018 splits the series the same way and is not listed again."""
+    conn = make_company(_recast_revenues)
+    s = reported_series(conn, "TST", ["FY2017Q1", "FY2017Q4", "FY2018Q1"], AS_OF)
+    note = _note(s)
+    assert (note.params["form"], note.params["recast_on"]) == ("10-K", TEN_K_2018)
+    assert note.params["before_periods"] == ["FY2017Q1", "FY2017Q4"]
+    assert note.params["after_periods"] == ["FY2018Q1"]
+    assert note.params["mixed_periods"] == []
+    assert s.periods[1].line("revenue").one_basis
+
+
+def _quarter(inputs, derived=True):
+    return Fact(
+        canonical_name="revenue",
+        xbrl_concept="us-gaap:Revenues",
+        period_start=date(2017, 10, 1),
+        period_end=date(2017, 12, 31),
+        value=1.0,
+        unit="USD",
+        filed_at=date(2019, 2, 15),
+        derived=derived,
+        inputs=inputs,
+    )
+
+
+@pytest.mark.parametrize(
+    ("inputs", "side"),
+    [(["a", "b"], "mixed"), (["b"], "after"), (["a"], "before")],
+)
+def test_a_derived_quarter_sits_where_its_inputs_were_filed(inputs, side):
+    recast = Recast("revenue", "b", "10-K", date(2019, 2, 15), [])
+    filed_at = {"a": date(2018, 2, 15), "b": date(2019, 2, 15)}
+    assert side_of_recast(_quarter(inputs), recast, {}, filed_at) == side
+
+
+def test_both_notes_when_a_series_crosses_a_recast_and_a_change_of_meaning(make_company):
+    def both(tag, row):
+        out = _recast_revenues(tag, row)
+        return _redefine_revenues(tag, out)
+
+    conn = make_company(both)
+    s = reported_series(conn, "TST", ["FY2015", "FY2016", "FY2017", "FY2018", "FY2019"], AS_OF)
+    assert [n.code for n in s.notes] == ["series_mixes_meanings", "series_mixes_vintages"]

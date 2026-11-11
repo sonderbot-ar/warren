@@ -38,15 +38,19 @@ from domains.analysis.math_engine import CASH_ITEMS, CHAINS, History, basis_kind
 from domains.fundamentals.facts import (
     MEANING_CHANGE_MATCH,
     MeaningChange,
+    Recast,
     dating_changes,
     filing_dates,
     get_facts,
+    item_recasts,
     meaning_state,
     mixes_meanings,
     newest_filing_disagreements,
+    side_of_recast,
     skipped_sign_flips,
     state_for_change,
     tag_meaning_changes,
+    version_dates,
 )
 from domains.fundamentals.schemas import Fact
 from domains.fundamentals.universe import PHASE1_UNIVERSE
@@ -1095,7 +1099,8 @@ def reported_series(
         company_name=first.company_name,
         as_of=as_of,
         periods=answers,
-        notes=_series_meaning_notes(conn, answers, as_of),
+        notes=_series_meaning_notes(conn, answers, as_of)
+        + _series_recast_notes(conn, answers, as_of),
     )
 
 
@@ -1118,9 +1123,7 @@ def _series_meaning_notes(
         views = _views(conn, cik, as_of, quarterly)
     filed_at = _Filings(conn, cik).filed_at
     facts = {r.period: _getter(views, parse_period(r.period))("revenue") for r in answers}
-    ratios = sorted(
-        {x.name for r in answers for x in r.ratios if any(u["line"] == "revenue" for u in x.uses)}
-    )
+    ratios = _revenue_ratios(answers)
     notes = []
     for change in dating_changes(facts.values(), changes, filed_at):
         of = {k: state_for_change(f, change, changes, filed_at) for k, f in facts.items()}
@@ -1165,6 +1168,100 @@ def _series_note(change: MeaningChange, of: dict[str, str], ratios: list[str]) -
             "new_periods": groups["new"],
             "mixed_periods": groups["mixed"],
             "other_tag_periods": groups["other"],
+            "ratios": ratios,
+        },
+        text,
+    )
+
+
+# -- backlog #297 item 13: a series across a recast that left some of its periods unchanged ----
+
+ANNUAL_MIN_DAYS = 300  # a recast counts for a series of years only when it moved a year
+
+
+def _series_recast_notes(
+    conn: sqlite3.Connection, answers: list[ReportedPeriod], as_of: date
+) -> list[Coded]:
+    """One `series_mixes_vintages` note per recast of revenue (`facts.item_recasts`: a filing
+    gave earlier periods new figures, and no tag still holds the old ones) that leaves the series
+    on both sides: at least one period every filing of which came before the recast, and at least
+    one reported in it or after it (or, for a derived quarter, worked out across it). A series of
+    years counts only recasts that moved a year; a recast whose split repeats an earlier one's
+    is left out (Johnson & Johnson's 10-Q of 2023-10-27, then its 10-K of 2024-02-16)."""
+    cik, quarterly = answers[0].cik, answers[0].fiscal_period != "FY"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # each period already carries its coded warnings
+        recasts = item_recasts(conn, cik, "revenue", as_of)
+        if not quarterly:
+            recasts = [r for r in recasts if r.largest_move(ANNUAL_MIN_DAYS) is not None]
+        if not recasts:
+            return []
+        views = _views(conn, cik, as_of, quarterly)
+        versions = version_dates(conn, cik, "revenue", as_of)
+    filed_at = _Filings(conn, cik).filed_at
+    facts = {r.period: _getter(views, parse_period(r.period))("revenue") for r in answers}
+    ratios = _revenue_ratios(answers)
+    notes, seen = [], set()
+    for recast in recasts:
+        side = {k: side_of_recast(f, recast, versions, filed_at) for k, f in facts.items()}
+        split = tuple(sorted(side.items()))
+        if "before" not in side.values() or set(side.values()) == {"before"} or split in seen:
+            continue
+        seen.add(split)
+        moved = [k for k, f in facts.items() if _moved_by(f, recast)]
+        move = recast.largest_move(0 if quarterly else ANNUAL_MIN_DAYS)
+        notes.append(_recast_note(recast, side, moved, ratios, move))
+    return notes
+
+
+def _revenue_ratios(answers: list[ReportedPeriod]) -> list[str]:
+    return sorted(
+        {x.name for r in answers for x in r.ratios if any(u["line"] == "revenue" for u in x.uses)}
+    )
+
+
+def _moved_by(fact: Fact, recast: Recast) -> bool:
+    return not fact.derived and any(
+        (s, e) == (fact.period_start, fact.period_end) for s, e, _o, _n in recast.periods
+    )
+
+
+def _recast_note(
+    recast: Recast, side: dict[str, str], moved: list[str], ratios: list[str], move: float
+) -> Coded:
+    groups = {s: [k for k, v in side.items() if v == s] for s in ("before", "after", "mixed")}
+    day = recast.filed_at.isoformat()
+    verb = "keeps" if len(groups["before"]) == 1 else "keep"
+    parts = [
+        f"the {recast.form} filed {day} changed revenue figures already reported (by up to "
+        f"{abs(move):.1%}){', including ' + _and(moved) if moved else ''}",
+        f"{_and(groups['before'])} {verb} figures filed before it, never filed again",
+    ]
+    if groups["after"]:
+        parts.append(
+            f"{_and(groups['after'])} {'is' if len(groups['after']) == 1 else 'are'} "
+            "as filed in it or later"
+        )
+    if groups["mixed"]:
+        parts.append(f"{_and(groups['mixed'])} worked out from figures on both sides")
+    on = f", and the ratios on it ({', '.join(ratios)})," if ratios else ""
+    text = (
+        f"revenue in this series is not all on one footing: {'; '.join(parts)}. Across that "
+        f"break revenue{on} may not be like for like. The filings do not say why the figures "
+        f"changed (a business sold, a new accounting rule, or a correction)."
+    )
+    return Coded(
+        "series_mixes_vintages",
+        {
+            "item": recast.canonical_name,
+            "recast_on": day,
+            "form": recast.form,
+            "accession_no": recast.accession_no,
+            "largest_move": move,
+            "moved_periods": moved,
+            "before_periods": groups["before"],
+            "after_periods": groups["after"],
+            "mixed_periods": groups["mixed"],
             "ratios": ratios,
         },
         text,
