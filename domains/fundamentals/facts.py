@@ -422,6 +422,134 @@ def meaning_of(
     return change if state == "new" else None
 
 
+# -- backlog #297 item 13: a filing that changed old figures with no other tag keeping them ------
+
+RECAST_MOVE = MEANING_CHANGE_MOVE  # a version moves by more than this share of the one before
+
+
+@dataclass(frozen=True)
+class Recast:
+    """A filing that gave periods filed before a new value for an item, and no longer reports the
+    old value under any tag (backlog #297 item 13): a recast or a correction, as opposed to a tag
+    that changed meaning (`MeaningChange`, where another tag keeps the old value). Exxon's 10-K of
+    2018-02-28 cut FY2015 revenue from 259,488 to 239,854 and FY2016 from 218,608 to 200,628;
+    Microsoft's 10-K of 2018-08-03 raised FY2016 and FY2017 for ASC 606. The engine does not
+    know why the figures moved."""
+
+    canonical_name: str
+    accession_no: str
+    form: str
+    filed_at: date
+    periods: list[tuple[date | None, date, float, float]]  # (start, end, old, new), by end
+
+    def largest_move(self, min_days: int = 0) -> float | None:
+        """The largest change, as a share of the old value (signed), among periods at least
+        `min_days` long (years only with 300; None when no period is that long)."""
+        moves = [
+            new / old - 1
+            for start, end, old, new in self.periods
+            if start is not None and (end - start).days >= min_days
+        ]
+        return max(moves, key=abs) if moves else None
+
+
+def item_recasts(
+    conn: sqlite3.Connection, cik: str, canonical_name: str, as_of: date | str
+) -> list[Recast]:
+    """Every filing public on `as_of` that recast `canonical_name`, oldest first.
+
+    For each period, filings in order: a filing's version is the last row of its best-ranked
+    tag; it is a recast of the period when it moves by more than `RECAST_MOVE` from the previous
+    filing's version, keeps its sign, and no row of the filing (any tag) still holds the previous
+    value within `MEANING_CHANGE_MATCH` (if one does, the old figure is still reported: a tag
+    that changed meaning, or a second tag, not a recast). A period is listed only when the
+    recast's tag is the tag `latest` mode shows for it: a filing that gives a period under a
+    lower-ranked tag than the one shown (Walmart's 10-Ks tag quarters as net sales, its 10-Qs as
+    total revenues) did not change the figure a reader sees (analyst, design review).
+    Values are not changed (a note only).
+    """
+    periods_rows = _rows_by_period(conn, cik, [canonical_name], as_of)
+    usual = _UsualSigns(periods_rows)
+    hits: dict[str, list[tuple[sqlite3.Row, float]]] = defaultdict(list)
+    for key, filings in sorted(periods_rows.items()):
+        every = [r for rows in filings.values() for r in rows]
+        shown = _latest_of_best_tag(every, usual.of(key))["xbrl_concept"]
+        previous = None
+        for accn in _filing_order(filings):
+            rows = filings[accn]
+            version = _best_tag_rows(rows)[-1]["value"]
+            if (
+                previous
+                and _sign(version) == _sign(previous)
+                and abs(version / previous - 1) > RECAST_MOVE
+                and not any(abs(r["value"] / previous - 1) <= MEANING_CHANGE_MATCH for r in rows)
+                and _best_tag_rows(rows)[-1]["xbrl_concept"] == shown
+            ):
+                hits[accn].append((_best_tag_rows(rows)[-1], previous))
+            previous = version
+    out = []
+    for accn, found in hits.items():
+        first = found[0][0]
+        periods = sorted(
+            (
+                (
+                    date.fromisoformat(r["period_start"]) if r["period_start"] else None,
+                    date.fromisoformat(r["period_end"]),
+                    old,
+                    r["value"],
+                )
+                for r, old in found
+            ),
+            key=lambda p: (p[1], p[0] or p[1]),
+        )
+        out.append(
+            Recast(
+                canonical_name,
+                accn,
+                first["form"],
+                date.fromisoformat(first["filed_at"]),
+                periods,
+            )
+        )
+    return sorted(out, key=lambda r: (r.filed_at, r.accession_no))
+
+
+def version_dates(
+    conn: sqlite3.Connection, cik: str, canonical_name: str, as_of: date | str
+) -> dict[tuple[date | None, date, str], list[date]]:
+    """(start, end, tag) -> the filing dates of every filing public on `as_of` that reported the
+    period under that tag of `canonical_name`, oldest first."""
+    out: dict[tuple[date | None, date, str], set[date]] = defaultdict(set)
+    for (_name, start, end), filings in _rows_by_period(conn, cik, [canonical_name], as_of).items():
+        for rows in filings.values():
+            for r in rows:
+                key = (date.fromisoformat(start) if start else None, date.fromisoformat(end))
+                out[(*key, r["xbrl_concept"])].add(date.fromisoformat(r["filed_at"]))
+    return {k: sorted(v) for k, v in out.items()}
+
+
+Side = Literal["before", "after", "mixed"]
+
+
+def side_of_recast(
+    fact: Fact,
+    recast: Recast,
+    versions: Mapping[tuple[date | None, date, str], list[date]],
+    filed_at: Mapping[str, date],
+) -> Side:
+    """Which side of `recast` a fact's figure sits on (backlog #297 item 13). A reported fact:
+    "after" when its period was reported under the fact's own tag in the recast's filing or any
+    filing on or after it (refiled, recast, or first reported then), "before" when every such
+    filing came earlier. A derived quarter: by the filing dates of its inputs, "mixed" when
+    they fall on both sides."""
+    if fact.derived:
+        dates = [filed_at[a] for a in fact.inputs if a in filed_at] or [fact.filed_at]
+        later = [d >= recast.filed_at for d in dates]
+        return "after" if all(later) else "before" if not any(later) else "mixed"
+    dates = versions.get((fact.period_start, fact.period_end, fact.xbrl_concept), [fact.filed_at])
+    return "after" if dates[-1] >= recast.filed_at else "before"
+
+
 @dataclass(frozen=True)
 class AnnualComparison:
     """A 10-K's current fiscal year against the prior year, both as reported in that filing."""
