@@ -65,11 +65,14 @@ def test_years_across_the_recast_say_which_kept_the_old_figures(make_company):
         "mixed_periods": [],
         "ratios": REVENUE_RATIOS,
     }
-    assert "the 10-K filed 2019-02-15 changed revenue figures already reported" in note.text
+    assert "the 10-K filed 2019-02-15 lowered revenue figures already reported" in note.text
     assert "(by up to 5.0%), including FY2017" in note.text
-    assert "FY2015 keeps figures filed before it, never filed again" in note.text
+    assert (
+        "FY2015 keeps figures filed before it, with no later version in the filings' tagged data"
+        in note.text
+    )
     assert "may not be like for like" in note.text
-    assert "do not say why" in note.text
+    assert "Warren does not know why" in note.text and "the 10-K explains it" in note.text
     assert json.loads(json.dumps(s.to_dict()))["notes"][0]["code"] == "series_mixes_vintages"
 
 
@@ -158,3 +161,28 @@ def test_both_notes_when_a_series_crosses_a_recast_and_a_change_of_meaning(make_
     conn = make_company(both)
     s = reported_series(conn, "TST", ["FY2015", "FY2016", "FY2017", "FY2018", "FY2019"], AS_OF)
     assert [n.code for n in s.notes] == ["series_mixes_meanings", "series_mixes_vintages"]
+
+
+def test_a_recast_up_says_raised(make_company):
+    conn = make_company(lambda tag, row: _recast_revenues(tag, row, 1.05))
+    note = _note(reported_series(conn, "TST", ["FY2015", "FY2016", "FY2017"], AS_OF))
+    assert note.params["largest_move"] == pytest.approx(0.05)
+    assert "raised revenue figures already reported (by up to 5.0%)" in note.text
+
+
+def _lower_tag_in_the_10k(tag, row):
+    """The 10-K of 2019-02-15 gives FY2016 only under the lower-ranked `SalesRevenueNet`, 5%
+    lower (Walmart's 10-Ks tag quarters as net sales, its 10-Qs as total revenues): the figure
+    shown stays the `Revenues` one, so nothing a reader sees moved."""
+    if tag == "Revenues" and row["filed"] == TEN_K_2018 and row["end"] == "2016-12-31":
+        return [("SalesRevenueNet", {**row, "val": row["val"] * 0.95})]
+    return row
+
+
+def test_a_filing_under_a_lower_ranked_tag_is_not_a_recast_of_the_figure_shown(make_company):
+    conn = make_company(_lower_tag_in_the_10k)
+    cik = conn.execute("SELECT cik FROM companies WHERE ticker = 'TST'").fetchone()[0]
+    assert item_recasts(conn, cik, "revenue", AS_OF) == []
+    s = reported_series(conn, "TST", ["FY2014", "FY2015", "FY2016", "FY2017"], AS_OF)
+    assert s.periods[2].line("revenue").latest.xbrl_concept == "us-gaap:Revenues"
+    assert _notes(s) == []

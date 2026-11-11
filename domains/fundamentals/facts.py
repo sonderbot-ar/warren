@@ -462,10 +462,18 @@ def item_recasts(
     tag; it is a recast of the period when it moves by more than `RECAST_MOVE` from the previous
     filing's version, keeps its sign, and no row of the filing (any tag) still holds the previous
     value within `MEANING_CHANGE_MATCH` (if one does, the old figure is still reported: a tag
-    that changed meaning, or a second tag, not a recast). Values are not changed (a note only).
+    that changed meaning, or a second tag, not a recast). A period is listed only when the
+    recast's tag is the tag `latest` mode shows for it: a filing that gives a period under a
+    lower-ranked tag than the one shown (Walmart's 10-Ks tag quarters as net sales, its 10-Qs as
+    total revenues) did not change the figure a reader sees (analyst, design review).
+    Values are not changed (a note only).
     """
+    periods_rows = _rows_by_period(conn, cik, [canonical_name], as_of)
+    usual = _UsualSigns(periods_rows)
     hits: dict[str, list[tuple[sqlite3.Row, float]]] = defaultdict(list)
-    for _key, filings in sorted(_rows_by_period(conn, cik, [canonical_name], as_of).items()):
+    for key, filings in sorted(periods_rows.items()):
+        every = [r for rows in filings.values() for r in rows]
+        shown = _latest_of_best_tag(every, usual.of(key))["xbrl_concept"]
         previous = None
         for accn in _filing_order(filings):
             rows = filings[accn]
@@ -475,6 +483,7 @@ def item_recasts(
                 and _sign(version) == _sign(previous)
                 and abs(version / previous - 1) > RECAST_MOVE
                 and not any(abs(r["value"] / previous - 1) <= MEANING_CHANGE_MATCH for r in rows)
+                and _best_tag_rows(rows)[-1]["xbrl_concept"] == shown
             ):
                 hits[accn].append((_best_tag_rows(rows)[-1], previous))
             previous = version
@@ -507,17 +516,16 @@ def item_recasts(
 
 def version_dates(
     conn: sqlite3.Connection, cik: str, canonical_name: str, as_of: date | str
-) -> dict[tuple[date | None, date], list[date]]:
-    """(start, end) -> the filing dates of every filing public on `as_of` that reported the
-    period under any tag of `canonical_name`, oldest first."""
-    return {
-        (date.fromisoformat(start) if start else None, date.fromisoformat(end)): sorted(
-            {date.fromisoformat(rows[0]["filed_at"]) for rows in filings.values()}
-        )
-        for (_name, start, end), filings in _rows_by_period(
-            conn, cik, [canonical_name], as_of
-        ).items()
-    }
+) -> dict[tuple[date | None, date, str], list[date]]:
+    """(start, end, tag) -> the filing dates of every filing public on `as_of` that reported the
+    period under that tag of `canonical_name`, oldest first."""
+    out: dict[tuple[date | None, date, str], set[date]] = defaultdict(set)
+    for (_name, start, end), filings in _rows_by_period(conn, cik, [canonical_name], as_of).items():
+        for rows in filings.values():
+            for r in rows:
+                key = (date.fromisoformat(start) if start else None, date.fromisoformat(end))
+                out[(*key, r["xbrl_concept"])].add(date.fromisoformat(r["filed_at"]))
+    return {k: sorted(v) for k, v in out.items()}
 
 
 Side = Literal["before", "after", "mixed"]
@@ -526,19 +534,19 @@ Side = Literal["before", "after", "mixed"]
 def side_of_recast(
     fact: Fact,
     recast: Recast,
-    versions: Mapping[tuple[date | None, date], list[date]],
+    versions: Mapping[tuple[date | None, date, str], list[date]],
     filed_at: Mapping[str, date],
 ) -> Side:
     """Which side of `recast` a fact's figure sits on (backlog #297 item 13). A reported fact:
-    "after" when its period was reported in the recast's filing or any filing on or after it
-    (refiled, recast, or first reported then), "before" when every filing that reported it came
-    earlier. A derived quarter: by the filing dates of its inputs, "mixed" when they fall on both
-    sides."""
+    "after" when its period was reported under the fact's own tag in the recast's filing or any
+    filing on or after it (refiled, recast, or first reported then), "before" when every such
+    filing came earlier. A derived quarter: by the filing dates of its inputs, "mixed" when
+    they fall on both sides."""
     if fact.derived:
         dates = [filed_at[a] for a in fact.inputs if a in filed_at] or [fact.filed_at]
         later = [d >= recast.filed_at for d in dates]
         return "after" if all(later) else "before" if not any(later) else "mixed"
-    dates = versions.get((fact.period_start, fact.period_end), [fact.filed_at])
+    dates = versions.get((fact.period_start, fact.period_end, fact.xbrl_concept), [fact.filed_at])
     return "after" if dates[-1] >= recast.filed_at else "before"
 
 

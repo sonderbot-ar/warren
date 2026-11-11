@@ -1113,7 +1113,7 @@ def _series_meaning_notes(
     filed under the changed tag, or under the tag that keeps the earlier meaning, before the
     change is "old"; one filed under any other tag is "other" (nothing is known of its meaning).
     The note says where this break is; it says nothing about other changes on either side (a
-    restatement that no other tag records is not detected, #297 item 13)."""
+    recast that no other tag records is `series_mixes_vintages`, #297 item 13)."""
     cik, quarterly = answers[0].cik, answers[0].fiscal_period != "FY"
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")  # each period already carries its coded warnings
@@ -1233,9 +1233,11 @@ def _recast_note(
     day = recast.filed_at.isoformat()
     verb = "keeps" if len(groups["before"]) == 1 else "keep"
     parts = [
-        f"the {recast.form} filed {day} changed revenue figures already reported (by up to "
-        f"{abs(move):.1%}){', including ' + _and(moved) if moved else ''}",
-        f"{_and(groups['before'])} {verb} figures filed before it, never filed again",
+        f"the {recast.form} filed {day} {'lowered' if move < 0 else 'raised'} revenue figures "
+        f"already reported (by up to {abs(move):.1%})"
+        f"{', including ' + _and(moved) if moved else ''}",
+        f"{_and(groups['before'])} {verb} figures filed before it, with no later version in the "
+        "filings' tagged data",
     ]
     if groups["after"]:
         parts.append(
@@ -1247,8 +1249,9 @@ def _recast_note(
     on = f", and the ratios on it ({', '.join(ratios)})," if ratios else ""
     text = (
         f"revenue in this series is not all on one footing: {'; '.join(parts)}. Across that "
-        f"break revenue{on} may not be like for like. The filings do not say why the figures "
-        f"changed (a business sold, a new accounting rule, or a correction)."
+        f"break revenue{on} may not be like for like. Warren does not know why the figures "
+        f"changed (for example a business separated, sold or brought back, a new accounting "
+        f"rule, a change in presentation, or a correction); the {recast.form} explains it."
     )
     return Coded(
         "series_mixes_vintages",
