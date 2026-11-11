@@ -1,6 +1,6 @@
 # Backlog #325: the recast note across a tag switch, and a quarter series' own moves
 
-Issue: https://github.com/sonderbot-ar/warren/issues/325 · Branch `backlog-325-recast-tag-switch` · Status: In progress (nov.11.2026). Follow-up filed: #331.
+Issue: https://github.com/sonderbot-ar/warren/issues/325 · Branch `backlog-325-recast-tag-switch` · Status: merged as v0.9.56 (PR #332, merge `ba727ca`, nov.11.2026). Follow-up filed: #331.
 
 Two follow-ups from the gatekeeper on PR #323 (v0.9.54, `series_mixes_vintages`, `docs/designs/backlog-297-series-vintages.md`). Neither misfires on today's data as far as v0.9.54's scan saw; both are holes a new filing could fall into.
 
@@ -94,6 +94,7 @@ Explainer, analyst, professor and the product lead in parallel.
 - **Professor: NO-GO, accepted.** (1) A derived fourth quarter across a year-only recast lost its note: covered by keeping year recasts, with a test. Suggestions taken: `QUARTER_SPAN` instead of a second `QUARTER_DAYS`; a 98-day quarter in the span test. Idea (16-week quarters) in Limits.
 - **Explainer: NO-GO on clarity, accepted where right.** Bounds are inclusive and passed as `largest_move(*QUARTER_SPAN)` (said); "usual sign" is `_UsualSigns`, the same as `latest` mode's sign-flip skip (#280, `docs/designs/backlog-280-sign-check.md`); the comparison uses only earlier filings' rows, in filing order (`_filing_order`: filing date, then accession); `shown` is still computed over every filing public on `as_of`; the match check runs against the new comparison figure. A recast with no qualifying move is dropped before the note is built, so `abs(None)` cannot happen. Rejected: "`_recast_revenues` does not exist" (it is in `tests/analysis/test_series_recast.py`, line 24).
 
-## Where the work stopped (nov.11.2026, 16:50 UTC)
 
-PR #332 is ready: gatekeeper GO (its two clarity notes pushed in `4f151cc`), full suite green locally (2,128 passed). CI failed three times at the same step, before ruff or pytest ran: `playwright install --with-deps chromium` could not reach Ubuntu's package servers ("Temporary failure resolving 'azure.archive.ubuntu.com'"), a GitHub runner outage, not this PR. Not merged: never with a failing check. Next run: re-run the `tests` job (or push the next real change); when green, merge with a merge commit and record v0.9.56 (versions, team sync, this doc's status, build plan untouched), then the desk entry, lesson and email.
+## Gatekeeper (nov.11.2026)
+
+GO, no blockers. Notes taken: the move's span written on two lines and the guard commented (`4f151cc`). Left: a test where the earlier best-tag version is a sign flip that `_latest_of_best_tag` skips (none in revenue today); `usual.of(key)` is worked out over every row public on `as_of`, as `shown` is, which is not look-ahead past `as_of`. CI failed three times on a GitHub runner outage (the browser install could not reach Ubuntu's servers, before any test ran) and passed on the fourth run.
