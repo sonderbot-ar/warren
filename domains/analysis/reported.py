@@ -157,6 +157,10 @@ class Line:
     # (#295), e.g. Exxon's FY2018 revenue, first reported as sales and now total revenues and
     # other income; otherwise None
     meaning_note: Coded | None = None
+    # backlog #324: a quarter its filing gave only under a tag Warren ranks below the one tag of
+    # the year and the periods before it is derived on the year's tag; `tag_note` (code
+    # `quarter_on_year_tag`) gives the figure as filed. Otherwise None
+    tag_note: Coded | None = None
 
 
 @dataclass(frozen=True)
@@ -234,6 +238,8 @@ class _Views:
     first: dict[tuple, Fact]
     names: list[str]
     plain: dict[tuple, Fact] = field(default_factory=dict)  # quarters before one basis (#290)
+    # a quarter derived on its year's tag (#324): the narrower figure its own filing gave
+    narrow: dict[tuple, Fact] = field(default_factory=dict)
 
 
 def _key(fact: Fact, quarterly: bool) -> tuple:
@@ -260,7 +266,19 @@ def _views(conn: sqlite3.Connection, cik: str, as_of: date, quarterly: bool) -> 
         annual={} if quarterly else {_key(f, False): f for f in latest},
         instants=dict(instants),
     )
-    return _Views(history, {_key(f, quarterly): f for f in first}, sorted(names), plain)
+    narrow = {}
+    if any(f.narrower_tag for f in latest):
+        spans = {
+            (f.canonical_name, f.period_start, f.period_end, f.narrower_tag): _key(f, True)
+            for f in latest
+            if f.narrower_tag
+        }
+        for f in get_facts(conn, cik, sorted({k[0] for k in spans}), as_of):
+            key = spans.get((f.canonical_name, f.period_start, f.period_end, f.xbrl_concept))
+            if key is not None:
+                narrow[key] = f
+    first_by_key = {_key(f, quarterly): f for f in first}
+    return _Views(history, first_by_key, sorted(names), plain, narrow)
 
 
 def _getter(views: _Views, period: Period) -> Callable[[str], Fact | None]:
@@ -341,6 +359,37 @@ def _line(
     return _with_meaning_note(line, facts, changes, filings)
 
 
+def _with_tag_note(line: Line, fact: Fact, narrow: Fact | None, filings: "_Filings") -> Line:
+    """A quarter derived on its year's tag says what its own filing gave (backlog #324)."""
+    if not fact.narrower_tag or narrow is None:
+        return line
+    filing = filings.get(narrow.accession_no)
+    period = f"FY{fact.fiscal_year}{fact.fiscal_period}"
+    tag = fact.xbrl_concept
+    filed = filing.filed_at.isoformat() if filing.filed_at else None
+    note = Coded(
+        "quarter_on_year_tag",
+        {
+            "item": fact.canonical_name,
+            "period": period,
+            "period_end": fact.period_end.isoformat(),
+            "value": fact.value,
+            "reported_value": narrow.value,
+            "reported_tag": narrow.xbrl_concept,
+            "tag": tag,
+            "form": filing.form,
+            "filed_at": filed,
+            "accession_no": narrow.accession_no,
+        },
+        f"{fact.canonical_name} {period} (the quarter ending {fact.period_end}) is "
+        f"{fact.value:,.0f}, worked out from figures all under {tag}, the tag of the year and "
+        f"the other quarters; the {filing.form} filed {filed} gives the quarter as "
+        f"{narrow.value:,.0f}, but only under {narrow.xbrl_concept}, a tag Warren ranks below "
+        "it, so the four quarters would not measure the same line or add up to the year",
+    )
+    return replace(line, tag_note=note)
+
+
 def _basis_note(fact: Fact, plain: Fact) -> Coded:
     """Why a derived quarter's value is not the plain derivation (backlog #264, #290)."""
     kind = basis_kind(fact)
@@ -386,7 +435,8 @@ def _lines(
         if fact.period_start is None and fact.period_end != revenue.period_end:
             continue  # a balance dated elsewhere is not this period's line
         key = _key(fact, period.quarterly)
-        lines.append(_line(fact, views.first.get(key), filings, views.plain.get(key), changes))
+        line = _line(fact, views.first.get(key), filings, views.plain.get(key), changes)
+        lines.append(_with_tag_note(line, fact, views.narrow.get(key), filings))
     return lines
 
 
@@ -609,12 +659,17 @@ def reported_period(
     prior_key = _key(prior_revenue, quarterly) if prior_revenue else None
     prior_lines = (
         [
-            _line(
+            _with_tag_note(
+                _line(
+                    prior_revenue,
+                    views.first.get(prior_key),
+                    filings,
+                    views.plain.get(prior_key),
+                    changes,
+                ),
                 prior_revenue,
-                views.first.get(prior_key),
+                views.narrow.get(prior_key),
                 filings,
-                views.plain.get(prior_key),
-                changes,
             )
         ]
         if prior_revenue
@@ -691,7 +746,24 @@ def _changed_note(facts: list[Fact], lines: list[Line]) -> list[Coded]:
             )
         )
     used = [x for x in lines if x.name in names]
-    return out + _one_basis_note(used) + _sign_checked_note(used)
+    return out + _year_tag_note(used) + _one_basis_note(used) + _sign_checked_note(used)
+
+
+def _year_tag_note(lines: list[Line]) -> list[Coded]:
+    """A ratio that uses a quarter derived on its year's tag says so (backlog #324)."""
+    used = [x for x in lines if x.tag_note]
+    if not used:
+        return []
+    items = list(dict.fromkeys(x.name for x in used))
+    periods = sorted({f"FY{x.fiscal_year}{_q(x)}" for x in used})
+    return [
+        Coded(
+            "uses_quarter_on_year_tag",
+            {"items": items, "periods": periods},
+            f"uses {', '.join(items)} for {', '.join(periods)} worked out on the year's tag, not "
+            "the figure its filing gave under a lower-ranked tag (see the line)",
+        )
+    ]
 
 
 def _one_basis_note(lines: list[Line]) -> list[Coded]:
@@ -923,6 +995,7 @@ def _growth(views, period, revenue, lines, prior_lines, changes=(), filed_at=Non
                 + ", ".join(periods),
             )
         )
+    notes += _year_tag_note([x for x in [*lines, *prior_lines] if x.name == "revenue"])
     notes += _one_basis_note([x for x in [*lines, *prior_lines] if x.name == "revenue"])
     notes += _sign_checked_note([x for x in [*lines, *prior_lines] if x.name == "revenue"])
     notes += _meaning_note(revenue, prior, period, prior_period, changes, filed_at)

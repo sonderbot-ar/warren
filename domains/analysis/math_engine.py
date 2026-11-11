@@ -207,6 +207,11 @@ def trace(fact: Fact) -> str:
     source = fact.accession_no or "derived from " + ", ".join(fact.inputs)
     if fact.one_basis:  # backlog #264
         source += " (year and year-to-date taken on one basis: a newer version of one was restated)"
+    if fact.narrower_tag:  # backlog #324
+        source += (
+            f" (worked out on the year's tag: its own filing gives the quarter only under "
+            f"{fact.narrower_tag.replace('us-gaap:', '')}, a tag ranked below it)"
+        )
     return f"{fact.canonical_name} [{_tag(fact)}] {fact.period_end} {source}"
 
 
