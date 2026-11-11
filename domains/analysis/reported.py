@@ -1245,7 +1245,8 @@ def _recast_note(
             "as filed in it or later"
         )
     if groups["mixed"]:
-        parts.append(f"{_and(groups['mixed'])} worked out from figures on both sides")
+        verb = "is" if len(groups["mixed"]) == 1 else "are"
+        parts.append(f"{_and(groups['mixed'])} {verb} worked out from figures on both sides")
     on = f", and the ratios on it ({', '.join(ratios)})," if ratios else ""
     text = (
         f"revenue in this series is not all on one footing: {'; '.join(parts)}. Across that "

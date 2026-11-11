@@ -10,7 +10,7 @@ from datetime import date
 
 import pytest
 
-from domains.analysis.reported import reported_series
+from domains.analysis.reported import _recast_note, reported_series
 from domains.fundamentals.facts import RECAST_MOVE, Recast, item_recasts, side_of_recast
 from domains.fundamentals.schemas import Fact
 from tests.analysis.conftest import AS_OF
@@ -151,6 +151,20 @@ def test_a_derived_quarter_sits_where_its_inputs_were_filed(inputs, side):
     recast = Recast("revenue", "b", "10-K", date(2019, 2, 15), [])
     filed_at = {"a": date(2018, 2, 15), "b": date(2019, 2, 15)}
     assert side_of_recast(_quarter(inputs), recast, {}, filed_at) == side
+
+
+@pytest.mark.parametrize(
+    ("mixed", "words"),
+    [
+        (["FY2017Q4"], "FY2017Q4 is worked out"),
+        (["FY2017Q3", "FY2017Q4"], "FY2017Q4 are worked out"),
+    ],
+)
+def test_the_mixed_clause_has_its_verb(mixed, words):
+    recast = Recast("revenue", "b", "10-K", date(2019, 2, 15), [])
+    side = {"FY2017Q1": "before", **dict.fromkeys(mixed, "mixed"), "FY2018Q1": "after"}
+    note = _recast_note(recast, side, [], [], -0.05)
+    assert f"{words} from figures on both sides" in note.text
 
 
 def test_both_notes_when_a_series_crosses_a_recast_and_a_change_of_meaning(make_company):

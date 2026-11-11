@@ -442,7 +442,7 @@ class Recast:
     filed_at: date
     periods: list[tuple[date | None, date, float, float]]  # (start, end, old, new), by end
 
-    def largest_move(self, min_days: int = 0) -> float:
+    def largest_move(self, min_days: int = 0) -> float | None:
         """The largest change, as a share of the old value (signed), among periods at least
         `min_days` long (years only with 300; None when no period is that long)."""
         moves = [
