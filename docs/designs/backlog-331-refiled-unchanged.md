@@ -1,6 +1,6 @@
 # Backlog #331: a period filed again unchanged is not "after" a recast
 
-Issue: https://github.com/sonderbot-ar/warren/issues/331 · Branch `backlog-331-refiled-unchanged` · Status: in progress (nov.11.2026).
+Issue: https://github.com/sonderbot-ar/warren/issues/331 · Branch `backlog-331-refiled-unchanged` · Status: in progress (nov.11.2026). **Outcome: the proposed rule is rejected after design review and a real-data trial; v0.9.54's rule is kept, now explained in code and pinned by tests.**
 
 From the analyst's design review of #325 (`docs/designs/backlog-325-recast-tag-switch.md`, Limits).
 
@@ -10,7 +10,22 @@ A series note `series_mixes_vintages` (v0.9.54) splits a series of reported peri
 
 That is how Johnson & Johnson's 10-Q of 2024-07-25 and P&G's 10-Q of 2013-01-25 produced false notes before v0.9.56: each moved only a six-month figure, and FY2023Q2 and FY2012Q2 were "after" only because the quarter was filed again unchanged. v0.9.56 removed those two by leaving half-year-only recasts out of a quarter series, but the path stays for any filing that refiles a period unchanged after a recast that moved something else, for example the recast 10-K's own earliest comparative year.
 
-## Plan
+## Outcome (nov.11.2026)
+
+The proposal below was built on the branch and tried on real data, then reverted. What ships instead:
+
+- `side_of_recast` keeps v0.9.54's rule: a period reported on or after the recast's filing date under the fact's own tag is "after", even when its figure did not move. Its docstring now says why (ASC 250-10-45-5) and what the alternative did on real data.
+- New test `test_a_period_filed_again_unchanged_sits_after_the_recast` (`tests/analysis/test_series_recast.py`) pins three cases on Coca-Cola's shape: refiled unchanged in a later filing (after), refiled unchanged in the recast's own filing (after), never filed again (before). The existing tests already pinned the recast 10-K's unchanged comparative year (FY2016 after; FY2016–FY2019 gets no note).
+
+**Why it was rejected.**
+
+1. **The accounting (professor, NO-GO).** A change of accounting principle is applied retrospectively to every prior period presented (ASC 250-10-45-5), and comparative statements must be comparable or the exception disclosed (ASC 205-10-45-2). A figure a filing presents unmoved beside recast figures is therefore presumed to be on the new basis: the change simply did not touch it. The design's case for "before" leaned on modified retrospective adoption (ASC 606, ASC 842), but that method moves no comparative figure, so `item_recasts` never finds a recast there (`facts.py`, its `RECAST_MOVE` check) and `side_of_recast` never runs on it. Old-basis comparatives under impracticability (ASC 250-10-45-6/7) are rare and disclosed.
+2. **Real data (Step 2 trial).** Same scan as v0.9.54 and v0.9.56 (every five-year series starting FY2009–FY2021 and every eight-quarter series starting Q1 2009–2024, eight companies, as of 2026-11-09; snapshot of nov.10.2026, 903 of 903 stored runs reproduce to the cent). The proposed rule took notes from 38 on 31 series to **61 on 39 series**: 23 notes added on 14 series, none removed. Year series unchanged. The added notes are false in the cases checked: a quarter first reported **after** the basis change, in a filing that already used the new basis, and filed again unchanged a year later, became "before" a later 10-Q that recast older comparatives. Examples: Coca-Cola's FY2019Q2 (first filed 2019-07-25 in the 10-Q that itself recast 2018's Q2; "before" the 10-Q of 2019-10-24), Procter & Gamble's FY2014Q2 against the 10-Q of 2015-04-23 and five more P&G recasts of 2015–2016, Johnson & Johnson's FY2022Q3 and FY2023Q3 against the 10-K of 2024-02-16, Apple's FY2009 and FY2010 quarters against the 10-Q of 2010-07-21. A "before" side needs "first reported before the change took effect", which the tagged data cannot date; the filing that presents the figure is the best evidence there is.
+3. **The original cause is already gone.** The two false notes that motivated #331 (J&J's 10-Q of 2024-07-25, P&G's 10-Q of 2013-01-25) were removed in v0.9.56 because those filings moved only half years.
+
+No values, notes, fields or text change. #331 is closed with this doc.
+
+## Plan (as proposed, not shipped)
 
 **Step 0. This doc.**
 
@@ -45,12 +60,20 @@ That is how Johnson & Johnson's 10-Q of 2024-07-25 and P&G's 10-Q of 2013-01-25 
 
 ## Product impact
 
-Brief Q1 and Q2 ("Notes on a series"). No values change; no field, code or param is added, renamed or removed.
+Brief Q1 and Q2 ("Notes on a series"). As shipped: none. No values, notes, fields, codes or text change.
 
-- **Changed:** in `series_mixes_vintages`, a period whose figure was only filed again unchanged on or after the recast is listed in `before_periods`, not `after_periods`. A series whose only "after" periods were such refilings gets no note. Real-data effect in Step 2.
-- `moved_periods`, `mixed_periods` and the text are unchanged.
+The proposal would have moved refiled-unchanged periods from `after_periods` to `before_periods` and added notes. The product lead gave GO on that and planned to reword the brief's {before} sentence; with the rule kept, the brief's "Warren no tiene una versión posterior" stays accurate in the sense the engine means it (a period in `before_periods` was not filed again by the recast or later).
 
 ## Limits
 
-- A derived quarter still sits by the filing dates of its inputs: an input filed again unchanged after the recast counts as after. A `Fact` keeps only its inputs' accession numbers, not their periods, so the same rule needs the inputs' periods carried on the fact (a follow-up if the scan shows a case).
-- An unchanged comparative is called "before" even when the company meant it as already on the new basis (a change that did not touch that year). The engine cannot tell the two apart from tagged data; the note hedges.
+- A period first reported before a recast and presented again unchanged after it is presumed on the new basis. If a company left a comparative on the old basis (impracticability, ASC 250-10-45-6/7), the note will not say so; the filing's text does.
+- A derived quarter sits by the filing dates of its inputs, the same presumption.
+
+## Design review (nov.11.2026)
+
+Explainer, analyst, professor and the product lead in parallel, on the proposal.
+
+- **Professor: NO-GO, accepted.** The rationale contradicts ASC 250-10-45-5 and ASC 205-10-45-2 and rests on modified retrospective adoption, which this path never sees; the plan also missed that `test_a_series_on_one_side_has_no_note` (FY2016–FY2019) would flip to a note. Suggested keeping v0.9.54's rule or proving each changed split from a filing: the real-data trial above did the latter, and the changed splits were wrong.
+- **Analyst: NO-GO, accepted.** Ran the same trial independently and got the same count (23 notes added on 14 quarter series, none removed, year series unchanged), every added note checked false. Real recasts are staged: one event (a business sold, a new revenue rule) is rolled through each later filing as its comparative comes up, so a quarter first filed on the new basis, or recast earlier in the chain, is refiled unchanged and the proposal called it "before". Examples with filings: J&J FY2023Q3 (first filed 2023-10-27 with Kenvue already out, 21,351) against the 10-K of 2024-02-16; Coca-Cola FY2019Q2 (9,997, filed 2019-07-25, after Coca-Cola Beverages Africa moved back into continuing operations) against the 10-Q of 2019-10-24; Apple FY2010Q2 (13,499, filed 2010-04-21, after the 10-K/A of 2010-01-25). Also: derived quarters left on the old rule would have mixed two rules in one Coca-Cola note; the split de-duplication would stop working on chains. Recommended closing #331 as won't-fix. Suggestion not taken here: its recast counts per company (revenue, as of 2026-11-09) differ from those quoted in #325's doc, which did not say which items or date it counted; recorded, no code depends on them.
+- **Product lead: GO** on the proposal's Product impact (nothing breaks; would have reworded the brief's {before} line). Moot as shipped.
+- **Explainer: NO-GO on clarity** (the tag in rule 4, signed or absolute move, the missing-key case, a pass rule for the scan). Moot as shipped; the prototype used the fact's own tag, an absolute move, and the old fallback for a missing key.
