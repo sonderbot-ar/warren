@@ -12,7 +12,7 @@ selected for that as-of date, so a derived value is never built from a number no
 
 import sqlite3
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Literal
@@ -349,6 +349,68 @@ def meaning_state(
         if dates and min(dates) < change.filed_at:
             return "mixed", change
     return "new", change
+
+
+State = Literal["old", "new", "mixed", "other"]
+
+
+def state_for_change(
+    fact: Fact,
+    change: MeaningChange,
+    changes: list[MeaningChange],
+    filed_at: Mapping[str, date] | None = None,
+) -> State:
+    """`fact`'s meaning against one `change` (backlog #297): its `meaning_state` when that change
+    dates it; "old" when filed under the changed tag before the change or under the tag that
+    keeps the earlier meaning; "other" under any other tag (nothing is known of its meaning)."""
+    state, dated_by = meaning_state(fact, changes, filed_at)
+    if dated_by is change:
+        return state
+    if set(fact.xbrl_concept.split(" − ")) & {change.xbrl_concept, change.other_concept}:
+        return "old"
+    return "other"
+
+
+def dating_changes(
+    facts: Iterable[Fact],
+    changes: list[MeaningChange],
+    filed_at: Mapping[str, date] | None = None,
+) -> list[MeaningChange]:
+    """The changes that date at least one of `facts` (`meaning_state`), each once, ordered by
+    filing date, then accession, tag and other tag."""
+    seen: dict[tuple, MeaningChange] = {}
+    for fact in facts:
+        _state, c = meaning_state(fact, changes, filed_at)
+        if c is not None:
+            seen.setdefault((c.filed_at, c.accession_no, c.xbrl_concept, c.other_concept), c)
+    return [seen[k] for k in sorted(seen)]
+
+
+def mixes_meanings(states: Iterable[State]) -> bool:
+    """Figures read together that are not like for like across a change (backlog #297): any is
+    a mix of both meanings, or at least one carries the new meaning and at least one does not."""
+    kinds = set(states)
+    return "mixed" in kinds or ("new" in kinds and len(kinds) > 1)
+
+
+def filing_dates(
+    conn: sqlite3.Connection, cik: str, as_of: date | str | None = None
+) -> dict[str, date]:
+    """The filing date of every accession of one company (one query), for `meaning_state`;
+    with `as_of`, only accessions filed by then."""
+    dates = {
+        r["accession_no"]: date.fromisoformat(r["filed_at"])
+        for r in conn.execute(
+            "SELECT accession_no, MIN(filed_at) AS filed_at "
+            "FROM financial_facts WHERE cik = ? GROUP BY accession_no",
+            (cik,),
+        )
+        if r["filed_at"]
+    }
+    if as_of is None:
+        return dates
+    as_of = date.fromisoformat(as_of) if isinstance(as_of, str) else as_of
+    return {a: d for a, d in dates.items() if d <= as_of}
 
 
 def meaning_of(

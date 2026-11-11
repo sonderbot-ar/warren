@@ -38,10 +38,14 @@ from domains.analysis.math_engine import CASH_ITEMS, CHAINS, History, basis_kind
 from domains.fundamentals.facts import (
     MEANING_CHANGE_MATCH,
     MeaningChange,
+    dating_changes,
+    filing_dates,
     get_facts,
     meaning_state,
+    mixes_meanings,
     newest_filing_disagreements,
     skipped_sign_flips,
+    state_for_change,
     tag_meaning_changes,
 )
 from domains.fundamentals.schemas import Fact
@@ -283,7 +287,7 @@ class _Filings:
                 (cik,),
             )
         }
-        self.filed_at = {a: date.fromisoformat(d) for a, (_form, d) in self.rows.items() if d}
+        self.filed_at = filing_dates(conn, cik)
 
     def get(self, accession_no: str) -> Filing:
         form, filed_at = self.rows.get(accession_no, (None, None))
@@ -1113,31 +1117,14 @@ def _series_meaning_notes(
             return []
         views = _views(conn, cik, as_of, quarterly)
     filed_at = _Filings(conn, cik).filed_at
-    states = {}
-    for r in answers:
-        fact = _getter(views, parse_period(r.period))("revenue")
-        state, change = meaning_state(fact, changes, filed_at)
-        states[r.period] = (state, change, set(fact.xbrl_concept.split(" − ")))
+    facts = {r.period: _getter(views, parse_period(r.period))("revenue") for r in answers}
     ratios = sorted(
         {x.name for r in answers for x in r.ratios if any(u["line"] == "revenue" for u in x.uses)}
     )
     notes = []
-    seen = {}
-    for _s, c, _t in states.values():
-        if c is not None:
-            seen.setdefault((c.filed_at, c.accession_no, c.xbrl_concept, c.other_concept), c)
-    for key in sorted(seen):
-        change = seen[key]
-        of = {}
-        for k, (s, c, tags) in states.items():
-            if c is change:
-                of[k] = s
-            elif tags & {change.xbrl_concept, change.other_concept}:
-                of[k] = "old"
-            else:
-                of[k] = "other"
-        kinds = set(of.values())
-        if "mixed" in kinds or ("new" in kinds and len(kinds) > 1):
+    for change in dating_changes(facts.values(), changes, filed_at):
+        of = {k: state_for_change(f, change, changes, filed_at) for k, f in facts.items()}
+        if mixes_meanings(of.values()):
             notes.append(_series_note(change, of, ratios))
     return notes
 

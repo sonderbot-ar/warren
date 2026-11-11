@@ -30,7 +30,16 @@ from domains.analysis.coded import Coded, coded_warnings, pass_on
 from domains.analysis.dcf import QUARTERS, SEED, YEARS
 from domains.analysis.schemas import SINGLE, Assumption
 from domains.fundamentals.concepts import concept_map_sha256
-from domains.fundamentals.facts import get_facts, same_filing_annual_comparisons
+from domains.fundamentals.facts import (
+    MeaningChange,
+    dating_changes,
+    filing_dates,
+    get_facts,
+    mixes_meanings,
+    same_filing_annual_comparisons,
+    state_for_change,
+    tag_meaning_changes,
+)
 from domains.fundamentals.quality import CONSISTENCY_TOLERANCE
 from domains.fundamentals.schemas import Fact
 from domains.fundamentals.universe import FISCAL_YEARS
@@ -309,6 +318,12 @@ class EngineResult:
     notes: list[Coded] = field(default_factory=list)  # warnings as codes (backlog #172)
     snapshot: dict = field(default_factory=dict)  # data the run was built from (hashes, ids)
     sources: dict[tuple[str, str], list[dict]] = field(default_factory=dict)  # by row (#175)
+    # each revenue fact the run reads, by part then period label; never stored (#297)
+    revenue_read: dict[str, dict[str, Fact]] = field(default_factory=dict, repr=False)
+    seed_years_times_share: list[int] = field(default_factory=list, repr=False)
+
+    def read(self, part: str, label: str, fact: Fact) -> None:
+        self.revenue_read.setdefault(part, {})[label] = fact
 
     @property
     def warnings(self) -> list[str]:
@@ -374,6 +389,7 @@ def build_inputs(
         warnings.simplefilter("always")
         history = load_history(conn, company["cik"], as_of)
         comparisons = same_filing_annual_comparisons(conn, company["cik"], "revenue", as_of)
+        changes = tag_meaning_changes(conn, company["cik"], ["revenue"], as_of)
     result.notes += coded_warnings(caught)  # one per text
     pass_on(caught)  # a library's warning goes to the log, never into the notes (#196)
 
@@ -385,6 +401,8 @@ def build_inputs(
     price = _market(conn, history, result, choices, balance_date)
     _cost_of_debt(history, fiscal_years, result)
     _drivers(history, comparisons, fiscal_years, last_year, last_quarter, result)
+    if changes:
+        _meaning_notes(result, changes, filing_dates(conn, company["cik"], as_of))
     last_seed = quarter_label(last_year, last_quarter)
     result.add(
         "roll_years",
@@ -443,6 +461,7 @@ def _revenue_seed(history: History, last_year: int, last_quarter: int, result: E
         if fact is None:
             raise EngineError(f"{result.ticker}: revenue for FY{year} {period} is not reported")
         value, method, used, shared = fact.value, trace(fact), [fact], False
+        result.read("seed", quarter_label(year, quarter), fact)
         # a fiscal year whose quarters don't add up to it mixes restatement bases: use the
         # year (newest basis) times this quarter's share of it
         quarters = [history.quarterly.get(("revenue", year, f"Q{q}")) for q in range(1, 5)]
@@ -459,6 +478,11 @@ def _revenue_seed(history: History, last_year: int, last_quarter: int, result: E
                 )
                 # the share's denominator is all four quarters (analyst, #175)
                 used = [annual, fact] + [q for q in quarters if q is not fact]
+                result.read("seed", f"FY{year}", annual)
+                for q, other in enumerate(quarters, start=1):
+                    result.read("seed", quarter_label(year, q), other)
+                if year not in result.seed_years_times_share:
+                    result.seed_years_times_share.append(year)
         if all(quarters) and two_bases(basis_kind(q) for q in quarters):
             if year not in noted:
                 noted[year] = _seed_basis_note(result, year, quarters, shared)
@@ -508,6 +532,8 @@ def _history_rows(history: History, fiscal_years: list[int], result: EngineResul
     """Reported annual values the drivers are computed from, one row per item and year."""
     for year in fiscal_years:
         get = history.year(year)
+        if get("revenue") is not None:
+            result.read("history", f"FY{year}", get("revenue"))
         for chain in ("revenue", "ebit", "pretax", "tax", "d_and_a", "capex"):
             r = resolve(chain, get, f"FY{year}")
             result.add(
@@ -969,6 +995,7 @@ def _drivers(
         ebit = resolve("ebit", get, f"FY{year} Q{quarter}")
         margins[quarter].append(ebit.value / revenue.value)
         label = quarter_label(year, quarter)
+        result.read("operating_margin", label, revenue)
         used.append(
             label
             + (" (fallback)" if ebit.fallback else "")
@@ -1053,6 +1080,111 @@ def _drivers(
         clipped,
         f"effective tax rate, {span}",
         sources=[src.derived(*ratio_inputs["tax_rate"])],
+    )
+
+
+# the run parts that read revenue (backlog #297), in note order, with their English words
+MEANING_PARTS = {
+    "seed": "the revenue the forecast starts from",
+    "operating_margin": "the quarterly operating margins",
+    "history": "the annual margin and the D&A, capex and working-capital shares",
+}
+
+
+def _label_order(label: str) -> tuple[int, int]:
+    """FY2019Q3 -> (2019, 3); a year FY2019 sorts after its Q4."""
+    return int(label[2:6]), int(label[7]) if len(label) > 6 else 5
+
+
+def _and(items: list[str]) -> str:
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def _meaning_notes(
+    result: EngineResult, changes: list[MeaningChange], filed_at: dict[str, date]
+) -> None:
+    """One `run_mixes_meanings` note per change of meaning whose revenue figures the run reads
+    together are not like for like (backlog #297 item 1; the rule of the series note, v0.9.50).
+    Values, rows and methods are unchanged: a note only."""
+    facts = {k: f for part in result.revenue_read.values() for k, f in part.items()}
+    for change in dating_changes(facts.values(), changes, filed_at):
+        state = {k: state_for_change(f, change, changes, filed_at) for k, f in facts.items()}
+        if not mixes_meanings(state.values()):
+            continue
+        parts = [
+            p
+            for p in MEANING_PARTS
+            if mixes_meanings(state[k] for k in result.revenue_read.get(p, {}))
+        ]
+        split = [
+            y
+            for y in sorted(result.seed_years_times_share)
+            if mixes_meanings(state[k] for k in state if k == f"FY{y}" or k.startswith(f"FY{y}Q"))
+        ]
+        result.notes.append(_meaning_note(change, state, parts, split))
+
+
+def _meaning_note(
+    change: MeaningChange, state: dict[str, str], parts: list[str], split: list[int]
+) -> Coded:
+    groups = {
+        s: sorted((k for k, v in state.items() if v == s), key=_label_order)
+        for s in ("old", "new", "mixed", "other")
+    }
+    day = change.filed_at.isoformat()
+    gap = max(abs(new / old - 1) for _s, _e, old, new in change.periods)
+    said = []
+    if groups["old"]:
+        verb = "carries" if len(groups["old"]) == 1 else "carry"
+        said.append(f"{_and(groups['old'])} {verb} the tag's earlier meaning")
+    if groups["new"]:
+        said.append(f"{_and(groups['new'])} the meaning the {change.form} filed {day} gave it")
+    if groups["mixed"]:
+        said.append(
+            f"{_and(groups['mixed'])} a mix of both (worked out from figures filed on both sides)"
+        )
+    if groups["other"]:
+        said.append(f"{_and(groups['other'])} another tag, of unknown meaning")
+    if parts:
+        where = (
+            "These are worked out on revenue that is not like for like: "
+            f"{_and([MEANING_PARTS[p] for p in parts])}."
+        )
+    else:
+        where = (
+            "Each part of the run is on one meaning, but not the same one, so the margins and "
+            "shares may not match the revenue the forecast starts from."
+        )
+    if split:
+        years = _and([f"FY{y}" for y in split])
+        where += (
+            f" For {years} the forecast starts from the year's total as filed, split by its "
+            "quarters' shares, so only the split between quarters mixes the two."
+        )
+    text = (
+        f"This run reads revenue as {change.xbrl_concept} with more than one meaning: "
+        f"{'; '.join(said)}. {where} On the periods the change shows, the two meanings differ "
+        f"by up to {gap:.1%}; there the earlier meaning is still filed, under "
+        f"{change.other_concept}. This says nothing about other changes within either side."
+    )
+    return Coded(
+        "run_mixes_meanings",
+        {
+            "item": change.canonical_name,
+            "tag": change.xbrl_concept,
+            "other_tag": change.other_concept,
+            "changed_on": day,
+            "form": change.form,
+            "accession_no": change.accession_no,
+            "old_periods": groups["old"],
+            "new_periods": groups["new"],
+            "mixed_periods": groups["mixed"],
+            "other_tag_periods": groups["other"],
+            "parts": parts,
+            "seed_split_years": split,
+            "largest_gap": gap,
+        },
+        text,
     )
 
 

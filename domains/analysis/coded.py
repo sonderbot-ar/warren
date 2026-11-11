@@ -33,6 +33,7 @@ RUN_NOTE_CODES = frozenset(
         "margin_outside_history",
         "margin_quarter_two_bases",
         "seed_year_two_bases",
+        "run_mixes_meanings",
         "thin_terminal_spread",
         "thin_terminal_spread_at_erp_bound",
         "no_value_per_share",
