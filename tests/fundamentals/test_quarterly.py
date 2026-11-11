@@ -345,3 +345,114 @@ def test_one_basis_reads_a_filing_under_the_nine_months_tag(ingested):
     # the first 10-K gives the year as 460 under the nine months' own tag: no change of basis,
     # so the quarter stays the plain one (before #290 it was 400 - 330 = 70, "on one basis")
     assert (q4.value, q4.one_basis) == (460 - 330, False)
+
+
+# -- backlog #324: a reported quarter under a narrower tag than its year ----------------------
+
+NARROW = "us-gaap:SalesRevenueNet"  # third for revenue, below Revenues
+
+
+def narrow_quarter(conn, period="Q4", start="2024-10-01", end="2024-12-31", value=125, tag=NARROW):
+    """Walmart's 10-Ks of 2011 and 2012: the quarterly note gives Q4 only as net sales, while the
+    year and the 10-Qs use total revenues. Here the 10-K gives Q4 2024 as 125 under `tag`."""
+    conn.execute(
+        "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, fiscal_year, "
+        "fiscal_period, value, unit, form, accession_no, filed_at) VALUES (?, ?, ?, ?, 2024, ?, ?, "
+        "'USD', '10-K', ?, '2025-02-15')",
+        (TEST_CIK, tag, start, end, period, value, K1),
+    )
+
+
+@pytest.mark.parametrize("mode", ["latest", "first_reported"])
+def test_a_quarter_under_a_narrower_tag_is_derived_on_the_years_tag(ingested, mode):
+    conn, _ = ingested
+    narrow_quarter(conn)
+    q4 = quarters(conn, "revenue", "2025-03-01", mode=mode)["Q4"]
+    assert (q4.value, q4.derived, q4.narrower_tag) == (460 - 330, True, NARROW)
+    assert q4.xbrl_concept == "us-gaap:Revenues"
+    assert q4.inputs == [K1, A3]
+    assert sum(f.value for f in quarters(conn, "revenue", "2025-03-01", mode=mode).values()) == 460
+
+
+def test_one_basis_also_derives_a_narrower_quarter(ingested):
+    conn, _ = ingested
+    narrow_quarter(conn)
+    q4 = one_basis_quarters(conn, "2025-03-01")["Q4"]
+    assert (q4.value, q4.narrower_tag) == (130, NARROW)
+
+
+def test_the_reported_view_lists_the_narrow_figure_as_reported(ingested):
+    conn, _ = ingested
+    narrow_quarter(conn)
+    reported = get_facts(conn, TEST_CIK, ["revenue"], "2025-03-01")
+    assert [f.value for f in reported if f.fiscal_period == "Q4" and f.fiscal_year == 2024] == [125]
+
+
+def test_a_quarter_on_the_years_tag_is_kept_as_reported(ingested):
+    conn, _ = ingested
+    narrow_quarter(conn, tag="us-gaap:Revenues")
+    q4 = quarters(conn, "revenue", "2025-03-01")["Q4"]
+    assert (q4.value, q4.derived, q4.narrower_tag) == (125, False, None)
+
+
+def test_a_quarter_on_a_higher_ranked_tag_than_the_years_is_kept(ingested):
+    conn, _ = ingested
+    conn.execute(
+        "UPDATE financial_facts SET xbrl_concept = ? WHERE xbrl_concept = 'us-gaap:Revenues' "
+        "AND period_start = '2024-01-01'",
+        (NARROW,),
+    )
+    narrow_quarter(conn, tag="us-gaap:Revenues")
+    q4 = quarters(conn, "revenue", "2025-03-01")["Q4"]
+    assert (q4.value, q4.derived, q4.narrower_tag) == (125, False, None)
+
+
+def test_inputs_on_two_tags_keep_the_reported_quarter(ingested):
+    conn, _ = ingested
+    conn.execute(
+        "UPDATE financial_facts SET xbrl_concept = ? WHERE xbrl_concept = 'us-gaap:Revenues' "
+        "AND period_start = '2024-01-01' AND fiscal_period = 'M9'",
+        (CONTRACT,),
+    )
+    narrow_quarter(conn)
+    q4 = quarters(conn, "revenue", "2025-03-01")["Q4"]
+    assert (q4.value, q4.derived, q4.narrower_tag) == (125, False, None)
+
+
+def test_a_narrow_third_quarter_is_nine_months_less_the_first_two(ingested):
+    conn, _ = ingested
+    # the 10-Q gives the quarter only under the narrower tag, the nine months under Revenues
+    conn.execute(
+        "UPDATE financial_facts SET xbrl_concept = ?, value = 118 WHERE xbrl_concept = "
+        "'us-gaap:Revenues' AND period_start = '2024-07-01' AND period_end = '2024-09-30'",
+        (NARROW,),
+    )
+    q3 = quarters(conn, "revenue", "2025-03-01")["Q3"]
+    assert (q3.value, q3.derived, q3.narrower_tag) == (120, True, NARROW)
+
+
+def test_no_narrow_replacement_before_the_year_is_public(ingested):
+    conn, _ = ingested
+    narrow_quarter(conn)
+    assert "Q4" not in quarters(conn, "revenue", "2025-02-14")
+
+
+def test_a_later_filing_on_the_years_tag_gives_the_quarter_back_as_reported(ingested):
+    """Walmart's FY2012Q4: the 10-K of 2012-03-27 gives it only as net sales, the next 10-K
+    under total revenues as the year less the nine months; from then on it is reported."""
+    conn, _ = ingested
+    narrow_quarter(conn)
+    conn.execute(
+        "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, fiscal_year, "
+        "fiscal_period, value, unit, form, accession_no, filed_at) VALUES (?, 'us-gaap:Revenues', "
+        "'2024-10-01', '2024-12-31', 2024, 'Q4', 130, 'USD', '10-K', '0000000123-26-000001', "
+        "'2026-02-15')",
+        (TEST_CIK,),
+    )
+    before = quarters(conn, "revenue", "2026-02-14")["Q4"]
+    after = quarters(conn, "revenue", "2026-02-15")["Q4"]
+    assert (before.value, before.derived, before.narrower_tag) == (130, True, NARROW)
+    assert (after.value, after.derived, after.narrower_tag) == (130, False, None)
+    # as first reported, the derivation was public first and stays
+    first = quarters(conn, "revenue", "2026-03-01", mode="first_reported")["Q4"]
+    assert (first.value, first.derived, first.narrower_tag) == (130, True, NARROW)

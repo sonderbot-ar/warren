@@ -31,3 +31,11 @@ class Fact(BaseModel):
         default=False,
         description="Derived from inputs on one basis instead of the newest ones (backlog #264)",
     )
+    narrower_tag: str | None = Field(
+        default=None,
+        description=(
+            "A derived quarter that replaced the quarter as reported, because that filing gave it "
+            "only under this tag, ranked below the one tag of the year and the periods before it "
+            "(backlog #324)"
+        ),
+    )
