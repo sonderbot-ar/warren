@@ -51,7 +51,11 @@ Targeted, from the design review:
 | KO FY2017Q1–FY2018Q4, as of 2020-03-15 | three notes: 10-Qs of 2019-07-25 (+7.0%) and 2019-10-24 (+6.8%), 10-K 2020-02-24 (+7.7%) | same three, same splits; the 10-Qs now give their quarter moves (+5.5%, +6.4%) instead of a half year's or nine months'; the 10-K +7.7% on `year` |
 | MSFT FY2016Q1–FY2017Q4 | 10-Qs of 2017-10-26 and 2018-01-31 | 10-Q 2017-10-26; the second split is now dated by the 10-K of 2018-08-03 (+9.8% on its tagged fourth quarter), because the 10-Q of 2018-01-31 moved only the six months to December 2016 under the shown tag. Same split, a later date |
 
-Full scan (every five-year run starting FY2009–FY2021 and every eight-quarter run starting Q1 2009–2024, eight companies): see "Scan results" below.
+Full scan (every five-year run starting FY2009–FY2021, 13 per company, and every eight-quarter run starting Q1 2009–2024, 16 per company; eight companies):
+
+- **Recasts found:** the same for all eight companies (Step 1 changes nothing today).
+- **Year runs:** 22 noted before and after, identical notes and moves (only `largest_move_on: year` added).
+- **Quarter runs:** 12 noted before, 9 after. Gone: J&J's runs starting FY2022Q1 and FY2023Q1 (10-Q 2024-07-25, half year only) and P&G's starting FY2011Q1 (10-Q 2013-01-25, half year only), all three false. Microsoft's runs starting FY2016Q1 and FY2017Q1: the second split is dated by the 10-K of 2018-08-03, not the 10-Q of 2018-01-31 (same periods). Moves that changed, same splits: Coca-Cola's 10-Qs of 2019 (+7.0% to +5.5%, +6.8% to +6.4%, quarters instead of a half year and nine months); P&G FY2010Q1 run (−1.70% to −1.67%), FY2012Q1 run (−66.1% to −2.0%: the 10-K of 2014-08-08's −66% was a year's move on #322's segment figures, its quarter move is −2.0%), FY2013Q1 run (−5.1% to −3.6%).
 
 **Step 1 on real data.** The analyst re-ran `item_recasts` with the new comparison on all eight companies: the same recasts as today (AAPL 5, MSFT 6, WMT 0, KO 7, PG 33, JNJ 9, CAT 0, XOM 2). Step 1 is a guard for future filings and changes nothing today. It cannot create a Walmart note: the comparison figure is under a tag ranked at or below the shown tag, and `shown` is the best tag across every filing.
 
