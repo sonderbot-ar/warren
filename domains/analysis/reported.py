@@ -1289,10 +1289,12 @@ def _series_recast_notes(
         split = tuple(sorted(side.items()))
         if "before" not in side.values() or set(side.values()) == {"before"} or split in seen:
             continue
-        move, move_on = recast.largest_move(*QUARTER_SPAN) if quarterly else None, "quarter"
+        move_on = "quarter"
+        move = recast.largest_move(*QUARTER_SPAN) if quarterly else None
         if move is None:
-            move, move_on = recast.largest_move(ANNUAL_MIN_DAYS), "year"
-        if move is None:
+            move_on = "year"
+            move = recast.largest_move(ANNUAL_MIN_DAYS)
+        if move is None:  # guard only: the filter above keeps recasts with a move of this span
             continue
         seen.add(split)
         moved = [k for k, f in facts.items() if _moved_by(f, recast)]
