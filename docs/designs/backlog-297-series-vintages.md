@@ -1,6 +1,6 @@
 # Backlog #297 item 13: a series across a recast that left some of its years as first filed
 
-Issue: https://github.com/sonderbot-ar/warren/issues/297 (item 13, and its comments of nov.10.2026) · Branch `backlog-297-series-vintages` · Status: in review (design review done, nov.11.2026).
+Issue: https://github.com/sonderbot-ar/warren/issues/297 (item 13, and its comments of nov.10.2026) · Branch `backlog-297-series-vintages` · Status: merged as v0.9.54 (PR #323, merge `058d465`, nov.11.2026).
 
 Built here: a series note for the case v0.9.50 left open. Left in #297: items 2 (trailing sums, track records, forecast errors), 4, 5, 7, 11, 12. Found on the way and filed apart: #322 (P&G's FY2012–FY2014 revenue reads a segment's figure; needs the owner, since it changes Decision 2's "which version wins").
 
