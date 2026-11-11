@@ -442,13 +442,16 @@ class Recast:
     filed_at: date
     periods: list[tuple[date | None, date, float, float]]  # (start, end, old, new), by end
 
-    def largest_move(self, min_days: int = 0) -> float | None:
+    def largest_move(self, min_days: int = 0, max_days: int | None = None) -> float | None:
         """The largest change, as a share of the old value (signed), among periods at least
-        `min_days` long (years only with 300; None when no period is that long)."""
+        `min_days` and at most `max_days` long (years only with 300, quarters only with 80 and
+        100; None when no period fits)."""
         moves = [
             new / old - 1
             for start, end, old, new in self.periods
-            if start is not None and (end - start).days >= min_days
+            if start is not None
+            and (end - start).days >= min_days
+            and (max_days is None or (end - start).days <= max_days)
         ]
         return max(moves, key=abs) if moves else None
 
@@ -459,8 +462,10 @@ def item_recasts(
     """Every filing public on `as_of` that recast `canonical_name`, oldest first.
 
     For each period, filings in order: a filing's version is the last row of its best-ranked
-    tag; it is a recast of the period when it moves by more than `RECAST_MOVE` from the previous
-    filing's version, keeps its sign, and no row of the filing (any tag) still holds the previous
+    tag; it is a recast of the period when it moves by more than `RECAST_MOVE` from the figure
+    `latest` mode showed from the earlier filings (`_latest_of_best_tag` over their rows, so a
+    filing in between that used only a lower-ranked tag is not what it is compared with, backlog
+    #325), keeps its sign, and no row of the filing (any tag) still holds the previous
     value within `MEANING_CHANGE_MATCH` (if one does, the old figure is still reported: a tag
     that changed meaning, or a second tag, not a recast). A period is listed only when the
     recast's tag is the tag `latest` mode shows for it: a filing that gives a period under a
@@ -474,9 +479,12 @@ def item_recasts(
     for key, filings in sorted(periods_rows.items()):
         every = [r for rows in filings.values() for r in rows]
         shown = _latest_of_best_tag(every, usual.of(key))["xbrl_concept"]
-        previous = None
+        earlier: list[sqlite3.Row] = []
         for accn in _filing_order(filings):
             rows = filings[accn]
+            # the figure `latest` mode showed from the filings before this one (backlog #325):
+            # a filing that gave the period only under a lower-ranked tag did not change it
+            previous = _latest_of_best_tag(earlier, usual.of(key))["value"] if earlier else None
             version = _best_tag_rows(rows)[-1]["value"]
             if (
                 previous
@@ -486,7 +494,7 @@ def item_recasts(
                 and _best_tag_rows(rows)[-1]["xbrl_concept"] == shown
             ):
                 hits[accn].append((_best_tag_rows(rows)[-1], previous))
-            previous = version
+            earlier.extend(rows)
     out = []
     for accn, found in hits.items():
         first = found[0][0]

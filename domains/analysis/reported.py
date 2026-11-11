@@ -1250,6 +1250,7 @@ def _series_note(change: MeaningChange, of: dict[str, str], ratios: list[str]) -
 # -- backlog #297 item 13: a series across a recast that left some of its periods unchanged ----
 
 ANNUAL_MIN_DAYS = 300  # a recast counts for a series of years only when it moved a year
+QUARTER_SPAN = (80, 100)  # and for a series of quarters only when it moved a quarter (#325)
 
 
 def _series_recast_notes(
@@ -1259,14 +1260,22 @@ def _series_recast_notes(
     gave earlier periods new figures, and no tag still holds the old ones) that leaves the series
     on both sides: at least one period every filing of which came before the recast, and at least
     one reported in it or after it (or, for a derived quarter, worked out across it). A series of
-    years counts only recasts that moved a year; a recast whose split repeats an earlier one's
-    is left out (Johnson & Johnson's 10-Q of 2023-10-27, then its 10-K of 2024-02-16)."""
+    years counts only recasts that moved a year. A series of quarters counts recasts that moved
+    a quarter or a year, and gives the largest quarter move, or the year's when no quarter moved
+    (`largest_move_on`, backlog #325): a restated year restates its quarters even when they are
+    not tagged (Apple's 10-K/A of 2010-01-25, analyst, design review), while a filing that moved
+    only half years or nine months moved nothing a quarter series shows. A recast whose split
+    repeats an earlier one's is left out (Johnson & Johnson's 10-Q of 2023-10-27, then its 10-K
+    of 2024-02-16)."""
     cik, quarterly = answers[0].cik, answers[0].fiscal_period != "FY"
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")  # each period already carries its coded warnings
-        recasts = item_recasts(conn, cik, "revenue", as_of)
-        if not quarterly:
-            recasts = [r for r in recasts if r.largest_move(ANNUAL_MIN_DAYS) is not None]
+        recasts = [
+            r
+            for r in item_recasts(conn, cik, "revenue", as_of)
+            if r.largest_move(ANNUAL_MIN_DAYS) is not None
+            or (quarterly and r.largest_move(*QUARTER_SPAN) is not None)
+        ]
         if not recasts:
             return []
         views = _views(conn, cik, as_of, quarterly)
@@ -1280,10 +1289,16 @@ def _series_recast_notes(
         split = tuple(sorted(side.items()))
         if "before" not in side.values() or set(side.values()) == {"before"} or split in seen:
             continue
+        move_on = "quarter"
+        move = recast.largest_move(*QUARTER_SPAN) if quarterly else None
+        if move is None:
+            move_on = "year"
+            move = recast.largest_move(ANNUAL_MIN_DAYS)
+        if move is None:  # guard only: the filter above keeps recasts with a move of this span
+            continue
         seen.add(split)
         moved = [k for k, f in facts.items() if _moved_by(f, recast)]
-        move = recast.largest_move(0 if quarterly else ANNUAL_MIN_DAYS)
-        notes.append(_recast_note(recast, side, moved, ratios, move))
+        notes.append(_recast_note(recast, side, moved, ratios, move, move_on, quarterly))
     return notes
 
 
@@ -1299,15 +1314,25 @@ def _moved_by(fact: Fact, recast: Recast) -> bool:
     )
 
 
+_YEAR_MOVE = " on a full year; it moved no tagged quarter"
+
+
 def _recast_note(
-    recast: Recast, side: dict[str, str], moved: list[str], ratios: list[str], move: float
+    recast: Recast,
+    side: dict[str, str],
+    moved: list[str],
+    ratios: list[str],
+    move: float,
+    move_on: str = "year",
+    quarterly: bool = False,
 ) -> Coded:
     groups = {s: [k for k, v in side.items() if v == s] for s in ("before", "after", "mixed")}
     day = recast.filed_at.isoformat()
     verb = "keeps" if len(groups["before"]) == 1 else "keep"
     parts = [
         f"the {recast.form} filed {day} {'lowered' if move < 0 else 'raised'} revenue figures "
-        f"already reported (by up to {abs(move):.1%})"
+        f"already reported (by up to {abs(move):.1%}"
+        f"{_YEAR_MOVE if quarterly and move_on == 'year' else ''})"
         f"{', including ' + _and(moved) if moved else ''}",
         f"{_and(groups['before'])} {verb} figures filed before it, with no later version in the "
         "filings' tagged data",
@@ -1335,6 +1360,7 @@ def _recast_note(
             "form": recast.form,
             "accession_no": recast.accession_no,
             "largest_move": move,
+            "largest_move_on": move_on,
             "moved_periods": moved,
             "before_periods": groups["before"],
             "after_periods": groups["after"],
