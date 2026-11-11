@@ -40,6 +40,25 @@ No number is wrong in the sense of a bug: each figure is what Exxon filed. But t
 
 **Point in time.** One new query per run (the company's filing dates, all accessions, unfiltered in SQL), used only to look up accessions of facts already read as of `as_of`; `tag_meaning_changes` is already point in time. **LLMs.** None. **Invariants.** No number changes; stored runs reproduce from their stored rows (reproduce revalues stored rows; `runs.rebuild` compares rows, not notes, so a rebuilt run with the new note still matches).
 
+## Results (nov.11.2026)
+
+Snapshot `warren-20261110T202538Z` (schema 22). Every stored baseline run's (ticker, as-of), 899 dates, built twice on the branch, with the change scan and with it switched off:
+
+- Rows, sources and every other note identical on all 899 dates; no errors.
+- The change of meaning is found for Exxon only; the note is on 27 Exxon dates, 2019-11-15 to 2021-08-01, as the analyst's scan found. None has `parts` empty and none has a mixed period (Exxon files nine-month figures).
+
+| Run dates (XOM) | Runs | `parts` | `seed_split_years` | Old periods read |
+|---|---|---|---|---|
+| 2019-11-15 to 2020-02-15 | 5 | seed, operating_margin | [2018] | 12 |
+| 2020-03-01 to 2020-05-01 | 4 | seed, operating_margin | [2019] | 8 |
+| 2020-06-01 to 2020-08-01 | 3 | seed, operating_margin | [2019] | 6 |
+| 2020-08-15 to 2020-11-01 | 4 | operating_margin | [] | 4 |
+| 2020-11-30 to 2021-02-01 | 4 | operating_margin | [] | 3 |
+| 2021-03-01 to 2021-05-01 | 3 | operating_margin | [] | 2 |
+| 2021-05-15 to 2021-08-01 | 4 | operating_margin | [] | 1 (FY2018Q2) |
+
+`largest_gap` is 3.4% before the 10-K of 2020-02-26 and 3.9% after. `python -m domains.analysis reproduce --all`: 903 of 903 runs reproduced to the cent.
+
 ## Alternatives considered
 
 - **One note per part.** Three notes on most affected runs, saying the same break three times; the `parts` param carries the same information.
