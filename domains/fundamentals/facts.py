@@ -617,15 +617,64 @@ def _derive(minuend: Fact, subtrahends: list[Fact], fiscal_period: str) -> Fact:
     )
 
 
+# Which periods make a quarter, in the order they are tried: minuend, then what is subtracted.
+DERIVATIONS = {
+    "Q2": [("H1", ["Q1"])],
+    "Q3": [("M9", ["H1"]), ("M9", ["Q1", "Q2"])],
+    "Q4": [("FY", ["M9"]), ("FY", ["Q1", "Q2", "Q3"])],
+}
+
+Ranks = dict[tuple[str, str], int]  # (item, tag) -> the concept map's priority, 1 first
+
+
+def _ranks(conn: sqlite3.Connection, canonical_names: list[str]) -> Ranks:
+    if not canonical_names:
+        return {}
+    sql = "SELECT canonical_name, xbrl_concept, priority FROM concepts WHERE canonical_name IN ({})"
+    rows = conn.execute(sql.format(", ".join("?" * len(canonical_names))), canonical_names)
+    return {(r[0], r[1]): r[2] for r in rows}
+
+
+def _on_year_tag(
+    year: dict[str, Fact], period: str, ranks: Ranks
+) -> tuple[Fact, list[Fact]] | None:
+    """The inputs to derive a reported quarter from instead, when its filing gave it only under a
+    tag ranked below the one tag its year and the periods before it share (backlog #324).
+
+    Walmart's 10-Ks of 2011 and 2012 tag the fourth quarter only as net sales (SalesRevenueNet),
+    while the year and every 10-Q use total revenues (Revenues): the year less the nine months
+    keeps the quarter on the line of the others. Only reported inputs count, tried in the order
+    the derivation itself uses (`DERIVATIONS`); None when the first complete set mixes tags or
+    its tag does not rank above the quarter's."""
+    own = year[period]
+    for minuend, subtracted in DERIVATIONS[period]:
+        if minuend in year and all(p in year for p in subtracted):
+            inputs = [year[minuend], *(year[p] for p in subtracted)]
+            tags = {f.xbrl_concept for f in inputs}
+            if len(tags) != 1:
+                return None
+            item = own.canonical_name
+            rank = ranks.get((item, next(iter(tags))))
+            own_rank = ranks.get((item, own.xbrl_concept))
+            if rank is None or own_rank is None or rank >= own_rank:
+                return None
+            return inputs[0], inputs[1:]
+    return None
+
+
 def _quarters_for_flow(
-    year: dict[str, Fact], earliest: bool = False, basis: "_Basis | None" = None
+    year: dict[str, Fact],
+    earliest: bool = False,
+    basis: "_Basis | None" = None,
+    ranks: Ranks | None = None,
 ) -> list[Fact]:
     """Standalone Q1-Q4 for one fiscal year of a duration item, reported where possible.
 
     With `earliest` (first_reported mode), a quarter reported on its own only in a later filing
     (e.g. a Q4 recast in the next 10-K) gives way to its derivation if that was public first.
     With `basis` (latest mode, backlog #264), a derivation from restated inputs is put on one
-    basis (`_Basis.place`).
+    basis (`_Basis.place`). With `ranks`, a quarter its filing gave only under a narrower tag than
+    its year's is derived on the year's tag instead (backlog #324, `_on_year_tag`).
     """
     q = {p: year[p] for p in ("Q1", "Q2", "Q3", "Q4") if p in year}
 
@@ -649,6 +698,16 @@ def _quarters_for_flow(
                 place("Q4", "FY", [year["M9"]])
             elif {"Q1", "Q2", "Q3"} <= q.keys():
                 place("Q4", "FY", [q["Q1"], q["Q2"], q["Q3"]])
+        for period in ("Q2", "Q3", "Q4") if ranks else ():
+            if period not in year or q.get(period) is not year[period]:
+                continue  # not reported, or already derived
+            on_year_tag = _on_year_tag(year, period, ranks)
+            if on_year_tag is not None:
+                minuend, subtracted = on_year_tag
+                derived = _derive(minuend, subtracted, period)
+                if basis is not None:
+                    derived = basis.place(derived, minuend, subtracted)
+                q[period] = derived.model_copy(update={"narrower_tag": year[period].xbrl_concept})
     return [q[p] for p in ("Q1", "Q2", "Q3", "Q4") if p in q]
 
 
@@ -787,17 +846,20 @@ def _quarterly(
     first_reported: list[Fact] | None = None,
     versions: dict[tuple, list[Fact]] | None = None,
     tagged: dict[tuple, list[dict[str, Fact]]] | None = None,
+    ranks: Ranks | None = None,
 ) -> list[Fact]:
     """Standalone quarters. With `first_reported` (the same query's facts as first reported) and
-    `versions`, a derived quarter is put on one basis (`_Basis`)."""
+    `versions`, a derived quarter is put on one basis (`_Basis`). With `ranks`, a quarter reported
+    under a narrower tag than its year's is derived on the year's tag (backlog #324)."""
     quarters, years = _flow_years(facts)
     first_years = _flow_years(first_reported)[1] if first_reported is not None else None
     for key, year in years.items():
         basis = None
         if first_years is not None:
-            first = {q.fiscal_period: q for q in _quarters_for_flow(first_years.get(key, {}))}
+            first_year = first_years.get(key, {})
+            first = {q.fiscal_period: q for q in _quarters_for_flow(first_year, ranks=ranks)}
             basis = _Basis(versions or {}, first, tagged or {})
-        quarters.extend(_quarters_for_flow(year, earliest, basis))
+        quarters.extend(_quarters_for_flow(year, earliest, basis, ranks))
     return sorted(quarters, key=lambda f: (f.canonical_name, f.period_end))
 
 
@@ -818,6 +880,8 @@ def get_facts(
                            first_reported mode each quarter is the version public first.
                            With `one_basis` (latest mode), a quarter derived from restated
                            inputs is put on one basis (backlog #264; `_Basis`, `Fact.one_basis`).
+                           A quarter its filing gave only under a narrower tag than its year's
+                           is derived on the year's tag (backlog #324, `Fact.narrower_tag`).
     """
     if one_basis and (mode != "latest" or frequency != "quarterly"):
         raise ValueError("one_basis applies to latest quarterly facts only")
@@ -831,10 +895,15 @@ def get_facts(
         annual = _one_per_period([f for f in facts if f.fiscal_period == "FY"])
         return sorted(annual, key=lambda f: (f.canonical_name, f.period_end))
     if frequency == "quarterly":
+        ranks = _ranks(conn, canonical_names)
         if not one_basis:
-            return _quarterly(facts, earliest=mode == "first_reported")
+            return _quarterly(facts, earliest=mode == "first_reported", ranks=ranks)
         first = _facts(periods, "first_reported")
         return _quarterly(
-            facts, first_reported=first, versions=_versions(periods), tagged=_tagged(periods)
+            facts,
+            first_reported=first,
+            versions=_versions(periods),
+            tagged=_tagged(periods),
+            ranks=ranks,
         )
     raise ValueError(f"Unknown frequency: {frequency!r}")

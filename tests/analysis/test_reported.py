@@ -752,3 +752,70 @@ def test_a_flipped_prior_year_revenue_is_noted_on_growth(make_company):
     assert r.line("revenue").sign_notes == []
     growth = {n.code: n.params for n in r.ratio("revenue_growth_yoy").notes}
     assert growth["uses_sign_checked_line"] == {"items": ["revenue"], "periods": ["FY2018"]}
+
+
+# -- backlog #324: a quarter its filing gave only under a lower-ranked tag ---------------------
+
+
+def narrow_q4_2019(conn, value):
+    """Walmart's 10-Ks of 2011 and 2012: the FY2019 10-K also gives Q4 2019 under SalesRevenueNet
+    (ranked third for revenue), a narrower line than the year and the 10-Qs' Revenues."""
+    conn.execute(
+        "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, fiscal_year, "
+        "fiscal_period, value, unit, form, accession_no, filed_at) VALUES ('0000000123', "
+        "'us-gaap:SalesRevenueNet', '2019-10-01', '2019-12-31', 2019, 'Q4', ?, 'USD', '10-K', ?, "
+        "'2020-02-15')",
+        (value, FY2019_10K),
+    )
+
+
+def test_a_quarter_on_a_lower_ranked_tag_is_shown_on_the_years_tag(company):
+    narrow = revenue(2019, 4) - 1
+    narrow_q4_2019(company, narrow)
+    r = reported_period(company, "TST", "FY2019Q4", AS_OF)
+    rev = r.line("revenue")
+    assert rev.value == pytest.approx(revenue(2019, 4))
+    assert rev.derived and not rev.changed
+    assert rev.latest.xbrl_concept == "us-gaap:Revenues"
+    assert rev.tag_note.code == "quarter_on_year_tag"
+    assert rev.tag_note.params == {
+        "item": "revenue",
+        "period": "FY2019Q4",
+        "period_end": "2019-12-31",
+        "value": rev.value,
+        "reported_value": narrow,
+        "reported_tag": "us-gaap:SalesRevenueNet",
+        "tag": "us-gaap:Revenues",
+        "form": "10-K",
+        "filed_at": "2020-02-15",
+        "accession_no": FY2019_10K,
+    }
+    assert "only under us-gaap:SalesRevenueNet" in rev.tag_note.text
+    for name in ("operating_margin", "revenue_growth_yoy"):
+        notes = {n.code: n.params for n in r.ratio(name).notes}
+        assert notes["uses_quarter_on_year_tag"] == {"items": ["revenue"], "periods": ["FY2019Q4"]}
+    assert r.line("operating_income").tag_note is None
+    # another quarter of the year keeps its reported figure and no note
+    later = reported_period(company, "TST", "FY2019Q3", AS_OF)
+    assert later.line("revenue").tag_note is None
+
+
+def test_without_a_narrow_quarter_no_tag_note(company):
+    r = reported_period(company, "TST", "FY2019Q4", AS_OF)
+    assert r.line("revenue").tag_note is None
+    assert all(n.code != "uses_quarter_on_year_tag" for x in r.ratios for n in x.notes)
+
+
+def test_the_run_trace_and_source_name_the_lower_ranked_tag(company):
+    from domains.analysis.math_engine import trace
+    from domains.analysis.sources import filing
+    from domains.fundamentals.facts import get_facts
+
+    narrow_q4_2019(company, revenue(2019, 4) - 1)
+    q4 = next(
+        f
+        for f in get_facts(company, "0000000123", ["revenue"], AS_OF, frequency="quarterly")
+        if (f.fiscal_year, f.fiscal_period) == (2019, "Q4")
+    )
+    assert "only under SalesRevenueNet" in trace(q4)
+    assert filing(q4)["narrower_tag"] == "us-gaap:SalesRevenueNet"

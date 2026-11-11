@@ -73,6 +73,9 @@ def filing(fact: Fact) -> dict:
         # derived from inputs on one basis, not the newest ones, as one was restated (#264);
         # absent on sources stored before v0.9.41, which means False
         "one_basis": fact.one_basis,
+        # derived on the year's tag instead of the quarter its filing gave under this lower-ranked
+        # tag (#324); absent on sources stored before, which means None
+        "narrower_tag": fact.narrower_tag,
     }
 
 
