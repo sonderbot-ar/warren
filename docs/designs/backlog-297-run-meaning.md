@@ -1,6 +1,6 @@
 # Backlog #297 item 1 (run part): a run whose revenue crosses a tag's change of meaning
 
-Issue: https://github.com/sonderbot-ar/warren/issues/297 · Branch `backlog-297-run-meaning` · Status: in progress (nov.11.2026; design reviewed, built).
+Issue: https://github.com/sonderbot-ar/warren/issues/297 · Branch `backlog-297-run-meaning` · Status: merged as v0.9.53 (nov.11.2026; PR #318, merge `5a0d140`; gatekeeper GO).
 
 Built here: item 1's second half, the run note. v0.9.49 built its first half (`facts.meaning_state` says "mixed" for a derived quarter worked out across the change); v0.9.50 built item 2 for a series of reported periods. Left in #297: item 2 for trailing sums, track records and forecast errors; items 4, 5, 7, 11, 12, 13.
 
