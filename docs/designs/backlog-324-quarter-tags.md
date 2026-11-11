@@ -1,6 +1,6 @@
 # Backlog #324: a reported quarter under a narrower tag than its year
 
-Issue: https://github.com/sonderbot-ar/warren/issues/324 · Branch `backlog-324-quarter-tags` · Status: built, PR open (nov.11.2026).
+Issue: https://github.com/sonderbot-ar/warren/issues/324 · Branch `backlog-324-quarter-tags` · Status: merged as v0.9.55 (PR #327, merge `f5a9ada`, nov.11.2026).
 
 ## Problem
 
@@ -9,7 +9,7 @@ Walmart's 10-Ks of 2011-03-30 ([0001193125-11-083157](https://www.sec.gov/Archiv
 | Walmart quarter | Q4 shown today (net sales, reported) | Q4 on the year's tag (year − nine months) | Where |
 |---|---|---|---|
 | FY2010Q4 (ends 2010-01-31) | 112,826 (10-K of 2011-03-30) | 113,622 = 408,085 − 294,463 (+0.7%) | latest, from 2011-03-30 on |
-| FY2011Q4 (ends 2011-01-31) | 115,600 (10-K of 2012-03-27) | 116,360 (+0.7%) | latest and first-reported, from 2011-03-30 on |
+| FY2011Q4 (ends 2011-01-31) | 115,600 (10-K of 2011-03-30, repeated in the 10-K of 2012-03-27) | 116,360 (+0.7%) | latest and first-reported, from 2011-03-30 on |
 | FY2012Q4 (ends 2012-01-31) | 122,285 (10-K of 2012-03-27) | 123,169 = 446,950 − 323,781 (+0.7%) | first-reported from 2012-03-27 on; latest only until 2013-03-26, when the next 10-K tags it under `Revenues` as 123,169 |
 
 The net-sales figure is the same subtraction on net sales (405,132 − 292,306 = 112,826; 418,952 − 303,352 = 115,600; analyst), so the gap is the membership and other income, not a recast. First-reported FY2010Q4 is already a derivation (113,651, the 10-K of 2010-03-30 less the 10-Q of 2009-12-08) and does not move.
@@ -46,7 +46,7 @@ This is not #297 item 13 (no figure was recast) nor a tag that changed meaning (
 
 - Scan: only the three Walmart revenue quarters, values as in the table, in the modes and dates listed (the run of eight dates above; the analyst's ten-date run on the code agrees). All three also pass a value check the code does not make: the narrow tag's own year less nine months equals the reported narrow quarter (analyst).
 - `reported --ticker WMT --period FY2011Q4 --as-of 2026-11-09`: revenue 116,360 with the note (10-K filed 2012-03-27, 115,600 under SalesRevenueNet); gross, operating, net margin, capex and D&A shares and growth carry `uses_quarter_on_year_tag`. FY2010Q4: 113,622 with the note (10-K filed 2011-03-30, 112,826); its `changed` flag was already true and stays so (first reported 113,651, the year recast by 0.01% in a later 10-K).
-- Reproduce: `reproduce --all` on the built code, 903 of 903 runs reproduce to the cent. Full suite 2,113 passed, 10 skipped (Step 1); see the PR for the final count.
+- Reproduce: `reproduce --all` on the built code, 903 of 903 runs reproduce to the cent. `reproduce --all --rebuild`: 821 of 903 rebuild to identical rows; the other 82 are the runs v0.9.41 (#264) already rebuilds differently, the same count as before this change. Full suite: 2,117 passed, 10 skipped.
 
 ## Alternatives considered
 
@@ -83,3 +83,4 @@ Serves brief Q1 and Q2 (a quarter's figures and a series of quarters): Walmart's
 - **Professor (GO).** Defensible: the integral view of interim periods (APB 28, ASC 270-10-45) and comparability (Concepts Statement 8) both want four quarters on one measure; year less nine months is standard practice. Decision 2 not touched. Taken: "ranks below", not "narrower", in the text; `period_end` in the params; the rule written into the build plan's M1 notes. Left for the app: plain labels for tags (#297 item 5).
 - **Product lead (GO).** Taken: `filed_at` param, the note order, the Spanish, `changed` asserted false. Not taken: objection 1 (labels): Walmart's fiscal 2010 ended 2010-01-31, so FY2010Q4 is Walmart's own name; the doc's table had the wrong end dates, now fixed.
 - **Explainer.** Answered above: the ranking's home (concept map), which inputs must share the tag (all), six months for "half", Q1 never replaced, units (millions), Step 3's exit criterion.
+- **Gatekeeper (GO, no blockers).** CI green; 2,117 passed, 10 skipped; its own scan on three dates and every mode found only the three Walmart quarters; point in time checked around 2011-03-30 and 2013-03-26. Notes taken here: the FY2011Q4 source cell (first filed in the 10-K of 2011-03-30), the test count. Left for a follow-up: a line whose narrow figure the lookup cannot find keeps the value change but gets no note (`_with_tag_note`), untested; on real data the lookup always matched.
