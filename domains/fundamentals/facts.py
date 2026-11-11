@@ -393,9 +393,12 @@ def mixes_meanings(states: Iterable[State]) -> bool:
     return "mixed" in kinds or ("new" in kinds and len(kinds) > 1)
 
 
-def filing_dates(conn: sqlite3.Connection, cik: str) -> dict[str, date]:
-    """The filing date of every accession of one company (one query), for `meaning_state`."""
-    return {
+def filing_dates(
+    conn: sqlite3.Connection, cik: str, as_of: date | str | None = None
+) -> dict[str, date]:
+    """The filing date of every accession of one company (one query), for `meaning_state`;
+    with `as_of`, only accessions filed by then."""
+    dates = {
         r["accession_no"]: date.fromisoformat(r["filed_at"])
         for r in conn.execute(
             "SELECT accession_no, MIN(filed_at) AS filed_at "
@@ -404,6 +407,10 @@ def filing_dates(conn: sqlite3.Connection, cik: str) -> dict[str, date]:
         )
         if r["filed_at"]
     }
+    if as_of is None:
+        return dates
+    as_of = date.fromisoformat(as_of) if isinstance(as_of, str) else as_of
+    return {a: d for a, d in dates.items() if d <= as_of}
 
 
 def meaning_of(

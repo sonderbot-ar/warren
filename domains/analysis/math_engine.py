@@ -402,7 +402,7 @@ def build_inputs(
     _cost_of_debt(history, fiscal_years, result)
     _drivers(history, comparisons, fiscal_years, last_year, last_quarter, result)
     if changes:
-        _meaning_notes(result, changes, filing_dates(conn, company["cik"]))
+        _meaning_notes(result, changes, filing_dates(conn, company["cik"], as_of))
     last_seed = quarter_label(last_year, last_quarter)
     result.add(
         "roll_years",

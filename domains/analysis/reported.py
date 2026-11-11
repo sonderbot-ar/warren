@@ -39,6 +39,7 @@ from domains.fundamentals.facts import (
     MEANING_CHANGE_MATCH,
     MeaningChange,
     dating_changes,
+    filing_dates,
     get_facts,
     meaning_state,
     mixes_meanings,
@@ -286,7 +287,7 @@ class _Filings:
                 (cik,),
             )
         }
-        self.filed_at = {a: date.fromisoformat(d) for a, (_form, d) in self.rows.items() if d}
+        self.filed_at = filing_dates(conn, cik)
 
     def get(self, accession_no: str) -> Filing:
         form, filed_at = self.rows.get(accession_no, (None, None))
