@@ -644,7 +644,10 @@ def _ranks(conn: sqlite3.Connection, canonical_names: list[str]) -> Ranks:
 
 
 def _on_year_tag(
-    year: dict[str, Fact], period: str, ranks: Ranks
+    year: dict[str, Fact],
+    period: str,
+    ranks: Ranks,
+    tagged: dict[tuple, list[dict[str, Fact]]] | None = None,
 ) -> tuple[Fact, list[Fact]] | None:
     """The inputs to derive a reported quarter from instead, when its filing gave it only under a
     tag ranked below the one tag its year and the periods before it share (backlog #324).
@@ -653,7 +656,14 @@ def _on_year_tag(
     while the year and every 10-Q use total revenues (Revenues): the year less the nine months
     keeps the quarter on the line of the others. Only reported inputs count, tried in the order
     the derivation itself uses (`DERIVATIONS`); None when the first complete set mixes tags or
-    its tag does not rank above the quarter's."""
+    its tag does not rank above the quarter's.
+
+    With `tagged` (every filing's value under each tag), the quarter's own tag is checked too
+    (backlog #329): when each input's filing also gives that input under the quarter's tag, the
+    same subtraction on those figures must come within `RECAST_MOVE` of the reported quarter
+    (Walmart: 405,132 - 292,306 = 112,826, the 10-K's net-sales quarter). If it does not, the
+    quarter was revised on its own tag after the year was filed, so the two tags no longer sit on
+    one basis and the reported quarter is kept (None). With any narrow input missing, no check."""
     own = year[period]
     for minuend, subtracted in DERIVATIONS[period]:
         if minuend in year and all(p in year for p in subtracted):
@@ -666,8 +676,31 @@ def _on_year_tag(
             own_rank = ranks.get((item, own.xbrl_concept))
             if rank is None or own_rank is None or rank >= own_rank:
                 return None
+            if tagged is not None and not _agrees_on_own_tag(own, inputs, tagged):
+                return None
             return inputs[0], inputs[1:]
     return None
+
+
+def _agrees_on_own_tag(
+    own: Fact, inputs: list[Fact], tagged: dict[tuple, list[dict[str, Fact]]]
+) -> bool:
+    """Whether the derivation on the quarter's own tag, each input read from the filing that gave
+    it, matches the reported quarter (backlog #329); True when an input's filing lacks the tag."""
+    narrow = []
+    for fact in inputs:
+        key = (fact.canonical_name, fact.period_start, fact.period_end)
+        same = [
+            rows[own.xbrl_concept]
+            for rows in tagged.get(key, [])
+            if own.xbrl_concept in rows
+            and any(f.accession_no == fact.accession_no for f in rows.values())
+        ]
+        if not same:
+            return True
+        narrow.append(same[-1])
+    derived = narrow[0].value - sum(f.value for f in narrow[1:])
+    return abs(derived - own.value) <= RECAST_MOVE * abs(own.value)
 
 
 def _quarters_for_flow(
@@ -675,6 +708,7 @@ def _quarters_for_flow(
     earliest: bool = False,
     basis: "_Basis | None" = None,
     ranks: Ranks | None = None,
+    tagged: dict[tuple, list[dict[str, Fact]]] | None = None,
 ) -> list[Fact]:
     """Standalone Q1-Q4 for one fiscal year of a duration item, reported where possible.
 
@@ -682,7 +716,8 @@ def _quarters_for_flow(
     (e.g. a Q4 recast in the next 10-K) gives way to its derivation if that was public first.
     With `basis` (latest mode, backlog #264), a derivation from restated inputs is put on one
     basis (`_Basis.place`). With `ranks`, a quarter its filing gave only under a narrower tag than
-    its year's is derived on the year's tag instead (backlog #324, `_on_year_tag`).
+    its year's is derived on the year's tag instead (backlog #324, `_on_year_tag`), unless
+    `tagged` shows the quarter's own tag no longer agrees with its year (backlog #329).
     """
     q = {p: year[p] for p in ("Q1", "Q2", "Q3", "Q4") if p in year}
 
@@ -709,7 +744,7 @@ def _quarters_for_flow(
         for period in ("Q2", "Q3", "Q4") if ranks else ():
             if period not in year or q.get(period) is not year[period]:
                 continue  # not reported, or already derived
-            on_year_tag = _on_year_tag(year, period, ranks)
+            on_year_tag = _on_year_tag(year, period, ranks, tagged)
             if on_year_tag is not None:
                 minuend, subtracted = on_year_tag
                 derived = _derive(minuend, subtracted, period)
@@ -865,9 +900,10 @@ def _quarterly(
         basis = None
         if first_years is not None:
             first_year = first_years.get(key, {})
-            first = {q.fiscal_period: q for q in _quarters_for_flow(first_year, ranks=ranks)}
+            first_quarters = _quarters_for_flow(first_year, ranks=ranks, tagged=tagged)
+            first = {q.fiscal_period: q for q in first_quarters}
             basis = _Basis(versions or {}, first, tagged or {})
-        quarters.extend(_quarters_for_flow(year, earliest, basis, ranks))
+        quarters.extend(_quarters_for_flow(year, earliest, basis, ranks, tagged))
     return sorted(quarters, key=lambda f: (f.canonical_name, f.period_end))
 
 
@@ -904,14 +940,16 @@ def get_facts(
         return sorted(annual, key=lambda f: (f.canonical_name, f.period_end))
     if frequency == "quarterly":
         ranks = _ranks(conn, canonical_names)
+        tagged = _tagged(periods)
         if not one_basis:
-            return _quarterly(facts, earliest=mode == "first_reported", ranks=ranks)
+            earliest = mode == "first_reported"
+            return _quarterly(facts, earliest=earliest, tagged=tagged, ranks=ranks)
         first = _facts(periods, "first_reported")
         return _quarterly(
             facts,
             first_reported=first,
             versions=_versions(periods),
-            tagged=_tagged(periods),
+            tagged=tagged,
             ranks=ranks,
         )
     raise ValueError(f"Unknown frequency: {frequency!r}")

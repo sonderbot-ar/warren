@@ -456,3 +456,81 @@ def test_a_later_filing_on_the_years_tag_gives_the_quarter_back_as_reported(inge
     # as first reported, the derivation was public first and stays
     first = quarters(conn, "revenue", "2026-03-01", mode="first_reported")["Q4"]
     assert (first.value, first.derived, first.narrower_tag) == (130, True, NARROW)
+
+
+# -- backlog #329: the quarter's own tag must agree before it moves to the year's ------------
+
+
+def narrow_inputs(conn, year=None, nine_months=None):
+    """The 10-K also gives the year, and the Q3 10-Q the nine months, under the narrow tag."""
+    rows = [
+        ("2024-01-01", "2024-12-31", "FY", year, K1, "10-K", "2025-02-15"),
+        ("2024-01-01", "2024-09-30", "M9", nine_months, A3, "10-Q", "2024-11-01"),
+    ]
+    for start, end, period, value, accession, form, filed in rows:
+        if value is None:
+            continue
+        conn.execute(
+            "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, "
+            "fiscal_year, fiscal_period, value, unit, form, accession_no, filed_at) "
+            "VALUES (?, ?, ?, ?, 2024, ?, ?, 'USD', ?, ?, ?)",
+            (TEST_CIK, NARROW, start, end, period, value, form, accession, filed),
+        )
+
+
+@pytest.mark.parametrize("mode", ["latest", "first_reported"])
+def test_a_narrow_quarter_that_agrees_on_its_own_tag_moves_to_the_years(ingested, mode):
+    """Walmart FY2010Q4: 405,132 - 292,306 = 112,826 on net sales, the 10-K's own quarter."""
+    conn, _ = ingested
+    narrow_quarter(conn)
+    narrow_inputs(conn, year=450, nine_months=325)  # 450 - 325 = 125, the reported quarter
+    q4 = quarters(conn, "revenue", "2025-03-01", mode=mode)["Q4"]
+    assert (q4.value, q4.derived, q4.narrower_tag) == (460 - 330, True, NARROW)
+    q4 = one_basis_quarters(conn, "2025-03-01")["Q4"]
+    assert (q4.value, q4.narrower_tag) == (130, NARROW)
+
+
+@pytest.mark.parametrize("mode", ["latest", "first_reported"])
+def test_a_narrow_quarter_that_disagrees_on_its_own_tag_is_kept_as_reported(ingested, mode):
+    """The narrow quarter (125) is not the narrow year less the narrow nine months (140): it was
+    revised on its own tag, so its year's tag is no longer the same line on the same basis."""
+    conn, _ = ingested
+    narrow_quarter(conn)
+    narrow_inputs(conn, year=450, nine_months=310)
+    q4 = quarters(conn, "revenue", "2025-03-01", mode=mode)["Q4"]
+    assert (q4.value, q4.derived, q4.narrower_tag) == (125, False, None)
+    q4 = one_basis_quarters(conn, "2025-03-01")["Q4"]
+    assert (q4.value, q4.derived, q4.narrower_tag) == (125, False, None)
+
+
+def test_a_move_within_the_recast_threshold_still_agrees(ingested):
+    conn, _ = ingested
+    narrow_quarter(conn, value=1000)
+    narrow_inputs(conn, year=1324, nine_months=330)  # 994, 0.6% off: disagrees
+    assert quarters(conn, "revenue", "2025-03-01")["Q4"].narrower_tag is None
+    conn.execute("UPDATE financial_facts SET value = 1326 WHERE value = 1324")  # 996, 0.4% off
+    assert quarters(conn, "revenue", "2025-03-01")["Q4"].narrower_tag == NARROW
+
+
+def test_without_every_narrow_input_there_is_no_check(ingested):
+    conn, _ = ingested
+    narrow_quarter(conn)
+    narrow_inputs(conn, year=450)  # no nine months under the narrow tag in the 10-Q
+    q4 = quarters(conn, "revenue", "2025-03-01")["Q4"]
+    assert (q4.value, q4.narrower_tag) == (130, NARROW)
+
+
+def test_a_narrow_input_from_another_filing_is_not_used(ingested):
+    """Each input is read from the filing that gave it: a narrow year in a later 10-K/A does not
+    stand in for the 10-K's own."""
+    conn, _ = ingested
+    narrow_quarter(conn)
+    narrow_inputs(conn, nine_months=310)
+    conn.execute(
+        "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, fiscal_year, "
+        "fiscal_period, value, unit, form, accession_no, filed_at) VALUES (?, ?, '2024-01-01', "
+        "'2024-12-31', 2024, 'FY', 450, 'USD', '10-K/A', '0000000123-25-000009', '2025-02-20')",
+        (TEST_CIK, NARROW),
+    )
+    q4 = quarters(conn, "revenue", "2025-03-01")["Q4"]
+    assert (q4.value, q4.narrower_tag) == (130, NARROW)
