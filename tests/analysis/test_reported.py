@@ -819,3 +819,38 @@ def test_the_run_trace_and_source_name_the_lower_ranked_tag(company):
     )
     assert "only under SalesRevenueNet" in trace(q4)
     assert filing(q4)["narrower_tag"] == "us-gaap:SalesRevenueNet"
+
+
+def test_a_tag_note_without_the_filings_figure_names_the_tag_alone(company, monkeypatch):
+    """Backlog #329: if the reported lookup misses the filing's own quarter, the value has still
+    moved to the year's tag, so the line keeps a note, with the filing's fields None."""
+    from domains.analysis import reported as module
+
+    narrow_q4_2019(company, revenue(2019, 4) - 1)
+    original = module._with_tag_note
+    monkeypatch.setattr(
+        module,
+        "_with_tag_note",
+        lambda line, fact, _narrow, filings: original(line, fact, None, filings),
+    )
+    r = reported_period(company, "TST", "FY2019Q4", AS_OF)
+    rev = r.line("revenue")
+    assert rev.value == pytest.approx(revenue(2019, 4))
+    assert rev.tag_note.code == "quarter_on_year_tag"
+    assert rev.tag_note.params == {
+        "item": "revenue",
+        "period": "FY2019Q4",
+        "period_end": "2019-12-31",
+        "value": rev.value,
+        "reported_value": None,
+        "reported_tag": "us-gaap:SalesRevenueNet",
+        "tag": "us-gaap:Revenues",
+        "form": None,
+        "filed_at": None,
+        "accession_no": None,
+    }
+    assert "the company's filing gives the quarter only under us-gaap:SalesRevenueNet" in (
+        rev.tag_note.text
+    )
+    notes = {n.code: n.params for n in r.ratio("operating_margin").notes}
+    assert notes["uses_quarter_on_year_tag"] == {"items": ["revenue"], "periods": ["FY2019Q4"]}
