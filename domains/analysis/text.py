@@ -112,15 +112,23 @@ WARNING_LESSONS = {
         "data",
         "The newest quarter the run uses ended more than {days} days before the run's date "
         "({days_q3} after a third quarter, because no quarterly report is filed for the fourth "
-        "quarter and the annual report that covers it is due 60 days after the year ends, not "
-        "40), so the next report should already be out. Warren may be missing a filing, or the "
-        "company filed late: check the company's list of filings.",
-        {"days": math_engine.STALE_AFTER.days, "days_q3": math_engine.STALE_AFTER_Q3.days},
+        "quarter and the annual report that covers it is due {deadline_10k} days after the year "
+        "ends, not {deadline_10q}), so the next report should already be out. Warren may be "
+        "missing a filing, or the company filed late: check the company's list of filings.",
+        {
+            "days": math_engine.STALE_AFTER.days,
+            "days_q3": math_engine.STALE_AFTER_Q3.days,
+            "deadline_10k": math_engine.DEADLINE_10K_DAYS,
+            "deadline_10q": math_engine.DEADLINE_10Q_DAYS,
+        },
         "SEC Form 10-Q, General Instruction A.1, and Form 10-K, General Instruction A(2)(a) "
         "(large accelerated filers); Exchange Act Rule 0-3 (a deadline on a weekend or holiday "
         "moves to the next business day)",
-        "the 135- and 161-day lines are working rules: a quarter (92 days, or 98 for a 14-week "
-        "fourth quarter) plus the deadline plus 3 days, math_engine.STALE_AFTER and "
+        f"the {math_engine.STALE_AFTER.days}- and {math_engine.STALE_AFTER_Q3.days}-day lines "
+        f"are working rules: a quarter ({math_engine.QUARTER_DAYS} days, or "
+        f"{math_engine.LONG_QUARTER_DAYS} for a 14-week fourth quarter) plus the filing deadline "
+        f"({math_engine.DEADLINE_10Q_DAYS} days for a 10-Q, {math_engine.DEADLINE_10K_DAYS} for "
+        f"a 10-K) plus {math_engine.DEADLINE_SLACK_DAYS} days, math_engine.STALE_AFTER and "
         "STALE_AFTER_Q3",
     ),
     "balance_carried_forward": Lesson(
