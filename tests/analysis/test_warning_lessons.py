@@ -65,6 +65,8 @@ THRESHOLDS = {
     "fundamentals_stale": {
         "days": math_engine.STALE_AFTER.days,
         "days_q3": math_engine.STALE_AFTER_Q3.days,
+        "deadline_10k": math_engine.DEADLINE_10K_DAYS,
+        "deadline_10q": math_engine.DEADLINE_10Q_DAYS,
     },
     "shares_cover_differs": {"tolerance": math_engine.SHARES_TOLERANCE},
     "cost_of_debt_out_of_bounds": dict(
@@ -91,6 +93,33 @@ def test_thresholds_are_the_engines_and_marked_as_warren_rules():
         assert shown <= _numbers(lesson.text()), code
         assert "working rule" in lesson.warren_rule, code
         assert shown <= _numbers(lesson.warren_rule), code
+
+
+def test_the_stale_rule_names_each_line_with_its_own_parts():
+    """Backlog #349: the rule shows each line beside the parts that make it, all from the
+    engine's constants, so a student can add them up and a changed constant can't leave the
+    text behind."""
+    engine = math_engine
+    rule = WARNING_LESSONS["fundamentals_stale"].warren_rule
+    lines = re.findall(
+        r"(\d+) days is a (\d+)-day (?:fourth )?quarter.*? plus the (\d+)-day (10-[QK]) "
+        r"deadline plus (\d+) days",
+        rule,
+    )
+    shown = [(int(line), int(q), int(d), form, int(s)) for line, q, d, form, s in lines]
+    slack = engine.DEADLINE_SLACK_DAYS
+    assert shown == [
+        (engine.STALE_AFTER.days, engine.QUARTER_DAYS, engine.DEADLINE_10Q_DAYS, "10-Q", slack),
+        (
+            engine.STALE_AFTER_Q3.days,
+            engine.LONG_QUARTER_DAYS,
+            engine.DEADLINE_10K_DAYS,
+            "10-K",
+            slack,
+        ),
+    ]
+    for line, quarter, deadline, _form, plus in shown:
+        assert line == quarter + deadline + plus
 
 
 def test_text_shows_a_fraction_times_100_and_a_count_as_is():
