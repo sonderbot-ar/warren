@@ -24,7 +24,7 @@ from domains.analysis.math_engine import (
     post_check_notes,
 )
 from domains.analysis.schemas import Assumption
-from domains.analysis.text import REASON_WORDS
+from domains.analysis.text import REASON_WORDS, WARNING_LESSONS
 from domains.fundamentals.concepts import concept_map_sha256
 from domains.fundamentals.universe import COVERAGE_FIELDS, coverage_fields
 from domains.market.prices import MARKET_INDEX
@@ -243,8 +243,15 @@ class RunNotes:
         return {
             "run_id": self.run_id,
             "recorded": self.recorded,
-            "notes": [dataclasses.asdict(n) for n in self.notes],
+            "notes": [{**dataclasses.asdict(n), "group": note_group(n.code)} for n in self.notes],
         }
+
+
+def note_group(code: str) -> str | None:
+    """The `text.WARNING_GROUPS` code a run note is sorted under (backlog #197); None for a
+    line Warren could not code (`note_text`)."""
+    lesson = WARNING_LESSONS.get(code)
+    return lesson.group if lesson else None
 
 
 def run_notes(conn: sqlite3.Connection, run_id: str) -> RunNotes:

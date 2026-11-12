@@ -58,6 +58,7 @@ from domains.analysis.reported import (
 from domains.analysis.runs import (
     RunNotes,
     backfill_notes,
+    note_group,
     rebuild,
     reproduce,
     run_baseline,
@@ -65,6 +66,7 @@ from domains.analysis.runs import (
 )
 from domains.analysis.sensitivity import Block, Grid, GridError, grid
 from domains.analysis.sources import SourceError, backfill, run_sources
+from domains.analysis.text import WARNING_GROUPS
 from domains.analysis.whatif import Change, WhatIf, WhatIfError, revalue
 from domains.fundamentals.universe import PHASE1_UNIVERSE, get_universe_company
 from domains.market.store import MarketDataError
@@ -606,7 +608,10 @@ def cmd_sources(args: argparse.Namespace) -> int:
 
 def render_notes(r: RunNotes) -> str:
     head = f"Notes of {r.run_id}" + ("" if r.recorded else " (stored as text only: no codes)")
-    lines = [f"- [{n.code}] {n.text}" for n in r.notes] or ["None."]
+    lines = [
+        f"- [{WARNING_GROUPS.get(note_group(n.code) or '', 'Not coded')}] [{n.code}] {n.text}"
+        for n in r.notes
+    ] or ["None."]
     return "\n".join([head, *lines])
 
 
