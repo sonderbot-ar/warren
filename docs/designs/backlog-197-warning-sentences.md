@@ -1,6 +1,6 @@
 # Backlog #197: a teaching sentence per run warning
 
-Issue: https://github.com/sonderbot-ar/warren/issues/197 · Branch `backlog-197-warning-sentences` · Status: In progress (nov.12.2026).
+Issue: https://github.com/sonderbot-ar/warren/issues/197 · Branch `backlog-197-warning-sentences` · Status: merged as v0.9.60 (PR #345, merge `7f912c6`, nov.12.2026).
 
 From the professor's review of #172 (PR #195, `docs/designs/backlog-172-run-warning-codes.md`, Design review).
 
@@ -16,7 +16,7 @@ The engine owns the **English lesson, its group, its params and its sources**; t
 
 ## Plan
 
-- **Step 0. This design doc.** Status "In progress" in the build plan's roadmap line (backlog items have no row of their own). Exit: reviewed.
+- **Step 0. This design doc.** Exit: reviewed. (Backlog items have no row in the build plan; the version is recorded in `docs/versions.md` and `docs/team-sync.md`.)
 
 - **Step 1. The catalogue.** In `domains/analysis/text.py`:
   - `WARNING_GROUPS`: three group codes, in the order a screen reads them, with English names:
@@ -75,3 +75,7 @@ Serves every screen that shows a run's notes (brief Q3, Q5 and Q8, F2's first sc
 - **Analyst.** Blocker taken: `fundamentals_stale` said a newer report "probably exists", but 14 of the 15 stored notes are Feb 15 runs whose 10-K was filed days later (CAT, JNJ, KO, XOM); the lesson now says the next report is often not due yet, or Warren may be missing one. Taken: `shares_cover_differs` says Warren divides by the cover count and names a figure in the wrong unit (KO 2019's diluted shares filed in millions), and drops "a split Warren missed" (splits are adjusted on both counts); `balance_counted_zero` no longer says "usually none" and gives both directions (CAT's current debt is counted zero in 113 of 113 runs; most real zeros are cash-side items, which make the value too low); `tax_rate_clipped` says "booked", not "paid"; `balance_date_differs` reworded; "shares" in `run_mixes_meanings` is "each quarter's share of the year"; the `assumption` group's description. The 135-day line itself and CAT's current debt are follow-up issues. Not taken: testing the 40–45 and 60–90 day figures (they are the SEC's, cited, not Warren constants).
 - **Professor.** Citations checked: Damodaran ch. 10 confirmed, ch. 8 and 12 consistent with the book; FASB CON 8 ch. 3, Fama and French (2000), Gordon (1962), ASC 260, SEC General Instruction A confirmed. Blockers taken: the stale lesson (as the analyst's); `margin_outside_history` now cites Nissim and Penman (2001) for margins and says "profit margins", Fama and French kept for profitability. Suggestions taken: Koller edition and chapter, Gordon and Shapiro (1956), the normal gap between diluted and cover shares. Ideas for student screens (links per source, group intros) are the front-end's.
 - **Product lead.** Split accepted. Blocker taken: thresholds are `params`, so the Spanish fills the same numbers in the region's format. Groups and order accepted (brief, "Notes on an estimate": data first); suggested headings "Los datos de partida", "Supuestos fuera de lo habitual", "Qué tanto confiar en el valor". Taken: `source` split into `reference` and `warren_rule`; plainer English throughout ("percentage points", "an analyst", no "footings", "recast" or "XBRL tag", "the range Warren shows by moving the equity risk premium up and down", "a new run made today"). Ideas filed as a follow-up issue: `anchors` per note, a separate `check` field, a revision mark per lesson.
+
+## PR review (nov.12.2026)
+
+- **Gatekeeper: GO** (PR #345; 2,159 passed, 10 skipped; ruff clean; CI green). No blockers. Ideas taken in the record commit: Step 0 no longer claims a build-plan line; the margin lesson says "up to 12 quarters" (`post_check_notes` uses the quarterly rows there are, at most `HISTORY_QUARTERS`). Into #344: `Lesson.params` read-only; a retired code would print as "Not coded".
