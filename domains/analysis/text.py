@@ -217,7 +217,7 @@ WARNING_LESSONS = {
     "margin_outside_history": Lesson(
         "assumption",
         "A forecast quarter's operating margin is more than {sigmas} standard deviations away "
-        "from the average of the last {quarters} quarters. Profit margins tend to drift back "
+        "from the average of up to {quarters} past quarters. Profit margins tend to drift back "
         "toward their usual level, so a forecast far from history needs a reason (a new "
         "product, a cost programme); without one, an assumption is more likely wrong.",
         {"sigmas": math_engine.MARGIN_SIGMAS, "quarters": math_engine.HISTORY_QUARTERS},
