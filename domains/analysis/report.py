@@ -4,9 +4,9 @@ import sqlite3
 from pathlib import Path
 
 from domains.analysis import dcf
-from domains.analysis.runs import load_assumptions, load_gaps, load_outputs
+from domains.analysis.runs import load_assumptions, load_gaps, load_outputs, run_notes
 from domains.analysis.schemas import SINGLE
-from domains.analysis.text import REASON_SENTENCES, REASON_WORDS
+from domains.analysis.text import REASON_SENTENCES, REASON_WORDS, WARNING_LESSONS
 from shared_kernel.config import REPORTS_DIR as ALL_REPORTS_DIR
 
 REPORTS_DIR = ALL_REPORTS_DIR / "dcf"
@@ -178,8 +178,7 @@ def render(conn: sqlite3.Connection, run_id: str) -> str:
                 f"| {r.name.split(':', 1)[1]}{mark} | {r.period} | {_m(r.value)} | {r.method} |"
             )
 
-    notes = [n for n in (run["notes"] or "").split("\n") if n]
-    lines += ["", "## Warnings", ""] + ([f"- {n}" for n in notes] or ["None."])
+    lines += ["", "## Warnings", ""] + (_warning_lines(conn, run_id) or ["None."])
     lines += [
         "",
         "## Owner's choices",
@@ -247,6 +246,20 @@ def _precision(gaps: dict) -> list[str]:
         f"{REASON_SENTENCES[gap.reason]}. The ERP's uncertainty alone leaves the value per share "
         "without an upper bound. Read it as an order of magnitude."
     ]
+
+
+def _warning_lines(conn: sqlite3.Connection, run_id: str) -> list[str]:
+    """One bullet per stored warning, as before, and under the first line of each code the
+    lesson: why it matters and its source (backlog #197). A run stored as text only (no codes)
+    prints its lines with no lesson."""
+    lines, taught = [], set()
+    for note in run_notes(conn, run_id).notes:
+        lines.append(f"- {note.text}")
+        lesson = WARNING_LESSONS.get(note.code)
+        if lesson and note.code not in taught:
+            taught.add(note.code)
+            lines.append(f"  - *Why it matters:* {lesson.text()} (Source: {lesson.source()}.)")
+    return lines
 
 
 def write_report(conn: sqlite3.Connection, run_id: str, reports_dir: Path = REPORTS_DIR) -> Path:
