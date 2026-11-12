@@ -534,3 +534,14 @@ def test_a_narrow_input_from_another_filing_is_not_used(ingested):
     )
     q4 = quarters(conn, "revenue", "2025-03-01")["Q4"]
     assert (q4.value, q4.narrower_tag) == (130, NARROW)
+
+
+def test_a_quarter_near_zero_is_checked_against_an_average_quarter(ingested):
+    """Tolerance is 0.5% of the larger of the quarter and a quarter of the year: a quarter of 2
+    off by 1 in a year of 1,000 still agrees (1 <= 0.005 * 250)."""
+    conn, _ = ingested
+    narrow_quarter(conn, value=2)
+    narrow_inputs(conn, year=1000, nine_months=997)  # 3, against 2 reported
+    assert quarters(conn, "revenue", "2025-03-01")["Q4"].narrower_tag == NARROW
+    conn.execute("UPDATE financial_facts SET value = 995 WHERE value = 997")  # 5: 3 off
+    assert quarters(conn, "revenue", "2025-03-01")["Q4"].narrower_tag is None

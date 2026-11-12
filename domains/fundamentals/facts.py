@@ -708,7 +708,10 @@ def _agrees_on_own_tag(
             return True
         narrow.append(same[-1])
     derived = narrow[0].value - sum(f.value for f in narrow[1:])
-    return abs(derived - own.value) <= RECAST_MOVE * abs(own.value)
+    # A share of the quarter, but never of less than an average quarter of the year: a quarter
+    # near zero (tax, other income) would otherwise fail on rounding alone (analyst, #329).
+    scale = max(abs(own.value), abs(narrow[0].value) / 4)
+    return abs(derived - own.value) <= RECAST_MOVE * scale
 
 
 def _quarters_for_flow(
