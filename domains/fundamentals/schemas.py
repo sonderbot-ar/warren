@@ -6,6 +6,10 @@ from pydantic import BaseModel, Field
 FiscalPeriod = Literal["Q1", "Q2", "Q3", "Q4", "H1", "M9", "FY"]
 
 
+# the period a derived quarter is subtracted from, in words (backlog #336)
+MINUEND_WORDS = {"FY": "the year", "M9": "the nine months", "H1": "the six months"}
+
+
 class OwnTagCheck(BaseModel):
     """Why a quarter its filing gave only under a lower-ranked tag was kept on that tag instead of
     moving to its year's (backlog #336): the same subtraction on the quarter's own tag did not
