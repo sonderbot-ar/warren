@@ -1,6 +1,6 @@
 # Backlog #349: the stale lesson's numbers come from the constants, and the underived fourth quarter is pinned
 
-Issue: https://github.com/sonderbot-ar/warren/issues/349 · Branch `backlog-349-stale-line-tidy` · Status: In progress (nov.12.2026)
+Issue: https://github.com/sonderbot-ar/warren/issues/349 · Branch `backlog-349-stale-line-tidy` · Version v0.9.62, merged nov.12.2026 (PR #351, merge `f8b4926`)
 
 ## Problem
 
@@ -51,3 +51,7 @@ Explainer, analyst and professor in parallel, and the product lead on *Product i
 - **Professor.** Fetched Forms 10-Q and 10-K: 40 and 60 days for large accelerated filers; 135 = 92 + 40 + 3 and 161 = 98 + 60 + 3. Taken: `warren_rule` stays an English pointer (Step 1). Not taken here: splitting the `why` sentence for Spanish (the app writes its own sentence from the params).
 - **Explainer.** Five "blockers", all gaps in the doc, now answered in Steps 1–3: the literals are replaced; the 98 days belongs to the 161-day line only; the test reads the English; students never see `warren_rule`; Step 3 has an exit and edits no other doc. Ideas 6 and 7 answered in Step 2.
 - **Product lead.** OK. Taken: the front-end team adds `deadline_10k` and `deadline_10q` to #344 next to `days_q3` (Product impact).
+
+## PR review (nov.12.2026)
+
+Gatekeeper: GO, no blockers. `tests/analysis` 643 passed; ruff clean; CI green; the student's English rendered identical on `main` and the branch; both mutations fail the new tests. Idea, filed with #352: assert the rule's regex finds two clauses before comparing, so a wording edit fails with a clear message.
