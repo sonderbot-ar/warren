@@ -360,12 +360,37 @@ def _line(
 
 
 def _with_tag_note(line: Line, fact: Fact, narrow: Fact | None, filings: "_Filings") -> Line:
-    """A quarter derived on its year's tag says what its own filing gave (backlog #324)."""
-    if not fact.narrower_tag or narrow is None:
+    """A quarter derived on its year's tag says what its own filing gave (backlog #324).
+
+    When the reported lookup does not find the filing's own figure (it always has on real data),
+    the note still says the quarter was moved to the year's tag, naming the lower-ranked tag, with
+    `reported_value`, `form`, `filed_at` and `accession_no` None (backlog #329)."""
+    if not fact.narrower_tag:
         return line
-    filing = filings.get(narrow.accession_no)
     period = f"FY{fact.fiscal_year}{fact.fiscal_period}"
     tag = fact.xbrl_concept
+    if narrow is None:
+        params = {
+            "item": fact.canonical_name,
+            "period": period,
+            "period_end": fact.period_end.isoformat(),
+            "value": fact.value,
+            "reported_value": None,
+            "reported_tag": fact.narrower_tag,
+            "tag": tag,
+            "form": None,
+            "filed_at": None,
+            "accession_no": None,
+        }
+        text = (
+            f"{fact.canonical_name} {period} (the quarter ending {fact.period_end}) is "
+            f"{fact.value:,.0f}, worked out from figures all under {tag}, the tag of the year "
+            f"and the other quarters; the company's filing gives the quarter only under "
+            f"{fact.narrower_tag}, a tag Warren ranks below it, so the four quarters would not "
+            "measure the same line or add up to the year"
+        )
+        return replace(line, tag_note=Coded("quarter_on_year_tag", params, text))
+    filing = filings.get(narrow.accession_no)
     filed = filing.filed_at.isoformat() if filing.filed_at else None
     note = Coded(
         "quarter_on_year_tag",
