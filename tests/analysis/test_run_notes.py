@@ -162,7 +162,7 @@ def test_the_notes_command(company, monkeypatch, capsys):
     assert cli.main(["notes", "--run-id", run_id, "--json"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["run_id"] == run_id and out["recorded"] is True
-    assert {"code", "params", "text"} == set(out["notes"][0])
+    assert {"code", "params", "text", "group"} == set(out["notes"][0])
     assert cli.main(["notes", "--run-id", run_id]) == 0
     assert "[balance_counted_zero]" in capsys.readouterr().out
     _forget(company, run_id)
@@ -234,3 +234,35 @@ def test_a_coverage_note_matching_no_row_gets_nulls(company, change):
         None,
     )
     assert params["filled_on_read"] is True
+
+
+def test_each_note_carries_its_group_and_free_text_none(company):
+    """Backlog #197: the group a screen sorts a note under, from `text.WARNING_LESSONS`."""
+    from domains.analysis.text import WARNING_LESSONS
+
+    run_id = _baseline(company)
+    notes = run_notes(company, run_id).to_dict()["notes"]
+    assert notes and all(n["group"] == WARNING_LESSONS[n["code"]].group for n in notes)
+    assert {"code": "balance_counted_zero", "group": "data"}.items() <= next(
+        n for n in notes if n["code"] == "balance_counted_zero"
+    ).items()
+    _forget(company, run_id)
+    stored_as_text = run_notes(company, run_id).to_dict()["notes"]
+    assert stored_as_text and all(
+        n["code"] == "note_text" and n["group"] is None for n in stored_as_text
+    )
+
+
+def test_the_notes_command_names_the_group(company, monkeypatch, capsys):
+    run_id = _baseline(company)
+
+    @contextmanager
+    def same_connection(*args):
+        yield company
+
+    monkeypatch.setattr(cli, "get_db_connection", same_connection)
+    assert cli.main(["notes", "--run-id", run_id]) == 0
+    assert "- [The figures the run reads] [balance_counted_zero]" in capsys.readouterr().out
+    _forget(company, run_id)
+    assert cli.main(["notes", "--run-id", run_id]) == 0
+    assert "- [Not coded] [note_text]" in capsys.readouterr().out

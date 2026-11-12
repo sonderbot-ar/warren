@@ -254,3 +254,34 @@ def test_whatif_command_changes_debt_with_a_use(company, monkeypatch, capsys):
     )
     out, err = capsys.readouterr()
     assert "REFUSED" not in out and "--debt-use needs a --set or --add on debt" in err
+
+
+def _warnings(text: str) -> str:
+    return text.split("## Warnings\n\n", 1)[1].split("\n\n## ", 1)[0]
+
+
+def test_report_teaches_each_warning_once_with_its_source(company):
+    """Backlog #197: under the first line of each code, why it matters and where that comes
+    from; the stored lines themselves are unchanged and in their order."""
+    from domains.analysis.runs import run_notes
+    from domains.analysis.text import WARNING_LESSONS
+
+    run_id = run(company)
+    section = _warnings(report.render(company, run_id))
+    notes = run_notes(company, run_id).notes
+    stored = (company.execute("SELECT notes FROM runs WHERE run_id = ?", (run_id,)).fetchone())[0]
+    bullets = [line[2:] for line in section.split("\n") if line.startswith("- ")]
+    assert bullets == [n for n in stored.split("\n") if n]
+    for code in {n.code for n in notes}:
+        lesson = WARNING_LESSONS[code]
+        line = f"  - *Why it matters:* {lesson.text()} (Source: {lesson.source()}.)"
+        assert section.count(line) == 1, code
+
+
+def test_report_prints_text_only_runs_without_a_lesson_and_none_when_clean(company):
+    run_id = run(company)
+    company.execute("DELETE FROM run_notes WHERE run_id = ?", (run_id,))
+    section = _warnings(report.render(company, run_id))
+    assert section.startswith("- ") and "Why it matters" not in section
+    company.execute("UPDATE runs SET notes = '' WHERE run_id = ?", (run_id,))
+    assert _warnings(report.render(company, run_id)) == "None."
