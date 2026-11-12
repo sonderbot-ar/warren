@@ -96,6 +96,40 @@ def test_after_a_second_quarter_the_line_stays_the_10q_deadline(make_company):
     ]
 
 
+def without_fy2019_revenue(tag, row):
+    """Filings before 2020-03-01, so the FY2019 10-K is in, but without its full-year 2019
+    revenue: Q4 2019 = year − Q1 − Q2 − Q3 then has no year to start from."""
+    if row["filed"] >= "2020-03-01":
+        return None
+    full_year = row.get("start") == "2019-01-01" and row["end"] == "2019-12-31"
+    return None if tag == "Revenues" and full_year else row
+
+
+@pytest.mark.parametrize(("as_of", "warns"), [("2020-03-09", False), ("2020-03-10", True)])
+def test_a_10k_without_a_derivable_fourth_quarter_keeps_the_third_quarter_line(
+    make_company, as_of, warns
+):
+    """Backlog #349: the 10-K is in but its fourth quarter can't be derived, so the newest
+    quarter is still Q3 and the 161-day line applies (#342, Known limits 2)."""
+    conn = make_company(without_fy2019_revenue)
+    in_10k = conn.execute(
+        "SELECT COUNT(*) FROM financial_facts WHERE form = '10-K' AND period_end = '2019-12-31'"
+    ).fetchone()[0]
+    assert in_10k  # the 10-K's figures are in the database
+    result = build_on(conn, as_of)
+    # the run rolls forward from Q3 2019: the fourth quarter was not derived
+    roll = result.sources[("roll_years", math_engine.SINGLE)]
+    assert roll == [{"kind": "derived", "inputs": [{"name": "revenue_seed", "period": "FY2019Q3"}]}]
+    found = notes(result, "fundamentals_stale")
+    assert bool(found) == warns
+    if warns:
+        assert found[0].params == {
+            "last_quarter_end": "2019-09-30",
+            "days": 162,
+            "threshold_days": 161,
+        }
+
+
 def test_the_lines_are_built_from_the_sec_deadlines():
     assert math_engine.STALE_AFTER.days == 135
     assert math_engine.STALE_AFTER_Q3.days == 161

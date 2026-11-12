@@ -95,29 +95,31 @@ def test_thresholds_are_the_engines_and_marked_as_warren_rules():
         assert shown <= _numbers(lesson.warren_rule), code
 
 
-def test_the_stale_rule_names_every_part_of_both_lines():
-    """The 135- and 161-day lines are sums of named parts (backlog #349): the rule shows each
-    part and each line from the engine's constants, and the parts add up to the lines."""
+def test_the_stale_rule_names_each_line_with_its_own_parts():
+    """Backlog #349: the rule shows each line beside the parts that make it, all from the
+    engine's constants, so a student can add them up and a changed constant can't leave the
+    text behind."""
     engine = math_engine
-    parts = {
-        "quarter": engine.QUARTER_DAYS,
-        "long_quarter": engine.LONG_QUARTER_DAYS,
-        "deadline_10q": engine.DEADLINE_10Q_DAYS,
-        "deadline_10k": engine.DEADLINE_10K_DAYS,
-        "slack": engine.DEADLINE_SLACK_DAYS,
-    }
-    assert engine.STALE_AFTER.days == parts["quarter"] + parts["deadline_10q"] + parts["slack"]
-    assert engine.STALE_AFTER_Q3.days == (
-        parts["long_quarter"] + parts["deadline_10k"] + parts["slack"]
-    )
     rule = WARNING_LESSONS["fundamentals_stale"].warren_rule
-    for words in ("10-Q", "10-K", "14-week", "_Q3"):  # names, not parts of a line
-        rule = rule.replace(words, "")
-    shown = re.findall(r"\d+", rule)
-    lines = [engine.STALE_AFTER.days, engine.STALE_AFTER_Q3.days]
-    assert [int(n) for n in shown] == lines + [
-        parts[k] for k in ("quarter", "long_quarter", "deadline_10q", "deadline_10k", "slack")
+    lines = re.findall(
+        r"(\d+) days is a (\d+)-day (?:fourth )?quarter.*? plus the (\d+)-day (10-[QK]) "
+        r"deadline plus (\d+) days",
+        rule,
+    )
+    shown = [(int(line), int(q), int(d), form, int(s)) for line, q, d, form, s in lines]
+    slack = engine.DEADLINE_SLACK_DAYS
+    assert shown == [
+        (engine.STALE_AFTER.days, engine.QUARTER_DAYS, engine.DEADLINE_10Q_DAYS, "10-Q", slack),
+        (
+            engine.STALE_AFTER_Q3.days,
+            engine.LONG_QUARTER_DAYS,
+            engine.DEADLINE_10K_DAYS,
+            "10-K",
+            slack,
+        ),
     ]
+    for line, quarter, deadline, _form, plus in shown:
+        assert line == quarter + deadline + plus
 
 
 def test_text_shows_a_fraction_times_100_and_a_count_as_is():

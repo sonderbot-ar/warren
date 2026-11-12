@@ -124,12 +124,13 @@ WARNING_LESSONS = {
         "SEC Form 10-Q, General Instruction A.1, and Form 10-K, General Instruction A(2)(a) "
         "(large accelerated filers); Exchange Act Rule 0-3 (a deadline on a weekend or holiday "
         "moves to the next business day)",
-        f"the {math_engine.STALE_AFTER.days}- and {math_engine.STALE_AFTER_Q3.days}-day lines "
-        f"are working rules: a quarter ({math_engine.QUARTER_DAYS} days, or "
-        f"{math_engine.LONG_QUARTER_DAYS} for a 14-week fourth quarter) plus the filing deadline "
-        f"({math_engine.DEADLINE_10Q_DAYS} days for a 10-Q, {math_engine.DEADLINE_10K_DAYS} for "
-        f"a 10-K) plus {math_engine.DEADLINE_SLACK_DAYS} days, math_engine.STALE_AFTER and "
-        "STALE_AFTER_Q3",
+        f"both lines are working rules (math_engine.STALE_AFTER and STALE_AFTER_Q3): "
+        f"{math_engine.STALE_AFTER.days} days is a {math_engine.QUARTER_DAYS}-day quarter plus "
+        f"the {math_engine.DEADLINE_10Q_DAYS}-day 10-Q deadline plus "
+        f"{math_engine.DEADLINE_SLACK_DAYS} days; {math_engine.STALE_AFTER_Q3.days} days is a "
+        f"{math_engine.LONG_QUARTER_DAYS}-day fourth quarter (14 weeks, in a 53-week year) plus "
+        f"the {math_engine.DEADLINE_10K_DAYS}-day 10-K deadline plus "
+        f"{math_engine.DEADLINE_SLACK_DAYS} days",
     ),
     "balance_carried_forward": Lesson(
         "data",
