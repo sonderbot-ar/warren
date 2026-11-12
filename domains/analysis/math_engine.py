@@ -65,7 +65,19 @@ HISTORY_QUARTERS = 12
 MIN_QUARTERS_PER_LABEL = 2
 BETA_WEEKS = 104  # 2 years of weekly returns (D6)
 COMPONENT_MAX_AGE = timedelta(days=370)  # a balance older than this before the balance date is 0
-STALE_AFTER = timedelta(days=135)  # last reported quarter this long before as_of: warn
+# Stale fundamentals (backlog #342): warn when the newest quarter ended longer ago than the next
+# report's deadline allows. US SEC large accelerated filer deadlines: 40 days for a 10-Q (Form 10-Q,
+# General Instruction A.1) and 60 for a 10-K (Form 10-K, General Instruction A(2)(a)); a deadline on
+# a weekend or holiday moves to the next business day (Exchange Act Rule 0-3). After a third quarter
+# the next report is the 10-K, which covers the fourth quarter. Working rules, Warren's own; a
+# non-US source would bring its own deadlines.
+QUARTER_DAYS = 92
+LONG_QUARTER_DAYS = 98  # a 14-week fourth quarter in a 53-week year (JNJ FY2015)
+DEADLINE_10Q_DAYS = 40
+DEADLINE_10K_DAYS = 60
+DEADLINE_SLACK_DAYS = 3
+STALE_AFTER = timedelta(days=QUARTER_DAYS + DEADLINE_10Q_DAYS + DEADLINE_SLACK_DAYS)  # 135
+STALE_AFTER_Q3 = timedelta(days=LONG_QUARTER_DAYS + DEADLINE_10K_DAYS + DEADLINE_SLACK_DAYS)  # 161
 TAX_RATE_BOUNDS = (0.0, 0.5)
 COST_OF_DEBT_BOUNDS = (0.0, 0.15)
 SHARES_TOLERANCE = 0.10  # cover-page vs diluted shares
@@ -437,14 +449,15 @@ def _last_actual_quarter(history: History, result: EngineResult) -> tuple[int, i
     if not revenue:
         raise EngineError(f"{result.ticker}: no quarterly revenue reported by {result.as_of}")
     last = max(revenue, key=lambda f: f.period_end)
-    if result.as_of - last.period_end > STALE_AFTER:
+    line = STALE_AFTER_Q3 if last.fiscal_period == "Q3" else STALE_AFTER  # 10-K next, or a 10-Q
+    if result.as_of - last.period_end > line:
         days = (result.as_of - last.period_end).days
         result.warn(
             "fundamentals_stale",
             {
                 "last_quarter_end": last.period_end.isoformat(),
                 "days": days,
-                "threshold_days": STALE_AFTER.days,
+                "threshold_days": line.days,
             },
             f"Fundamentals may be stale: the last reported quarter ended {last.period_end}, "
             f"{(result.as_of - last.period_end).days} days before the as-of date (check that "
