@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Literal
 
-from domains.fundamentals.schemas import Fact
+from domains.fundamentals.schemas import Fact, OwnTagCheck
 from domains.fundamentals.universe import warn_if_beyond_history
 
 Mode = Literal["latest", "first_reported"]
@@ -651,12 +651,22 @@ def _ranks(conn: sqlite3.Connection, canonical_names: list[str]) -> Ranks:
     return {(r[0], r[1]): r[2] for r in rows}
 
 
+@dataclass(frozen=True)
+class _YearTag:
+    """What `_on_year_tag` found for one reported quarter: move it (`kept` None), or keep it on
+    its own tag because that tag disagrees with its year (`kept`, backlog #336)."""
+
+    minuend: Fact
+    subtracted: list[Fact]
+    kept: OwnTagCheck | None = None
+
+
 def _on_year_tag(
     year: dict[str, Fact],
     period: str,
     ranks: Ranks,
     tagged: dict[tuple, list[dict[str, Fact]]] | None = None,
-) -> tuple[Fact, list[Fact]] | None:
+) -> _YearTag | None:
     """The inputs to derive a reported quarter from instead, when its filing gave it only under a
     tag ranked below the one tag its year and the periods before it share (backlog #324).
 
@@ -667,11 +677,11 @@ def _on_year_tag(
     its tag does not rank above the quarter's.
 
     With `tagged` (every filing's value under each tag), the quarter's own tag is checked too
-    (backlog #329): when each input's filing also gives that input under the quarter's tag, the
-    same subtraction on those figures must come within `RECAST_MOVE` of the reported quarter
-    (Walmart: 405,132 - 292,306 = 112,826, the 10-K's net-sales quarter). If it does not, the
-    quarter was revised on its own tag after the year was filed, so the two tags no longer sit on
-    one basis and the reported quarter is kept (None). With any narrow input missing, no check."""
+    (backlog #329, `_own_tag_check`): when the same subtraction on the quarter's tag does not
+    come within `RECAST_MOVE` of the reported quarter, the quarter or an input was revised on
+    that tag (the check cannot tell which), so the two tags no longer sit on one basis and the
+    reported quarter is kept: the result carries `kept` (backlog #336), so the line can say
+    why."""
     own = year[period]
     for minuend, subtracted in DERIVATIONS[period]:
         if minuend in year and all(p in year for p in subtracted):
@@ -684,29 +694,77 @@ def _on_year_tag(
             own_rank = ranks.get((item, own.xbrl_concept))
             if rank is None or own_rank is None or rank >= own_rank:
                 return None
-            if tagged is not None and not _agrees_on_own_tag(own, inputs, tagged):
-                return None
-            return inputs[0], inputs[1:]
+            kept = _own_tag_check(own, inputs, tagged) if tagged is not None else None
+            return _YearTag(inputs[0], inputs[1:], kept)
     return None
 
 
-def _agrees_on_own_tag(
+def _own_tag_check(
     own: Fact, inputs: list[Fact], tagged: dict[tuple, list[dict[str, Fact]]]
-) -> bool:
-    """Whether the derivation on the quarter's own tag, each input read from the filing that gave
-    it, matches the reported quarter (backlog #329); True when an input's filing lacks the tag."""
+) -> OwnTagCheck | None:
+    """None when the derivation on the quarter's own tag matches the reported quarter, or cannot
+    be checked; otherwise what disagreed (backlog #329, #336).
+
+    Two pairings are tried. First each input is read from the filing that gave it (#329). In
+    latest mode those can be different years' filings (Walmart's FY2010Q4: the year from the
+    10-K of 2012-03-27, the nine months from the 10-Q of 2009-12-08, the quarter from the 10-K of
+    2011-03-30), so a recast of the own tag in between could fail it although the quarter is
+    right. So, second, each input the quarter's own filing also gives under its tag is read from
+    there instead, the others still from their own filings (backlog #336): the quarter and its
+    year side by side in one filing share a basis. The check passes when either pairing agrees.
+    With any input missing from its own filing under the quarter's tag, there is no check."""
+    first = _narrow_inputs(own, inputs, tagged, prefer=None)
+    if first is None:
+        return None
+    if _agrees(own, first):
+        return None
+    second = _narrow_inputs(own, inputs, tagged, prefer=own.accession_no)
+    if second is not None and _agrees(own, second):
+        return None
+    derived = inputs[0].value - sum(f.value for f in inputs[1:])
+    on_own_tag = first[0].value - sum(f.value for f in first[1:])
+    on_own_filing = second[0].value - sum(f.value for f in second[1:]) if second else None
+    return OwnTagCheck(
+        year_tag=inputs[0].xbrl_concept,
+        on_year_tag=derived,
+        on_own_tag=on_own_tag,
+        inputs=[f.accession_no for f in first],
+        minuend=inputs[0].fiscal_period,
+        # both figures when they differ, so a reader can tell whether the quarter or an input
+        # moved (analyst, #336)
+        on_own_filing=on_own_filing if on_own_filing != on_own_tag else None,
+    )
+
+
+def _narrow_inputs(
+    own: Fact,
+    inputs: list[Fact],
+    tagged: dict[tuple, list[dict[str, Fact]]],
+    prefer: str | None,
+) -> list[Fact] | None:
+    """Each input under the quarter's own tag, from the filing that gave it, or from `prefer`
+    (an accession) when that filing gives it too; None when an input's own filing lacks the tag."""
     narrow = []
     for fact in inputs:
         key = (fact.canonical_name, fact.period_start, fact.period_end)
+        filings = [rows for rows in tagged.get(key, []) if own.xbrl_concept in rows]
         same = [
             rows[own.xbrl_concept]
-            for rows in tagged.get(key, [])
-            if own.xbrl_concept in rows
-            and any(f.accession_no == fact.accession_no for f in rows.values())
+            for rows in filings
+            if any(f.accession_no == fact.accession_no for f in rows.values())
         ]
         if not same:
-            return True
-        narrow.append(same[-1])
+            return None
+        preferred = [
+            rows[own.xbrl_concept]
+            for rows in filings
+            if prefer is not None and any(f.accession_no == prefer for f in rows.values())
+        ]
+        narrow.append((preferred or same)[-1])
+    return narrow
+
+
+def _agrees(own: Fact, narrow: list[Fact]) -> bool:
     derived = narrow[0].value - sum(f.value for f in narrow[1:])
     # A share of the quarter, but never of less than a quarter of the minuend (the year for Q4,
     # the six or nine months for Q2 and Q3): a quarter near zero (tax, other income) would
@@ -757,8 +815,10 @@ def _quarters_for_flow(
             if period not in year or q.get(period) is not year[period]:
                 continue  # not reported, or already derived
             on_year_tag = _on_year_tag(year, period, ranks, tagged)
-            if on_year_tag is not None:
-                minuend, subtracted = on_year_tag
+            if on_year_tag is not None and on_year_tag.kept is not None:
+                q[period] = year[period].model_copy(update={"kept_on_own_tag": on_year_tag.kept})
+            elif on_year_tag is not None:
+                minuend, subtracted = on_year_tag.minuend, on_year_tag.subtracted
                 derived = _derive(minuend, subtracted, period)
                 if basis is not None:
                     derived = basis.place(derived, minuend, subtracted)

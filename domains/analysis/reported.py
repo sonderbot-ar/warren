@@ -34,7 +34,14 @@ from datetime import date
 
 from domains.analysis import financial_math as fm
 from domains.analysis.coded import Coded, coded_warnings, pass_on
-from domains.analysis.math_engine import CASH_ITEMS, CHAINS, History, basis_kind, debt_parts
+from domains.analysis.math_engine import (
+    CASH_ITEMS,
+    CHAINS,
+    MINUEND_WORDS,
+    History,
+    basis_kind,
+    debt_parts,
+)
 from domains.fundamentals.facts import (
     MEANING_CHANGE_MATCH,
     MeaningChange,
@@ -159,7 +166,9 @@ class Line:
     meaning_note: Coded | None = None
     # backlog #324: a quarter its filing gave only under a tag Warren ranks below the one tag of
     # the year and the periods before it is derived on the year's tag; `tag_note` (code
-    # `quarter_on_year_tag`) gives the figure as filed. Otherwise None
+    # `quarter_on_year_tag`) gives the figure as filed. When that tag disagrees with the year
+    # (#329), the quarter is kept as filed and the code is `quarter_kept_on_own_tag` (#336).
+    # Otherwise None
     tag_note: Coded | None = None
 
 
@@ -364,7 +373,12 @@ def _with_tag_note(line: Line, fact: Fact, narrow: Fact | None, filings: "_Filin
 
     When the reported lookup does not find the filing's own figure (it always has on real data),
     the note still says the quarter was moved to the year's tag, naming the lower-ranked tag, with
-    `reported_value`, `form`, `filed_at` and `accession_no` None (backlog #329)."""
+    `reported_value`, `form`, `filed_at` and `accession_no` None (backlog #329).
+
+    A quarter kept on its own lower-ranked tag because that tag disagrees with its year says so
+    too, with code `quarter_kept_on_own_tag` (backlog #336, `_kept_note`)."""
+    if fact.kept_on_own_tag is not None:
+        return replace(line, tag_note=_kept_note(fact, filings))
     if not fact.narrower_tag:
         return line
     period = f"FY{fact.fiscal_year}{fact.fiscal_period}"
@@ -413,6 +427,55 @@ def _with_tag_note(line: Line, fact: Fact, narrow: Fact | None, filings: "_Filin
         "it, so the four quarters would not measure the same line or add up to the year",
     )
     return replace(line, tag_note=note)
+
+
+def _kept_note(fact: Fact, filings: "_Filings") -> Coded:
+    """Backlog #336: a quarter its filing gave only under a tag ranked below its year's, kept as
+    filed because the same subtraction on its own tag does not give it (#329): the quarter was
+    revised on its own tag, so the two tags no longer sit on one basis. The four quarters then
+    measure two lines, as before #324."""
+    kept = fact.kept_on_own_tag
+    period = f"FY{fact.fiscal_year}{fact.fiscal_period}"
+    filing = filings.get(fact.accession_no)
+    filed = filing.filed_at.isoformat() if filing.filed_at else None
+    params = {
+        "item": fact.canonical_name,
+        "period": period,
+        "period_end": fact.period_end.isoformat(),
+        "value": fact.value,
+        "own_tag": fact.xbrl_concept,
+        "year_tag": kept.year_tag,
+        "on_year_tag": kept.on_year_tag,
+        "on_own_tag": kept.on_own_tag,
+        "own_tag_inputs": list(kept.inputs),
+        "minuend": kept.minuend,
+        "on_own_filing": kept.on_own_filing,
+        "form": filing.form,
+        "filed_at": filed,
+        "accession_no": fact.accession_no,
+    }
+    # three sentences: what was filed, why it was not moved, what it means (professor, #336)
+    text = (
+        f"{fact.canonical_name} {period} (the quarter ending {fact.period_end}) is "
+        f"{fact.value:,.0f}, as the {filing.form} filed {filed} gives it under "
+        f"{fact.xbrl_concept}. The year and the other quarters use {kept.year_tag}, a tag Warren "
+        f"ranks above it, but on {fact.xbrl_concept} {_less_earlier(kept)} is "
+        f"{kept.on_own_tag:,.0f}{_own_filing_clause(kept)}, not {fact.value:,.0f}, so Warren "
+        f"keeps the quarter as filed. The four quarters therefore measure two lines and may not "
+        f"add up to the year; on {kept.year_tag} this quarter would be {kept.on_year_tag:,.0f}."
+    )
+    return Coded("quarter_kept_on_own_tag", params, text)
+
+
+def _less_earlier(kept) -> str:
+    """'the year less the earlier periods', or the six or nine months for a Q2 or Q3 (analyst)."""
+    return f"{MINUEND_WORDS.get(kept.minuend, 'the year')} less the earlier periods"
+
+
+def _own_filing_clause(kept) -> str:
+    if kept.on_own_filing is None:
+        return ""
+    return f" ({kept.on_own_filing:,.0f} with the figures in the quarter's own filing)"
 
 
 def _basis_note(fact: Fact, plain: Fact) -> Coded:
@@ -775,20 +838,35 @@ def _changed_note(facts: list[Fact], lines: list[Line]) -> list[Coded]:
 
 
 def _year_tag_note(lines: list[Line]) -> list[Coded]:
-    """A ratio that uses a quarter derived on its year's tag says so (backlog #324)."""
-    used = [x for x in lines if x.tag_note]
-    if not used:
-        return []
-    items = list(dict.fromkeys(x.name for x in used))
-    periods = sorted({f"FY{x.fiscal_year}{_q(x)}" for x in used})
-    return [
-        Coded(
+    """A ratio that uses a quarter derived on its year's tag says so (backlog #324), and one
+    that uses a quarter kept on its own lower-ranked tag (backlog #336)."""
+    out = []
+    texts = {
+        "quarter_on_year_tag": (
             "uses_quarter_on_year_tag",
-            {"items": items, "periods": periods},
-            f"uses {', '.join(items)} for {', '.join(periods)} worked out on the year's tag, not "
-            "the figure its filing gave under a lower-ranked tag (see the line)",
+            "worked out on the year's tag, not the figure its filing gave under a lower-ranked "
+            "tag (see the line)",
+        ),
+        "quarter_kept_on_own_tag": (
+            "uses_quarter_kept_on_own_tag",
+            "as filed under a tag ranked below the year's, because that tag disagrees with the "
+            "year (see the line)",
+        ),
+    }
+    for line_code, (code, words) in texts.items():
+        used = [x for x in lines if x.tag_note and x.tag_note.code == line_code]
+        if not used:
+            continue
+        items = list(dict.fromkeys(x.name for x in used))
+        periods = sorted({f"FY{x.fiscal_year}{_q(x)}" for x in used})
+        out.append(
+            Coded(
+                code,
+                {"items": items, "periods": periods},
+                f"uses {', '.join(items)} for {', '.join(periods)} {words}",
+            )
         )
-    ]
+    return out
 
 
 def _one_basis_note(lines: list[Line]) -> list[Coded]:

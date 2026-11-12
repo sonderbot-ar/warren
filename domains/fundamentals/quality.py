@@ -107,6 +107,8 @@ class QualityReport:
     sign_flips: list[tuple[Fact, Fact]] = field(default_factory=list)
     # tags whose meaning changed in a later filing (backlog #295): flagged, values unchanged
     meaning_changes: list[MeaningChange] = field(default_factory=list)
+    # quarters kept on a lower-ranked tag than their year's, as that tag disagrees (backlog #336)
+    kept_on_own_tag: list[Fact] = field(default_factory=list)
 
     @property
     def unexplained(self) -> list[Gap]:
@@ -259,6 +261,19 @@ class QualityReport:
             )
         if not self.meaning_changes:
             lines.append("None.")
+
+        lines += [
+            "",
+            "## Quarters kept on a lower-ranked tag",
+            "",
+            "A quarter its filing gives only under a tag ranked below the one tag of its year and "
+            "the periods before it is normally worked out on the year's tag. When the same "
+            "subtraction on the quarter's own tag does not give the quarter (the quarter or an "
+            "input was revised on that tag), it is kept as filed: the four quarters then measure "
+            "two lines.",
+            "",
+        ]
+        lines += [_kept_line(f) for f in self.kept_on_own_tag] or ["None."]
         return "\n".join(lines) + "\n"
 
     def _disagreement_lines(self) -> list[str]:
@@ -357,6 +372,10 @@ def build_report(
                 fact.xbrl_concept
             )
 
+    report.kept_on_own_tag = sorted(
+        (f for f in report.cells.values() if f.kept_on_own_tag is not None),
+        key=lambda f: (f.canonical_name, f.period_end),
+    )
     for (name, _year, _period), fact in report.cells.items():
         if fact.derived:
             report.derived[name] += 1
@@ -434,6 +453,31 @@ def _filing_link(conn: sqlite3.Connection, cik: str, fiscal_year: int, period: s
     if row is None:
         return None
     return f"{EDGAR_ARCHIVES}/{int(cik)}/{row[0].replace('-', '')}/"
+
+
+MINUENDS = {"FY": "the year", "M9": "the nine months", "H1": "the six months"}
+
+
+def _kept_line(fact: Fact) -> str:
+    """One quarter kept on its own lower-ranked tag (backlog #336)."""
+    kept = fact.kept_on_own_tag
+
+    def amount(value: float) -> str:
+        return _amount(fact.model_copy(update={"value": value}))
+
+    own_filing = (
+        f", {amount(kept.on_own_filing)} from the quarter's own filing"
+        if kept.on_own_filing is not None
+        else ""
+    )
+    return (
+        f"- **{fact.canonical_name}** FY{fact.fiscal_year} {fact.fiscal_period}: "
+        f"{fact.xbrl_concept.split(':', 1)[1]} {_amount(fact)} ({fact.accession_no}); on its own "
+        f"tag {MINUENDS.get(kept.minuend, kept.minuend)} less the earlier periods is "
+        f"{amount(kept.on_own_tag)} "
+        f"({', '.join(kept.inputs)}){own_filing}; on {kept.year_tag.split(':', 1)[1]} it would "
+        f"be {amount(kept.on_year_tag)}"
+    )
 
 
 def _amount(fact: Fact) -> str:

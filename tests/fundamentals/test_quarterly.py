@@ -3,6 +3,7 @@ from datetime import date
 import pytest
 
 from domains.fundamentals.facts import get_facts
+from domains.fundamentals.schemas import OwnTagCheck
 from tests.fundamentals.conftest import TEST_CIK
 
 K1 = "0000000123-25-000001"  # FY2024 10-K, filed 2025-02-15
@@ -497,10 +498,24 @@ def test_a_narrow_quarter_that_disagrees_on_its_own_tag_is_kept_as_reported(inge
     conn, _ = ingested
     narrow_quarter(conn)
     narrow_inputs(conn, year=450, nine_months=310)
+    kept = OwnTagCheck(
+        year_tag="us-gaap:Revenues", on_year_tag=130, on_own_tag=140, inputs=[K1, A3]
+    )
     q4 = quarters(conn, "revenue", "2025-03-01", mode=mode)["Q4"]
     assert (q4.value, q4.derived, q4.narrower_tag) == (125, False, None)
+    assert q4.kept_on_own_tag == kept  # backlog #336: says why
     q4 = one_basis_quarters(conn, "2025-03-01")["Q4"]
     assert (q4.value, q4.derived, q4.narrower_tag) == (125, False, None)
+    assert q4.kept_on_own_tag == kept
+
+
+def test_a_quarter_that_moves_or_is_not_checked_carries_no_kept_note(ingested):
+    conn, _ = ingested
+    narrow_quarter(conn)
+    assert quarters(conn, "revenue", "2025-03-01")["Q4"].kept_on_own_tag is None  # no check
+    narrow_inputs(conn, year=450, nine_months=325)
+    assert quarters(conn, "revenue", "2025-03-01")["Q4"].kept_on_own_tag is None  # agrees
+    assert all(q.kept_on_own_tag is None for q in quarters(conn, "revenue", "2025-03-01").values())
 
 
 def test_a_move_within_the_recast_threshold_still_agrees(ingested):
@@ -545,3 +560,87 @@ def test_a_quarter_near_zero_is_checked_against_an_average_quarter(ingested):
     assert quarters(conn, "revenue", "2025-03-01")["Q4"].narrower_tag == NARROW
     conn.execute("UPDATE financial_facts SET value = 995 WHERE value = 997")  # 5: 3 off
     assert quarters(conn, "revenue", "2025-03-01")["Q4"].narrower_tag is None
+
+
+# -- backlog #336: inputs from different years' filings ---------------------------------------
+
+# FY2025 10-K, filed 2026-02-15: the fixture's own, repeating FY2024 revenue as 455 (Revenues),
+# so latest mode reads the year from it on 2026-03-01
+K2 = "0000000123-26-000001"
+
+
+def later_10k(conn, narrow_year):
+    """The next 10-K also gives FY2024 under the narrow tag, as Walmart's 10-K of 2012-03-27 did
+    for FY2010."""
+    conn.execute(
+        "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, "
+        "fiscal_year, fiscal_period, value, unit, form, accession_no, filed_at) VALUES "
+        "(?, ?, '2024-01-01', '2024-12-31', 2025, 'FY', ?, 'USD', '10-K', ?, '2026-02-15')",
+        (TEST_CIK, NARROW, narrow_year, K2),
+    )
+
+
+def test_a_narrow_recast_in_a_later_filing_does_not_fail_the_check(ingested):
+    """The quarter's own 10-K gives the narrow year as 450 (450 - 325 = 125, the quarter); the
+    next 10-K, where latest mode reads the year, recast the narrow year to 470. Read from the
+    year input's filing the check fails (470 - 325 = 145); read from the quarter's own filing,
+    where quarter and year sit side by side, it agrees, so the quarter moves."""
+    conn, _ = ingested
+    narrow_quarter(conn)
+    narrow_inputs(conn, year=450, nine_months=325)
+    later_10k(conn, narrow_year=470)
+    q4 = quarters(conn, "revenue", "2026-03-01")["Q4"]
+    assert (q4.value, q4.derived, q4.narrower_tag, q4.kept_on_own_tag) == (
+        455 - 330,
+        True,
+        NARROW,
+        None,
+    )
+    assert K2 in q4.inputs  # the year still comes from the newest filing
+
+
+def test_without_the_narrow_year_in_the_quarters_filing_the_first_pairing_decides(ingested):
+    """Only the later 10-K gives the narrow year (470): no second pairing, so the check fails and
+    the quarter is kept, saying the own-tag derivation came from the year input's filing."""
+    conn, _ = ingested
+    narrow_quarter(conn)
+    narrow_inputs(conn, nine_months=325)
+    later_10k(conn, narrow_year=470)
+    q4 = quarters(conn, "revenue", "2026-03-01")["Q4"]
+    assert (q4.value, q4.derived, q4.narrower_tag) == (125, False, None)
+    assert q4.kept_on_own_tag == OwnTagCheck(
+        year_tag="us-gaap:Revenues", on_year_tag=455 - 330, on_own_tag=145, inputs=[K2, A3]
+    )
+
+
+def test_both_pairings_failing_keeps_the_quarter(ingested):
+    conn, _ = ingested
+    narrow_quarter(conn)
+    narrow_inputs(conn, year=440, nine_months=325)  # 115 in its own filing
+    later_10k(conn, narrow_year=470)  # 145 from the year input's filing
+    q4 = quarters(conn, "revenue", "2026-03-01")["Q4"]
+    assert (q4.value, q4.narrower_tag) == (125, None)
+    # both figures, so a reader can see the year moved, not the quarter (analyst, #336)
+    assert (q4.kept_on_own_tag.on_own_tag, q4.kept_on_own_tag.on_own_filing) == (145, 115)
+    assert q4.kept_on_own_tag.minuend == "FY"
+
+
+def test_a_kept_third_quarter_names_the_nine_months(ingested):
+    conn, _ = ingested
+    # the 10-Q gives Q3 only under the narrow tag (118), and the nine months under both: on the
+    # narrow tag the nine months less Q1 and Q2 is not 118
+    conn.execute(
+        "UPDATE financial_facts SET xbrl_concept = ?, value = 118 WHERE xbrl_concept = "
+        "'us-gaap:Revenues' AND period_start = '2024-07-01' AND period_end = '2024-09-30'",
+        (NARROW,),
+    )
+    narrow_inputs(conn, nine_months=300)  # 300 - 200 = 100, not 118
+    conn.execute(
+        "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, fiscal_year, "
+        "fiscal_period, value, unit, form, accession_no, filed_at) VALUES (?, ?, '2024-01-01', "
+        "'2024-06-30', 2024, 'Q2', 200, 'USD', '10-Q', '0000000123-24-000020', '2024-08-01')",
+        (TEST_CIK, NARROW),
+    )
+    q3 = quarters(conn, "revenue", "2025-03-01")["Q3"]
+    assert (q3.value, q3.derived, q3.narrower_tag) == (118, False, None)
+    assert q3.kept_on_own_tag.minuend == "M9"
