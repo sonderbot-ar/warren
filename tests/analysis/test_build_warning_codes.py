@@ -1,6 +1,7 @@
 """Each build warning is a code with raw-valued params and its English text (backlog #172)."""
 
 import warnings
+from datetime import date
 
 import pytest
 
@@ -56,6 +57,48 @@ def test_fundamentals_stale(make_company):
         "Fundamentals may be stale: the last reported quarter ended 2019-12-31, "
         "182 days before the as-of date (check that the newest filings are ingested)."
     )
+
+
+def filed_before(day):
+    """Keep only the filings made before `day`."""
+    return lambda tag, row: row if row["filed"] < day else None
+
+
+def build_on(conn, as_of):
+    return build_inputs(conn, "TST", date.fromisoformat(as_of), choices=CHOICES, today=None)
+
+
+@pytest.mark.parametrize(
+    ("as_of", "warns"),
+    [
+        ("2020-02-15", False),  # 138 days after Q3 2019: the 10-K is not due yet (CAT 2024)
+        ("2020-03-09", False),  # 161 days: on the line, not over it
+        ("2020-03-10", True),  # 162 days
+    ],
+)
+def test_after_a_third_quarter_the_line_is_the_10k_deadline(make_company, as_of, warns):
+    conn = make_company(filed_before("2019-11-01"))  # the last quarter is Q3 2019
+    found = notes(build_on(conn, as_of), "fundamentals_stale")
+    assert bool(found) == warns
+    if warns:
+        assert found[0].params == {
+            "last_quarter_end": "2019-09-30",
+            "days": 162,
+            "threshold_days": 161,
+        }
+
+
+def test_after_a_second_quarter_the_line_stays_the_10q_deadline(make_company):
+    conn = make_company(filed_before("2019-08-01"))  # the last quarter is Q2 2019
+    found = notes(build_on(conn, "2019-11-13"), "fundamentals_stale")  # 136 days
+    assert [n.params for n in found] == [
+        {"last_quarter_end": "2019-06-30", "days": 136, "threshold_days": 135}
+    ]
+
+
+def test_the_lines_are_built_from_the_sec_deadlines():
+    assert math_engine.STALE_AFTER.days == 135
+    assert math_engine.STALE_AFTER_Q3.days == 161
 
 
 def test_fresh_fundamentals_are_not_stale(company):
