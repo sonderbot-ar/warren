@@ -678,9 +678,10 @@ def _on_year_tag(
 
     With `tagged` (every filing's value under each tag), the quarter's own tag is checked too
     (backlog #329, `_own_tag_check`): when the same subtraction on the quarter's tag does not
-    come within `RECAST_MOVE` of the reported quarter, the quarter was revised on its own tag
-    after the year was filed, so the two tags no longer sit on one basis and the reported quarter
-    is kept: the result carries `kept` (backlog #336), so the line can say why."""
+    come within `RECAST_MOVE` of the reported quarter, the quarter or an input was revised on
+    that tag (the check cannot tell which), so the two tags no longer sit on one basis and the
+    reported quarter is kept: the result carries `kept` (backlog #336), so the line can say
+    why."""
     own = year[period]
     for minuend, subtracted in DERIVATIONS[period]:
         if minuend in year and all(p in year for p in subtracted):
@@ -721,11 +722,17 @@ def _own_tag_check(
     if second is not None and _agrees(own, second):
         return None
     derived = inputs[0].value - sum(f.value for f in inputs[1:])
+    on_own_tag = first[0].value - sum(f.value for f in first[1:])
+    on_own_filing = second[0].value - sum(f.value for f in second[1:]) if second else None
     return OwnTagCheck(
         year_tag=inputs[0].xbrl_concept,
         on_year_tag=derived,
-        on_own_tag=first[0].value - sum(f.value for f in first[1:]),
+        on_own_tag=on_own_tag,
         inputs=[f.accession_no for f in first],
+        minuend=inputs[0].fiscal_period,
+        # both figures when they differ, so a reader can tell whether the quarter or an input
+        # moved (analyst, #336)
+        on_own_filing=on_own_filing if on_own_filing != on_own_tag else None,
     )
 
 

@@ -34,7 +34,14 @@ from datetime import date
 
 from domains.analysis import financial_math as fm
 from domains.analysis.coded import Coded, coded_warnings, pass_on
-from domains.analysis.math_engine import CASH_ITEMS, CHAINS, History, basis_kind, debt_parts
+from domains.analysis.math_engine import (
+    CASH_ITEMS,
+    CHAINS,
+    MINUEND_WORDS,
+    History,
+    basis_kind,
+    debt_parts,
+)
 from domains.fundamentals.facts import (
     MEANING_CHANGE_MATCH,
     MeaningChange,
@@ -436,26 +443,39 @@ def _kept_note(fact: Fact, filings: "_Filings") -> Coded:
         "period": period,
         "period_end": fact.period_end.isoformat(),
         "value": fact.value,
-        "tag": fact.xbrl_concept,
+        "own_tag": fact.xbrl_concept,
         "year_tag": kept.year_tag,
         "on_year_tag": kept.on_year_tag,
         "on_own_tag": kept.on_own_tag,
         "own_tag_inputs": list(kept.inputs),
+        "minuend": kept.minuend,
+        "on_own_filing": kept.on_own_filing,
         "form": filing.form,
         "filed_at": filed,
         "accession_no": fact.accession_no,
     }
+    # three sentences: what was filed, why it was not moved, what it means (professor, #336)
     text = (
         f"{fact.canonical_name} {period} (the quarter ending {fact.period_end}) is "
-        f"{fact.value:,.0f} as the {filing.form} filed {filed} gives it, under "
-        f"{fact.xbrl_concept}; "
-        f"the year and the other quarters use {kept.year_tag}, a tag Warren ranks above it, but "
-        f"on {fact.xbrl_concept} the year less the earlier periods is {kept.on_own_tag:,.0f}, not "
-        f"{fact.value:,.0f}, so the quarter was revised on its own tag and is kept as filed; the "
-        f"four quarters measure two lines and may not add up to the year (on {kept.year_tag} it "
-        f"would be {kept.on_year_tag:,.0f})"
+        f"{fact.value:,.0f}, as the {filing.form} filed {filed} gives it under "
+        f"{fact.xbrl_concept}. The year and the other quarters use {kept.year_tag}, a tag Warren "
+        f"ranks above it, but on {fact.xbrl_concept} {_less_earlier(kept)} is "
+        f"{kept.on_own_tag:,.0f}{_own_filing_clause(kept)}, not {fact.value:,.0f}, so Warren "
+        f"keeps the quarter as filed. The four quarters therefore measure two lines and may not "
+        f"add up to the year; on {kept.year_tag} this quarter would be {kept.on_year_tag:,.0f}."
     )
     return Coded("quarter_kept_on_own_tag", params, text)
+
+
+def _less_earlier(kept) -> str:
+    """'the year less the earlier periods', or the six or nine months for a Q2 or Q3 (analyst)."""
+    return f"{MINUEND_WORDS.get(kept.minuend, 'the year')} less the earlier periods"
+
+
+def _own_filing_clause(kept) -> str:
+    if kept.on_own_filing is None:
+        return ""
+    return f" ({kept.on_own_filing:,.0f} with the figures in the quarter's own filing)"
 
 
 def _basis_note(fact: Fact, plain: Fact) -> Coded:

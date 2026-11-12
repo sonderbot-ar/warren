@@ -620,4 +620,27 @@ def test_both_pairings_failing_keeps_the_quarter(ingested):
     later_10k(conn, narrow_year=470)  # 145 from the year input's filing
     q4 = quarters(conn, "revenue", "2026-03-01")["Q4"]
     assert (q4.value, q4.narrower_tag) == (125, None)
-    assert q4.kept_on_own_tag.on_own_tag == 145
+    # both figures, so a reader can see the year moved, not the quarter (analyst, #336)
+    assert (q4.kept_on_own_tag.on_own_tag, q4.kept_on_own_tag.on_own_filing) == (145, 115)
+    assert q4.kept_on_own_tag.minuend == "FY"
+
+
+def test_a_kept_third_quarter_names_the_nine_months(ingested):
+    conn, _ = ingested
+    # the 10-Q gives Q3 only under the narrow tag (118), and the nine months under both: on the
+    # narrow tag the nine months less Q1 and Q2 is not 118
+    conn.execute(
+        "UPDATE financial_facts SET xbrl_concept = ?, value = 118 WHERE xbrl_concept = "
+        "'us-gaap:Revenues' AND period_start = '2024-07-01' AND period_end = '2024-09-30'",
+        (NARROW,),
+    )
+    narrow_inputs(conn, nine_months=300)  # 300 - 200 = 100, not 118
+    conn.execute(
+        "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, fiscal_year, "
+        "fiscal_period, value, unit, form, accession_no, filed_at) VALUES (?, ?, '2024-01-01', "
+        "'2024-06-30', 2024, 'Q2', 200, 'USD', '10-Q', '0000000123-24-000020', '2024-08-01')",
+        (TEST_CIK, NARROW),
+    )
+    q3 = quarters(conn, "revenue", "2025-03-01")["Q3"]
+    assert (q3.value, q3.derived, q3.narrower_tag) == (118, False, None)
+    assert q3.kept_on_own_tag.minuend == "M9"

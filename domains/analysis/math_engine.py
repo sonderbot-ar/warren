@@ -202,6 +202,10 @@ def _tag(fact: Fact) -> str:
     return fact.xbrl_concept.replace("us-gaap:", "").replace("dei:", "")
 
 
+# the period a derived quarter is subtracted from, in words (backlog #336)
+MINUEND_WORDS = {"FY": "the year", "M9": "the nine months", "H1": "the six months"}
+
+
 def trace(fact: Fact) -> str:
     """Item, tag, period and filing of one fact: enough to find it in EDGAR."""
     source = fact.accession_no or "derived from " + ", ".join(fact.inputs)
@@ -215,8 +219,9 @@ def trace(fact: Fact) -> str:
     if fact.kept_on_own_tag is not None:  # backlog #336
         source += (
             f" (kept as filed under a tag ranked below the year's "
-            f"{fact.kept_on_own_tag.year_tag.replace('us-gaap:', '')}: on its own tag the year "
-            f"less the earlier periods is {fact.kept_on_own_tag.on_own_tag:,.0f})"
+            f"{fact.kept_on_own_tag.year_tag.replace('us-gaap:', '')}: on its own tag "
+            f"{MINUEND_WORDS.get(fact.kept_on_own_tag.minuend, 'the year')} less the earlier "
+            f"periods is {fact.kept_on_own_tag.on_own_tag:,.0f})"
         )
     return f"{fact.canonical_name} [{_tag(fact)}] {fact.period_end} {source}"
 

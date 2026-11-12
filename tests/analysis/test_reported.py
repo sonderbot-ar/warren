@@ -904,17 +904,21 @@ def test_a_quarter_kept_on_its_own_tag_says_why(company):
         "period": "FY2019Q4",
         "period_end": "2019-12-31",
         "value": narrow,
-        "tag": "us-gaap:SalesRevenueNet",
+        "own_tag": "us-gaap:SalesRevenueNet",
         "year_tag": "us-gaap:Revenues",
         "on_year_tag": pytest.approx(revenue(2019, 4)),
         "on_own_tag": pytest.approx(revenue(2019, 4) + 50),
         "own_tag_inputs": params["own_tag_inputs"],
+        "minuend": "FY",
+        "on_own_filing": None,  # the 10-K gives only the year: the same pairing
         "form": "10-K",
         "filed_at": "2020-02-15",
         "accession_no": FY2019_10K,
     }
     assert params["own_tag_inputs"][0] == FY2019_10K and len(params["own_tag_inputs"]) == 4
-    assert "is kept as filed" in rev.tag_note.text
+    assert "the year less the earlier periods is" in rev.tag_note.text
+    assert "so Warren keeps the quarter as filed." in rev.tag_note.text
+    assert rev.tag_note.text.count(". ") == 2
     for name in ("operating_margin", "revenue_growth_yoy"):
         notes = {n.code: n.params for n in r.ratio(name).notes}
         assert notes["uses_quarter_kept_on_own_tag"] == {
@@ -927,7 +931,10 @@ def test_a_quarter_kept_on_its_own_tag_says_why(company):
         for f in get_facts(company, "0000000123", ["revenue"], AS_OF, frequency="quarterly")
         if (f.fiscal_year, f.fiscal_period) == (2019, "Q4")
     )
-    assert "kept as filed under a tag ranked below the year's Revenues" in trace(q4)
+    assert (
+        "kept as filed under a tag ranked below the year's Revenues: on its own tag the year"
+        in (trace(q4))
+    )
 
 
 def test_a_quarter_that_agrees_on_its_own_tag_keeps_the_year_tag_note(company):

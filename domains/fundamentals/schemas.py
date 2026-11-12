@@ -19,6 +19,16 @@ class OwnTagCheck(BaseModel):
     inputs: list[str] = Field(
         default_factory=list, description="Accessions of the own-tag inputs, minuend first"
     )
+    minuend: str = Field(
+        "FY", description="The period subtracted from: FY (a Q4), M9 (a Q3) or H1 (a Q2)"
+    )
+    on_own_filing: float | None = Field(
+        default=None,
+        description=(
+            "The same derivation with the inputs the quarter's own filing gives read from there "
+            "(the second pairing), when that differs from `on_own_tag`; otherwise None"
+        ),
+    )
 
 
 class Fact(BaseModel):

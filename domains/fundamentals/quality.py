@@ -268,20 +268,12 @@ class QualityReport:
             "",
             "A quarter its filing gives only under a tag ranked below the one tag of its year and "
             "the periods before it is normally worked out on the year's tag. When the same "
-            "subtraction on the quarter's own tag does not give the quarter, it was revised on "
-            "that tag, so it is kept as filed: the four quarters then measure two lines.",
+            "subtraction on the quarter's own tag does not give the quarter (the quarter or an "
+            "input was revised on that tag), it is kept as filed: the four quarters then measure "
+            "two lines.",
             "",
         ]
-        lines += [
-            f"- **{f.canonical_name}** FY{f.fiscal_year} {f.fiscal_period}: "
-            f"{f.xbrl_concept.split(':', 1)[1]} {_amount(f)} ({f.accession_no}); on its own tag "
-            f"the year less the earlier periods is "
-            f"{_amount(f.model_copy(update={'value': f.kept_on_own_tag.on_own_tag}))} "
-            f"({', '.join(f.kept_on_own_tag.inputs)}); on "
-            f"{f.kept_on_own_tag.year_tag.split(':', 1)[1]} it would be "
-            f"{_amount(f.model_copy(update={'value': f.kept_on_own_tag.on_year_tag}))}"
-            for f in self.kept_on_own_tag
-        ] or ["None."]
+        lines += [_kept_line(f) for f in self.kept_on_own_tag] or ["None."]
         return "\n".join(lines) + "\n"
 
     def _disagreement_lines(self) -> list[str]:
@@ -461,6 +453,31 @@ def _filing_link(conn: sqlite3.Connection, cik: str, fiscal_year: int, period: s
     if row is None:
         return None
     return f"{EDGAR_ARCHIVES}/{int(cik)}/{row[0].replace('-', '')}/"
+
+
+MINUENDS = {"FY": "the year", "M9": "the nine months", "H1": "the six months"}
+
+
+def _kept_line(fact: Fact) -> str:
+    """One quarter kept on its own lower-ranked tag (backlog #336)."""
+    kept = fact.kept_on_own_tag
+
+    def amount(value: float) -> str:
+        return _amount(fact.model_copy(update={"value": value}))
+
+    own_filing = (
+        f", {amount(kept.on_own_filing)} from the quarter's own filing"
+        if kept.on_own_filing is not None
+        else ""
+    )
+    return (
+        f"- **{fact.canonical_name}** FY{fact.fiscal_year} {fact.fiscal_period}: "
+        f"{fact.xbrl_concept.split(':', 1)[1]} {_amount(fact)} ({fact.accession_no}); on its own "
+        f"tag {MINUENDS.get(kept.minuend, kept.minuend)} less the earlier periods is "
+        f"{amount(kept.on_own_tag)} "
+        f"({', '.join(kept.inputs)}){own_filing}; on {kept.year_tag.split(':', 1)[1]} it would "
+        f"be {amount(kept.on_year_tag)}"
+    )
 
 
 def _amount(fact: Fact) -> str:
