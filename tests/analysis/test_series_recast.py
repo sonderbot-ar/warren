@@ -180,7 +180,8 @@ def _reported(start, end):
 )
 def test_a_period_filed_again_unchanged_sits_after_the_recast(filed, side):
     """Coca-Cola's shape: Q2 2019 is first filed in July 2019, before the 10-Q of 2019-10-24
-    recast the 2018 comparative quarters, and filed again unchanged a year later."""
+    recast the 2018 comparative quarters, and filed again unchanged a year later.
+    `side_of_recast` reads filing dates only, never values: refiled at all is "after"."""
     q2 = (date(2019, 4, 1), date(2019, 6, 28))
     recast = Recast("revenue", "b", "10-Q", date(2019, 10, 24), [])
     versions = {(*q2, "us-gaap:Revenues"): filed}

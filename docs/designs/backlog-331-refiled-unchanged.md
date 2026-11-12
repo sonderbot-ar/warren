@@ -56,7 +56,7 @@ No values, notes, fields or text change. #331 is closed with this doc.
 
 ## Files
 
-`domains/fundamentals/facts.py`, `domains/analysis/reported.py`, `tests/analysis/test_series_recast.py`, this doc. At merge: `docs/versions.md`, `docs/team-sync.md`.
+Shipped: `domains/fundamentals/facts.py` (the `side_of_recast` docstring), `tests/analysis/test_series_recast.py`, this doc. The unshipped proposal also touched `domains/analysis/reported.py`. At merge: `docs/versions.md`, `docs/team-sync.md`.
 
 ## Product impact
 
@@ -77,3 +77,9 @@ Explainer, analyst, professor and the product lead in parallel, on the proposal.
 - **Analyst: NO-GO, accepted.** Ran the same trial independently and got the same count (23 notes added on 14 quarter series, none removed, year series unchanged), every added note checked false. Real recasts are staged: one event (a business sold, a new revenue rule) is rolled through each later filing as its comparative comes up, so a quarter first filed on the new basis, or recast earlier in the chain, is refiled unchanged and the proposal called it "before". Examples with filings: J&J FY2023Q3 (first filed 2023-10-27 with Kenvue already out, 21,351) against the 10-K of 2024-02-16; Coca-Cola FY2019Q2 (9,997, filed 2019-07-25, after Coca-Cola Beverages Africa moved back into continuing operations) against the 10-Q of 2019-10-24; Apple FY2010Q2 (13,499, filed 2010-04-21, after the 10-K/A of 2010-01-25). Also: derived quarters left on the old rule would have mixed two rules in one Coca-Cola note; the split de-duplication would stop working on chains. Recommended closing #331 as won't-fix. Suggestion not taken here: its recast counts per company (revenue, as of 2026-11-09) differ from those quoted in #325's doc, which did not say which items or date it counted; recorded, no code depends on them.
 - **Product lead: GO** on the proposal's Product impact (nothing breaks; would have reworded the brief's {before} line). Moot as shipped.
 - **Explainer: NO-GO on clarity** (the tag in rule 4, signed or absolute move, the missing-key case, a pass rule for the scan). Moot as shipped; the prototype used the fact's own tag, an absolute move, and the old fallback for a missing key.
+
+## PR review (nov.12.2026)
+
+Gatekeeper: **GO**, conditional on CI completing green. Ruff clean; 831 passed in `tests/analysis` and `tests/fundamentals`, full suite 2131 passed, 10 skipped. Only the `side_of_recast` docstring and one test change; no test weakened; point-in-time reads untouched. Notes taken: the test's docstring now says `side_of_recast` reads dates, not values; the Files section lists only what shipped. The status line is updated at merge.
+
+CI: the first run (nov.11 20:28 UTC) stayed queued with no jobs for over 16 hours and could not be cancelled; this commit starts a new one.
