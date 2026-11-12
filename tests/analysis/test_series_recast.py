@@ -154,6 +154,40 @@ def test_a_derived_quarter_sits_where_its_inputs_were_filed(inputs, side):
     assert side_of_recast(_quarter(inputs), recast, {}, filed_at) == side
 
 
+def _reported(start, end):
+    return Fact(
+        canonical_name="revenue",
+        xbrl_concept="us-gaap:Revenues",
+        period_start=start,
+        period_end=end,
+        value=1.0,
+        unit="USD",
+        filed_at=date(2019, 7, 25),
+    )
+
+
+@pytest.mark.parametrize(
+    ("filed", "side"),
+    [
+        # first filed before the recast, filed again (unchanged) in a later filing: presented
+        # beside recast figures, so presumed on the new basis (ASC 250-10-45-5, backlog #331)
+        ([date(2019, 7, 25), date(2020, 7, 23)], "after"),
+        # filed again unchanged in the recast's own filing
+        ([date(2019, 7, 25), date(2019, 10, 24)], "after"),
+        # never filed again
+        ([date(2019, 7, 25)], "before"),
+    ],
+)
+def test_a_period_filed_again_unchanged_sits_after_the_recast(filed, side):
+    """Coca-Cola's shape: Q2 2019 is first filed in July 2019, before the 10-Q of 2019-10-24
+    recast the 2018 comparative quarters, and filed again unchanged a year later.
+    `side_of_recast` reads filing dates only, never values: refiled at all is "after"."""
+    q2 = (date(2019, 4, 1), date(2019, 6, 28))
+    recast = Recast("revenue", "b", "10-Q", date(2019, 10, 24), [])
+    versions = {(*q2, "us-gaap:Revenues"): filed}
+    assert side_of_recast(_reported(*q2), recast, versions, {}) == side
+
+
 @pytest.mark.parametrize(
     ("mixed", "words"),
     [

@@ -549,7 +549,15 @@ def side_of_recast(
     "after" when its period was reported under the fact's own tag in the recast's filing or any
     filing on or after it (refiled, recast, or first reported then), "before" when every such
     filing came earlier. A derived quarter: by the filing dates of its inputs, "mixed" when
-    they fall on both sides."""
+    they fall on both sides.
+
+    A period filed again unchanged on or after the recast is "after" on purpose (backlog #331,
+    kept after review): a change of accounting principle is applied to every prior period
+    presented (ASC 250-10-45-5), so a figure a filing presents unmoved beside recast ones is
+    presumed on the new basis, untouched by the change. Calling such periods "before" added 23
+    notes on 14 real series, most on figures first reported after the change took effect
+    (Coca-Cola's FY2019Q2, Procter & Gamble's FY2014Q2; see
+    docs/designs/backlog-331-refiled-unchanged.md)."""
     if fact.derived:
         dates = [filed_at[a] for a in fact.inputs if a in filed_at] or [fact.filed_at]
         later = [d >= recast.filed_at for d in dates]
