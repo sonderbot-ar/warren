@@ -1,6 +1,6 @@
 # Backlog #342: no "stale" warning while the annual report is simply not due yet
 
-Issue: https://github.com/sonderbot-ar/warren/issues/342 · Branch `backlog-342-stale-after-q3` · Status: in review (nov.12.2026).
+Issue: https://github.com/sonderbot-ar/warren/issues/342 · Branch `backlog-342-stale-after-q3` · Version v0.9.61, merged nov.12.2026 (PR #348, merge `2d80e3f`).
 
 ## Problem
 
@@ -69,6 +69,10 @@ Explainer, analyst and professor in parallel, and the product lead on *Product i
 
 - Real data, snapshot of nov.10.2026: of the 13 runs with a stored stale note, rebuilt in memory, 12 no longer warn on this branch and `XOM_2026-10-30_1` still does (213 days after a Q1, line 135); on `main` all 13 warn. Four of the 13 (CAT, KO, XOM 2020-02-15 and JNJ 2024-02-15) rebuild with different rows on both `main` and this branch: they are among the 82 runs v0.9.41 (#264) already rebuilds differently, unchanged by this item. `reproduce --all`: 903 of 903 runs reproduce to the cent.
 - Mutation: putting the third quarter back on the 135-day line fails 3 of the new tests.
+
+## PR review (nov.12.2026)
+
+Gatekeeper: GO, no blockers. 2,164 passed, 10 skipped; ruff clean; `reproduce --all` 903 of 903; CI green. Ideas filed as #349: the lesson's 40, 60, 92, 98 and 3 filled from the constants, a test for the underived-Q4 edge, and AAPL's 14-week Q1.
 
 ## Product impact
 
