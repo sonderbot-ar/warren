@@ -1,6 +1,6 @@
 # Backlog #331: a period filed again unchanged is not "after" a recast
 
-Issue: https://github.com/sonderbot-ar/warren/issues/331 · Branch `backlog-331-refiled-unchanged` · Status: in progress (nov.11.2026). **Outcome: the proposed rule is rejected after design review and a real-data trial; v0.9.54's rule is kept, now explained in code and pinned by tests.**
+Issue: https://github.com/sonderbot-ar/warren/issues/331 · Branch `backlog-331-refiled-unchanged` · Status: merged as v0.9.57, won't fix (PR #334, merge `159ce6b`, nov.12.2026). **Outcome: the proposed rule is rejected after design review and a real-data trial; v0.9.54's rule is kept, now explained in code and pinned by tests.**
 
 From the analyst's design review of #325 (`docs/designs/backlog-325-recast-tag-switch.md`, Limits).
 
