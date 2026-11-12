@@ -62,7 +62,10 @@ def _numbers(text: str) -> set[str]:
 
 
 THRESHOLDS = {
-    "fundamentals_stale": {"days": math_engine.STALE_AFTER.days},
+    "fundamentals_stale": {
+        "days": math_engine.STALE_AFTER.days,
+        "days_q3": math_engine.STALE_AFTER_Q3.days,
+    },
     "shares_cover_differs": {"tolerance": math_engine.SHARES_TOLERANCE},
     "cost_of_debt_out_of_bounds": dict(
         zip(("low", "high"), math_engine.COST_OF_DEBT_BOUNDS, strict=True)
