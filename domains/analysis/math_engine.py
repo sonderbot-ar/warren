@@ -41,7 +41,7 @@ from domains.fundamentals.facts import (
     tag_meaning_changes,
 )
 from domains.fundamentals.quality import CONSISTENCY_TOLERANCE
-from domains.fundamentals.schemas import Fact
+from domains.fundamentals.schemas import MINUEND_WORDS, Fact
 from domains.fundamentals.universe import FISCAL_YEARS
 from domains.market.erp import equity_risk_premium
 from domains.market.prices import MARKET_INDEX, PricePoint, aligned_weekly_returns, raw_close
@@ -200,10 +200,6 @@ def load_user_assumptions(path: Path = USER_ASSUMPTIONS_PATH) -> dict[str, UserC
 
 def _tag(fact: Fact) -> str:
     return fact.xbrl_concept.replace("us-gaap:", "").replace("dei:", "")
-
-
-# the period a derived quarter is subtracted from, in words (backlog #336)
-MINUEND_WORDS = {"FY": "the year", "M9": "the nine months", "H1": "the six months"}
 
 
 def trace(fact: Fact) -> str:

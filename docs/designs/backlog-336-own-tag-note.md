@@ -1,6 +1,6 @@
 # Backlog #336: say when a quarter is kept on its own tag, and a sturdier own-tag check
 
-Issue: https://github.com/sonderbot-ar/warren/issues/336 · Branch `backlog-336-own-tag-note` · Status: in review (PR #339).
+Issue: https://github.com/sonderbot-ar/warren/issues/336 · Branch `backlog-336-own-tag-note` · Status: merged as v0.9.59 (PR #339, merge `cf95df2`, nov.12.2026).
 
 From the review of #329 (PR #335, `docs/designs/backlog-329-quarter-tag-check.md`, Limits).
 
@@ -60,6 +60,10 @@ Analyst, professor and the product lead in parallel, on the built branch (as for
 - **Product lead: GO.** Nothing the app relies on breaks; the filing link is always present. **Taken:** `tag` meant the year's tag in `quarter_on_year_tag` and the quarter's own tag here, so the param is `own_tag`. Placement: group 2 of "Notes on a reported figure", the slot the brief reserves for #336; the ratio note where `uses_quarter_on_year_tag` goes. Spanish (with `minuend` read as "el año", "los nueve meses" or "los seis meses"): "Ingresos del {trimestre} trimestre del ejercicio {año} (trimestre que termina el {period_end}): {value}, tal como los da el {form} presentado el {filed_at}, con la etiqueta XBRL {own_tag}. El año y los otros trimestres usan otra etiqueta ({year_tag}), que Warren prefiere. Pero con la etiqueta {own_tag}, el año menos los primeros nueve meses da {on_own_tag}, no {value}: esas cifras no cuadran entre sí. Por eso Warren deja este trimestre como se presentó. Warren no revisó qué incluye cada etiqueta. Ojo: los cuatro trimestres no miden la misma línea y pueden no sumar el año. Con la etiqueta {year_tag}, este trimestre sería {on_year_tag}. Si citas el {form}, usa {value}."
 
 After the changes the real-data scan was run again: 0 differences, 0 kept, 43 on `narrower_tag`; 903 of 903 runs reproduce.
+
+## PR review (nov.12.2026)
+
+Gatekeeper: **GO**. Ruff clean; 2148 passed, 10 skipped; CI green. No test removed or weakened; point-in-time reads unchanged (the second pairing only prefers the quarter's own accession among rows already filtered by `as_of`; no new query); its own scan (three dates, three modes) found no quarter kept. Notes taken at merge: a docstring in `_kept_note` still claimed the quarter was revised (fixed); the minuend words lived in two places (now one, `schemas.MINUEND_WORDS`). Left as is: `_kept_note` would print "None" for a filing missing from the filings list, which cannot happen for a reported fact.
 
 ## Files
 

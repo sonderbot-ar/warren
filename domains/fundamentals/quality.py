@@ -23,7 +23,7 @@ from domains.fundamentals.facts import (
     skipped_sign_flips,
     tag_meaning_changes,
 )
-from domains.fundamentals.schemas import Fact
+from domains.fundamentals.schemas import MINUEND_WORDS, Fact
 from domains.fundamentals.universe import FISCAL_YEARS
 from shared_kernel.calendar import last_ended_day
 
@@ -455,9 +455,6 @@ def _filing_link(conn: sqlite3.Connection, cik: str, fiscal_year: int, period: s
     return f"{EDGAR_ARCHIVES}/{int(cik)}/{row[0].replace('-', '')}/"
 
 
-MINUENDS = {"FY": "the year", "M9": "the nine months", "H1": "the six months"}
-
-
 def _kept_line(fact: Fact) -> str:
     """One quarter kept on its own lower-ranked tag (backlog #336)."""
     kept = fact.kept_on_own_tag
@@ -473,7 +470,7 @@ def _kept_line(fact: Fact) -> str:
     return (
         f"- **{fact.canonical_name}** FY{fact.fiscal_year} {fact.fiscal_period}: "
         f"{fact.xbrl_concept.split(':', 1)[1]} {_amount(fact)} ({fact.accession_no}); on its own "
-        f"tag {MINUENDS.get(kept.minuend, kept.minuend)} less the earlier periods is "
+        f"tag {MINUEND_WORDS.get(kept.minuend, kept.minuend)} less the earlier periods is "
         f"{amount(kept.on_own_tag)} "
         f"({', '.join(kept.inputs)}){own_filing}; on {kept.year_tag.split(':', 1)[1]} it would "
         f"be {amount(kept.on_year_tag)}"

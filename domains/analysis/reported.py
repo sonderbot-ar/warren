@@ -431,9 +431,9 @@ def _with_tag_note(line: Line, fact: Fact, narrow: Fact | None, filings: "_Filin
 
 def _kept_note(fact: Fact, filings: "_Filings") -> Coded:
     """Backlog #336: a quarter its filing gave only under a tag ranked below its year's, kept as
-    filed because the same subtraction on its own tag does not give it (#329): the quarter was
-    revised on its own tag, so the two tags no longer sit on one basis. The four quarters then
-    measure two lines, as before #324."""
+    filed because the same subtraction on its own tag does not give it (#329): the quarter or an
+    input was revised on that tag (the check cannot tell which), so the two tags no longer sit on
+    one basis. The four quarters then measure two lines, as before #324."""
     kept = fact.kept_on_own_tag
     period = f"FY{fact.fiscal_year}{fact.fiscal_period}"
     filing = filings.get(fact.accession_no)
