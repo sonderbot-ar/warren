@@ -188,3 +188,24 @@ def test_amounts_in_the_flip_section_keep_their_unit():
                 accession_no="a", filed_at="2025-01-01", restated=False)  # fmt: skip
     assert _amount(Fact(**base, value=-7_133e6, unit="USD")) == "-7,133M"
     assert _amount(Fact(**base, value=2.5, unit="USD/shares")) == "2.5 USD/shares"
+
+
+def test_a_quarter_kept_on_its_own_tag_is_listed(ingested, two_years):
+    """Backlog #336: the 10-K gives Q4 2024 only as net sales (125), and on net sales the year
+    less the nine months is 140, so the quarter is kept as filed and the report says so."""
+    from tests.fundamentals.test_quarterly import narrow_inputs, narrow_quarter
+
+    conn, _ = ingested
+    assert "## Quarters kept on a lower-ranked tag\n\nA quarter" in report_for(conn).to_markdown()
+    assert report_for(conn).kept_on_own_tag == []
+    narrow_quarter(conn, value=125e6)
+    narrow_inputs(conn, year=450e6, nine_months=310e6)
+    report = report_for(conn)
+    [kept] = report.kept_on_own_tag
+    assert (kept.canonical_name, kept.fiscal_period, kept.value) == ("revenue", "Q4", 125e6)
+    markdown = report.to_markdown()
+    assert (
+        "- **revenue** FY2024 Q4: SalesRevenueNet 125M (0000000123-25-000001); on its own tag "
+        "the year less the earlier periods is 140M (0000000123-25-000001, 0000000123-24-000030); "
+        "on Revenues it would be 0M"
+    ) in markdown

@@ -107,6 +107,8 @@ class QualityReport:
     sign_flips: list[tuple[Fact, Fact]] = field(default_factory=list)
     # tags whose meaning changed in a later filing (backlog #295): flagged, values unchanged
     meaning_changes: list[MeaningChange] = field(default_factory=list)
+    # quarters kept on a lower-ranked tag than their year's, as that tag disagrees (backlog #336)
+    kept_on_own_tag: list[Fact] = field(default_factory=list)
 
     @property
     def unexplained(self) -> list[Gap]:
@@ -259,6 +261,27 @@ class QualityReport:
             )
         if not self.meaning_changes:
             lines.append("None.")
+
+        lines += [
+            "",
+            "## Quarters kept on a lower-ranked tag",
+            "",
+            "A quarter its filing gives only under a tag ranked below the one tag of its year and "
+            "the periods before it is normally worked out on the year's tag. When the same "
+            "subtraction on the quarter's own tag does not give the quarter, it was revised on "
+            "that tag, so it is kept as filed: the four quarters then measure two lines.",
+            "",
+        ]
+        lines += [
+            f"- **{f.canonical_name}** FY{f.fiscal_year} {f.fiscal_period}: "
+            f"{f.xbrl_concept.split(':', 1)[1]} {_amount(f)} ({f.accession_no}); on its own tag "
+            f"the year less the earlier periods is "
+            f"{_amount(f.model_copy(update={'value': f.kept_on_own_tag.on_own_tag}))} "
+            f"({', '.join(f.kept_on_own_tag.inputs)}); on "
+            f"{f.kept_on_own_tag.year_tag.split(':', 1)[1]} it would be "
+            f"{_amount(f.model_copy(update={'value': f.kept_on_own_tag.on_year_tag}))}"
+            for f in self.kept_on_own_tag
+        ] or ["None."]
         return "\n".join(lines) + "\n"
 
     def _disagreement_lines(self) -> list[str]:
@@ -357,6 +380,10 @@ def build_report(
                 fact.xbrl_concept
             )
 
+    report.kept_on_own_tag = sorted(
+        (f for f in report.cells.values() if f.kept_on_own_tag is not None),
+        key=lambda f: (f.canonical_name, f.period_end),
+    )
     for (name, _year, _period), fact in report.cells.items():
         if fact.derived:
             report.derived[name] += 1

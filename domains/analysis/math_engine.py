@@ -212,6 +212,12 @@ def trace(fact: Fact) -> str:
             f" (worked out on the year's tag: its own filing gives the quarter only under "
             f"{fact.narrower_tag.replace('us-gaap:', '')}, a tag ranked below it)"
         )
+    if fact.kept_on_own_tag is not None:  # backlog #336
+        source += (
+            f" (kept as filed under a tag ranked below the year's "
+            f"{fact.kept_on_own_tag.year_tag.replace('us-gaap:', '')}: on its own tag the year "
+            f"less the earlier periods is {fact.kept_on_own_tag.on_own_tag:,.0f})"
+        )
     return f"{fact.canonical_name} [{_tag(fact)}] {fact.period_end} {source}"
 
 

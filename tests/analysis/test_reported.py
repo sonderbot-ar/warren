@@ -854,3 +854,86 @@ def test_a_tag_note_without_the_filings_figure_names_the_tag_alone(company, monk
     )
     notes = {n.code: n.params for n in r.ratio("operating_margin").notes}
     assert notes["uses_quarter_on_year_tag"] == {"items": ["revenue"], "periods": ["FY2019Q4"]}
+
+
+# -- backlog #336: a quarter kept on its own lower-ranked tag says why -------------------------
+
+Q1_2019 = ("0000000123-19-000012", Q1_2020_10Q)  # the Q1 2019 10-Q, and Q1 2020's comparative
+
+
+def narrow_year_and_quarters(conn, year_value):
+    """The 10-K also gives FY2019 under SalesRevenueNet, and each 10-Q its quarter, as reported."""
+    rows = [("2019-01-01", "2019-12-31", "FY", year_value, FY2019_10K, "10-K", "2020-02-15")]
+    quarters = [
+        ("2019-01-01", "2019-03-31", "Q1", Q1_2019),
+        ("2019-04-01", "2019-06-30", "Q2", ("0000000123-19-000013",)),
+        ("2019-07-01", "2019-09-30", "Q3", ("0000000123-19-000014",)),
+    ]
+    for q, (start, end, period, accessions) in enumerate(quarters, start=1):
+        for accession in accessions:
+            filed = conn.execute(
+                "SELECT MAX(filed_at) FROM financial_facts WHERE accession_no = ?", (accession,)
+            ).fetchone()[0]
+            rows.append((start, end, period, revenue(2019, q), accession, "10-Q", filed))
+    for start, end, period, value, accession, form, filed in rows:
+        conn.execute(
+            "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, "
+            "fiscal_year, fiscal_period, value, unit, form, accession_no, filed_at) VALUES "
+            "('0000000123', 'us-gaap:SalesRevenueNet', ?, ?, 2019, ?, ?, 'USD', ?, ?, ?)",
+            (start, end, period, value, form, accession, filed),
+        )
+
+
+def test_a_quarter_kept_on_its_own_tag_says_why(company):
+    """On SalesRevenueNet the year less Q1-Q3 is the fourth quarter plus 50, not the 10-K's
+    quarter: the quarter is kept as filed, with `quarter_kept_on_own_tag`."""
+    from domains.analysis.math_engine import trace
+    from domains.fundamentals.facts import get_facts
+
+    narrow = revenue(2019, 4) - 1
+    narrow_q4_2019(company, narrow)
+    narrow_year_and_quarters(company, sum(revenue(2019, q) for q in (1, 2, 3, 4)) + 50)
+    r = reported_period(company, "TST", "FY2019Q4", AS_OF)
+    rev = r.line("revenue")
+    assert rev.value == pytest.approx(narrow)
+    assert not rev.derived
+    assert rev.tag_note.code == "quarter_kept_on_own_tag"
+    params = rev.tag_note.params
+    assert params == {
+        "item": "revenue",
+        "period": "FY2019Q4",
+        "period_end": "2019-12-31",
+        "value": narrow,
+        "tag": "us-gaap:SalesRevenueNet",
+        "year_tag": "us-gaap:Revenues",
+        "on_year_tag": pytest.approx(revenue(2019, 4)),
+        "on_own_tag": pytest.approx(revenue(2019, 4) + 50),
+        "own_tag_inputs": params["own_tag_inputs"],
+        "form": "10-K",
+        "filed_at": "2020-02-15",
+        "accession_no": FY2019_10K,
+    }
+    assert params["own_tag_inputs"][0] == FY2019_10K and len(params["own_tag_inputs"]) == 4
+    assert "is kept as filed" in rev.tag_note.text
+    for name in ("operating_margin", "revenue_growth_yoy"):
+        notes = {n.code: n.params for n in r.ratio(name).notes}
+        assert notes["uses_quarter_kept_on_own_tag"] == {
+            "items": ["revenue"],
+            "periods": ["FY2019Q4"],
+        }
+        assert "uses_quarter_on_year_tag" not in notes
+    q4 = next(
+        f
+        for f in get_facts(company, "0000000123", ["revenue"], AS_OF, frequency="quarterly")
+        if (f.fiscal_year, f.fiscal_period) == (2019, "Q4")
+    )
+    assert "kept as filed under a tag ranked below the year's Revenues" in trace(q4)
+
+
+def test_a_quarter_that_agrees_on_its_own_tag_keeps_the_year_tag_note(company):
+    narrow = revenue(2019, 4) - 1
+    narrow_q4_2019(company, narrow)
+    narrow_year_and_quarters(company, sum(revenue(2019, q) for q in (1, 2, 3)) + narrow)
+    rev = reported_period(company, "TST", "FY2019Q4", AS_OF).line("revenue")
+    assert rev.tag_note.code == "quarter_on_year_tag"
+    assert rev.value == pytest.approx(revenue(2019, 4))
