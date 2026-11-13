@@ -87,19 +87,15 @@ def test_fingerprint_changes_with_the_code(tmp_path):
     assert _module(tmp_path, BASE.replace("else b", "else -b")) != base
 
 
-def test_a_new_import_joins_the_rules(tmp_path):
+def test_a_new_import_joins_the_rules(tmp_path, monkeypatch):
     pkg = tmp_path / "domains" / "x"
     pkg.mkdir(parents=True)
     (pkg / "a.py").write_text("from domains.x.b import f\n")
     (pkg / "b.py").write_text("import domains.x.c\n")
     (pkg / "c.py").write_text("V = 1\n")
-    (pkg / "d.py").write_text("V = 2\n")
-    root_modules = rr.ROOT_MODULES
-    try:
-        rr.ROOT_MODULES = ("domains/x/a.py",)
-        assert rr.rules_modules(tmp_path) == ("domains/x/a.py", "domains/x/b.py", "domains/x/c.py")
-    finally:
-        rr.ROOT_MODULES = root_modules
+    (pkg / "d.py").write_text("V = 2\n")  # not imported: not a rule
+    monkeypatch.setattr(rr, "ROOT_MODULES", ("domains/x/a.py",))
+    assert rr.rules_modules(tmp_path) == ("domains/x/a.py", "domains/x/b.py", "domains/x/c.py")
 
 
 # Step 2: stored on every run, read back by rebuild, the reproduce line and the report.
@@ -146,7 +142,7 @@ def test_the_column_takes_no_version_below_one(company):
     ("stored", "older", "words"),
     [
         (None, True, "; reading rules not recorded"),
-        (0, True, "; made under older reading rules (v0, today v{now})"),
+        ("older", True, None),  # set below: today's code is pretended one version on
         ("now", False, ""),
     ],
 )
@@ -162,8 +158,7 @@ def test_rebuild_and_the_reproduce_line_say_which_rules(
     now = rr.READING_RULES_VERSION
     if stored is None:
         company.execute("UPDATE runs SET reading_rules_version = NULL WHERE run_id = ?", (run_id,))
-    elif stored == 0:
-        # an older version than today's: pretend today's code is one version on
+    elif stored == "older":
         monkeypatch.setattr("domains.analysis.runs.READING_RULES_VERSION", now + 1)
         monkeypatch.setattr(cli, "READING_RULES_VERSION", now + 1)
         stored, words = now, f"; made under older reading rules (v{now}, today v{now + 1})"
