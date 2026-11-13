@@ -162,6 +162,27 @@ def test_a_skipped_sign_flip_appears_in_the_report(ingested, two_years):
     assert not report.disagreements
 
 
+def test_a_skipped_part_as_whole_appears_in_the_report(ingested, two_years):
+    # backlog #322: the 10-K also tags FY2024 revenue under SalesRevenueNet at more than twice
+    # its Revenues figure, as P&G's 2014 10-K did
+    conn, _ = ingested
+    conn.execute(
+        "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, fiscal_year, "
+        "fiscal_period, value, unit, form, accession_no, filed_at) VALUES (?, "
+        "'us-gaap:SalesRevenueNet', '2024-01-01', '2024-12-31', 2024, 'FY', 1000000000, 'USD', "
+        "'10-K', '0000000123-25-000001', '2025-02-15')",
+        (TEST_CIK,),
+    )
+    report = report_for(conn)
+    assert [(k.value, k.xbrl_concept, k.accession_no) for _s, k in report.parts_as_whole] == [
+        (460, "us-gaap:Revenues", "0000000123-25-000001")
+    ]
+    markdown = report.to_markdown()
+    assert "- Parts skipped as tagged as the whole: 1" in markdown
+    assert "## Parts skipped as tagged as the whole" in markdown
+    assert "skipped 0M (us-gaap:Revenues, 0000000123-25-000001)" in markdown
+
+
 def test_a_sign_flip_outside_the_report_years_is_listed(ingested, two_years):
     # the real flips (WMT tax, CAT cost of revenue) are from 2008-2011, before the report's years
     conn, _ = ingested
@@ -193,11 +214,12 @@ def test_amounts_in_the_flip_section_keep_their_unit():
 def test_a_quarter_kept_on_its_own_tag_is_listed(ingested, two_years):
     """Backlog #336: the 10-K gives Q4 2024 only as net sales (125), and on net sales the year
     less the nine months is 140, so the quarter is kept as filed and the report says so."""
-    from tests.fundamentals.test_quarterly import narrow_inputs, narrow_quarter
+    from tests.fundamentals.test_quarterly import narrow_inputs, narrow_quarter, scale_revenues
 
     conn, _ = ingested
     assert "## Quarters kept on a lower-ranked tag\n\nA quarter" in report_for(conn).to_markdown()
     assert report_for(conn).kept_on_own_tag == []
+    scale_revenues(conn, 1e6)  # the fixture's Revenues in millions too (backlog #322)
     narrow_quarter(conn, value=125e6)
     narrow_inputs(conn, year=450e6, nine_months=310e6)
     report = report_for(conn)
@@ -207,5 +229,5 @@ def test_a_quarter_kept_on_its_own_tag_is_listed(ingested, two_years):
     assert (
         "- **revenue** FY2024 Q4: SalesRevenueNet 125M (0000000123-25-000001); on its own tag "
         "the year less the earlier periods is 140M (0000000123-25-000001, 0000000123-24-000030); "
-        "on Revenues it would be 0M"
+        "on Revenues it would be 130M"
     ) in markdown

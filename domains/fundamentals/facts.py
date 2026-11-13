@@ -2,7 +2,8 @@
 
 For each canonical item and period, the value is the newest version (public on the as-of date) of
 the highest-priority tag that reports the period, skipping a version tagged with the wrong sign
-(backlog #280, `_sign_flips`). In first_reported mode it is the earliest filing, and the
+(backlog #280, `_sign_flips`) and a part a filing tagged as the whole (backlog #322,
+`_parts_as_whole`). In first_reported mode it is the earliest filing, and the
 highest-priority tag within it. `restated` means the value differs from first_reported.
 
 Quarterly results add the quarters companies never report on their own (Q4, and standalone Q2/Q3
@@ -59,9 +60,16 @@ def _to_fact(row: sqlite3.Row, restated: bool) -> Fact:
 
 
 def _rows_by_period(
-    conn: sqlite3.Connection, cik: str, canonical_names: list[str], as_of: date | str
+    conn: sqlite3.Connection,
+    cik: str,
+    canonical_names: list[str],
+    as_of: date | str,
+    keep_parts: bool = False,
 ) -> dict[tuple, dict[str, list[sqlite3.Row]]]:
-    """(name, start, end) -> accession -> rows (one per tag that filing used), public on as_of."""
+    """(name, start, end) -> accession -> rows (one per tag that filing used), public on as_of.
+
+    A part a filing tagged as the whole is left out (`_parts_as_whole`, backlog #322), so every
+    selection, derivation and check reads the same rows; `keep_parts` keeps it."""
     known = {r[0] for r in conn.execute("SELECT DISTINCT canonical_name FROM concepts")}
     unknown = sorted(set(canonical_names) - known)
     if unknown:
@@ -76,7 +84,38 @@ def _rows_by_period(
     for row in conn.execute(sql, params):
         key = (row["canonical_name"], row["period_start"] or "", row["period_end"])
         periods[key][row["accession_no"]].append(row)
+    if not keep_parts:
+        for filings in periods.values():
+            for accession, rows in filings.items():
+                filings[accession] = _parts_as_whole(rows)[0]
     return periods
+
+
+# A filing's best-ranked tag for a period is a part tagged as the whole when the same filing gives
+# the same item and period under another mapped tag, with the same sign, at more than this many
+# times its size: P&G's 2014 10-K tagged one segment's revenue (28,400 million for FY2012) as
+# `Revenues` beside the company's 82,006 under `SalesRevenueNet` (backlog #322). A whole is never
+# smaller than its part, and two lines of one item (net sales and total revenues) never differ by
+# half, so the larger figure is the item.
+PART_AS_WHOLE_RATIO = 2.0
+
+
+def _parts_as_whole(rows: list[sqlite3.Row]) -> tuple[list[sqlite3.Row], list[sqlite3.Row]]:
+    """One filing's rows for one period: (kept, skipped), skipping its best-ranked row while
+    another row it filed is the same sign and more than `PART_AS_WHOLE_RATIO` times as large."""
+    kept, skipped = list(rows), []
+    while len(kept) > 1:
+        best = _best_in_filing(kept)
+        if not any(
+            _sign(r["value"]) == _sign(best["value"]) != 0
+            and abs(r["value"]) > PART_AS_WHOLE_RATIO * abs(best["value"])
+            for r in kept
+            if r is not best
+        ):
+            break
+        kept.remove(best)
+        skipped.append(best)
+    return kept, skipped
 
 
 def _filing_order(filings: dict[str, list[sqlite3.Row]]) -> list[str]:
@@ -231,6 +270,28 @@ def skipped_sign_flips(
         if flips:
             selected = _to_fact(_latest_of_best_tag(rows, usual.of(key)), restated=False)
             pairs += [(selected, _to_fact(r, False)) for r in best if r["accession_no"] in flips]
+    return pairs
+
+
+def skipped_parts_as_whole(
+    conn: sqlite3.Connection, cik: str, canonical_names: list[str], as_of: date | str
+) -> list[tuple[Fact, Fact]]:
+    """Rows skipped as a part tagged as the whole (backlog #322): (selected, skipped), one pair per
+    skipped filing whose tag ranks at or above the selected one's, as known on `as_of`."""
+    pairs = []
+    raw = _rows_by_period(conn, cik, canonical_names, as_of, keep_parts=True)
+    periods = _rows_by_period(conn, cik, canonical_names, as_of)
+    usual = _UsualSigns(periods)
+    for key in sorted(raw):
+        skipped = [r for rows in raw[key].values() for r in _parts_as_whole(rows)[1]]
+        if not skipped:
+            continue
+        rows = [row for rows in periods[key].values() for row in rows]
+        chosen = _latest_of_best_tag(rows, usual.of(key))
+        selected = _to_fact(chosen, restated=False)
+        pairs += [
+            (selected, _to_fact(r, False)) for r in skipped if r["priority"] <= chosen["priority"]
+        ]
     return pairs
 
 

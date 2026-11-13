@@ -20,6 +20,7 @@ from domains.fundamentals.facts import (
     MeaningChange,
     get_facts,
     newest_filing_disagreements,
+    skipped_parts_as_whole,
     skipped_sign_flips,
     tag_meaning_changes,
 )
@@ -105,6 +106,8 @@ class QualityReport:
     disagreements: list[tuple[Fact, Fact]] = field(default_factory=list)
     # (selected, skipped) versions skipped as sign-tagging errors (backlog #280)
     sign_flips: list[tuple[Fact, Fact]] = field(default_factory=list)
+    # (selected, skipped) parts a filing tagged as the whole (backlog #322)
+    parts_as_whole: list[tuple[Fact, Fact]] = field(default_factory=list)
     # tags whose meaning changed in a later filing (backlog #295): flagged, values unchanged
     meaning_changes: list[MeaningChange] = field(default_factory=list)
     # quarters kept on a lower-ranked tag than their year's, as that tag disagrees (backlog #336)
@@ -154,6 +157,7 @@ class QualityReport:
             f"- Periods where the newest filing disagrees with the selected value: "
             f"{len(self.disagreements)} (informational; see below)",
             f"- Versions skipped as sign-tagging errors: {len(self.sign_flips)} (see below)",
+            f"- Parts skipped as tagged as the whole: {len(self.parts_as_whole)} (see below)",
             f"- Tags that changed meaning in a later filing: {len(self.meaning_changes)} "
             "(informational; see below)",
             "",
@@ -234,6 +238,23 @@ class QualityReport:
             f"- **{s.canonical_name}** {s.period_start} to {s.period_end}: used "
             f"{_amount(s)} ({s.accession_no}), skipped {_amount(k)} ({k.accession_no})"
             for s, k in self.sign_flips
+        ] or ["None."]
+
+        lines += [
+            "",
+            "## Parts skipped as tagged as the whole",
+            "",
+            "A filing's figure under its best-ranked tag of an item, when the same filing gives "
+            "the same item and period under another tag, with the same sign, at more than twice "
+            "the size: a part (a segment, a line) tagged as the whole. The next tag that filing "
+            "used is read instead.",
+            "",
+        ]
+        lines += [
+            f"- **{s.canonical_name}** {s.period_start} to {s.period_end}: used "
+            f"{_amount(s)} ({s.xbrl_concept}, {s.accession_no}), skipped {_amount(k)} "
+            f"({k.xbrl_concept}, {k.accession_no})"
+            for s, k in self.parts_as_whole
         ] or ["None."]
 
         lines += [
@@ -423,6 +444,7 @@ def build_report(
     ]
     # every year, not only the report's: the flips seen so far are all from 2008-2011
     report.sign_flips = skipped_sign_flips(conn, company["cik"], names, as_of)
+    report.parts_as_whole = skipped_parts_as_whole(conn, company["cik"], names, as_of)
     report.meaning_changes = _within_years(
         tag_meaning_changes(conn, company["cik"], names, as_of), report.cells
     )
