@@ -25,7 +25,12 @@ from domains.analysis.math_engine import (
 )
 from domains.analysis.schemas import Assumption
 from domains.analysis.text import REASON_WORDS, WARNING_LESSONS
-from domains.fundamentals.concepts import concept_map_sha256
+from domains.fundamentals.concepts import (
+    ConceptMapError,
+    archived_concept_map,
+    concept_map_in_force,
+    concept_map_sha256,
+)
 from domains.fundamentals.universe import COVERAGE_FIELDS, coverage_fields
 from domains.market.prices import MARKET_INDEX
 from domains.market.store import fetch_with_hash, pin_fetches
@@ -395,6 +400,7 @@ class Rebuild:
     mismatches: list[tuple[str, str, str]]  # name, period, what differs
     sources: dict = dataclasses.field(default_factory=dict, compare=False)  # rebuilt (#175)
     notes: list = dataclasses.field(default_factory=list, compare=False)  # rebuilt (#172)
+    archived_map: bool = False  # read through the run's own, older concept map (#357)
 
     @property
     def ok(self) -> bool:
@@ -418,7 +424,8 @@ def rebuild(
     changes nothing; passing `choices` rebuilds the run as if they had been different. Market
     queries are pinned to the downloads the run used (by content hash). Facts need no pin: the
     point-in-time query only sees filings public on the as-of date, and ingests only add facts.
-    A different concept map can change which tag is selected, so it is refused.
+    A different concept map can change which tag is selected, so the facts are read through the
+    run's own map, from its copy in concept_maps/ (backlog #357); a map with no copy is refused.
     """
     run = conn.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
     if run is None:
@@ -428,8 +435,13 @@ def rebuild(
             f"{run_id} is a what-if of {run['parent_run_id']}: its rows are not meant to match "
             "the data; rebuild the parent"
         )
-    if run["concept_map_sha256"] != concept_map_sha256():
-        raise ValueError(f"{run_id}: concept_map.csv changed since the run, it can't be rebuilt")
+    own_map = run["concept_map_sha256"]
+    archived = own_map != concept_map_sha256()
+    if archived:
+        try:
+            archived_concept_map(own_map)
+        except ConceptMapError as e:
+            raise ValueError(f"{run_id}: {e}, it can't be rebuilt") from e
     pins = {
         (source, symbol): fetch_with_hash(conn, source, symbol, run[column])["fetch_id"]
         for source, symbol, column in (
@@ -444,7 +456,7 @@ def rebuild(
     elif not any(a.name == "terminal_method" for a in stored_rows):
         # made before the owner set terminal_method (M4): rebuild it under the rule it used
         choices = {k: v for k, v in choices.items() if k != "terminal_method"}
-    with pin_fetches(pins):
+    with pin_fetches(pins), concept_map_in_force(conn, own_map):
         result = build_inputs(
             conn, run["ticker"], date.fromisoformat(run["as_of"]), choices=choices, today=today
         )
@@ -459,7 +471,9 @@ def rebuild(
         for field in ("value", "source", "method"):
             if getattr(before, field) != getattr(after, field):
                 mismatches.append((*key, field))
-    return Rebuild(run_id, len(stored), mismatches, result.sources, result.notes)
+    return Rebuild(
+        run_id, len(stored), mismatches, result.sources, result.notes, archived_map=archived
+    )
 
 
 def run_baseline(

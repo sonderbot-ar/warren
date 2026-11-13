@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import nullcontext
 
 import pytest
 
@@ -18,8 +19,17 @@ from domains.analysis.runs import (
     stored_choices,
 )
 from domains.analysis.schemas import Assumption
+from domains.fundamentals import concepts
+from domains.fundamentals.ingest import ingest_company
 from domains.market.prices import load_prices
-from tests.analysis.conftest import AS_OF, CHOICES, FETCHED, market_rows
+from tests.analysis.conftest import AS_OF, CHOICES, FETCHED, companyfacts, market_rows
+from tests.fundamentals.conftest import FakeEdgar
+
+
+def fake_edgar(edit=None):
+    client = FakeEdgar()
+    client.facts = companyfacts(edit)
+    return client
 
 
 def run(conn):
@@ -104,11 +114,90 @@ def test_rebuild_reports_a_changed_row(company):
     assert result.mismatches == [("beta", "-", "method")] and result.values_ok
 
 
-def test_rebuild_refuses_a_changed_concept_map(company, monkeypatch):
+def test_rebuild_refuses_a_run_whose_concept_map_has_no_copy(company):
     run_id = run(company)
-    monkeypatch.setattr(runs, "concept_map_sha256", lambda: "f" * 64)
-    with pytest.raises(ValueError, match="concept_map.csv changed"):
+    company.execute("UPDATE runs SET concept_map_sha256 = ? WHERE run_id = ?", ("f" * 64, run_id))
+    with pytest.raises(ValueError, match="No copy of concept map ffffffffffff.*can't be rebuilt"):
         rebuild(company, run_id, choices=CHOICES, today=AS_OF)
+
+
+# -- a run rebuilds through its own concept map after the map is edited (backlog #357) ---------
+
+MATURITIES = "LongTermDebtMaturitiesRepaymentsOfPrincipalInNextTwelveMonths"
+
+
+def _current_debt_under_another_tag(tag, row):
+    """Test Corp files its current debt only under a tag the map doesn't read (the #341 case)."""
+    return [(MATURITIES, row)] if tag == "LongTermDebtCurrent" else row
+
+
+def _read_maturities_too(tmp_path, monkeypatch):
+    """Today's map edited to read current debt under the maturities tag at priority 3."""
+    edited = tmp_path / "concept_map.csv"
+    lines = concepts.CONCEPT_MAP_PATH.read_text().splitlines(keepends=True)
+    at = max(n for n, line in enumerate(lines) if line.startswith("debt_current,"))
+    row = lines[at].split(",", 3)
+    lines.insert(at + 1, ",".join(["debt_current", f"us-gaap:{MATURITIES}", "3", row[3]]))
+    edited.write_text("".join(lines))
+    monkeypatch.setattr(concepts, "CONCEPT_MAP_PATH", edited)
+
+
+def _value(conn, run_id, name, period="-"):
+    rows = [a for a in load_assumptions(conn, run_id) if (a.name, a.period) == (name, period)]
+    return rows[0].value if rows else None
+
+
+def test_a_run_rebuilds_through_its_own_map_after_the_map_is_edited(
+    make_company, tmp_path, monkeypatch
+):
+    conn = make_company(_current_debt_under_another_tag)
+    before = run(conn)
+    assert _value(conn, before, "debt") == 180  # current debt counted as zero, as CAT's is
+    assert _value(conn, before, "balance:debt_current") is None
+
+    _read_maturities_too(tmp_path, monkeypatch)
+    ingest_company(conn, "TST", client=fake_edgar(_current_debt_under_another_tag))
+    after = run(conn)
+    assert _value(conn, after, "debt") == 200  # the edit matters
+    assert _value(conn, after, "balance:debt_current") == 20
+    outputs = load_outputs(conn, before), load_outputs(conn, after)
+    assert outputs[0][("value_per_share", "-")] > outputs[1][("value_per_share", "-")]
+
+    old = rebuild(conn, before, choices=CHOICES, today=AS_OF)
+    assert old.ok and old.archived_map  # read through its own map, from the copy
+    new = rebuild(conn, after, choices=CHOICES, today=AS_OF)
+    assert new.ok and not new.archived_map
+    assert not conn.execute("SELECT 1 FROM temp.sqlite_master WHERE name = 'concepts'").fetchone()
+
+
+def test_an_edited_map_without_the_copy_would_break_the_old_run(
+    make_company, tmp_path, monkeypatch
+):
+    """What #357 fixes: read through today's map, the old run's current debt no longer matches."""
+    conn = make_company(_current_debt_under_another_tag)
+    before = run(conn)
+    _read_maturities_too(tmp_path, monkeypatch)
+    ingest_company(conn, "TST", client=fake_edgar(_current_debt_under_another_tag))
+    monkeypatch.setattr(runs, "concept_map_in_force", lambda conn, sha: nullcontext())
+    result = rebuild(conn, before, choices=CHOICES, today=AS_OF)
+    assert ("debt", "-", "value") in result.mismatches
+    assert ("balance:debt_current", "-", "only rebuilt") in result.mismatches
+
+
+def test_a_failed_rebuild_under_an_old_map_leaves_no_map_behind(
+    make_company, tmp_path, monkeypatch
+):
+    conn = make_company(_current_debt_under_another_tag)
+    before = run(conn)
+    _read_maturities_too(tmp_path, monkeypatch)
+
+    def fail(*args, **kwargs):
+        raise EngineError("boom")
+
+    monkeypatch.setattr(runs, "build_inputs", fail)
+    with pytest.raises(EngineError):
+        rebuild(conn, before, choices=CHOICES, today=AS_OF)
+    assert not conn.execute("SELECT 1 FROM temp.sqlite_master WHERE name = 'concepts'").fetchone()
 
 
 def test_a_run_made_before_terminal_method_rebuilds_under_its_own_rule(company):

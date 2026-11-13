@@ -183,7 +183,8 @@ def cmd_reproduce(args: argparse.Namespace) -> int:
                     status = f"values OK, method text differs in {len(rebuilt.mismatches)} rows"
                 else:
                     status = "MISMATCH"
-                print(f"         rebuild {status}, {rebuilt.rows_checked} rows")
+                under = " under the run's own concept map" if rebuilt.archived_map else ""
+                print(f"         rebuild {status}, {rebuilt.rows_checked} rows{under}")
                 if not rebuilt.values_ok:
                     for name, period, what in rebuilt.mismatches:
                         print(f"         {name} {period}: {what} differs")
