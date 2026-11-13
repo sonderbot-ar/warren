@@ -165,7 +165,10 @@ def test_a_skipped_sign_flip_appears_in_the_report(ingested, two_years):
 def test_a_skipped_part_as_whole_appears_in_the_report(ingested, two_years):
     # backlog #322: the 10-K also tags FY2024 revenue under SalesRevenueNet at more than twice
     # its Revenues figure, as P&G's 2014 10-K did
+    from tests.fundamentals.test_quarterly import scale_revenues
+
     conn, _ = ingested
+    scale_revenues(conn, 1e6)  # in millions, so the report shows real amounts
     conn.execute(
         "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, fiscal_year, "
         "fiscal_period, value, unit, form, accession_no, filed_at) VALUES (?, "
@@ -175,12 +178,15 @@ def test_a_skipped_part_as_whole_appears_in_the_report(ingested, two_years):
     )
     report = report_for(conn)
     assert [(k.value, k.xbrl_concept, k.accession_no) for _s, k in report.parts_as_whole] == [
-        (460, "us-gaap:Revenues", "0000000123-25-000001")
+        (460e6, "us-gaap:Revenues", "0000000123-25-000001")
     ]
     markdown = report.to_markdown()
     assert "- Parts skipped as tagged as the whole: 1" in markdown
     assert "## Parts skipped as tagged as the whole" in markdown
-    assert "skipped 0M (us-gaap:Revenues, 0000000123-25-000001)" in markdown
+    assert (
+        "used 1,000M (us-gaap:SalesRevenueNet, 0000000123-25-000001), skipped 460M (us-gaap:Revenues, "
+        in markdown
+    )
 
 
 def test_a_sign_flip_outside_the_report_years_is_listed(ingested, two_years):

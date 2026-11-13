@@ -245,8 +245,8 @@ class QualityReport:
             "## Parts skipped as tagged as the whole",
             "",
             "A filing's figure under its best-ranked tag of an item, when the same filing gives "
-            "the same item and period under another tag, with the same sign, at more than twice "
-            "the size: a part (a segment, a line) tagged as the whole. The next tag that filing "
+            "the same item and period under another tag at more than twice the size, both "
+            "positive: a part (a segment, a line) tagged as the whole. The next tag that filing "
             "used is read instead.",
             "",
         ]
