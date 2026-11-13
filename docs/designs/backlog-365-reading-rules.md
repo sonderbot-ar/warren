@@ -1,6 +1,6 @@
 # Backlog #365: a run says which reading rules it used
 
-Issue: https://github.com/sonderbot-ar/warren/issues/365 (front-end request R7) · Branch `backlog-365-reading-rules` · Version v0.9.67 (in progress)
+Issue: https://github.com/sonderbot-ar/warren/issues/365 (front-end request R7) · Branch `backlog-365-reading-rules` · Version v0.9.67 (merged nov.13.2026, PR #373, merge `1831037`)
 
 ## Problem
 
@@ -24,10 +24,10 @@ Left out, by a written list with a reason each (`NOT_RULES`): `coded.py` (notes 
   - `domains/analysis/reading_rules.md`: a table `| `<first 12 of the fingerprint>` | <version> | <date and PR> | <what changed and why> |`, parsed by `logged_versions()`. In the same commit as the code change: a change that can change what a run reads adds 1 to the version and a row; one that cannot (a refactor, note wording, or only a Python upgrade that changed the syntax tree) adds a row under the same version, saying why. Rows are never edited. Mirrors `concept_maps/CHANGES.md` (#357).
   - Tests (`tests/analysis/test_reading_rules.py`): today's fingerprint has its row, under `READING_RULES_VERSION`, and the failure says what to do (including the Python-upgrade case); the log's versions start at 1 and each row is the same as the one before or one more; `READING_RULES_VERSION` is the highest; no fingerprint twice; the rules include `facts.py`, `math_engine.py`, `erp.py`, `yields.py`, `prices.py`, `quality.py` and `dcf.py`, and none of `NOT_RULES`; the fingerprint ignores a comment, a docstring and parentheses but changes with a constant, a comparison or a sign (on a temporary module); a module imported through another joins the rules and one not imported doesn't.
   - Exit: tests pass on Python 3.11 and 3.13 with the same fingerprint.
-- **Step 2. Stored on every run, used by rebuild and the pipeline.**
+- **Step 2. Stored on every run, read back by rebuild, the reproduce line and the report.**
   - Migration `0023_reading_rules.sql`: `runs.reading_rules_version INTEGER` with `CHECK (reading_rules_version IS NULL OR reading_rules_version >= 1)`. Stored runs keep NULL: "not recorded" (made before v0.9.67). No backfill: assigning a version to old commits would be a guess (Known limits).
   - `math_engine._snapshot` adds `reading_rules_version`; `runs.SNAPSHOT_COLUMNS` gains it, and `insert_rows` builds its column list from `SNAPSHOT_COLUMNS` (analyst), so it stores it, and a what-if takes its parent's row's value (`whatif.py` passes the parent row to `save_rows`), NULL for a NULL parent.
-  - `Rebuild` gains `rules_version` (the run's, or None) and `older_rules` (true when that is not today's). `reproduce --rebuild` adds "under older reading rules (vN, today vM)" or "reading rules not recorded" to the run's line, so a mismatch on such a run reads as expected rather than as a fault. A rebuild still uses today's code: old code is not kept (Alternatives).
+  - `Rebuild` gains `rules_version` (the run's, or None) and `older_rules` (true when that is not today's). `reproduce --rebuild` adds "made under older reading rules (vN, today vM)" or "reading rules not recorded" to the run's line, so a mismatch on such a run reads as expected rather than as a fault. A rebuild still uses today's code: old code is not kept (Alternatives).
   - The run report's data snapshot line names the reading rules (`vN`, or "not recorded").
   - Tests: a new run stores today's version; a what-if stores its parent's (and NULL from a NULL parent); the column refuses 0; a run on today's, an older and no version rebuilds with the right `older_rules` and the reproduce line says so; the report names the rules; the migration leaves a stored run NULL (`tests/shared_kernel/test_migration_0023.py`; the other migration tests' expected lists gain 23).
   - Exit: full suite green.
@@ -64,7 +64,7 @@ Left out, by a written list with a reason each (`NOT_RULES`): `coded.py` (notes 
 
 ## Files to change
 
-New `domains/analysis/reading_rules.py` and `domains/analysis/reading_rules.md`, new `shared_kernel/migrations/0023_reading_rules.sql`, `domains/analysis/math_engine.py`, `domains/analysis/runs.py`, `domains/analysis/__main__.py`, `domains/analysis/report.py`, `domains/orchestration/nodes.py`, new `tests/analysis/test_reading_rules.py`, `tests/analysis/test_runs.py`, an orchestration test, this doc; at merge `docs/versions.md`, `docs/team-sync.md` and `docs/product/brief.md` (R7 done).
+New `domains/analysis/reading_rules.py` and `domains/analysis/reading_rules.md`, new `shared_kernel/migrations/0023_reading_rules.sql`, `domains/analysis/math_engine.py`, `domains/analysis/runs.py`, `domains/analysis/__main__.py`, `domains/analysis/report.py`, new `tests/analysis/test_reading_rules.py` and `tests/shared_kernel/test_migration_0023.py`, the other migration tests' expected lists (23 added), this doc; at merge `docs/versions.md` and `docs/team-sync.md`. The pipeline (`domains/orchestration/nodes.py`) is not changed (design review). The brief is the front-end team's to update.
 
 ## Product impact
 
@@ -84,3 +84,7 @@ The run's source line can show "v1" beside the map fingerprint, or "no registrad
 - **Analyst: NO-GO, two blockers, both taken.** (1) The two files miss code that sets rows (beta and cost of debt in `financial_math.py`, the ERP in `market/erp.py`, the risk-free rate, split adjustment, `CONSISTENCY_TOLERANCE`, `dcf`'s constants), and the doc wrongly said reproduce pins `financial_math`: reproduce re-values stored rows, it never recomputes them. The rules are now the import closure of the two files. (2) Refusing older-rules runs in `_same_inputs` would start new paid shock proposals, reviews and simulations for every stored case: dropped, with reuse by rebuilt rows as a follow-up. Suggestions taken: `insert_rows` built from `SNAPSHOT_COLUMNS`; note-wording churn named; the rebuild-based backfill filed.
 - **Professor: NO-GO, one blocker, taken.** The same coverage gap as the analyst's (1). Suggestions taken: "detects" a change rather than "any change does"; a Python upgrade is named in the failure message and Known limits; a plain integer, not SemVer. The method is judged defensible (Sandve et al. 2013, rules 3–4; W3C PROV-O's `prov:Plan` for the rules a run followed). Not taken: a Python column in the log; the row's text names the version when it is the cause.
 - **Product lead: NO-GO, two blockers, taken.** (B1) `unknown` and `+dirty` code versions can't mean "same rules". (B2) the brief's "Las dos se pueden reproducir tal como se hicieron" isn't true for a rules pair, and the fallback can only say "puede". Product impact now gives cases (a), (b) and (c). Suggestions taken: where today's version comes from, the source line's wording, and the limits. The pipeline suggestion (S2) no longer applies: the pipeline is unchanged.
+
+## PR review (nov.13.2026)
+
+Gatekeeper: GO, no blockers. 2,235 passed, 10 skipped (browser tests); ruff clean; the fingerprint `e8cb250579da` on Python 3.11, 3.12 and 3.13; `reproduce --all --rebuild` 903 of 903 to the cent, 821 of 903 identical; CI green. Nits taken at merge: the Step 2 heading and the files list still named the pipeline; the reproduce wording; a test case label and a hand-rolled patch in the tests. Ideas: imports inside functions and the data files the rules read (`known_gaps.csv`) are outside the fingerprint; with the backfill and reuse follow-ups, filed as #374.
