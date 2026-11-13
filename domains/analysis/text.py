@@ -189,7 +189,8 @@ WARNING_LESSONS = {
         "The shares outstanding on the filing's cover page, which Warren divides by, differ by "
         "more than {tolerance}% from the diluted share count. Some gap is normal (diluted "
         "shares are a period's average and include options), but a large one usually means a "
-        "buyback or a share issue: check which count is current.",
+        "buyback, a share issue or a figure filed in the wrong unit: check which count is "
+        "current.",
         {"tolerance": math_engine.SHARES_TOLERANCE},
         "FASB ASC 260, Earnings per Share (diluted shares)",
         "rule D4, shares (docs/build-plan.md); the 10% line is a working rule, "
@@ -198,13 +199,14 @@ WARNING_LESSONS = {
     "shares_scale_mismatch": Lesson(
         "data",
         "Two share counts for the company are about a thousand or a million times apart "
-        "(within {tolerance}%), which no buyback or split does, so one was filed in the wrong "
-        "unit (thousands or millions, with nothing saying so). Warren leaves that count out; "
-        "used, it would put the market value and every per-share figure off by the same factor, "
-        "so check any share count against the cover page before dividing by it.",
+        "(within {tolerance}%), which no buyback does (splits are already adjusted for), so one "
+        "was filed in the wrong unit (thousands or millions, with nothing saying so). Warren "
+        "leaves that count out; used, it would put the market value and every per-share figure "
+        "off by the same factor, so check any share count against the cover page before "
+        "dividing by it.",
         {"tolerance": math_engine.SHARES_TOLERANCE},
-        "SEC EDGAR Filer Manual, Volume II, Inline XBRL: the scale attribute of a number turns "
-        "a figure shown in millions into the stored value",
+        "SEC Office of Structured Disclosure, Scaling Errors Between Entity Common Stock Shares "
+        "Outstanding and Common Stock Shares Outstanding (Nov 19, 2020)",
         "math_engine.share_scale (backlog #343); the 10% line is a working rule, "
         "math_engine.SHARES_TOLERANCE",
     ),
