@@ -1,6 +1,6 @@
 # Backlog #352: say when a newer report is in but its quarter wasn't read, and the late-filing notice
 
-Issue: https://github.com/sonderbot-ar/warren/issues/352 · Branch `backlog-352-underived-q4` · Status: In review (nov.13.2026)
+Issue: https://github.com/sonderbot-ar/warren/issues/352 · Branch `backlog-352-underived-q4` · Version v0.9.63, merged nov.13.2026 (PR #354, merge `0c28f49`)
 
 ## Problem
 
@@ -62,3 +62,7 @@ Explainer, analyst and professor in parallel, and the product lead on *Product i
 - **Professor.** Rule 12b-25 checked (15 and 5 calendar days; a report within them is deemed filed on time). Taken: the conditional wording; the new lesson teaches the fourth-quarter subtraction, with a test; the note says "the annual report" when the newer figure is a year. For the gatekeeper: quote 17 CFR 240.12b-25(b).
 - **Explainer.** Gaps answered: the items checked (all of `ITEMS`) and the as-of filter (Step 1); fixtures named by test and function; the 161-day line's home (`math_engine.STALE_AFTER_Q3`, backlog #342); the lesson's `why` written out; Step 2's first sentence unchanged; Step 4 is before merge, results in their own section. Not taken: the source of "about 60 days" is the 10-K deadline already cited in the lesson.
 - **Product lead.** OK. Taken: the filing's accession as a param; stored runs and the hand rewrite of the Spanish stale lesson in *Product impact*. Dates in the app's format ("15 nov 2026") are the app's job; params stay ISO.
+
+## PR review (nov.13.2026)
+
+Gatekeeper: GO, no blockers. `tests/analysis` 651 passed; ruff clean; CI green; the replaced #349 test is stricter (same fixture and dates, every param and the text pinned). Could not fetch 17 CFR 240.12b-25(b) (eCFR and Cornell don't resolve here); the wording matches the analyst's and professor's sources. Idea, kept here: a quarterly figure with no fiscal period would key the stale line on 135 days, the safe default; no test covers it.
