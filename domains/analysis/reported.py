@@ -632,6 +632,7 @@ def _part_note(line: Line, used: Fact, skipped: Fact, filings: _Filings) -> Code
             "input_end": used.period_end.isoformat(),
             "used": use,
             "skipped": skip,
+            "first_reported_skipped": _first_rests_on(line, skipped),
         },
         text,
     )

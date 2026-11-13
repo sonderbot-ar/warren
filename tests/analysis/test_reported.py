@@ -795,6 +795,7 @@ def test_a_part_tagged_as_the_whole_is_skipped_and_the_line_says_so(make_company
         "value": pytest.approx(whole / 3),
         "xbrl_concept": "us-gaap:Revenues",
     }
+    assert params["first_reported_skipped"] is True  # the 10-K is the year's first filing
     margin = {n.code: n.params for n in r.ratio("operating_margin").notes}
     assert margin["uses_part_checked_line"] == {"items": ["revenue"], "periods": ["FY2019"]}
     growth = {n.code: n.params for n in r.ratio("revenue_growth_yoy").notes}
@@ -812,6 +813,7 @@ def test_a_prior_year_part_is_noted_where_the_older_figure_is_kept(make_company)
     assert line.value == pytest.approx(sum(revenue(2018, q) for q in (1, 2, 3, 4)))
     assert line.latest.xbrl_concept == "us-gaap:Revenues"
     assert [n.params["skipped"]["accession_no"] for n in line.part_notes] == [FY2019_10K]
+    assert line.part_notes[0].params["first_reported_skipped"] is False
     [prior] = reported_period(conn, "TST", "FY2019", AS_OF).prior_lines
     assert prior.part_notes and prior.part_notes[0].params["period"] == "FY2018"
 
