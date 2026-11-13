@@ -64,7 +64,8 @@ def test_old_tag_is_used_until_a_later_filing_reports_the_period_under_the_new_o
 
 def test_priority_decides_between_tags_in_the_same_filing(ingested):
     conn, _ = ingested
-    add_fact(conn, "SalesRevenueNet", 999, "0000000123-25-000001", "2025-02-15")
+    # within twice the size, so the two are lines of one item, not a part and its whole (#322)
+    add_fact(conn, "SalesRevenueNet", 470, "0000000123-25-000001", "2025-02-15")
     fact = revenue_for(conn, FY2024, "2025-03-01")
     assert (fact.value, fact.xbrl_concept) == (460, "us-gaap:Revenues")
 
@@ -231,3 +232,107 @@ def test_a_skipped_flip_is_listed_apart_from_tag_disagreements(ingested):
         (7145, "t-22-1", -7133, "t-24-2")
     ]
     assert not skipped_sign_flips(conn, TEST_CIK, names, "2024-02-19")
+
+
+# -- a part tagged as the whole (backlog #322) --------------------------------------------------
+# P&G's 2014 10-K tagged one segment's revenue as Revenues (28,400 for FY2012) beside the
+# company's 82,006 under SalesRevenueNet; Test Corp's FY2024: Revenues 460 in the 10-K.
+
+
+def test_a_best_tag_under_half_of_another_in_its_filing_is_skipped(ingested):
+    conn, _ = ingested
+    add_fact(conn, "SalesRevenueNet", 921, "0000000123-25-000001", "2025-02-15")
+    fact = revenue_for(conn, FY2024, "2025-03-01")
+    assert (fact.value, fact.xbrl_concept) == (921, "us-gaap:SalesRevenueNet")
+    # first reported too: it is the same filing
+    first = revenue_for(conn, FY2024, "2025-03-01", mode="first_reported")
+    assert (first.value, first.xbrl_concept) == (921, "us-gaap:SalesRevenueNet")
+
+
+def test_exactly_twice_the_size_is_not_a_part(ingested):
+    conn, _ = ingested
+    add_fact(conn, "SalesRevenueNet", 920, "0000000123-25-000001", "2025-02-15")
+    assert revenue_for(conn, FY2024, "2025-03-01").value == 460
+
+
+def test_a_larger_figure_of_the_other_sign_is_not_a_whole(ingested):
+    conn, _ = ingested
+    add_fact(conn, "SalesRevenueNet", -2000, "0000000123-25-000001", "2025-02-15")
+    assert revenue_for(conn, FY2024, "2025-03-01").value == 460
+
+
+def test_a_loss_is_never_read_as_a_part(ingested):
+    # a net loss of 10 beside a loss to common holders of 30 (after preferred dividends): the
+    # narrower line is larger in size, and is not the whole (analyst)
+    conn, _ = ingested
+    for value, tag in ((-10, "Revenues"), (-30, "SalesRevenueNet")):
+        add_fact(conn, tag, value, "p-23-9", "2023-02-15", FY2022)
+    assert revenue_for(conn, FY2022, "2023-03-01").value == -10
+
+
+def test_a_lower_ranked_part_is_left_alone(ingested):
+    # MSFT and CAT tagged product cost under a lower-ranked tag beside the total: the best tag is
+    # the larger, so nothing is skipped
+    conn, _ = ingested
+    add_fact(conn, "SalesRevenueNet", 100, "0000000123-25-000001", "2025-02-15")
+    assert revenue_for(conn, FY2024, "2025-03-01").value == 460
+
+
+def test_a_whole_in_another_filing_does_not_skip_a_part(ingested):
+    conn, _ = ingested
+    # the larger figure is in a later filing, not beside the 460: a restatement question, not this
+    add_fact(conn, "SalesRevenueNet", 999, "0000000123-26-000099", "2026-06-01")
+    assert revenue_for(conn, FY2024, "2026-07-01").value == 455
+
+
+def test_the_skip_falls_through_to_the_next_tag_that_is_not_a_part(ingested):
+    conn, _ = ingested
+    # Revenues 460, contract revenue 1,000, SalesRevenueNet 2,500: both upper tags are parts
+    accn = "0000000123-25-000001"
+    add_fact(conn, "RevenueFromContractWithCustomerExcludingAssessedTax", 1000, accn, "2025-02-15")
+    add_fact(conn, "SalesRevenueNet", 2500, accn, "2025-02-15")
+    fact = revenue_for(conn, FY2024, "2025-03-01")
+    assert (fact.value, fact.xbrl_concept) == (2500, "us-gaap:SalesRevenueNet")
+
+
+FY2020 = (date(2020, 1, 1), date(2020, 12, 31))
+
+
+def test_a_restatement_of_the_whole_under_the_next_tag_is_followed(ingested):
+    # P&G's FY2013: 82,581 in the 2014 10-K (its Revenues part skipped), recast to 80,116 under
+    # SalesRevenueNet in the 2015 10-K
+    conn, _ = ingested
+    add_fact(conn, "SalesRevenueNet", 1000, "p-21-1", "2021-02-15", FY2020)
+    add_fact(conn, "Revenues", 400, "p-22-1", "2022-02-15", FY2020)
+    add_fact(conn, "SalesRevenueNet", 1010, "p-22-1", "2022-02-15", FY2020)
+    add_fact(conn, "SalesRevenueNet", 980, "p-23-1", "2023-02-15", FY2020)
+    assert revenue_for(conn, FY2020, "2022-03-01").value == 1010
+    fact = revenue_for(conn, FY2020, "2023-03-01")
+    assert (fact.value, fact.xbrl_concept, fact.restated) == (980, "us-gaap:SalesRevenueNet", True)
+
+
+def test_an_older_version_of_the_best_tag_still_wins_over_the_next_tag(ingested):
+    # skipping a part removes that filing's figure only: the newest remaining version of the
+    # best tag is used, as for a skipped sign flip
+    conn, _ = ingested
+    add_fact(conn, "SalesRevenueNet", 1000, "0000000123-26-000001", "2026-02-15")
+    fact = revenue_for(conn, FY2024, "2026-03-01")
+    assert (fact.value, fact.accession_no) == (460, "0000000123-25-000001")
+
+
+def test_a_skipped_part_is_listed_with_what_was_used(ingested):
+    from domains.fundamentals.facts import skipped_parts_as_whole
+
+    conn, _ = ingested
+    add_fact(conn, "SalesRevenueNet", 1000, "p-21-1", "2021-02-15", FY2020)
+    add_fact(conn, "Revenues", 400, "p-22-1", "2022-02-15", FY2020)
+    add_fact(conn, "SalesRevenueNet", 1010, "p-22-1", "2022-02-15", FY2020)
+    pairs = [
+        p
+        for p in skipped_parts_as_whole(conn, TEST_CIK, ["revenue"], "2022-03-01")
+        if p[0].period_end == FY2020[1]
+    ]
+    assert [
+        (s.value, s.xbrl_concept, k.value, k.xbrl_concept, k.accession_no) for s, k in pairs
+    ] == [(1010, "us-gaap:SalesRevenueNet", 400, "us-gaap:Revenues", "p-22-1")]
+    assert not skipped_parts_as_whole(conn, TEST_CIK, ["revenue"], "2022-02-14")

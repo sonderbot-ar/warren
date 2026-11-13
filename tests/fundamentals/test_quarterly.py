@@ -518,8 +518,19 @@ def test_a_quarter_that_moves_or_is_not_checked_carries_no_kept_note(ingested):
     assert all(q.kept_on_own_tag is None for q in quarters(conn, "revenue", "2025-03-01").values())
 
 
+def scale_revenues(conn, factor):
+    """Multiply the fixture's Revenues rows, so a narrow year or nine months well above 460 or 330
+    stays within twice the Revenues figure in its filing and is not read as the whole of which
+    Revenues is a part (backlog #322)."""
+    conn.execute(
+        "UPDATE financial_facts SET value = value * ? WHERE xbrl_concept = 'us-gaap:Revenues'",
+        (factor,),
+    )
+
+
 def test_a_move_within_the_recast_threshold_still_agrees(ingested):
     conn, _ = ingested
+    scale_revenues(conn, 10)
     narrow_quarter(conn, value=1000)
     narrow_inputs(conn, year=1324, nine_months=330)  # 994, 0.6% off: disagrees
     assert quarters(conn, "revenue", "2025-03-01")["Q4"].narrower_tag is None
@@ -555,6 +566,7 @@ def test_a_quarter_near_zero_is_checked_against_an_average_quarter(ingested):
     """Tolerance is 0.5% of the larger of the quarter and a quarter of the year: a quarter of 2
     off by 1 in a year of 1,000 still agrees (1 <= 0.005 * 250)."""
     conn, _ = ingested
+    scale_revenues(conn, 10)
     narrow_quarter(conn, value=2)
     narrow_inputs(conn, year=1000, nine_months=997)  # 3, against 2 reported
     assert quarters(conn, "revenue", "2025-03-01")["Q4"].narrower_tag == NARROW

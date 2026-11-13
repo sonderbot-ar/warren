@@ -288,6 +288,13 @@ def render_reported(r: ReportedPeriod) -> str:
                 f"{skipped['form']} {skipped['accession_no']} filed {skipped['filed_at']}, "
                 "was skipped)"
             )
+        for note in x.part_notes:
+            skipped = note.params["skipped"]
+            line += (
+                f"  (a part tagged as the whole, {_fmt(skipped['value'], x.unit)} as "
+                f"{skipped['xbrl_concept']} in {skipped['form']} {skipped['accession_no']} filed "
+                f"{skipped['filed_at']}, was skipped)"
+            )
         out.append(line)
         if x.meaning_note:
             out.append(f"  {'':32} {'':>26}  note: {x.meaning_note.text}")
