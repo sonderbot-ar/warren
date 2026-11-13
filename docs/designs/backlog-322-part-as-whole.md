@@ -1,0 +1,75 @@
+# Backlog #322: skip a part a filing tagged as the whole
+
+Issue: https://github.com/sonderbot-ar/warren/issues/322 · Branch `backlog-322-part-as-whole` · Status: in review.
+
+Owner decision (nov.13.2026, decision card): "General rule (recommended)": a general rule in the selection, recorded as an amendment to Decision 2, rather than a one-off fix for P&G.
+
+## Problem
+
+P&G's 10-K filed 2014-08-08 (`0000080424-14-000057`) tags three years of one segment's revenue as `us-gaap:Revenues` (28,400, 29,200 and 29,400 million for FY2012 to FY2014) and the company's net sales as `us-gaap:SalesRevenueNet` (82,006, 82,581 and 83,062). Warren ranks `Revenues` first (`concept_map.csv`), so Decision 2's rule (best tag first, then its newest filing) reads the segment as the company's revenue from that filing on, and keeps doing so after the 2015 and 2016 10-Ks recast the years under `SalesRevenueNet` only, since no later filing uses the higher-ranked tag. Today, as of any date after 2014-08-08, P&G's FY2012 to FY2014 revenue is a third of the real figure, its FY2015 growth is +160%, and every margin on those years is three times too large.
+
+A scan of every item, period and filing for the eight companies (issue #322) finds 24 rows where two mapped tags of one item in one filing differ by more than twice. In 21 (MSFT and CAT cost of revenue) the best-ranked tag is the larger and the smaller one is a lower-ranked part, which the rule already ignores. Only P&G's three rows have the best tag as the smaller one. No stored run is affected (P&G has no runs dated 2012-08-08 to 2015-08-07).
+
+## Plan
+
+**Step 0. This doc, and Decision 2 amended** (`docs/structure-guide.md`, body and log row, nov.13.2026, owner decision).
+
+**Step 1. The skip** (`domains/fundamentals/facts.py`).
+
+- `_parts_as_whole(rows)`: one filing's rows for one period. While the filing's best-ranked row has another row in the same filing with the same (non-zero) sign and more than `PART_AS_WHOLE_RATIO` (2.0) times its absolute size, that row is skipped and the next-ranked one is tested. Returns (kept, skipped).
+- `_rows_by_period` applies it to every filing by default, so every reader of the rows agrees: latest and first-reported selection, quarterly derivations, `_versions` and `_tagged` (one basis, #329's own-tag check), recasts, meaning changes, disagreements and sign flips. `keep_parts=True` returns the raw rows.
+- Only the filing's best-ranked tag is tested, then the next if that one is skipped: a lower-ranked part beside a larger best tag (MSFT, CAT) is left alone, as now.
+- Only rows in the same filing are compared: a larger figure in a later filing is a restatement question, which the existing rule and recast checks own.
+- Skipping a part removes that filing's figure only. If an older filing gave the period under the best tag, its figure is still the newest version of the best tag and is used, as for a skipped sign flip.
+- `skipped_parts_as_whole(conn, cik, names, as_of)`: (selected, skipped) for each skipped row whose tag ranks at or above the selected one's (so it would have been read), as known on `as_of`.
+- The quality report (`domains/fundamentals/quality.py`) counts the skips in its summary and lists them in a section "Parts skipped as tagged as the whole".
+- Tests (`tests/fundamentals/test_facts.py`, `tests/fundamentals/test_quality.py`): 921 beside 460 in one filing is read in both modes; exactly twice (920) is not a part; a larger figure of the other sign is not a whole; a smaller lower-ranked figure is left alone; a larger figure in another filing does not skip; the skip falls through two parts to the third tag; a later recast of the whole under the next tag is followed (P&G FY2013: 82,581 then 80,116); an older version of the best tag still wins; the listing, and nothing listed before the filing is public; the report section.
+- Exit: full suite passes; the real-data scan below changes P&G's three revenue years and nothing else.
+
+**Step 2. Saying so on the line** (`domains/analysis/reported.py`, `domains/analysis/__main__.py`).
+
+- `Line.part_notes`: one `part_as_whole_skipped` note per skipped part the line rests on (its own period, a derivation input, or its first-reported filing). Params: `item`, `period`, `input_start`, `input_end`, `used` and `skipped` (each `accession_no`, `form`, `filed_at`, `value`, `xbrl_concept`). English: "revenue FY2013: the 10-K filed 2014-08-08 tagged 29,200,000,000 as us-gaap:Revenues for 2012-07-01–2013-06-30, less than half of what the same filing gives under another tag of the item; treated as a part tagged as the whole and skipped, so the figure is 82,581,000,000 (us-gaap:SalesRevenueNet, 10-K filed 2014-08-08)".
+- A ratio that uses such a line carries `uses_part_checked_line` (`items`, `periods`), as `uses_sign_checked_line` does (#282); growth includes the prior year's line.
+- The terminal view adds "(a part tagged as the whole, … as us-gaap:Revenues in 10-K … filed …, was skipped)".
+- Tests (`tests/analysis/test_reported.py`): the year whose own filing has the part (value, tag, params, ratio notes, no note elsewhere); a prior year where the older whole is kept still notes the skip, on its line and on the next year's prior line; no note before the filing is public; the terminal and JSON.
+- Exit: full suite passes.
+
+**Tests changed.** Four existing tests put a second tag at more than twice the first in one filing as a convenience, which the rule now reads as a part. Their assertions are unchanged except one string: `test_priority_decides_between_tags_in_the_same_filing` uses 470 instead of 999 beside 460 (the case of 999 is now its own test); `test_a_move_within_the_recast_threshold_still_agrees`, `test_a_quarter_near_zero_is_checked_against_an_average_quarter` and `test_a_quarter_kept_on_its_own_tag_is_listed` scale the fixture's `Revenues` rows (×10, ×1,000,000) so the narrow tag stays within twice of them; the last one's "on Revenues it would be 0M" is now "130M", the figure in the same units.
+
+## Real-data scan (Step 1)
+
+`data/warren.db` (snapshot of nov.10.2026). Every item, all eight companies, as of 2010-06-01, 2011-06-01, 2012-06-01, 2013-06-01, 2014-08-08, 2015-06-01, 2015-08-07, 2015-08-10, 2019-06-01, 2023-06-01 and 2026-11-09; reported latest and first-reported, quarterly latest with and without one basis and first-reported; with the rule against without it (`PART_AS_WHOLE_RATIO` set to infinity). **28 differences, all P&G revenue, all three years:**
+
+| P&G revenue | Before (Revenues, segment) | After, from 2014-08-08 | After, from 2015-08-07 | After, from 2016-08-09 |
+|---|---|---|---|---|
+| FY2012 | 28,400 | 82,006 | 82,006 | 82,006 |
+| FY2013 | 29,200 | 82,581 | 80,116 | 80,116 |
+| FY2014 | 29,400 | 83,062 | 80,510 | 74,401 |
+
+First-reported FY2014 (the 2014 10-K is its first filing) goes from 29,400 to 83,062. Quarterly figures do not change: the quarters and the nine months are under `SalesRevenueNet` throughout. Recasts now read 83,680 → 82,006 for FY2012 in the 2014 10-K (was → 28,400) and find the 2015 and 2016 10-Ks' recasts of FY2013 and FY2014. Disagreements fall (P&G, 2026: 5,295 to 3,641 pairs), as the newest filings no longer disagree with a segment. Meaning changes and sign flips: no change. `skipped_parts_as_whole` lists exactly the three P&G rows.
+
+## Alternatives considered
+
+- **A one-off override for P&G's filing** (the card's other option). Fixes the three years but leaves the next filing that tags a part as the whole to the same error; the rule is one line in Decision 2 and catches only this case on real data.
+- **Re-rank `SalesRevenueNet` above `Revenues`.** Breaks Walmart, where `Revenues` is the total beside a contract-revenue subtotal (`concept_map.csv`), and every company that uses both.
+- **Prefer the largest tag in a filing.** Would read a total over its line in the wrong direction where a lower-ranked tag is broader (cash including restricted cash, the #295 meaning changes); the rule only stops a best tag that is less than half another.
+- **A tighter ratio (1.5×) or a looser one (3×).** In one filing, for one item and period, another mapped tag is larger than the best-ranked one with the same sign 387 times across the eight companies: 371 within 10% (net sales against total revenues and the like), 13 between 1.1× and 1.73×, and P&G's three at 2.8–2.9×. The 13 are legitimate broader lines the rule must leave alone: KO's discontinued operations, the total against the part attributable to the company (8 rows, 1.12× to 1.73×); JNJ's marketable securities, the total against the current part (1.62×); Apple's D&A against D&A and accretion (3 rows, about 1.25×); JNJ's cash against cash with restricted cash (1.40×). 1.5× would skip KO's and JNJ's rightly ranked figures; 3× would miss P&G. Twice sits between the largest legitimate gap (1.73×) and the smallest part (2.8×), and is the plain reading of "the best tag is less than half of another".
+- **Compare against the item's other filings** (the year in the 10-K before). Tells a part from a whole too, but mixes the rule with restatement; one filing's own figures share a basis.
+
+## Limits
+
+- The margin below the line is thin: a legitimate broader line more than twice the best tag (a total against an attributable part when the minority share is over half) would be skipped. The largest today is KO's 1.73×. The quality report lists every skip, so a wrong one shows there.
+- A part that is more than half of its whole (a segment with 60% of revenue tagged as the total) is not caught. No such case in the scan; the quality report's disagreement section still lists it when a later filing reports the whole.
+- A filing that tags only the part, with no whole beside it, is not caught: there is nothing in the filing to compare.
+
+## Files
+
+`domains/fundamentals/facts.py`, `domains/fundamentals/quality.py`, `domains/analysis/reported.py`, `domains/analysis/__main__.py`, `tests/fundamentals/test_facts.py`, `tests/fundamentals/test_quality.py`, `tests/fundamentals/test_quarterly.py`, `tests/analysis/test_reported.py`, `docs/structure-guide.md`, this doc. At merge: `docs/versions.md`, `docs/team-sync.md`.
+
+## Product impact
+
+Brief Q1 and Q2 (a period's figures and ratios), Q3 and later questions on growth.
+
+- **Changed:** P&G's revenue for FY2012 to FY2014, as known from 2014-08-08 on, is the company's (82,006 / 82,581 / 83,062, then the later recasts) instead of one segment's (28,400 / 29,200 / 29,400). Every ratio on those years, and FY2015's growth, changes with it.
+- **Added:** `part_notes` on a reported line (list, usually empty), code `part_as_whole_skipped`, params as in Step 2; ratio note `uses_part_checked_line` (`items`, `periods`). Only P&G's three revenue years carry them today.
+- Nothing renamed or removed.
