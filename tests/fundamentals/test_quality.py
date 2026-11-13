@@ -184,8 +184,8 @@ def test_a_skipped_part_as_whole_appears_in_the_report(ingested, two_years):
     assert "- Parts skipped as tagged as the whole: 1" in markdown
     assert "## Parts skipped as tagged as the whole" in markdown
     assert (
-        "used 1,000M (us-gaap:SalesRevenueNet, 0000000123-25-000001), skipped 460M (us-gaap:Revenues, "
-        in markdown
+        "used 1,000M (us-gaap:SalesRevenueNet, 0000000123-25-000001), "
+        "skipped 460M (us-gaap:Revenues, " in markdown
     )
 
 
