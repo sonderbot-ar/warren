@@ -18,6 +18,9 @@ latest values, and the ratios a student asks about, computed here and never by t
   `plain`, and `basis_note` says why; ratios use the one-basis figure and say so.
 - A version filed with its sign flipped is skipped (backlog #280); the line it would have been
   says so in `sign_notes`, naming both filings, and ratios that use the line say so (#282).
+- A part a filing tagged as the whole is skipped (backlog #322, P&G's 2014 10-K giving one
+  segment's revenue as `Revenues`); the line it would have been says so in `part_notes`, naming
+  both figures, and ratios that use the line say so.
 - A tag that changed meaning (#295) is noted on growth and, since #297, on the line itself
   (`meaning_note`): which meaning its figure, its first-reported figure and its plain derivation
   carry, "mixed" for a derived quarter worked out from figures filed on both sides of the change.
@@ -54,6 +57,7 @@ from domains.fundamentals.facts import (
     mixes_meanings,
     newest_filing_disagreements,
     side_of_recast,
+    skipped_parts_as_whole,
     skipped_sign_flips,
     state_for_change,
     tag_meaning_changes,
@@ -159,6 +163,10 @@ class Line:
     # backlog #282: one `sign_flip_skipped` note per version filed with its sign flipped that
     # was skipped for this line (#280), its own period's or a derivation input's; usually empty
     sign_notes: list[Coded] = field(default_factory=list)
+    # backlog #322: one `part_as_whole_skipped` note per figure a filing tagged as the whole that
+    # was skipped for this line, as the same filing gave the item more than twice as large under
+    # another tag (P&G's FY2012-FY2014 revenue in its 2014 10-K); usually empty
+    part_notes: list[Coded] = field(default_factory=list)
     # backlog #297: a `tag_changed_meaning` note when the line's figure, its first-reported figure
     # or its plain derivation do not all carry the same meaning of a tag that changed meaning
     # (#295), e.g. Exxon's FY2018 revenue, first reported as sales and now total revenues and
@@ -583,6 +591,52 @@ def _with_sign_notes(line: Line, flips: list[tuple[Fact, Fact]], filings: _Filin
     return replace(line, sign_notes=notes) if notes else line
 
 
+def _with_part_notes(line: Line, parts: list[tuple[Fact, Fact]], filings: _Filings) -> Line:
+    """The line with a `part_as_whole_skipped` note for each skipped part it rests on (#322)."""
+    notes = [
+        _part_note(line, used, skipped, filings)
+        for used, skipped in parts
+        if _rests_on(line, used) or _first_rests_on(line, skipped)
+    ]
+    return replace(line, part_notes=notes) if notes else line
+
+
+def _first_rests_on(line: Line, skipped: Fact) -> bool:
+    """The line's first-reported figure comes from the filing whose part was skipped."""
+    if not _in_scope((skipped, skipped), line):
+        return False
+    first = line.first_reported
+    first_filings = [first.filing] if first.filing else first.inputs
+    return skipped.accession_no in {f.accession_no for f in first_filings}
+
+
+def _part_note(line: Line, used: Fact, skipped: Fact, filings: _Filings) -> Coded:
+    """Why the line's figure is not the one a filing gave under a higher-ranked tag (#322)."""
+    period = f"FY{line.fiscal_year}{_q(line)}"
+    skip = {**_filing_params(skipped, filings), "xbrl_concept": skipped.xbrl_concept}
+    use = {**_filing_params(used, filings), "xbrl_concept": used.xbrl_concept}
+    text = (
+        f"{line.name} {period}: the {skip['form']} filed {skip['filed_at']} tagged "
+        f"{skipped.value:,.0f} as {skipped.xbrl_concept} for "
+        f"{used.period_start or ''}–{used.period_end}, less than half of what the same filing "
+        f"gives under another tag of the item; treated as a part tagged as the whole and "
+        f"skipped, so the figure is {used.value:,.0f} ({used.xbrl_concept}, {use['form']} filed "
+        f"{use['filed_at']})"
+    )
+    return Coded(
+        "part_as_whole_skipped",
+        {
+            "item": line.name,
+            "period": period,
+            "input_start": used.period_start.isoformat() if used.period_start else None,
+            "input_end": used.period_end.isoformat(),
+            "used": use,
+            "skipped": skip,
+        },
+        text,
+    )
+
+
 def _filing_params(fact: Fact, filings: _Filings) -> dict:
     filing = filings.get(fact.accession_no)
     return {
@@ -742,6 +796,7 @@ def reported_period(
         lines = _lines(views, resolved, filings, changes)
         disagreements = _disagreements(conn, cik, lines, as_of, filings)
         flips = skipped_sign_flips(conn, cik, sorted({x.name for x in lines}), as_of)
+        parts = skipped_parts_as_whole(conn, cik, sorted({x.name for x in lines}), as_of)
     prior = resolved.year_earlier()
     prior_revenue = _getter(views, prior)("revenue")
     prior_key = _key(prior_revenue, quarterly) if prior_revenue else None
@@ -765,6 +820,8 @@ def reported_period(
     )
     lines = [_with_sign_notes(x, flips, filings) for x in lines]
     prior_lines = [_with_sign_notes(x, flips, filings) for x in prior_lines]
+    lines = [_with_part_notes(x, parts, filings) for x in lines]
+    prior_lines = [_with_part_notes(x, parts, filings) for x in prior_lines]
     revenue = next(x for x in lines if x.name == "revenue")
     universe = next((c for c in PHASE1_UNIVERSE if c.cik == cik), None)
     return ReportedPeriod(
@@ -834,7 +891,13 @@ def _changed_note(facts: list[Fact], lines: list[Line]) -> list[Coded]:
             )
         )
     used = [x for x in lines if x.name in names]
-    return out + _year_tag_note(used) + _one_basis_note(used) + _sign_checked_note(used)
+    return (
+        out
+        + _year_tag_note(used)
+        + _one_basis_note(used)
+        + _sign_checked_note(used)
+        + _part_checked_note(used)
+    )
 
 
 def _year_tag_note(lines: list[Line]) -> list[Coded]:
@@ -899,6 +962,23 @@ def _sign_checked_note(lines: list[Line]) -> list[Coded]:
             {"items": items, "periods": periods},
             f"uses {', '.join(items)} for {', '.join(periods)}, where a version filed with its "
             "sign flipped was skipped (see the line)",
+        )
+    ]
+
+
+def _part_checked_note(lines: list[Line]) -> list[Coded]:
+    """A ratio that uses a line where a part tagged as the whole was skipped (#322)."""
+    used = [x for x in lines if x.part_notes]
+    if not used:
+        return []
+    items = list(dict.fromkeys(x.name for x in used))
+    periods = sorted({f"FY{x.fiscal_year}{_q(x)}" for x in used})
+    return [
+        Coded(
+            "uses_part_checked_line",
+            {"items": items, "periods": periods},
+            f"uses {', '.join(items)} for {', '.join(periods)}, where a part a filing tagged as "
+            "the whole was skipped (see the line)",
         )
     ]
 
@@ -1101,6 +1181,7 @@ def _growth(views, period, revenue, lines, prior_lines, changes=(), filed_at=Non
     notes += _year_tag_note([x for x in [*lines, *prior_lines] if x.name == "revenue"])
     notes += _one_basis_note([x for x in [*lines, *prior_lines] if x.name == "revenue"])
     notes += _sign_checked_note([x for x in [*lines, *prior_lines] if x.name == "revenue"])
+    notes += _part_checked_note([x for x in [*lines, *prior_lines] if x.name == "revenue"])
     notes += _meaning_note(revenue, prior, period, prior_period, changes, filed_at)
     value = fm.growth(revenue.value, prior.value)
     return Ratio("revenue_growth_yoy", fid, formula, value, "fraction", uses, None, notes)

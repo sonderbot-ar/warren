@@ -754,6 +754,86 @@ def test_a_flipped_prior_year_revenue_is_noted_on_growth(make_company):
     assert growth["uses_sign_checked_line"] == {"items": ["revenue"], "periods": ["FY2018"]}
 
 
+# -- backlog #322: a part a filing tagged as the whole, skipped, says so -------------------------
+
+
+def _part_as_revenues(year):
+    """P&G's case: the FY2019 10-K tags a third of `year`'s revenue as Revenues and the whole as
+    SalesRevenueNet, a tag Warren ranks below it."""
+
+    def edit(tag, row):
+        if tag == "Revenues" and row["accn"] == FY2019_10K and row["end"] == f"{year}-12-31":
+            if row.get("start") == f"{year}-01-01":
+                return [("Revenues", {**row, "val": row["val"] / 3}), ("SalesRevenueNet", row)]
+        return row
+
+    return edit
+
+
+def test_a_part_tagged_as_the_whole_is_skipped_and_the_line_says_so(make_company):
+    conn = make_company(_part_as_revenues(2019))
+    r = reported_period(conn, "TST", "FY2019", AS_OF)
+    line = r.line("revenue")
+    whole = sum(revenue(2019, q) for q in (1, 2, 3, 4))
+    assert line.value == pytest.approx(whole)
+    assert line.latest.xbrl_concept == "us-gaap:SalesRevenueNet"
+    assert line.first_reported.value == pytest.approx(whole) and not line.changed
+    [note] = line.part_notes
+    assert note.code == "part_as_whole_skipped"
+    params = note.params
+    assert (params["item"], params["period"], params["input_start"], params["input_end"]) == (
+        "revenue",
+        "FY2019",
+        "2019-01-01",
+        "2019-12-31",
+    )
+    assert params["used"]["xbrl_concept"] == "us-gaap:SalesRevenueNet"
+    assert params["skipped"] == {
+        "accession_no": FY2019_10K,
+        "form": "10-K",
+        "filed_at": "2020-02-15",
+        "value": pytest.approx(whole / 3),
+        "xbrl_concept": "us-gaap:Revenues",
+    }
+    margin = {n.code: n.params for n in r.ratio("operating_margin").notes}
+    assert margin["uses_part_checked_line"] == {"items": ["revenue"], "periods": ["FY2019"]}
+    growth = {n.code: n.params for n in r.ratio("revenue_growth_yoy").notes}
+    assert growth["uses_part_checked_line"] == {"items": ["revenue"], "periods": ["FY2019"]}
+    assert all(x.part_notes == [] for x in r.lines if x.name != "revenue")
+    assert "uses_part_checked_line" not in {n.code for n in r.ratio("effective_tax_rate").notes}
+
+
+def test_a_prior_year_part_is_noted_where_the_older_figure_is_kept(make_company):
+    """The FY2019 10-K's part for 2018 is skipped: 2018 keeps the FY2018 10-K's whole under the
+    best tag, and the line still says why the newer filing's figure is not used."""
+    conn = make_company(_part_as_revenues(2018))
+    r = reported_period(conn, "TST", "FY2018", AS_OF)
+    line = r.line("revenue")
+    assert line.value == pytest.approx(sum(revenue(2018, q) for q in (1, 2, 3, 4)))
+    assert line.latest.xbrl_concept == "us-gaap:Revenues"
+    assert [n.params["skipped"]["accession_no"] for n in line.part_notes] == [FY2019_10K]
+    [prior] = reported_period(conn, "TST", "FY2019", AS_OF).prior_lines
+    assert prior.part_notes and prior.part_notes[0].params["period"] == "FY2018"
+
+
+def test_no_part_note_before_the_filing_is_public(make_company):
+    conn = make_company(_part_as_revenues(2018))
+    line = reported_period(conn, "TST", "FY2018", date(2020, 2, 14)).line("revenue")
+    assert line.part_notes == []
+
+
+def test_the_terminal_and_json_show_the_skipped_part(make_company):
+    conn = make_company(_part_as_revenues(2019))
+    r = reported_period(conn, "TST", "FY2019", AS_OF)
+    assert f"as us-gaap:Revenues in 10-K {FY2019_10K} filed 2020-02-15, was skipped" in (
+        cli.render_reported(r)
+    )
+    lines = json.loads(json.dumps(r.to_dict()))["lines"]
+    line = next(x for x in lines if x["name"] == "revenue")
+    assert line["part_notes"][0]["code"] == "part_as_whole_skipped"
+    assert all(x["part_notes"] == [] for x in lines if x["name"] != "revenue")
+
+
 # -- backlog #324: a quarter its filing gave only under a lower-ranked tag ---------------------
 
 
