@@ -71,6 +71,7 @@ THRESHOLDS = {
         "nt_10k": math_engine.NT_EXTENSION_10K_DAYS,
     },
     "shares_cover_differs": {"tolerance": math_engine.SHARES_TOLERANCE},
+    "shares_scale_mismatch": {"tolerance": math_engine.SHARES_TOLERANCE},
     "cost_of_debt_out_of_bounds": dict(
         zip(("low", "high"), math_engine.COST_OF_DEBT_BOUNDS, strict=True)
     ),

@@ -196,6 +196,20 @@ WARNING_LESSONS = {
         "rule D4, shares (docs/build-plan.md); the 10% line is a working rule, "
         "math_engine.SHARES_TOLERANCE",
     ),
+    "shares_scale_mismatch": Lesson(
+        "data",
+        "Two share counts for the company are about a thousand or a million times apart "
+        "(within {tolerance}%), which no buyback does (splits are already adjusted for), so one "
+        "was filed in the wrong unit (thousands or millions, with nothing saying so). Warren "
+        "leaves that count out; used, it would put the market value and every per-share figure "
+        "off by the same factor, so check any share count against the cover page before "
+        "dividing by it.",
+        {"tolerance": math_engine.SHARES_TOLERANCE},
+        "SEC Office of Structured Disclosure, Scaling Errors Between Entity Common Stock Shares "
+        "Outstanding and Common Stock Shares Outstanding (Nov 19, 2020)",
+        "math_engine.share_scale (backlog #343); the 10% line is a working rule, "
+        "math_engine.SHARES_TOLERANCE",
+    ),
     "margin_quarter_two_bases": Lesson(
         "data",
         "In one of the quarters the operating margin is averaged over, the figures do not all "

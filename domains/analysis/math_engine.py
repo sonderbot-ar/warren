@@ -87,6 +87,7 @@ ANNUAL_MIN_DAYS = 300  # a flow longer than this is a fiscal year's (52 or 53 we
 TAX_RATE_BOUNDS = (0.0, 0.5)
 COST_OF_DEBT_BOUNDS = (0.0, 0.15)
 SHARES_TOLERANCE = 0.10  # cover-page vs diluted shares
+SHARE_SCALES = (1_000, 1_000_000)  # the steps between units a filing states (thousands, millions)
 TERMINAL_SPREAD_WARNING = 0.03  # WACC − terminal growth below this: the terminal value dominates
 MARGIN_SIGMAS = 2
 ERP_INFO_FIRST_YEARS = (1999, 2009)  # alternative windows, shown for information only
@@ -806,10 +807,26 @@ def _balance(history: History, base_date: date, result: EngineResult) -> date:
     return balance_date
 
 
+def share_scale(a: float, b: float) -> int | None:
+    """1,000 or 1,000,000 when two share counts, either way round, are that many times apart
+    within `SHARES_TOLERANCE`: one of them was filed in the wrong unit (backlog #343); else None.
+
+    A thousand is the step between the units filings state (thousands, millions); no split or
+    buyback comes near it, so a gap of that size is a unit error, not a change in the count."""
+    if not (a > 0 and b > 0):
+        return None
+    ratio = max(a, b) / min(a, b)
+    for scale in SHARE_SCALES:
+        if abs(ratio / scale - 1) <= SHARES_TOLERANCE:
+            return scale
+    return None
+
+
 def _shares(
     conn: sqlite3.Connection, history: History, result: EngineResult, price: PricePoint
 ) -> float:
-    """Cover-page shares outstanding, split-adjusted to the price date (D4); diluted as fallback."""
+    """Cover-page shares outstanding, split-adjusted to the price date (D4); diluted as fallback,
+    skipping a diluted count filed in the wrong unit (backlog #343)."""
 
     def basis(fact: Fact) -> date:
         # a cover-page count is as of its own date; statement share counts in a filing made
@@ -820,18 +837,47 @@ def _shares(
         factor = price_split_factor(conn, result.ticker, basis(fact), price.date)
         return fact.value * factor, factor
 
+    def wrong_unit(params: dict, fact: Fact, value: float, scale: int) -> dict:
+        return params | {
+            "diluted_shares_adjusted": value,
+            "scale": scale,
+            "diluted_accession_no": fact.accession_no,
+            "diluted_period_end": fact.period_end.isoformat(),
+        }
+
     cover = history.instants.get("shares_outstanding", [])
     diluted = [f for (n, _y, _p), f in history.quarterly.items() if n == "diluted_shares"]
     diluted += [f for (n, _y), f in history.annual.items() if n == "diluted_shares"]
-    latest_diluted = max(diluted, key=lambda f: f.period_end) if diluted else None
+    diluted.sort(key=lambda f: f.period_end, reverse=True)
+    latest_diluted = diluted[0] if diluted else None
     if cover:
         shares, factor = adjusted(cover[-1])
         method = f"cover page: {trace(cover[-1])}"
         counted = cover[-1]
     elif latest_diluted is not None:
-        shares, factor = adjusted(latest_diluted)
-        method = f"fallback: weighted diluted shares {trace(latest_diluted)}"
-        counted = latest_diluted
+        # the newest diluted count whose unit agrees with the history's middle count (the lower
+        # middle one, so it is a filed count and always agrees with itself)
+        values = [adjusted(f)[0] for f in diluted]
+        middle = sorted(values)[(len(values) - 1) // 2]
+        for fact, value in zip(diluted, values, strict=True):
+            scale = share_scale(value, middle) if len(diluted) > 1 else None
+            if scale is None:
+                counted = fact
+                break
+            result.warn(
+                "shares_scale_mismatch",
+                wrong_unit(
+                    {"median_diluted_adjusted": middle, "tolerance": SHARES_TOLERANCE},
+                    fact,
+                    value,
+                    scale,
+                ),
+                f"Diluted shares for {fact.period_end} ({value:,.0f}) look filed in the wrong "
+                f"unit: the history's middle count ({middle:,.0f}) is about {scale:,} times "
+                f"{'larger' if middle > value else 'smaller'}; that count is not used",
+            )
+        shares, factor = adjusted(counted)
+        method = f"fallback: weighted diluted shares {trace(counted)}"
     else:
         raise EngineError(
             f"{result.ticker}: neither shares_outstanding nor diluted_shares reported"
@@ -840,7 +886,21 @@ def _shares(
         method += f"; × {factor:g} for splits up to {price.date}"
     if cover and latest_diluted is not None:
         diluted_now, _ = adjusted(latest_diluted)
-        if abs(shares / diluted_now - 1) > SHARES_TOLERANCE:
+        scale = share_scale(shares, diluted_now)
+        if scale is not None:
+            result.warn(
+                "shares_scale_mismatch",
+                wrong_unit(
+                    {"cover_shares_adjusted": shares, "tolerance": SHARES_TOLERANCE},
+                    latest_diluted,
+                    diluted_now,
+                    scale,
+                ),
+                f"Cover-page shares ({shares:,.0f}) and diluted shares ({diluted_now:,.0f}) are "
+                f"about {scale:,} times apart, so one was filed in the wrong unit; the cover-page "
+                "count is used",
+            )
+        elif abs(shares / diluted_now - 1) > SHARES_TOLERANCE:
             result.warn(
                 "shares_cover_differs",
                 {
