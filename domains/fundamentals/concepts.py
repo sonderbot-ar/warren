@@ -9,16 +9,26 @@ a different answer for an old date, so a run built from another map can't be reb
 concept_map_reported.csv holds items only the reported-figures query reads (net income to the
 parent, discontinued operations), so adding one there leaves every stored run rebuildable.
 Ingest and the `concepts` table see both files as one map.
+
+Every valuation map a run may have been made with is kept in concept_maps/<sha256>.csv (backlog
+#357), so a stored run can be rebuilt through its own map after the map is edited:
+`concept_map_in_force` shadows the `concepts` table with the run's map for the length of a block.
+Facts are only ever added and a tag with facts can't leave the map (`sync_concepts`), so the old
+map still finds every fact it used.
 """
 
 import csv
 import hashlib
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
 CONCEPT_MAP_PATH = Path(__file__).parent / "concept_map.csv"
 CONCEPT_MAP_REPORTED_PATH = Path(__file__).parent / "concept_map_reported.csv"
+# A byte-for-byte copy of each concept_map.csv a run may have been made with, named by its SHA-256.
+CONCEPT_MAPS_DIR = Path(__file__).parent / "concept_maps"
 COLUMNS = [
     "canonical_name",
     "xbrl_concept",
@@ -129,11 +139,55 @@ def load_concept_map(
     return rows
 
 
-def concept_map_sha256(path: Path = CONCEPT_MAP_PATH) -> str:
+def concept_map_sha256(path: Path | None = None) -> str:
     """Fingerprint of the valuation's concept map (concept_map.csv only): a different map can give
     different answers for old dates. The reported-only file is left out by design (backlog #157):
     no valuation reads its items, so editing it must not stop old runs from rebuilding."""
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return hashlib.sha256((path or CONCEPT_MAP_PATH).read_bytes()).hexdigest()
+
+
+def archived_concept_map(sha256: str) -> list[ConceptRow]:
+    """The valuation map with this fingerprint, from its copy in concept_maps/, plus today's
+    reported-only file (outside the fingerprint by design). Refuses a missing or altered copy."""
+    path = CONCEPT_MAPS_DIR / f"{sha256}.csv"
+    if not path.is_file():
+        raise ConceptMapError(f"No copy of concept map {sha256[:12]} in {CONCEPT_MAPS_DIR.name}/")
+    if concept_map_sha256(path) != sha256:
+        raise ConceptMapError(
+            f"The copy of concept map {sha256[:12]} in {CONCEPT_MAPS_DIR.name}/ doesn't match "
+            "its name"
+        )
+    return load_concept_map(path, CONCEPT_MAP_REPORTED_PATH)
+
+
+@contextmanager
+def concept_map_in_force(conn: sqlite3.Connection, sha256: str) -> Iterator[None]:
+    """Query facts through the map with this fingerprint for the length of the block.
+
+    Today's map: nothing changes. Another map: a temporary `concepts` table holding that map's
+    rows, which SQLite reads in place of the main one wherever a query names `concepts` without a
+    schema; it lives on this connection only, is never written to the database file, and is
+    dropped on exit, also when the block raises.
+    """
+    if sha256 == concept_map_sha256():
+        yield
+        return
+    rows = archived_concept_map(sha256)
+    if conn.execute("SELECT 1 FROM temp.sqlite_master WHERE name = 'concepts'").fetchone():
+        raise ConceptMapError("A concept map is already in force on this connection")
+    conn.execute("CREATE TEMP TABLE concepts AS SELECT * FROM main.concepts WHERE 0")
+    try:
+        conn.executemany(
+            "INSERT INTO temp.concepts (canonical_name, xbrl_concept, priority, unit, "
+            "period_type, definition) VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                (r.canonical_name, r.xbrl_concept, r.priority, r.unit, r.period_type, r.definition)
+                for r in rows
+            ],
+        )
+        yield
+    finally:
+        conn.execute("DROP TABLE IF EXISTS temp.concepts")
 
 
 def reported_only_names(path: Path = CONCEPT_MAP_REPORTED_PATH) -> set[str]:
