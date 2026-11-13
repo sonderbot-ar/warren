@@ -261,6 +261,15 @@ def test_a_larger_figure_of_the_other_sign_is_not_a_whole(ingested):
     assert revenue_for(conn, FY2024, "2025-03-01").value == 460
 
 
+def test_a_loss_is_never_read_as_a_part(ingested):
+    # a net loss of 10 beside a loss to common holders of 30 (after preferred dividends): the
+    # narrower line is larger in size, and is not the whole (analyst)
+    conn, _ = ingested
+    for value, tag in ((-10, "Revenues"), (-30, "SalesRevenueNet")):
+        add_fact(conn, tag, value, "p-23-9", "2023-02-15", FY2022)
+    assert revenue_for(conn, FY2022, "2023-03-01").value == -10
+
+
 def test_a_lower_ranked_part_is_left_alone(ingested):
     # MSFT and CAT tagged product cost under a lower-ranked tag beside the total: the best tag is
     # the larger, so nothing is skipped

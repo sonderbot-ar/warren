@@ -92,23 +92,24 @@ def _rows_by_period(
 
 
 # A filing's best-ranked tag for a period is a part tagged as the whole when the same filing gives
-# the same item and period under another mapped tag, with the same sign, at more than this many
-# times its size: P&G's 2014 10-K tagged one segment's revenue (28,400 million for FY2012) as
-# `Revenues` beside the company's 82,006 under `SalesRevenueNet` (backlog #322). A whole is never
-# smaller than its part, and two lines of one item (net sales and total revenues) never differ by
-# half, so the larger figure is the item.
+# the same item and period under another mapped tag at more than this many times its size: P&G's
+# 2014 10-K tagged one segment's revenue (28,400 million for FY2012) as `Revenues` beside the
+# company's 82,006 under `SalesRevenueNet` (backlog #322). The parts found are 2.8x and more; the
+# widest legitimate gap between an item's tags in one filing is 1.73x (KO's discontinued
+# operations, total against attributable), so twice sits between them. Positive figures only: in
+# a loss a narrower line can be the larger in size (a loss to common holders, after preferred
+# dividends, against the net loss), and a part of a loss is not a meaningful reading (analyst).
 PART_AS_WHOLE_RATIO = 2.0
 
 
 def _parts_as_whole(rows: list[sqlite3.Row]) -> tuple[list[sqlite3.Row], list[sqlite3.Row]]:
-    """One filing's rows for one period: (kept, skipped), skipping its best-ranked row while
-    another row it filed is the same sign and more than `PART_AS_WHOLE_RATIO` times as large."""
+    """One filing's rows for one period: (kept, skipped), skipping its best-ranked row while it is
+    positive and another row it filed is more than `PART_AS_WHOLE_RATIO` times as large."""
     kept, skipped = list(rows), []
     while len(kept) > 1:
         best = _best_in_filing(kept)
         if not any(
-            _sign(r["value"]) == _sign(best["value"]) != 0
-            and abs(r["value"]) > PART_AS_WHOLE_RATIO * abs(best["value"])
+            best["value"] > 0 and r["value"] > PART_AS_WHOLE_RATIO * best["value"]
             for r in kept
             if r is not best
         ):
