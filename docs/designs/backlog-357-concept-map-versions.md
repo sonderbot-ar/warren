@@ -1,6 +1,6 @@
 # Backlog #357: rebuild each stored run with the concept map it was made with
 
-Issue: https://github.com/sonderbot-ar/warren/issues/357 · Branch `backlog-357-concept-map-versions` · Status: PR open (nov.13.2026)
+Issue: https://github.com/sonderbot-ar/warren/issues/357 · Branch `backlog-357-concept-map-versions` · Version v0.9.64, merged nov.13.2026 (PR #358, merge `3973726`)
 
 ## Problem
 
