@@ -29,6 +29,7 @@ RUN_NOTE_CODES = frozenset(
         "balance_counted_zero",
         "balance_date_differs",
         "shares_cover_differs",
+        "shares_scale_mismatch",
         "cost_of_debt_out_of_bounds",
         "tax_rate_clipped",
         "margin_outside_history",
