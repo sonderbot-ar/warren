@@ -24,6 +24,7 @@ RUN_NOTE_CODES = frozenset(
         "data_warning",
         "concept_map_changed",
         "fundamentals_stale",
+        "newer_report_not_read",
         "balance_carried_forward",
         "balance_counted_zero",
         "balance_date_differs",

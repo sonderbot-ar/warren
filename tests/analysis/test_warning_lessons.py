@@ -67,6 +67,8 @@ THRESHOLDS = {
         "days_q3": math_engine.STALE_AFTER_Q3.days,
         "deadline_10k": math_engine.DEADLINE_10K_DAYS,
         "deadline_10q": math_engine.DEADLINE_10Q_DAYS,
+        "nt_10q": math_engine.NT_EXTENSION_10Q_DAYS,
+        "nt_10k": math_engine.NT_EXTENSION_10K_DAYS,
     },
     "shares_cover_differs": {"tolerance": math_engine.SHARES_TOLERANCE},
     "cost_of_debt_out_of_bounds": dict(
@@ -106,6 +108,7 @@ def test_the_stale_rule_names_each_line_with_its_own_parts():
         r"deadline plus (\d+) days",
         rule,
     )
+    assert len(lines) == 2, f"expected the 135- and 161-day clauses in the rule, read {rule!r}"
     shown = [(int(line), int(q), int(d), form, int(s)) for line, q, d, form, s in lines]
     slack = engine.DEADLINE_SLACK_DAYS
     assert shown == [
@@ -125,3 +128,19 @@ def test_the_stale_rule_names_each_line_with_its_own_parts():
 def test_text_shows_a_fraction_times_100_and_a_count_as_is():
     lesson = Lesson("data", "{a}% and {b} days.", {"a": 0.125, "b": 135}, "ref", None)
     assert lesson.text() == "12.5% and 135 days."
+
+
+def test_the_unread_report_lesson_teaches_how_the_fourth_quarter_is_worked_out():
+    """Backlog #352 (professor): the common case is a 10-K whose fourth quarter can't be
+    derived, so the lesson says how that quarter is found before saying it failed."""
+    why = WARNING_LESSONS["newer_report_not_read"].why
+    assert "no report for its fourth quarter" in why
+    assert "minus the first three quarters" in why
+    assert "at least one report behind" in why
+
+
+def test_the_stale_lesson_names_the_late_filing_notice():
+    lesson = WARNING_LESSONS["fundamentals_stale"]
+    assert "late-filing notice" in lesson.why and "12b-25" in lesson.reference
+    assert lesson.params["nt_10q"] == math_engine.NT_EXTENSION_10Q_DAYS == 5
+    assert lesson.params["nt_10k"] == math_engine.NT_EXTENSION_10K_DAYS == 15

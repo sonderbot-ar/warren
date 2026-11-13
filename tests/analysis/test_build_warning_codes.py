@@ -105,12 +105,13 @@ def without_fy2019_revenue(tag, row):
     return None if tag == "Revenues" and full_year else row
 
 
-@pytest.mark.parametrize(("as_of", "warns"), [("2020-03-09", False), ("2020-03-10", True)])
-def test_a_10k_without_a_derivable_fourth_quarter_keeps_the_third_quarter_line(
-    make_company, as_of, warns
+@pytest.mark.parametrize("as_of", ["2020-03-09", "2020-03-10"])
+def test_a_10k_without_a_derivable_fourth_quarter_says_the_newer_report_was_not_read(
+    make_company, as_of
 ):
-    """Backlog #349: the 10-K is in but its fourth quarter can't be derived, so the newest
-    quarter is still Q3 and the 161-day line applies (#342, Known limits 2)."""
+    """Backlog #352 (was #349's pin): the 10-K is in but its fourth quarter can't be derived, so
+    the newest quarter is still Q3. The run says the newer report wasn't read, at any age, and
+    not that filings may be missing, whose advice (ingest) would be wrong."""
     conn = make_company(without_fy2019_revenue)
     in_10k = conn.execute(
         "SELECT COUNT(*) FROM financial_facts WHERE form = '10-K' AND period_end = '2019-12-31'"
@@ -120,14 +121,76 @@ def test_a_10k_without_a_derivable_fourth_quarter_keeps_the_third_quarter_line(
     # the run rolls forward from Q3 2019: the fourth quarter was not derived
     roll = result.sources[("roll_years", math_engine.SINGLE)]
     assert roll == [{"kind": "derived", "inputs": [{"name": "revenue_seed", "period": "FY2019Q3"}]}]
+    assert not notes(result, "fundamentals_stale")
+    note = only(result, "newer_report_not_read")
+    days = (date.fromisoformat(as_of) - date(2019, 9, 30)).days
+    assert note.params == {
+        "last_quarter_end": "2019-09-30",
+        "newer_period_end": "2019-12-31",
+        "newer_annual": True,
+        "newer_accession_no": "0000000123-20-000015",
+        "days": days,
+    }
+    assert note.text == (
+        "The newest quarter with revenue ended 2019-09-30, but figures from the annual report "
+        "for the year ended 2019-12-31 are loaded: that period's revenue could not be read or "
+        "derived, so the run starts at least one report behind (check that filing's revenue "
+        "line)."
+    )
+
+
+def test_the_note_names_a_filing_that_gave_the_newer_figure(make_company):
+    conn = make_company(without_fy2019_revenue)
+    note = only(build_on(conn, "2020-03-09"), "newer_report_not_read")
+    filed = conn.execute(
+        "SELECT DISTINCT accession_no FROM financial_facts WHERE period_end = '2019-12-31' "
+        "AND period_start = '2019-01-01'"
+    ).fetchall()
+    assert [note.params["newer_accession_no"]] == [r[0] for r in filed]
+
+
+@pytest.mark.parametrize(("as_of", "stale"), [("2020-05-14", False), ("2020-05-15", True)])
+def test_a_report_missing_after_the_unread_one_is_still_stale(make_company, as_of, stale):
+    """Two faults (analyst): the 10-K's revenue unread, and the Q1 10-Q, due 40 days after
+    March, not in. The stale line then keys on the newer period, the year that ended
+    2019-12-31, after which the next report is a 10-Q: 135 days."""
+    result = build_on(make_company(without_fy2019_revenue), as_of)
+    assert notes(result, "newer_report_not_read")
     found = notes(result, "fundamentals_stale")
-    assert bool(found) == warns
-    if warns:
+    assert bool(found) == stale
+    if stale:
         assert found[0].params == {
-            "last_quarter_end": "2019-09-30",
-            "days": 162,
-            "threshold_days": 161,
+            "last_quarter_end": "2019-12-31",
+            "days": 135 + 1,
+            "threshold_days": 135,
         }
+
+
+def without_q1_2020_revenue(tag, row):
+    """The Q1 2020 10-Q is in, but without its revenue."""
+    q1 = row["filed"] == "2020-04-30" and row.get("start") == "2020-01-01"
+    return None if tag == "Revenues" and q1 else row
+
+
+def test_a_10q_whose_revenue_was_not_read(make_company):
+    result = build(make_company(without_q1_2020_revenue))
+    note = only(result, "newer_report_not_read")
+    assert note.params["last_quarter_end"] == "2019-12-31"
+    assert note.params["newer_period_end"] == "2020-03-31"
+    assert note.params["newer_annual"] is False
+    assert "from a report for the period ended 2020-03-31" in note.text
+    assert not notes(result, "fundamentals_stale")  # 91 days after March: the 10-Q is in
+
+
+def test_a_balance_dated_after_the_quarter_is_not_a_newer_report(company):
+    """The cover page's share count is dated after its quarter; it must not count."""
+    assert not notes(build(company), "newer_report_not_read")
+
+
+def test_a_late_report_is_stale_not_unread(make_company):
+    result = build(make_company(without_q1_2020))
+    assert not notes(result, "newer_report_not_read")
+    assert notes(result, "fundamentals_stale")
 
 
 def test_the_lines_are_built_from_the_sec_deadlines():
