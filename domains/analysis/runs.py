@@ -23,6 +23,7 @@ from domains.analysis.math_engine import (
     build_inputs,
     post_check_notes,
 )
+from domains.analysis.reading_rules import READING_RULES_VERSION
 from domains.analysis.schemas import Assumption
 from domains.analysis.text import REASON_WORDS, WARNING_LESSONS
 from domains.fundamentals.concepts import (
@@ -66,6 +67,7 @@ SNAPSHOT_COLUMNS = (
     "price_fetch_sha256",
     "index_fetch_sha256",
     "yield_fetch_sha256",
+    "reading_rules_version",  # backlog #365; NULL on runs stored before it
 )
 
 
@@ -183,10 +185,10 @@ def insert_rows(
     `runs.notes` as their texts, one per line, and to `run_notes` with their codes (backlog
     #172); a plain string is stored as `note_text`."""
     notes = [as_coded(n) for n in notes]
+    columns = ("run_id", "cik", "ticker", "as_of", "code_version", *SNAPSHOT_COLUMNS)
+    columns += ("notes", "parent_run_id")
     conn.execute(
-        "INSERT INTO runs (run_id, cik, ticker, as_of, code_version, ingest_run_id, "
-        "concept_map_sha256, price_fetch_sha256, index_fetch_sha256, yield_fetch_sha256, "
-        "notes, parent_run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        f"INSERT INTO runs ({', '.join(columns)}) VALUES ({', '.join('?' * len(columns))})",
         (
             run_id,
             run["cik"],
@@ -401,6 +403,13 @@ class Rebuild:
     sources: dict = dataclasses.field(default_factory=dict, compare=False)  # rebuilt (#175)
     notes: list = dataclasses.field(default_factory=list, compare=False)  # rebuilt (#172)
     archived_map: bool = False  # read through the run's own, older concept map (#357)
+    rules_version: int | None = None  # the run's reading rules (#365); None: not recorded
+
+    @property
+    def older_rules(self) -> bool:
+        """Made under other reading rules than today's code, or with none recorded: today's code
+        rebuilds it, so a difference in its rows is expected rather than a fault (#365)."""
+        return self.rules_version != READING_RULES_VERSION
 
     @property
     def ok(self) -> bool:
@@ -472,7 +481,13 @@ def rebuild(
             if getattr(before, field) != getattr(after, field):
                 mismatches.append((*key, field))
     return Rebuild(
-        run_id, len(stored), mismatches, result.sources, result.notes, archived_map=archived
+        run_id,
+        len(stored),
+        mismatches,
+        result.sources,
+        result.notes,
+        archived_map=archived,
+        rules_version=run["reading_rules_version"],
     )
 
 

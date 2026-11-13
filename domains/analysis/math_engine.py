@@ -28,6 +28,7 @@ from domains.analysis import financial_math as fm
 from domains.analysis import sources as src
 from domains.analysis.coded import Coded, coded_warnings, pass_on
 from domains.analysis.dcf import QUARTERS, SEED, YEARS
+from domains.analysis.reading_rules import READING_RULES_VERSION
 from domains.analysis.schemas import SINGLE, Assumption
 from domains.fundamentals.concepts import concept_map_sha256
 from domains.fundamentals.facts import (
@@ -1385,6 +1386,7 @@ def _snapshot(conn: sqlite3.Connection, cik: str, ticker: str, price: PricePoint
         "ingest_run_id": ingest["run_id"],
         "concept_map_sha256": concept_map_sha256(),
         "ingest_concept_map_sha256": ingest["concept_map_sha256"],
+        "reading_rules_version": READING_RULES_VERSION,
         "price_fetch_sha256": selected_fetch(conn, "yahoo", ticker)["content_sha256"],
     }
 

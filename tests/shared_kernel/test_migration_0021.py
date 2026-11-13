@@ -15,7 +15,7 @@ def test_0021_adds_the_table_and_keeps_stored_runs(db_path, tmp_path):
         _insert_run(conn)
         conn.execute("UPDATE runs SET notes = 'an older warning'")
         conn.commit()
-        assert apply_migrations(conn) == [21, 22]
+        assert apply_migrations(conn) == [21, 22, 23]
         assert conn.execute("SELECT notes FROM runs").fetchone()[0] == "an older warning"
         assert conn.execute("SELECT COUNT(*) FROM run_notes").fetchone()[0] == 0
 

@@ -31,7 +31,7 @@ def test_0022_adds_the_table_and_keeps_stored_facts(db_path, tmp_path):
             (CIK,),
         )
         conn.commit()
-        assert apply_migrations(conn) == [22]
+        assert apply_migrations(conn) == [22, 23]
         assert conn.execute("SELECT COUNT(*) FROM financial_facts").fetchone()[0] == 1
         assert conn.execute("SELECT COUNT(*) FROM filing_labels").fetchone()[0] == 0
 
