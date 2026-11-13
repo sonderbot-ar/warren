@@ -33,6 +33,13 @@ Left out, by a written list with a reason each (`NOT_RULES`): `coded.py` (notes 
   - Exit: full suite green.
 - **Step 3. Real data, before merge.** On the restored snapshot (`20261110T202538Z`): the migration applies; all stored runs read NULL; `reproduce --all` still 903 of 903 to the cent; `reproduce --all --rebuild` gives the same counts as v0.9.64's Step 3 on `main` (903 of 903 to the cent, 821 of 903 identical rows), with each line now saying "reading rules not recorded"; one fresh run stores version 1. Also counted, for the app (product lead): how many stored runs carry `unknown` or a `+dirty` code version.
 
+## Step 3 results (nov.13.2026, snapshot `20261110T202538Z`)
+
+- **The migration applies** to the restored database (schema 22 to 23); all 903 stored runs read NULL.
+- **Nothing else moves.** `reproduce --all --rebuild` on this branch: 903 of 903 reproduce to the cent and 821 of 903 rebuild to identical rows, the same counts as on `main` (v0.9.64's Step 3); every line now ends "reading rules not recorded". 2 minutes 40 seconds.
+- **A fresh run stores version 1.** KO as of 2026-10-30 stored `reading_rules_version` 1 and rebuilt `ok`, not older; then deleted, so the database is back to 903 runs.
+- **For the app's fallback (product lead):** 0 stored runs carry `unknown`, **519 of 903 carry a `+dirty` code version**, and 8 distinct code versions in all. So case (c) says "may differ" for most stored pairs; the rebuild-based backfill (follow-up) is what would quiet it.
+
 ## Alternatives considered
 
 - **Compare `code_version`.** Already stored, but it changes on every commit, so the app would flag nearly every pair of runs. Rejected as the main field; it stays the fallback for runs with no version.
