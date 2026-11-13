@@ -1,6 +1,6 @@
 # Backlog #322: skip a part a filing tagged as the whole
 
-Issue: https://github.com/sonderbot-ar/warren/issues/322 · Branch `backlog-322-part-as-whole` · Status: in review.
+Issue: https://github.com/sonderbot-ar/warren/issues/322 · Branch `backlog-322-part-as-whole` · Status: merged as v0.9.65 (PR #361, merge `2b901de`, nov.13.2026).
 
 Owner decision (nov.13.2026, decision card): "General rule (recommended)": a general rule in the selection, recorded as an amendment to Decision 2, rather than a one-off fix for P&G.
 
