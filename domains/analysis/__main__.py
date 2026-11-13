@@ -47,6 +47,7 @@ from domains.analysis.montecarlo import (
     reproduce_simulation,
     save_simulation,
 )
+from domains.analysis.reading_rules import READING_RULES_VERSION
 from domains.analysis.report import write_report
 from domains.analysis.reported import (
     ReportedError,
@@ -184,6 +185,13 @@ def cmd_reproduce(args: argparse.Namespace) -> int:
                 else:
                     status = "MISMATCH"
                 under = " under the run's own concept map" if rebuilt.archived_map else ""
+                if rebuilt.rules_version is None:
+                    under += "; reading rules not recorded"
+                elif rebuilt.older_rules:
+                    under += (
+                        f"; made under older reading rules (v{rebuilt.rules_version}, "
+                        f"today v{READING_RULES_VERSION})"
+                    )
                 print(f"         rebuild {status}, {rebuilt.rows_checked} rows{under}")
                 if not rebuilt.values_ok:
                     for name, period, what in rebuilt.mismatches:

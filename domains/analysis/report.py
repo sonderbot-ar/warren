@@ -179,6 +179,8 @@ def render(conn: sqlite3.Connection, run_id: str) -> str:
             )
 
     lines += ["", "## Warnings", ""] + (_warning_lines(conn, run_id) or ["None."])
+    version = run["reading_rules_version"]
+    rules = f"v{version}" if version is not None else "not recorded (made before v0.9.67)"
     lines += [
         "",
         "## Owner's choices",
@@ -191,7 +193,7 @@ def render(conn: sqlite3.Connection, run_id: str) -> str:
         "",
         f"- Code version `{run['code_version']}`",
         f"- Fundamentals: ingest run {run['ingest_run_id']}, concept map "
-        f"`{run['concept_map_sha256'][:12]}`",
+        f"`{run['concept_map_sha256'][:12]}`, reading rules {rules}",
         f"- Prices `{run['price_fetch_sha256'][:12]}` · index `{run['index_fetch_sha256'][:12]}` "
         f"· risk-free `{run['yield_fetch_sha256'][:12]}` (content hashes of the downloads)",
         f"- Reproduce: `python -m domains.analysis reproduce --run-id {run_id}`",
