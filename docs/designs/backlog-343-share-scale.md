@@ -1,6 +1,6 @@
 # Backlog #343: a share count filed in the wrong unit is named, and never used
 
-Issue: https://github.com/sonderbot-ar/warren/issues/343 · Branch `backlog-343-share-scale` · Version v0.9.66 (to merge)
+Issue: https://github.com/sonderbot-ar/warren/issues/343 · Branch `backlog-343-share-scale` · Version v0.9.66 (PR open)
 
 ## Problem
 
@@ -26,6 +26,14 @@ What that does today (`domains/analysis/math_engine.py`, `_shares`):
   - Tests: Test Corp without the cover tag and with its newest diluted count divided by 1,000,000: the run uses the previous quarter's count and notes the skip; with every diluted count consistent, nothing changes (existing fallback test). Divided by 1,000 also skipped.
   - Exit: tests pass.
 - **Step 3. Real data.** On the snapshot (nov.10): list every `diluted_shares` and `shares_outstanding` fact whose value is a power of 1,000 away from the same company's neighbouring facts (a one-off SQL check, results here, not committed code); rebuild every stored run and count the notes that move from `shares_cover_differs` to `shares_scale_mismatch`; check that no stored run's values change (`reproduce --all`, `rebuild` values). Exit: the counts written here, every stored run reproducing.
+
+## Real data (Step 3, nov.13.2026)
+
+Snapshot of nov.10.2026 (903 stored baseline runs), restored on this run.
+
+- **Scan.** Of 3,904 share-count facts (diluted and cover page) for the eight companies, the only ones a power of a thousand away from their neighbours are Coca-Cola's: its 10-Qs 0000021344-18-000023 (Q1 2017 comparatives), 0000021344-18-000042 (Q3 2017 and 2018) and 0000021344-19-000028 (Q1 2018 and 2019) file weighted shares in millions with no scale, and the 10-Q 0000021344-19-000034 files Q2 2018 in units while its neighbours are those millions. No cover-page count is off by a power of a thousand, so the case in Known limits (a wrong cover count) does not occur in the data.
+- **Notes.** Every stored run rebuilt in memory on this branch: the 5 stored `shares_cover_differs` notes (KO 2019-05-01, 05-15, 06-01, 07-01, 07-23) become `shares_scale_mismatch` (4,266,115,111 against 4,306, scale 1,000,000); no other run gains or loses a share note. Stored notes are not rewritten (product lead): those five runs keep their old note, whose lesson still names a wrong unit.
+- **Values.** The runs whose rebuilt rows differ in value are the same 82 on `main` and on this branch, with the same rows (the runs v0.9.41, #264, already rebuilds differently; none on `shares` or market value); `reproduce --all`: 903 of 903 OK. No stored run used the fallback on a mis-scaled count.
 
 ## Alternatives considered
 
