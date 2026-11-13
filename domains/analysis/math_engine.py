@@ -78,6 +78,12 @@ DEADLINE_10K_DAYS = 60
 DEADLINE_SLACK_DAYS = 3
 STALE_AFTER = timedelta(days=QUARTER_DAYS + DEADLINE_10Q_DAYS + DEADLINE_SLACK_DAYS)  # 135
 STALE_AFTER_Q3 = timedelta(days=LONG_QUARTER_DAYS + DEADLINE_10K_DAYS + DEADLINE_SLACK_DAYS)  # 161
+# A late-filing notice (Form NT 10-Q or NT 10-K, Exchange Act Rule 12b-25(b)) gives 5 or 15 more
+# days, and a report filed within them counts as on time. The lines above do not add them: the
+# stale lesson names the case instead (backlog #352).
+NT_EXTENSION_10Q_DAYS = 5
+NT_EXTENSION_10K_DAYS = 15
+ANNUAL_MIN_DAYS = 300  # a flow longer than this is a fiscal year's (52 or 53 weeks)
 TAX_RATE_BOUNDS = (0.0, 0.5)
 COST_OF_DEBT_BOUNDS = (0.0, 0.15)
 SHARES_TOLERANCE = 0.10  # cover-page vs diluted shares
@@ -449,21 +455,68 @@ def _last_actual_quarter(history: History, result: EngineResult) -> tuple[int, i
     if not revenue:
         raise EngineError(f"{result.ticker}: no quarterly revenue reported by {result.as_of}")
     last = max(revenue, key=lambda f: f.period_end)
-    line = STALE_AFTER_Q3 if last.fiscal_period == "Q3" else STALE_AFTER  # 10-K next, or a 10-Q
-    if result.as_of - last.period_end > line:
-        days = (result.as_of - last.period_end).days
+    days = (result.as_of - last.period_end).days
+    newer = _newer_figure(history, last.period_end)
+    if newer is not None:
+        # A newer report is loaded but its revenue wasn't read or derived (backlog #352): say so
+        # whatever the age; the stale line then keys on the newer period, since "ingest" would be
+        # the wrong advice for the unread one.
+        annual = (newer.period_end - newer.period_start).days > ANNUAL_MIN_DAYS
+        report = "the annual report for the year" if annual else "a report for the period"
+        result.warn(
+            "newer_report_not_read",
+            {
+                "last_quarter_end": last.period_end.isoformat(),
+                "newer_period_end": newer.period_end.isoformat(),
+                "newer_annual": annual,
+                "newer_accession_no": newer.accession_no,
+                "days": days,
+            },
+            f"The newest quarter with revenue ended {last.period_end}, but figures from {report} "
+            f"ended {newer.period_end} are loaded: that period's revenue could not be read or "
+            "derived, so the run starts at least one report behind (check that filing's revenue "
+            "line).",
+        )
+        # A second fault, a report after the newer one missing too, is still stale (analyst).
+        _warn_if_stale(result, newer.period_end, "Q4" if annual else newer.fiscal_period)
+    else:
+        _warn_if_stale(result, last.period_end, last.fiscal_period)
+    return last.fiscal_year, int(last.fiscal_period[1]), last.period_end
+
+
+def _warn_if_stale(result: EngineResult, period_end: date, fiscal_period: str | None) -> None:
+    """`fundamentals_stale` when the next report after the period ending `period_end` is past
+    its line: after a Q3 the next report is the 10-K, otherwise a 10-Q (backlog #342)."""
+    line = STALE_AFTER_Q3 if fiscal_period == "Q3" else STALE_AFTER
+    days = (result.as_of - period_end).days
+    if result.as_of - period_end > line:
         result.warn(
             "fundamentals_stale",
             {
-                "last_quarter_end": last.period_end.isoformat(),
+                "last_quarter_end": period_end.isoformat(),
                 "days": days,
                 "threshold_days": line.days,
             },
-            f"Fundamentals may be stale: the last reported quarter ended {last.period_end}, "
-            f"{(result.as_of - last.period_end).days} days before the as-of date (check that "
-            "the newest filings are ingested).",
+            f"Fundamentals may be stale: the last reported quarter ended {period_end}, "
+            f"{days} days before the as-of date (check that the newest filings are ingested).",
         )
-    return last.fiscal_year, int(last.fiscal_period[1]), last.period_end
+
+
+def _newer_figure(history: History, last_quarter_end: date) -> Fact | None:
+    """A flow figure (one over a period, quarterly or annual) in the history that ends after the
+    newest revenue quarter, or None: the latest such end, the longest period on it, a reported
+    figure before a derived one (so its filing can be named). Balances are left out: the cover
+    page's share count is dated after the quarter it belongs to (backlog #352)."""
+    newer = [
+        f
+        for f in (*history.quarterly.values(), *history.annual.values())
+        if f.period_start is not None and f.period_end > last_quarter_end
+    ]
+    return max(
+        newer,
+        key=lambda f: (f.period_end, f.period_end - f.period_start, not f.derived),
+        default=None,
+    )
 
 
 def _history_years(history: History, last_year: int, result: EngineResult) -> list[int]:

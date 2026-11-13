@@ -114,23 +114,44 @@ WARNING_LESSONS = {
         "({days_q3} after a third quarter, because no quarterly report is filed for the fourth "
         "quarter and the annual report that covers it is due {deadline_10k} days after the year "
         "ends, not {deadline_10q}), so the next report should already be out. Warren may be "
-        "missing a filing, or the company filed late: check the company's list of filings.",
+        "missing a filing, the company filed late, or it filed a late-filing notice by the next "
+        "business day, which keeps the report on time if it arrives within {nt_10q} more "
+        "calendar days for a quarterly report or {nt_10k} for an annual one: check the "
+        "company's list of filings.",
         {
             "days": math_engine.STALE_AFTER.days,
             "days_q3": math_engine.STALE_AFTER_Q3.days,
             "deadline_10k": math_engine.DEADLINE_10K_DAYS,
             "deadline_10q": math_engine.DEADLINE_10Q_DAYS,
+            "nt_10q": math_engine.NT_EXTENSION_10Q_DAYS,
+            "nt_10k": math_engine.NT_EXTENSION_10K_DAYS,
         },
         "SEC Form 10-Q, General Instruction A.1, and Form 10-K, General Instruction A(2)(a) "
         "(large accelerated filers); Exchange Act Rule 0-3 (a deadline on a weekend or holiday "
-        "moves to the next business day)",
+        "moves to the next business day); Exchange Act Rule 12b-25(b) (Form NT 10-K and NT 10-Q, "
+        "the late-filing notice)",
         f"both lines are working rules (math_engine.STALE_AFTER and STALE_AFTER_Q3): "
         f"{math_engine.STALE_AFTER.days} days is a {math_engine.QUARTER_DAYS}-day quarter plus "
         f"the {math_engine.DEADLINE_10Q_DAYS}-day 10-Q deadline plus "
         f"{math_engine.DEADLINE_SLACK_DAYS} days; {math_engine.STALE_AFTER_Q3.days} days is a "
         f"{math_engine.LONG_QUARTER_DAYS}-day fourth quarter (14 weeks, in a 53-week year) plus "
         f"the {math_engine.DEADLINE_10K_DAYS}-day 10-K deadline plus "
-        f"{math_engine.DEADLINE_SLACK_DAYS} days",
+        f"{math_engine.DEADLINE_SLACK_DAYS} days; the late-filing notice's "
+        f"{math_engine.NT_EXTENSION_10Q_DAYS} and {math_engine.NT_EXTENSION_10K_DAYS} extra days "
+        "are not added to either line, so a run can warn about a report that is still on time",
+    ),
+    "newer_report_not_read": Lesson(
+        "data",
+        "A company files no report for its fourth quarter, so Warren works that quarter's revenue "
+        "out as the year's revenue from the annual report minus the first three quarters, and "
+        "reads every other quarter from its own report. Here a newer report is loaded but that "
+        "revenue could not be read or worked out, so the run starts from an earlier quarter and "
+        "is at least one report behind: check the revenue line in the report this warning names.",
+        {},
+        None,
+        "Warren's own check (math_engine._last_actual_quarter): a figure for a period that ends "
+        "after the newest quarter with revenue means a newer report is loaded; balances are not "
+        "counted, since the cover page's share count is dated after its quarter",
     ),
     "balance_carried_forward": Lesson(
         "data",
