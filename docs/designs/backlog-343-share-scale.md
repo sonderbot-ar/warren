@@ -1,6 +1,6 @@
 # Backlog #343: a share count filed in the wrong unit is named, and never used
 
-Issue: https://github.com/sonderbot-ar/warren/issues/343 · Branch `backlog-343-share-scale` · Version v0.9.66 (PR open)
+Issue: https://github.com/sonderbot-ar/warren/issues/343 · Branch `backlog-343-share-scale` · Version v0.9.66 (merged nov.13.2026, PR #367, merge `146b018`)
 
 ## Problem
 
@@ -54,7 +54,7 @@ Snapshot of nov.10.2026 (903 stored baseline runs), restored on this run.
 
 ## Files to change
 
-`domains/analysis/math_engine.py`, `domains/analysis/coded.py`, `domains/analysis/text.py`, `tests/analysis/test_build_warning_codes.py`, `tests/analysis/test_warning_lessons.py`, a new `tests/analysis/test_share_scale.py`, this doc; at merge `docs/versions.md` and `docs/team-sync.md`.
+`domains/analysis/math_engine.py`, `domains/analysis/coded.py`, `domains/analysis/text.py`, `tests/analysis/test_warning_lessons.py`, a new `tests/analysis/test_share_scale.py` (the build-warning tests went there rather than into `test_build_warning_codes.py`), this doc; at merge `docs/versions.md` and `docs/team-sync.md`.
 
 ## Product impact
 
@@ -66,3 +66,7 @@ Built with its tests before review (Steps 1–2), as on #322. Professor and prod
 
 - **Professor: NO-GO, one blocker, taken.** The lesson cited Inline XBRL's `scale` attribute, but KO's 2019 10-Q is plain XBRL (a separate instance file), so that names a mechanism the motivating filing does not use: the reference is now the SEC Office of Structured Disclosure notice on scaling errors in share counts (Nov 19, 2020). Suggestions **taken**: "no buyback does (splits are already adjusted for)", since a 1-for-1,000 reverse split exists at microcaps and splits are adjusted before the test; dual-class companies and the SEC's hundredfold test in Known limits. Method judged defensible; skipping rather than rescaling judged right (Decision 2). DQC_0095 could not be opened from the session (xbrl.us blocked), so it is not cited.
 - **Product lead: NO-GO, one blocker, taken.** Dropping "or a figure filed in the wrong unit" from `shares_cover_differs`'s lesson would make stored runs (KO 2019 among them) show a lesson that rules out their own cause: the clause stays. Asked Product impact to say the count used is in the `shares` assumption's source and that the fallback can give more than one note: **taken**. Nothing in `webapp/` reads run notes yet; the Spanish text goes to #344.
+
+## PR review (nov.13.2026)
+
+Gatekeeper: GO, no blockers. 2,220 passed, 10 skipped (the browser tests, no Chromium); ruff clean; `reproduce --all` 903 of 903; CI green. Nit taken at merge: the files list named a test file the PR did not touch. Ideas filed as #368: a small count printing as "(0)" in the fallback's text, the SEC's hundredfold check in the data-quality report, telling which count is wrong when the cover page is the mis-scaled one, and dual-class companies.
