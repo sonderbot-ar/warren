@@ -40,11 +40,11 @@ Run notes already have codes (#172), and so do simulation refusals (`montecarlo.
   | `no_share_count` | `_shares` | `ticker`, `reason`: `none_reported` or `none_above_zero`; with the second, `skipped`: the counts left out (each `shares_not_positive` note's params), since a refused run stores no notes |
   | `no_interest_with_debt` | `_cost_of_debt` | `ticker`, `fiscal_years` |
   | `market_data_not_loaded` | `market.store.require_coverage`, `market.prices.split_factor` | `source`, `symbol` |
-  | `market_data_not_refreshed` | `require_coverage` (download made before the date ended) | `source`, `symbol`, `fetched_at` (as stored, UTC), `as_of`, `covered_through` (the newest date that download serves, ISO) |
+  | `market_data_not_refreshed` | `require_coverage` (download made before the date ended) | `source`, `symbol`, `fetched_at` (as stored, UTC), `as_of`, `covered_through` (the newest date that download serves, ISO); from v0.9.71 (#381) also `all_covered_through` (the newest date all three series serve, ISO, or null) |
   | `no_price_on_date` | `raw_close` | `ticker`, `as_of` |
   | `no_risk_free_rate` | `risk_free_rate` | `series`, `as_of` |
   | `too_few_return_weeks` | `aligned_weekly_returns` | `ticker`, `as_of`, `found`, `needed` |
-  | `erp_too_few_years` | `equity_risk_premium` | `as_of`, `first_year`, `last_year`, `min_years` |
+  | `erp_too_few_years` | `equity_risk_premium` | `as_of`, `first_year`, `last_year`, `min_years`; from v0.9.71 (#381) also `first_as_of` (the first as-of date with enough years, ISO) |
   | `market_year_end_missing` | `year_end_values` (index or bond year-end, for the ERP) | `what`, `year` |
   | `no_base_value` | `runs.run_baseline` (the valuation after the build: terminal growth at or above WACC, or a rate not above zero; analyst) | `ticker`, `as_of`, `reason` (`growth_not_below_rate`, `rate_not_positive`, `rate_not_above_minus_100`) |
 
