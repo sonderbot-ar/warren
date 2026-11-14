@@ -65,6 +65,7 @@ def test_a_newest_cover_count_not_above_zero_gives_way_to_the_one_before(company
         "value": value,
         "accession_no": note.params["accession_no"],
         "period_end": NEWEST_COVER_END,
+        "divisor": True,
     }
     assert note.params["accession_no"]
     assert note.text == (
@@ -89,6 +90,7 @@ def test_with_every_cover_count_at_zero_the_fallback_is_used_and_the_newest_note
     (note,) = notes(result)
     assert note.params["count"] == "cover"
     assert note.params["period_end"] == NEWEST_COVER_END
+    assert note.params["divisor"] is True
 
 
 def test_a_newest_diluted_count_of_zero_beside_the_cover_is_not_compared(make_company):
@@ -98,12 +100,13 @@ def test_a_newest_diluted_count_of_zero_beside_the_cover_is_not_compared(make_co
     (note,) = notes(result)
     assert note.params["count"] == "diluted"
     assert note.params["period_end"] == "2020-03-31"
+    assert note.params["divisor"] is False  # only the check beside the cover count read it
     assert note.text.startswith("Diluted shares for 2020-03-31 are filed as 0 (")
     assert not notes(result, "shares_cover_differs")
     assert not notes(result, "shares_scale_mismatch")
 
 
-def test_the_fallback_skips_a_diluted_count_of_zero(make_company):
+def test_the_fallback_skips_a_diluted_count_not_above_zero(make_company):
     conn = make_company(newest_diluted(-100.0))
     conn.execute("DELETE FROM financial_facts WHERE xbrl_concept = ?", (COVER,))
     result = build(conn)
@@ -113,6 +116,7 @@ def test_the_fallback_skips_a_diluted_count_of_zero(make_company):
     (note,) = notes(result)
     assert note.params["count"] == "diluted"
     assert note.params["value"] == -100.0
+    assert note.params["divisor"] is True
     assert not notes(result, "shares_scale_mismatch")
 
 

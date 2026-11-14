@@ -18,7 +18,7 @@ No stored run and no run possible today reads the 2009 zero: runs start at 2019-
 
 - **Step 0.** This design doc. No build plan change (backlog item).
 - **Step 1. Skip counts not above zero, and say so.** In `_shares`, cover and diluted counts are each filtered to those above zero before anything is chosen or compared (`positive(...)` inside `_shares`):
-  - A count of zero or below that is **newer than the newest count above zero** (so it would have been the one used or compared) gives run note `shares_not_positive`, params `count` (`cover` or `diluted`), `value` (as filed), `accession_no` and `period_end` (ISO), so the app can link the filing. English: "Cover-page shares for 2020-04-20 are filed as 0 (0000000123-20-000016); a share count must be above zero, so that count is not used".
+  - A count of zero or below that is **newer than the newest count above zero** (so it would have been the one used or compared) gives run note `shares_not_positive`, params `count` (`cover` or `diluted`), `value` (as filed), `accession_no` and `period_end` (ISO), so the app can link the filing, and `divisor` (true when the skipped count would have been the run's share count; false for a diluted count that only fed the check beside a cover count, so the app can say the value did not move). English: "Cover-page shares for 2020-04-20 are filed as 0 (0000000123-20-000016); a share count must be above zero, so that count is not used".
   - With **no count above zero** of that kind, only the newest is noted (one note, not one per filing), and `_shares` falls back as before (cover → diluted).
   - An **older** count of zero or below is left out silently: it would never have been used, and noting it would put Coca-Cola's 2009 filing on every KO run. It only leaves the fallback's middle count (#343), where a zero has no meaning anyway.
   - With no count above zero at all, `EngineError("<ticker>: no share count above zero reported")` (the old message stays when nothing was filed).
@@ -34,7 +34,7 @@ _Filled in below when the checks finish._
 
 ## Alternatives considered
 
-- **Raise `EngineError` on any count of zero or below** (the issue's second option). Rejected: an earlier filed count above zero is a real number, at most a quarter older, and #343 already set the pattern of skipping a bad count with a note rather than refusing the run.
+- **Raise `EngineError` on any count of zero or below** (the issue's second option). Rejected: an earlier filed count above zero is a real number, usually a quarter older, and #343 already set the pattern of skipping a bad count with a note rather than refusing the run.
 - **Drop the fact at ingest.** Rejected: facts are stored as filed (Decision 2); changing what is stored is an amendment the owner approves (#280, #322). The engine never needs the zero, so the fix stays in the engine.
 - **Note every count of zero or below in the history.** Rejected: a 2009 filing error would appear on every Coca-Cola run though it changes nothing they read.
 
@@ -51,4 +51,11 @@ _Filled in below when the checks finish._
 
 ## Product impact
 
-Brief: the run warnings the app shows (the "Datos" group, v0.9.60) and every question that shows a value per share (Q1–Q5); no answer changes today. Added: run-note code `shares_not_positive` (group `data`; params `count` (`cover` or `diluted`), `value`, `accession_no`, `period_end`) and its lesson (no params). The count used and its filing stay in the `shares` assumption's source. A run can carry more than one (one per newer count skipped, cover and diluted apart). Changed: a run whose shares are all zero or below is refused with "no share count above zero reported" instead of a crash. Nothing renamed or removed. Runs record reading rules v2 from now on. Effect on the front-end team: add the code and its lesson to the Spanish catalogue (#344).
+Brief: the run warnings the app shows (the "Datos" group, v0.9.60) and every question that shows a value per share (Q1–Q5); no answer changes today. Added: run-note code `shares_not_positive` (group `data`; params `count` (`cover` or `diluted`), `value`, `accession_no`, `period_end`, `divisor`) and its lesson (no params). The count used and its filing stay in the `shares` assumption's source. A run can carry more than one (one per newer count skipped, cover and diluted apart). Changed: a run whose shares are all zero or below is refused with "no share count above zero reported" instead of a crash. Nothing renamed or removed. Runs record reading rules v2 from now on. Effect on the front-end team: add the code and its lesson to the Spanish catalogue (#344).
+
+## Design review (nov.14.2026)
+
+Built with its tests before review (Step 1), as on #343. Professor and product lead in parallel; real data checked by the Elephant at Step 2.
+
+- **Professor: GO, no blockers.** Skipping a count that can't be real and keeping cover first, diluted as fallback, matches Damodaran (*Investment Valuation*, 3rd ed.) and Koller, Goedhart and Wessels (*Valuation*, 7th ed.); noting only counts newer than the one used judged right. Suggestions **taken**: the lesson no longer says "the newest earlier count" (with every cover count at zero the run divides by a diluted count), and drops "usually a blank field saved as zero" (no source for how often); the fallback test is renamed "not above zero" to match its −100; "at most a quarter older" is now "usually". Idea for the app (show the skipped and used dates together) left to the front-end team.
+- **Product lead: GO, no blockers.** Suggestions **taken**: the same lesson wording (the source of the `shares` assumption names the count used); a param `divisor`, so the app can say the value did not move when the skipped count was only a diluted count beside the cover. The note on grouping several notes per `count` goes to the brief through #344. **Filed** as #376: engine refusals as codes, since "no share count above zero reported" is English only.

@@ -212,10 +212,10 @@ WARNING_LESSONS = {
     ),
     "shares_not_positive": Lesson(
         "data",
-        "A share count was filed as zero or below, which no company that exists can have, so "
-        "the figure is a filing error, usually a blank field saved as zero. Divided by, it would "
-        "make the value per share infinite or meaningless, so Warren leaves that count out and "
-        "uses the newest earlier count above zero.",
+        "A share count was filed as zero or below, which no listed company can have, so the "
+        "figure is a filing error. Divided by, it would make the value per share infinite or "
+        "meaningless, so Warren leaves that count out and divides by another count above zero; "
+        "the shares assumption's source names which one.",
         {},
         None,
         "math_engine._shares (backlog #364)",

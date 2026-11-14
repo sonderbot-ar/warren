@@ -847,11 +847,12 @@ def _shares(
             "diluted_period_end": fact.period_end.isoformat(),
         }
 
-    def positive(facts: list[Fact], count: str, label: str) -> list[Fact]:
+    def positive(facts: list[Fact], count: str, label: str, divisor: bool) -> list[Fact]:
         """The counts above zero, newest first. A count of zero or below is never used (backlog
         #364). Each one newer than the newest count above zero, which it would have replaced, is
         noted; with none above zero, only the newest is. An older one is left out silently (it
-        only leaves the fallback's middle count)."""
+        only leaves the fallback's middle count). `divisor`: whether the newest such count
+        would have been the run's share count, not only a check beside it."""
         kept = [f for f in facts if f.value > 0]
         skipped = [f for f in facts if f.value <= 0]
         if kept:
@@ -864,6 +865,7 @@ def _shares(
                     "value": fact.value,
                     "accession_no": fact.accession_no,
                     "period_end": fact.period_end.isoformat(),
+                    "divisor": divisor,
                 },
                 f"{label} for {fact.period_end} are filed as {fact.value:g} "
                 f"({fact.accession_no}); a share count must be above zero, so that count is not "
@@ -874,11 +876,11 @@ def _shares(
     cover_filed = sorted(
         history.instants.get("shares_outstanding", []), key=lambda f: f.period_end, reverse=True
     )
-    cover = positive(cover_filed, "cover", "Cover-page shares")[:1]  # the newest, as before
+    cover = positive(cover_filed, "cover", "Cover-page shares", True)[:1]  # the newest, as before
     diluted = [f for (n, _y, _p), f in history.quarterly.items() if n == "diluted_shares"]
     diluted += [f for (n, _y), f in history.annual.items() if n == "diluted_shares"]
     diluted.sort(key=lambda f: f.period_end, reverse=True)
-    diluted = positive(diluted, "diluted", "Diluted shares")
+    diluted = positive(diluted, "diluted", "Diluted shares", not cover)
     latest_diluted = diluted[0] if diluted else None
     if cover:
         shares, factor = adjusted(cover[-1])
