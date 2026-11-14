@@ -75,7 +75,7 @@ Run notes already have codes (#172), and so do simulation refusals (`montecarlo.
 
 ## Files to change
 
-`domains/analysis/math_engine.py`, `domains/analysis/coded.py`, `domains/market/store.py`, `domains/market/prices.py`, `domains/market/yields.py`, `domains/market/erp.py`, `domains/analysis/__main__.py` (two CLI lines), tests in `tests/analysis/` and `tests/market/`. At merge: `docs/versions.md`, `docs/team-sync.md`.
+`domains/analysis/math_engine.py`, `domains/analysis/coded.py`, `domains/market/store.py`, `domains/market/prices.py`, `domains/market/yields.py`, `domains/market/erp.py`, `domains/analysis/runs.py` (the valuation in `run_baseline`), `domains/analysis/reading_rules.md`, `domains/analysis/__main__.py` (two CLI lines), `tests/analysis/test_refusal_codes.py`. At merge: `docs/versions.md`, `docs/team-sync.md`.
 
 ## Product impact
 
@@ -111,7 +111,7 @@ Explainer, analyst, professor and the product lead, fresh context, in parallel. 
 
 Not taken here, filed as backlog: one date sure to work across the stock, the index and the 10-year yield (analyst: `covered_through` is per symbol); the first date that works on `erp_too_few_years` (analyst) and its standard error (professor); guards for the divide-by-zero cases at `math_engine.py` on a zero quarterly revenue or pretax sum (analyst; Phase 1 can't hit them); lessons per refusal (professor, product lead).
 
-Also not taken: lessons per refusal (professor, product lead) and the ERP's standard error on `erp_too_few_years` (professor) go to backlog issues, not this PR; equity is not a balance item here, so the negative-equity exemption the professor raised doesn't arise (`BALANCE_ITEMS`, `math_engine.py:110`).
+Equity is not a balance item here, so the negative-equity exemption the professor raised doesn't arise (`BALANCE_ITEMS`, `math_engine.py:110`).
 
 ## Results on real data (Step 3, nov.14.2026)
 
@@ -119,3 +119,7 @@ On the restored snapshot (saved nov.10.2026, schema 23 after migrations):
 
 - `python -m domains.analysis reproduce --all`: 903 of 903 stored runs reproduce to the cent.
 - 1,680 asks (the eight Phase 1 companies on 2019-02-28, every 14 days from 2019-03-01 to today, the last six days, and tomorrow): 1,608 build, 72 are refused, and **every refusal carries a code**; no other kind of error. The refusals: `as_of_too_early` (8, the day before the first supported date), `as_of_in_future` (8, tomorrow) and `market_data_not_refreshed` (56, every date from Nov 1 on, because the snapshot's prices were downloaded on Oct 31; `covered_through` says 2026-10-30). No real company hits a data refusal on any of these dates.
+
+## Merged
+
+nov.14.2026 as v0.9.69, PR #380, merge `8c26c81`, after CI and the gatekeeper's GO (no blockers; 2,276 passed). Its nits (this doc's file list and a repeated paragraph) are fixed in the record commit; the constructors' `assert` matches `SimulationError`'s. Follow-ups #381, #382, #383.
