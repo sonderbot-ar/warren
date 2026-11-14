@@ -76,6 +76,13 @@ from shared_kernel.config import PROJECT_ROOT
 from shared_kernel.database import apply_migrations, get_db_connection
 
 
+def _code(e: Exception) -> str:
+    """The refusal's code in brackets, or nothing (backlog #376): the CLI shows what the app keys
+    on."""
+    code = getattr(e, "code", None)
+    return f" [{code}]" if code else ""
+
+
 def now() -> datetime:
     """The clock; tests replace it."""
     return datetime.now(UTC)
@@ -126,7 +133,7 @@ def cmd_dcf(args: argparse.Namespace) -> int:
                     run_id = run_baseline(conn, ticker, as_of)
                 except (EngineError, MarketDataError, ValueError) as e:
                     failed += 1
-                    print(f"{ticker:5} {as_of}  FAILED: {e}")
+                    print(f"{ticker:5} {as_of}  FAILED{_code(e)}: {e}")
                     continue
                 path = write_report(conn, run_id)
                 row = conn.execute(
@@ -175,7 +182,7 @@ def cmd_reproduce(args: argparse.Namespace) -> int:
                 try:
                     rebuilt = rebuild(conn, run_id)
                 except (EngineError, MarketDataError, ValueError) as e:
-                    print(f"         rebuild FAILED: {e}")
+                    print(f"         rebuild FAILED{_code(e)}: {e}")
                     unbuilt += 1
                     continue
                 if rebuilt.ok:

@@ -26,7 +26,7 @@ from pathlib import Path
 from domains.analysis import dcf
 from domains.analysis import financial_math as fm
 from domains.analysis import sources as src
-from domains.analysis.coded import Coded, coded_warnings, pass_on
+from domains.analysis.coded import ENGINE_REFUSAL_CODES, Coded, coded_warnings, pass_on
 from domains.analysis.dcf import QUARTERS, SEED, YEARS
 from domains.analysis.reading_rules import READING_RULES_VERSION
 from domains.analysis.schemas import SINGLE, Assumption
@@ -135,7 +135,18 @@ ITEMS += [*BALANCE_ITEMS, *SHARE_ITEMS]
 
 
 class EngineError(ValueError):
-    """A run can't be built: a required input is missing or the data breaks an invariant."""
+    """A run can't be built: a required input is missing or the data breaks an invariant.
+
+    A refusal a student's run can reach has a `code` from `coded.ENGINE_REFUSAL_CODES` and
+    `params` (backlog #376); every other one has `code` None and is text only."""
+
+    def __init__(self, text: str, code: str | None = None, params: dict | None = None):
+        super().__init__(text)
+        assert code is None or code in ENGINE_REFUSAL_CODES, code
+        self.text, self.code, self.params = text, code, dict(params or {})
+
+    def coded(self) -> Coded | None:
+        return None if self.code is None else Coded(self.code, self.params, self.text)
 
 
 # -- user assumptions --------------------------------------------------------------------------
@@ -289,7 +300,19 @@ def resolve(chain: str, get: Callable[[str], Fact | None], where: str) -> Resolv
                 method = f"fallback: {' + '.join(items)} = {method}"
             return Resolved(sum(f.value for f in facts), method, fallback=i > 0, facts=tuple(facts))
     tried = " | ".join(" + ".join(items) for items in alternatives)
-    raise EngineError(f"{chain} for {where}: none of the alternatives is reported ({tried})")
+    raise EngineError(
+        f"{chain} for {where}: none of the alternatives is reported ({tried})",
+        code="flow_item_not_reported",
+        params={"item": chain, **where_params(where), "tried": [list(a) for a in alternatives]},
+    )
+
+
+def where_params(where: str) -> dict:
+    """A refusal's period as params (backlog #376): "FY2020" or "FY2020 Q3" gives `fiscal_year`
+    and `quarter` (None for a year), so the app never translates the English label."""
+    match = re.fullmatch(r"FY(\d{4})(?: Q([1-4]))?", where)
+    assert match, where
+    return {"fiscal_year": int(match[1]), "quarter": int(match[2]) if match[2] else None}
 
 
 @dataclass
@@ -403,10 +426,24 @@ def build_inputs(
     """Every assumption a baseline DCF of `ticker` as of `as_of` needs, known on that date."""
     today = today or case_today(datetime.now(UTC))
     if not SUPPORTED_FROM <= as_of <= today:
-        raise EngineError(f"as-of date must be from {SUPPORTED_FROM} to {today}, got {as_of}")
+        early = as_of < SUPPORTED_FROM
+        raise EngineError(
+            f"as-of date must be from {SUPPORTED_FROM} to {today}, got {as_of}",
+            code="as_of_too_early" if early else "as_of_in_future",
+            params={"as_of": as_of.isoformat()}
+            | (
+                {"supported_from": SUPPORTED_FROM.isoformat()}
+                if early
+                else {"today": today.isoformat()}
+            ),
+        )
     company = conn.execute("SELECT * FROM companies WHERE ticker = ?", (ticker.upper(),)).fetchone()
     if company is None:
-        raise EngineError(f"{ticker} has not been ingested")
+        raise EngineError(
+            f"{ticker} has not been ingested",
+            code="company_not_ingested",
+            params={"ticker": ticker.upper()},
+        )
     choices = load_user_assumptions() if choices is None else choices
     result = EngineResult(company["ticker"], company["cik"], as_of)
     for choice in choices.values():
@@ -455,7 +492,11 @@ def build_inputs(
 def _last_actual_quarter(history: History, result: EngineResult) -> tuple[int, int, date]:
     revenue = [f for (n, _y, _p), f in history.quarterly.items() if n == "revenue"]
     if not revenue:
-        raise EngineError(f"{result.ticker}: no quarterly revenue reported by {result.as_of}")
+        raise EngineError(
+            f"{result.ticker}: no quarterly revenue reported by {result.as_of}",
+            code="no_quarterly_revenue",
+            params={"ticker": result.ticker, "as_of": result.as_of.isoformat()},
+        )
     last = max(revenue, key=lambda f: f.period_end)
     days = (result.as_of - last.period_end).days
     newer = _newer_figure(history, last.period_end)
@@ -526,7 +567,9 @@ def _history_years(history: History, last_year: int, result: EngineResult) -> li
     years = sorted({y for (n, y) in history.annual if n == "revenue" and y <= last_year})
     if len(years) < HISTORY_YEARS:
         raise EngineError(
-            f"{result.ticker}: {HISTORY_YEARS} fiscal years of history needed, found {years}"
+            f"{result.ticker}: {HISTORY_YEARS} fiscal years of history needed, found {years}",
+            code="history_too_short",
+            params={"ticker": result.ticker, "needed": HISTORY_YEARS, "found_years": years},
         )
     return years[-HISTORY_YEARS:]
 
@@ -539,7 +582,11 @@ def _revenue_seed(history: History, last_year: int, last_quarter: int, result: E
         period = f"Q{quarter}"
         fact = history.quarterly.get(("revenue", year, period))
         if fact is None:
-            raise EngineError(f"{result.ticker}: revenue for FY{year} {period} is not reported")
+            raise EngineError(
+                f"{result.ticker}: revenue for FY{year} {period} is not reported",
+                code="seed_quarter_not_reported",
+                params={"ticker": result.ticker, "fiscal_year": year, "quarter": quarter},
+            )
         value, method, used, shared = fact.value, trace(fact), [fact], False
         result.read("seed", quarter_label(year, quarter), fact)
         # a fiscal year whose quarters don't add up to it mixes restatement bases: use the
@@ -651,7 +698,11 @@ def _operating_nwc(
     ):
         fact = get(item)
         if fact is None and item in REQUIRED_BALANCE:
-            raise EngineError(f"{item} for {where} is not reported (needed for working capital)")
+            raise EngineError(
+                f"{item} for {where} is not reported (needed for working capital)",
+                code="balance_item_not_reported",
+                params={"item": item, **where_params(where)},
+            )
         parts[item] = fact
         if fact is None:
             missing.append(item)
@@ -707,16 +758,38 @@ def _balance(history: History, base_date: date, result: EngineResult) -> date:
     """Net debt, minority interest and the invariants, from the latest balance sheet (D3, D11)."""
     assets = history.latest_before("current_assets", result.as_of)
     if assets is None:
-        raise EngineError(f"{result.ticker}: no balance sheet within a year of {result.as_of}")
+        raise EngineError(
+            f"{result.ticker}: no balance sheet within a year of {result.as_of}",
+            code="no_balance_sheet",
+            params={"ticker": result.ticker, "as_of": result.as_of.isoformat()},
+        )
     balance_date = assets.period_end
     get = lambda item: history.latest_before(item, balance_date)  # noqa: E731
     facts = {item: get(item) for item in BALANCE_ITEMS}
     for item in REQUIRED_BALANCE:
         if facts[item] is None:
-            raise EngineError(f"{result.ticker}: {item} not reported at {balance_date}")
+            raise EngineError(
+                f"{result.ticker}: {item} not reported at {balance_date}",
+                code="balance_item_not_reported",
+                params={
+                    "ticker": result.ticker,
+                    "item": item,
+                    "period_end": balance_date.isoformat(),
+                },
+            )
     for item, fact in facts.items():
         if fact is not None and fact.value < 0 and item != "minority_interest":
-            raise EngineError(f"{result.ticker}: {trace(fact)} is negative")
+            raise EngineError(
+                f"{result.ticker}: {trace(fact)} is negative",
+                code="balance_item_negative",
+                params={
+                    "ticker": result.ticker,
+                    "item": item,
+                    "period_end": fact.period_end.isoformat(),
+                    "value": fact.value,
+                    "currency": fact.unit,
+                },
+            )
     carried = [
         f"{i} ({f.period_end})" for i, f in facts.items() if f and f.period_end < balance_date
     ]
@@ -742,11 +815,29 @@ def _balance(history: History, base_date: date, result: EngineResult) -> date:
         raise EngineError(
             f"{result.ticker}: current securities ({short_term_investments:,.0f}) exceed current "
             f"assets ({val('current_assets'):,.0f}) at {balance_date}: a tag picks up the wrong "
-            "measure"
+            "measure",
+            code="securities_exceed_current_assets",
+            params={
+                "ticker": result.ticker,
+                "period_end": balance_date.isoformat(),
+                "with_cash": False,
+                "securities": short_term_investments,
+                "current_assets": val("current_assets"),
+                "currency": facts["current_assets"].unit,
+            },
         )
     if val("cash") + short_term_investments > val("current_assets"):
         raise EngineError(
-            f"{result.ticker}: cash and current securities exceed current assets at {balance_date}"
+            f"{result.ticker}: cash and current securities exceed current assets at {balance_date}",
+            code="securities_exceed_current_assets",
+            params={
+                "ticker": result.ticker,
+                "period_end": balance_date.isoformat(),
+                "with_cash": True,
+                "securities": val("cash") + short_term_investments,
+                "current_assets": val("current_assets"),
+                "currency": facts["current_assets"].unit,
+            },
         )
 
     debt, used, zero, notes = debt_parts(get)
@@ -912,9 +1003,20 @@ def _shares(
         method = f"fallback: weighted diluted shares {trace(counted)}"
     else:
         if cover_filed or any(n.code == "shares_not_positive" for n in result.notes):
-            raise EngineError(f"{result.ticker}: no share count above zero reported")
+            raise EngineError(
+                f"{result.ticker}: no share count above zero reported",
+                code="no_share_count",
+                params={
+                    "ticker": result.ticker,
+                    "reason": "none_above_zero",
+                    # the counts left out (their notes' params), since a refused run stores none
+                    "skipped": [n.params for n in result.notes if n.code == "shares_not_positive"],
+                },
+            )
         raise EngineError(
-            f"{result.ticker}: neither shares_outstanding nor diluted_shares reported"
+            f"{result.ticker}: neither shares_outstanding nor diluted_shares reported",
+            code="no_share_count",
+            params={"ticker": result.ticker, "reason": "none_reported"},
         )
     if factor != 1:
         method += f"; × {factor:g} for splits up to {price.date}"
@@ -1104,7 +1206,9 @@ def _cost_of_debt(history: History, fiscal_years: list[int], result: EngineResul
     else:
         raise EngineError(
             f"{result.ticker}: no fiscal year in {fiscal_years} reports interest "
-            "(interest_expense | interest_paid) with debt"
+            "(interest_expense | interest_paid) with debt",
+            code="no_interest_with_debt",
+            params={"ticker": result.ticker, "fiscal_years": list(fiscal_years)},
         )
 
 
@@ -1130,7 +1234,9 @@ def _drivers(
     recent = comparisons[:HISTORY_YEARS]
     if len(recent) < HISTORY_YEARS:
         raise EngineError(
-            f"{result.ticker}: {HISTORY_YEARS} annual reports with comparatives needed"
+            f"{result.ticker}: {HISTORY_YEARS} annual reports with comparatives needed",
+            code="too_few_comparatives",
+            params={"ticker": result.ticker, "needed": HISTORY_YEARS, "found": len(recent)},
         )
     start = sum(c.growth for c in recent) / len(recent)
     terminal = result.value_of("terminal_growth")
@@ -1195,7 +1301,15 @@ def _drivers(
             if len(margins[quarter]) < MIN_QUARTERS_PER_LABEL:
                 raise EngineError(
                     f"{result.ticker}: fewer than {MIN_QUARTERS_PER_LABEL} reported Q{quarter} in "
-                    f"the last {HISTORY_QUARTERS} quarters"
+                    f"the last {HISTORY_QUARTERS} quarters",
+                    code="too_few_quarters",
+                    params={
+                        "ticker": result.ticker,
+                        "quarter": quarter,
+                        "needed": MIN_QUARTERS_PER_LABEL,
+                        "found": len(margins[quarter]),
+                        "window": HISTORY_QUARTERS,
+                    },
                 )
             margin = sum(margins[quarter]) / len(margins[quarter])
             method = f"average Q{quarter} EBIT / revenue of the last {HISTORY_QUARTERS} quarters"
@@ -1414,7 +1528,9 @@ def _snapshot(conn: sqlite3.Connection, cik: str, ticker: str, price: PricePoint
         "SELECT * FROM ingest_runs WHERE cik = ? ORDER BY run_id DESC LIMIT 1", (cik,)
     ).fetchone()
     if ingest is None:
-        raise EngineError(f"{ticker}: no ingest run recorded")
+        raise EngineError(
+            f"{ticker}: no ingest run recorded", code="no_ingest_run", params={"ticker": ticker}
+        )
     return {
         "ingest_run_id": ingest["run_id"],
         "concept_map_sha256": concept_map_sha256(),
