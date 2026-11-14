@@ -30,7 +30,11 @@ No stored run and no run possible today reads the 2009 zero: runs start at 2019-
 
 ## Real data (Step 2, nov.14.2026)
 
-_Filled in below when the checks finish._
+Snapshot of nov.10.2026 (903 stored baseline runs), restored on this run.
+
+- **Scan.** Of 3,904 share-count facts (558 cover-page, 1,622 diluted, 1,724 basic) for the eight companies, one is zero or below: Coca-Cola's cover page in the 10-Q/A 0001047469-09-009321 (2009-10-23, 0.0), the one the issue names. No diluted count is.
+- **Notes.** Every stored Coca-Cola run (114, what-ifs included) rebuilt on this branch: none gains `shares_not_positive` (the 2009 count is older than every run's newest cover count); share notes are the same five `shares_scale_mismatch` as on `main` (#343).
+- **Values.** `reproduce --all --rebuild` on `main` and on this branch give the same output line for line (apart from the commit hash and the reading-rules version): 903 of 903 reproduce to the cent, the same 821 rebuild to identical rows, and the same 82 differ in the same rows (the runs v0.9.41, #264, already rebuilds differently; none on `shares`).
 
 ## Alternatives considered
 
