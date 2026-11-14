@@ -178,6 +178,30 @@ def test_a_day_whose_download_was_made_before_it_ended(company):
     assert e.code == "market_data_not_refreshed"
     assert e.params["as_of"] == "2020-07-01" and e.params["covered_through"] == "2020-06-30"
     assert e.params["source"] in ("yahoo", "fred") and "refresh it" in str(e)
+    assert e.params["all_covered_through"] == "2020-06-30"
+
+
+@pytest.mark.parametrize("symbol", ["TST", MARKET_INDEX, "DGS10"])
+def test_a_refused_date_names_one_date_all_three_series_serve(company, symbol):
+    # one series was downloaded on Jun 20, the other two on Jul 1 (backlog #381)
+    company.execute(
+        "UPDATE market_fetches SET fetched_at = '2020-06-20T12:00:00Z' WHERE symbol = ?", (symbol,)
+    )
+    e = refused(company, MarketDataError, as_of=date(2020, 6, 25), today=AS_OF)
+    assert e.code == "market_data_not_refreshed"
+    assert e.params["all_covered_through"] == "2020-06-19"
+    assert str(e).endswith("refresh it")  # the English is unchanged
+    # the date offered passes every download check
+    result = build(company, as_of=date(2020, 6, 19))
+    assert result.as_of == date(2020, 6, 19)
+
+
+def test_no_common_date_when_a_series_was_never_loaded(company):
+    company.execute("UPDATE market_fetches SET fetched_at = '2020-06-20T12:00:00Z'")
+    company.execute("DELETE FROM yields")
+    company.execute("DELETE FROM market_fetches WHERE symbol = 'DGS10'")
+    e = refused(company, MarketDataError, as_of=date(2020, 6, 25), today=AS_OF)
+    assert e.code == "market_data_not_refreshed" and e.params["all_covered_through"] is None
 
 
 def test_no_price_on_or_before_the_date(company):

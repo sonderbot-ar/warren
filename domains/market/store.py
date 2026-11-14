@@ -119,6 +119,18 @@ def fetch_with_hash(conn: sqlite3.Connection, source: str, symbol: str, sha256: 
     return fetch
 
 
+def fetch_time(fetch: sqlite3.Row) -> datetime:
+    """When a download was made, in UTC (rows stored without a zone are UTC)."""
+    fetched = datetime.fromisoformat(fetch["fetched_at"].replace("Z", "+00:00"))
+    return fetched if fetched.tzinfo else fetched.replace(tzinfo=UTC)
+
+
+def covered_through(fetch: sqlite3.Row) -> date:
+    """The newest as-of date a download can serve: the last day that had ended in New York when
+    it was made (backlog #112). `require_coverage` refuses any later date."""
+    return last_ended_day(fetch_time(fetch))
+
+
 def require_coverage(
     conn: sqlite3.Connection, source: str, symbol: str, as_of: date
 ) -> sqlite3.Row:
@@ -134,9 +146,7 @@ def require_coverage(
             code="market_data_not_loaded",
             params={"source": source, "symbol": symbol},
         )
-    fetched = datetime.fromisoformat(fetch["fetched_at"].replace("Z", "+00:00"))
-    if fetched.tzinfo is None:
-        fetched = fetched.replace(tzinfo=UTC)
+    fetched = fetch_time(fetch)
     if fetched < known_by(as_of):
         raise MarketDataError(
             f"{source} data for {symbol} was fetched {fetch['fetched_at']}, before the as-of "
@@ -147,8 +157,7 @@ def require_coverage(
                 "symbol": symbol,
                 "fetched_at": fetch["fetched_at"],
                 "as_of": as_of.isoformat(),
-                # the newest date this download can serve: the last day ended when it was made
-                "covered_through": last_ended_day(fetched).isoformat(),
+                "covered_through": covered_through(fetch).isoformat(),
             },
         )
     return fetch

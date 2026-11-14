@@ -52,6 +52,7 @@ from domains.fundamentals.facts import (
 from domains.fundamentals.quality import CONSISTENCY_TOLERANCE
 from domains.fundamentals.schemas import MINUEND_WORDS, Fact
 from domains.fundamentals.universe import FISCAL_YEARS
+from domains.market.coverage import run_covered_through
 from domains.market.erp import equity_risk_premium
 from domains.market.prices import MARKET_INDEX, PricePoint, aligned_weekly_returns, raw_close
 from domains.market.prices import split_factor as price_split_factor
@@ -431,7 +432,27 @@ def build_inputs(
     choices: dict[str, UserChoice] | None = None,
     today: date | None = None,
 ) -> EngineResult:
-    """Every assumption a baseline DCF of `ticker` as of `as_of` needs, known on that date."""
+    """Every assumption a baseline DCF of `ticker` as of `as_of` needs, known on that date.
+
+    A refusal because a download is older than the date (`market_data_not_refreshed`) also
+    carries `all_covered_through`: the newest date all the series a run reads can serve, so the
+    app can offer one date sure to pass that check (backlog #381)."""
+    try:
+        return _build_inputs(conn, ticker, as_of, choices, today)
+    except MarketDataError as e:
+        if e.code == "market_data_not_refreshed":
+            newest = run_covered_through(conn, ticker)
+            e.params["all_covered_through"] = newest.isoformat() if newest else None
+        raise
+
+
+def _build_inputs(
+    conn: sqlite3.Connection,
+    ticker: str,
+    as_of: date,
+    choices: dict[str, UserChoice] | None,
+    today: date | None,
+) -> EngineResult:
     today = today or case_today(datetime.now(UTC))
     if not SUPPORTED_FROM <= as_of <= today:
         early = as_of < SUPPORTED_FROM
