@@ -1,6 +1,6 @@
 # Backlog #364: a share count of zero or below is never used
 
-Issue: https://github.com/sonderbot-ar/warren/issues/364 · Branch `backlog-364-shares-not-positive` · Version v0.9.68 (planned)
+Issue: https://github.com/sonderbot-ar/warren/issues/364 · Branch `backlog-364-shares-not-positive` · Version v0.9.68 (merged nov.14.2026, PR #377, merge `d2c9b69`)
 
 ## Problem
 
@@ -33,7 +33,7 @@ No stored run and no run possible today reads the 2009 zero: runs start at 2019-
 Snapshot of nov.10.2026 (903 stored baseline runs), restored on this run.
 
 - **Scan.** Of 3,904 share-count facts (558 cover-page, 1,622 diluted, 1,724 basic) for the eight companies, one is zero or below: Coca-Cola's cover page in the 10-Q/A 0001047469-09-009321 (2009-10-23, 0.0), the one the issue names. No diluted count is.
-- **Notes.** Every stored Coca-Cola run (114, what-ifs included) rebuilt on this branch: none gains `shares_not_positive` (the 2009 count is older than every run's newest cover count); share notes are the same five `shares_scale_mismatch` as on `main` (#343).
+- **Notes.** Every stored Coca-Cola run (114, none a what-if) rebuilt on this branch: none gains `shares_not_positive` (the 2009 count is older than every run's newest cover count); share notes are the same five `shares_scale_mismatch` as on `main` (#343).
 - **Values.** `reproduce --all --rebuild` on `main` and on this branch give the same output line for line (apart from the commit hash and the reading-rules version): 903 of 903 reproduce to the cent, the same 821 rebuild to identical rows, and the same 82 differ in the same rows (the runs v0.9.41, #264, already rebuilds differently; none on `shares`).
 
 ## Alternatives considered
@@ -63,3 +63,7 @@ Built with its tests before review (Step 1), as on #343. Professor and product l
 
 - **Professor: GO, no blockers.** Skipping a count that can't be real and keeping cover first, diluted as fallback, matches Damodaran (*Investment Valuation*, 3rd ed.) and Koller, Goedhart and Wessels (*Valuation*, 7th ed.); noting only counts newer than the one used judged right. Suggestions **taken**: the lesson no longer says "the newest earlier count" (with every cover count at zero the run divides by a diluted count), and drops "usually a blank field saved as zero" (no source for how often); the fallback test is renamed "not above zero" to match its −100; "at most a quarter older" is now "usually". Idea for the app (show the skipped and used dates together) left to the front-end team.
 - **Product lead: GO, no blockers.** Suggestions **taken**: the same lesson wording (the source of the `shares` assumption names the count used); a param `divisor`, so the app can say the value did not move when the skipped count was only a diluted count beside the cover. The note on grouping several notes per `count` goes to the brief through #344. **Filed** as #376: engine refusals as codes, since "no share count above zero reported" is English only.
+
+## PR review (nov.14.2026)
+
+Gatekeeper: GO, no blockers. 2,243 passed, 10 skipped (the browser tests, no Chromium); ruff clean; CI green; reading rules v2 matches its log row; the new tests fail on `main`'s code (6 of 8, including the division by zero) and pass here; `reproduce --all --rebuild` repeated on the committed head: 903 of 903, same output as `main`; no stored run carries the new note. Nit taken at merge: the Coca-Cola run count said "what-ifs included" though none is one. Idea added to #368: when an original and its amendment give one date a zero and a positive count, the history keeps whichever it reads first, so a zero could hide a real count (none in the data).
