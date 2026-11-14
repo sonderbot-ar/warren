@@ -352,7 +352,10 @@ _CURRENT_ASSETS = (
     "cash and marketable securities held as a resource for current operations; now FASB ASC "
     "210-10-45-1)"
 )
-_ELEMENTS = "FASB Concepts Statement No. 6, paragraphs 25 and 35 (assets and liabilities)"
+_ELEMENTS = (
+    "FASB Concepts Statement No. 8, chapter 4 (December 2021; the definitions of an asset and a "
+    "liability, replacing Concepts Statement No. 6)"
+)
 _INCONSISTENT_RULE = (
     "Warren's checks on the balance sheet it reads (math_engine, the balance sheet step); the "
     "app links the filing so the figure can be seen"
@@ -391,20 +394,23 @@ REFUSAL_GROUP_LESSONS = {
     "inconsistent_data": Lesson(
         "inconsistent_data",
         "Some facts about a balance sheet hold for every company: a balance the company holds "
-        "or owes can't be below zero, and short-term securities are part of current assets, so "
-        "they can't be larger than them. When a filed figure breaks one of these, the filing "
-        "has almost always put the wrong number under that line, so Warren refuses rather than "
-        "value the company on it: open the report to see the figure, or try another date.",
+        "or owes can't be below zero, and cash and short-term securities are part of current "
+        "assets, so together they can't be larger than them. When a figure Warren read breaks "
+        "one of these, it most likely belongs to a different measure, through the line Warren "
+        "chose to read or the way the figure was tagged in the filing's data, so Warren refuses "
+        "rather than value the company on it: open the report to compare its balance sheet, or "
+        "try another date.",
         {},
         f"{_ELEMENTS}; {_CURRENT_ASSETS}",
         _INCONSISTENT_RULE,
     ),
     "no_value": Lesson(
         "no_value",
-        "A DCF's terminal value divides next year's cash flow by the cost of capital minus "
-        "long-term growth, which gives a finite number only while growth stays below the cost "
-        "of capital. With the assumptions Warren reads from the data on this date it doesn't, "
-        "so the model has no value to show.",
+        "A DCF's terminal value adds up cash flows that grow forever, and that sum has a value "
+        "only while the cost of capital is above zero and long-term growth stays below it; the "
+        "familiar formula, next year's cash flow divided by the cost of capital minus growth, "
+        "gives that sum. With the assumptions Warren reads from the data on this date one of "
+        "those conditions fails, so the model has no value to show.",
         {},
         _GORDON,
         None,
@@ -421,16 +427,19 @@ REFUSAL_GROUP_LESSONS = {
     ),
 }
 
-_ERP_SD = 0.2  # the annual standard deviation of stock returns, rounded as Damodaran does
+# The annual standard deviation of stock returns, rounded to 20% as Damodaran does, standing in
+# for the premium's own (about 21%, his footnote 68); returns assumed uncorrelated year to year.
+_ERP_SD = 0.2
+_ERP_SE = _ERP_SD / math.sqrt(erp.MIN_YEARS)
 
 REFUSAL_LESSONS = {
     "balance_item_negative": Lesson(
         "inconsistent_data",
         "Each balance sheet line Warren reads (cash, securities, current assets and "
-        "liabilities, debt) is an amount the company holds or owes, so none can be below zero; "
-        "a negative one usually means the filing put a change or an adjustment under the line "
-        "instead of the balance. Warren refuses rather than guess which number was meant: open "
-        "the report to compare, or try another date.",
+        "liabilities, debt) is an amount the company holds or owes, so none can be below zero. "
+        "A negative one most likely means a change or an adjustment was tagged as the balance, "
+        "or Warren read a line meant for something else, so Warren refuses rather than guess "
+        "which number was meant: open the report to compare, or try another date.",
         {},
         _ELEMENTS,
         _INCONSISTENT_RULE,
@@ -438,9 +447,10 @@ REFUSAL_LESSONS = {
     "securities_exceed_current_assets": Lesson(
         "inconsistent_data",
         "Short-term securities, and cash with them, are part of current assets, so together "
-        "they can't be larger than current assets; when they are, a line in the filing almost "
-        "certainly holds a different measure, such as a total that also counts long-term "
-        "holdings. Warren refuses rather than count cash the company may not have: open the "
+        "they can't be larger than current assets. When they are, a figure Warren read most "
+        "likely holds a different measure (a total that also counts long-term holdings or "
+        "restricted cash), or comes from an older balance sheet than the current assets it is "
+        "set against. Warren refuses rather than count cash the company may not have: open the "
         "report to compare, or try another date.",
         {},
         _CURRENT_ASSETS,
@@ -450,13 +460,15 @@ REFUSAL_LESSONS = {
         "later_date",
         "Warren estimates how much more stocks earn than government bonds as the average of "
         "past years, and needs at least {min_years} full years of it. Stock returns swing by "
-        "about {sd}% from year to year, so even a {min_years}-year average is uncertain by "
-        "about {se} percentage points either way, and a shorter one would be noisier still: a "
-        "later date adds years.",
+        "about {sd}% from year to year, so a {min_years}-year average has a standard error of "
+        "about {se} percentage points, and the true premium could plausibly be {two_se} points "
+        "higher or lower; a shorter window would be noisier still. A later date adds years, "
+        "and the refusal names the first date with enough of them.",
         {
             "min_years": erp.MIN_YEARS,
             "sd": _ERP_SD,
-            "se": round(_ERP_SD / math.sqrt(erp.MIN_YEARS), 4),
+            "se": round(_ERP_SE, 2),
+            "two_se": round(2 * _ERP_SE, 2),
         },
         "Damodaran (2022), Equity Risk Premiums (ERP): Determinants, Estimation and "
         "Implications, The 2022 Edition, Table 2 (standard errors in historical risk "

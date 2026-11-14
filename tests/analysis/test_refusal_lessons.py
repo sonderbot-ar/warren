@@ -88,9 +88,13 @@ def test_inconsistent_data_lessons_send_the_student_to_the_report():
         *(REFUSAL_LESSONS[c] for c, g in REFUSAL_GROUPS.items() if g == "inconsistent_data"),
     ):
         assert "open the report" in lesson.why
-        assert "Concepts Statement No. 6" in lesson.source() or "ASC 210-10-45-1" in (
+        assert "Concepts Statement No. 8, chapter 4" in lesson.source() or "ASC 210-10-45-1" in (
             lesson.source()
         )
+        # the engine's own words: "a tag picks up the wrong measure"; a lesson never says the
+        # filing is wrong, since the printed report is usually right (analyst, professor)
+        assert "almost" not in lesson.why and "the filing put" not in lesson.why
+        assert "Warren read" in lesson.why
 
 
 def test_the_erp_lesson_takes_its_numbers_from_the_engine_and_the_paper():
@@ -100,11 +104,22 @@ def test_the_erp_lesson_takes_its_numbers_from_the_engine_and_the_paper():
     lesson = REFUSAL_LESSONS["erp_too_few_years"]
     assert lesson.params["min_years"] == erp.MIN_YEARS
     assert lesson.params["sd"] == 0.2
-    assert lesson.params["se"] == round(0.2 / math.sqrt(erp.MIN_YEARS), 4)
-    if erp.MIN_YEARS == 10:
-        assert "6.32 percentage points" in lesson.text()  # Damodaran (2022), Table 2
+    se = 0.2 / math.sqrt(erp.MIN_YEARS)
+    assert lesson.params["se"] == round(se, 2)
+    assert lesson.params["two_se"] == round(2 * se, 2)
+    if erp.MIN_YEARS == 10:  # Damodaran (2022), Table 2: 20% / sqrt(10) = 6.32%
+        assert "about 6 percentage points" in lesson.text()
+        assert "13 points higher or lower" in lesson.text()
+    assert "first date" in lesson.why  # erp_too_few_years carries first_as_of (#381)
     assert "Table 2" in lesson.reference and "working rule" in lesson.warren_rule
     assert str(erp.MIN_YEARS) in lesson.warren_rule
+
+
+def test_the_no_value_lesson_covers_all_three_reasons():
+    """no_base_value's reasons: growth not below the rate, a rate not above zero, a rate at or
+    below -100% (dcf.py); the lesson names both conditions (professor, product lead)."""
+    why = REFUSAL_GROUP_LESSONS["no_value"].why
+    assert "above zero" in why and "growth stays below" in why
 
 
 def test_refusal_and_warning_lessons_share_one_shape():
