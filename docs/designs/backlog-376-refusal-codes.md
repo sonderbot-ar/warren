@@ -46,6 +46,7 @@ Run notes already have codes (#172), and so do simulation refusals (`montecarlo.
   | `too_few_return_weeks` | `aligned_weekly_returns` | `ticker`, `as_of`, `found`, `needed` |
   | `erp_too_few_years` | `equity_risk_premium` | `as_of`, `first_year`, `last_year`, `min_years` |
   | `market_year_end_missing` | `year_end_values` (index or bond year-end, for the ERP) | `what`, `year` |
+  | `no_base_value` | `runs.run_baseline` (the valuation after the build: terminal growth at or above WACC, or a rate not above zero; analyst) | `ticker`, `as_of`, `reason` (`growth_not_below_rate`, `rate_not_positive`, `rate_not_above_minus_100`) |
 
   The English text of every refusal stays exactly as it is today (CLI output, logs and tests that match text are unchanged).
   **Text only, on purpose** (a student can't reach them by picking a company and a date): the owner's assumptions file checks (`load_user_assumptions`, `UserChoice.from_assumption`), the sources guards in `EngineResult._put` (a programming error), the rebuild of a stored run (`runs.rebuild`: a stored run with a choice no longer supported), and the market download and pin paths (`yahoo_download`, `load_prices`, `fred_download`, `load_yields`, `selected_fetch`, `fetch_with_hash`), which an operator runs.
@@ -81,10 +82,10 @@ Run notes already have codes (#172), and so do simulation refusals (`montecarlo.
 Nothing renamed or removed; every refusal's English text is unchanged. Adds:
 
 - `EngineError` and `MarketDataError` have `code`, `params` and `coded()`; `code` is None for text-only refusals.
-- `coded.ENGINE_REFUSAL_CODES` (the 23 codes above, each with its group in `coded.REFUSAL_GROUPS`) and `coded.refusal(exc)`. Add the codes to the app's text catalogue; any refusal with `code` None keeps the generic sentence.
+- `coded.ENGINE_REFUSAL_CODES` (the 24 codes above, each with its group in `coded.REFUSAL_GROUPS`) and `coded.refusal(exc)`. Add the codes to the app's text catalogue; any refusal with `code` None keeps the generic sentence.
 - R8 is served, with one correction: "beyond history" is a run note, not a refusal, and already has its code.
 
-- `coded.REFUSAL_GROUPS` and `REFUSAL_GROUP_ORDER`: what the student can do, for the screen to group by: `later_date`, `earlier_date`, `company_data`, `inconsistent_data`, `setup` (Warren's own data isn't ready; the words must not blame the student).
+- `coded.REFUSAL_GROUPS` and `REFUSAL_GROUP_ORDER`: what the student can do, for the screen to group by: `later_date`, `earlier_date`, `company_data`, `inconsistent_data`, `no_value`, `setup` (Warren's own data isn't ready; the words must not blame the student).
 - The money params (`value`, `securities`, `current_assets`) are in the filing's unit (`currency`, e.g. USD), unscaled, as the facts are.
 - `item` and `tried` are engine item names; their Spanish labels depend on the line labels still owed to the brief (#297 item 5).
 
@@ -105,7 +106,12 @@ Explainer, analyst, professor and the product lead, fresh context, in parallel. 
 - **`as_of_not_ended` named the wrong thing (explainer).** `build_inputs` compares with today's New York date, so the code is `as_of_in_future` with `today`; a date that is today but not over is `market_data_not_refreshed`.
 - **Codes no small fixture reaches (explainer).** `no_ingest_run`, `history_too_short`, `too_few_quarters` and `no_balance_sheet` are covered by the AST tests (coded at the raise, catalogued) but not by a behaviour test: on Test Corp, dropping every current-assets fact trips the working-capital check first, and too few years trips the comparatives check first.
 
-Not taken: lessons per refusal (professor, product lead) and the ERP's standard error on `erp_too_few_years` (professor) go to backlog issues, not this PR; equity is not a balance item here, so the negative-equity exemption the professor raised doesn't arise (`BALANCE_ITEMS`, `math_engine.py:110`).
+- **The valuation after the build (analyst, blocker).** `runs.run_baseline` values the rows after `build_inputs`; a base case whose terminal growth is at or above WACC raised a `FinancialMathError` with no code. It is now refused as `no_base_value` (group `no_value`) with the reason; any other `FinancialMathError` (a bad argument) still raises as itself. No Phase 1 company hits it on 808 four-weekly dates (analyst), but 58 lose the ERP − 1 SE bound to the same reason, so it is close. `runs.py` joins the AST scan, with `stored_choices` (rebuild) text only.
+- **The ERP information lines (analyst).** `math_engine` caught `ValueError` for a too-short window, but `equity_risk_premium` raises `MarketDataError`, a `RuntimeError`: it now skips `erp_too_few_years` by code, so an information line can never refuse a run. Unreachable today (2009–2018 is 10 years from `SUPPORTED_FROM`).
+
+Not taken here, filed as backlog: one date sure to work across the stock, the index and the 10-year yield (analyst: `covered_through` is per symbol); the first date that works on `erp_too_few_years` (analyst) and its standard error (professor); guards for the divide-by-zero cases at `math_engine.py` on a zero quarterly revenue or pretax sum (analyst; Phase 1 can't hit them); lessons per refusal (professor, product lead).
+
+Also not taken: lessons per refusal (professor, product lead) and the ERP's standard error on `erp_too_few_years` (professor) go to backlog issues, not this PR; equity is not a balance item here, so the negative-equity exemption the professor raised doesn't arise (`BALANCE_ITEMS`, `math_engine.py:110`).
 
 ## Results on real data (Step 3, nov.14.2026)
 

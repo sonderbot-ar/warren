@@ -47,7 +47,7 @@ from domains.fundamentals.universe import FISCAL_YEARS
 from domains.market.erp import equity_risk_premium
 from domains.market.prices import MARKET_INDEX, PricePoint, aligned_weekly_returns, raw_close
 from domains.market.prices import split_factor as price_split_factor
-from domains.market.store import selected_fetch
+from domains.market.store import MarketDataError, selected_fetch
 from domains.market.yields import RISK_FREE_SERIES, risk_free_rate
 from shared_kernel.calendar import case_today
 
@@ -1123,8 +1123,10 @@ def _market(
     for info_year in ERP_INFO_FIRST_YEARS:
         try:
             alt = equity_risk_premium(conn, result.as_of, info_year)
-        except ValueError:
-            continue  # fewer than the minimum years
+        except MarketDataError as e:  # an information line never refuses the run (#376 review)
+            if e.code != "erp_too_few_years":
+                raise
+            continue
         result.add(
             f"info:erp_from_{info_year}",
             alt.premium.geometric,

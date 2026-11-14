@@ -57,14 +57,16 @@ SIMULATION_NOTE_CODES = frozenset(
 SIMULATION_REFUSAL_CODES = frozenset({"wacc_set_with_risk_premium_shock"})
 
 # Every code a refused run can carry (backlog #376): `math_engine.EngineError.code` and
-# `market.store.MarketDataError.code`, raised on the way from a company and a date to a baseline
-# run (`build_inputs`). A refusal without a code is text only: it can't be reached by picking a
-# company and a date. The app's text catalogue covers this set too.
+# `market.store.MarketDataError.code`, raised on the way from a company and a date to a stored
+# baseline run (`build_inputs`, then `runs.run_baseline`'s valuation). A refusal without a code
+# is text only: it can't be reached by picking a company and a date. The app's text catalogue
+# covers this set too.
 # What the student can do about each refusal, in the order a screen groups them (professor and
 # product lead, #376 review): `later_date` and `earlier_date` (pick another date), `company_data`
 # (the company's filings lack a figure: try another date or company), `inconsistent_data` (the
-# filed figures break an accounting identity) and `setup` (Warren's own data isn't ready; never
-# the student's doing).
+# filed figures break an accounting identity), `no_value` (the inputs are read, but the base case
+# has no value: terminal growth at or above the discount rate) and `setup` (Warren's own data
+# isn't ready; never the student's doing).
 REFUSAL_GROUPS = {
     "as_of_too_early": "later_date",
     "no_quarterly_revenue": "later_date",
@@ -89,8 +91,16 @@ REFUSAL_GROUPS = {
     "market_data_not_loaded": "setup",
     "no_risk_free_rate": "setup",
     "market_year_end_missing": "setup",
+    "no_base_value": "no_value",
 }
-REFUSAL_GROUP_ORDER = ("later_date", "earlier_date", "company_data", "inconsistent_data", "setup")
+REFUSAL_GROUP_ORDER = (
+    "later_date",
+    "earlier_date",
+    "company_data",
+    "inconsistent_data",
+    "no_value",
+    "setup",
+)
 ENGINE_REFUSAL_CODES = frozenset(REFUSAL_GROUPS)
 
 

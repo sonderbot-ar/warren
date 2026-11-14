@@ -28,12 +28,14 @@ SCANNED = (
     "domains/market/prices.py",
     "domains/market/yields.py",
     "domains/market/erp.py",
+    "domains/analysis/runs.py",
 )
 # Raises a student can't reach by picking a company and a date, so they stay text only.
 TEXT_ONLY = {
     ("domains/analysis/math_engine.py", "from_assumption"): "the owner's assumptions file",
     ("domains/analysis/math_engine.py", "load_user_assumptions"): "the owner's assumptions file",
     ("domains/analysis/math_engine.py", "_put"): "a sources guard: a programming error",
+    ("domains/analysis/runs.py", "stored_choices"): "a stored run's choices (rebuild)",
     ("domains/market/store.py", "selected_fetch"): "a pinned download (reproduce)",
     ("domains/market/store.py", "fetch_with_hash"): "a stored run's download (reproduce)",
     ("domains/market/prices.py", "yahoo_download"): "a download, run by an operator",
@@ -335,3 +337,33 @@ def test_securities_above_current_assets(company, value, with_cash, total):
         "current_assets": 300,
         "currency": "USD",
     }
+
+
+@pytest.mark.parametrize("reason", ["growth_not_below_rate", "rate_not_positive"])
+def test_a_base_case_without_a_value_is_refused_with_a_code(company, monkeypatch, reason):
+    from domains.analysis import dcf, runs
+    from domains.analysis.financial_math import FinancialMathError
+
+    def no_value(rows):
+        raise FinancialMathError("terminal growth 0.05 must be below the rate 0.04", reason)
+
+    monkeypatch.setattr(dcf, "outputs_and_gaps", no_value)
+    with pytest.raises(EngineError) as caught:
+        runs.run_baseline(company, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    e = caught.value
+    assert e.code == "no_base_value"
+    assert e.params == {"ticker": "TST", "as_of": "2020-06-30", "reason": reason}
+    assert isinstance(e.__cause__, FinancialMathError)
+    assert company.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
+
+
+def test_a_bad_argument_in_the_valuation_is_not_dressed_as_a_refusal(company, monkeypatch):
+    from domains.analysis import dcf, runs
+    from domains.analysis.financial_math import FinancialMathError
+
+    def bad(rows):
+        raise FinancialMathError("bad argument")  # invalid_input: a programming error
+
+    monkeypatch.setattr(dcf, "outputs_and_gaps", bad)
+    with pytest.raises(FinancialMathError):
+        runs.run_baseline(company, "TST", AS_OF, choices=CHOICES, today=AS_OF)

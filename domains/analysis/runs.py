@@ -500,7 +500,21 @@ def run_baseline(
 ) -> str:
     """Build, value and store a baseline DCF; returns the run id."""
     result = build_inputs(conn, ticker, as_of, choices=choices, today=today)
-    outputs, gaps = dcf.outputs_and_gaps(result.assumptions)
+    try:
+        outputs, gaps = dcf.outputs_and_gaps(result.assumptions)
+    except fm.FinancialMathError as e:
+        if e.reason not in dcf.NO_VALUE_REASONS:
+            raise
+        # the base case itself has no value, e.g. terminal growth at or above WACC (#376 review)
+        raise EngineError(
+            f"{result.ticker}: the base case has no value on {result.as_of}: {e}",
+            code="no_base_value",
+            params={
+                "ticker": result.ticker,
+                "as_of": result.as_of.isoformat(),
+                "reason": e.reason,
+            },
+        ) from e
     notes = result.notes + valuation_notes(result.assumptions, outputs, gaps)
     return save_run(conn, result, outputs, notes, gaps)
 
