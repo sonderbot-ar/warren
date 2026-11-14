@@ -12,3 +12,4 @@ Rows are never edited or deleted. Versions start at 1 and go up by at most one p
 | Fingerprint | Version | From | What changed and why |
 |---|---|---|---|
 | `e8cb250579da` | 1 | nov.13.2026 (v0.9.67, #365) | First recorded version: the rules as of v0.9.66 (part-as-whole skip #322, share scale #343, and everything before). Runs stored before this have no version. |
+| `0446375960b6` | 2 | nov.14.2026 (v0.9.68, #364) | A share count of zero or below is never used: a newer one gives way to the newest count above zero (with run note `shares_not_positive`), and a diluted count of zero no longer reaches the cover-against-diluted check, where it divided by zero. No stored run reads such a count (the only one, Coca-Cola's 2009 cover page, is older than every run's newest count). |
