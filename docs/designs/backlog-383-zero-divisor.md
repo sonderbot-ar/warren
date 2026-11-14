@@ -39,8 +39,8 @@ When a divisor is exactly 0, Python raises `ZeroDivisionError`. That is not an `
 
 ## Not taken here
 
-- A statutory or marginal tax rate when Σ pretax is at or near zero (analyst, note 2): a modelling change, filed as a backlog issue.
-- The period-end date and the filing link for the quarter and year cases (product lead, note 4): filed with the app's refusal follow-ups.
+- A statutory or marginal tax rate when Σ pretax is at or near zero (analyst, note 2): a modelling change, filed as #385.
+- The period-end date and the filing link for the quarter and year cases (product lead, note 4): added to #381, the app's refusal follow-ups.
 - `_shares` is covered by #364.
 
 ## Design review (nov.14.2026)
@@ -57,3 +57,7 @@ When a divisor is exactly 0, Python raises `ZeroDivisionError`. That is not an `
 ## Product impact
 
 Serves the refusal sentences of the brief's estimate questions (`docs/product/brief.md`: Q3, Q5, Q8 and every value per share, the set the share-count refusal names), not the reported-figure questions Q1 and Q2, which don't build a run. A run refused for a zero divisor now has a code the app can word instead of the generic sentence. Added: refusal code `zero_divisor` in group `company_data`, params `ticker`, `ratio` (closed set `coded.ZERO_DIVISOR_RATIOS`), `divisor` (`revenue` or `pretax`), `period` and `period_kind`. Wording by kind, for example: `quarter` "los reportes dan ingresos de cero en el trimestre {period}"; `year` "… en el año fiscal {period}"; `quarters_sum` "los cuatro trimestres de {period} suman cero"; `years_sum` "la utilidad antes de impuestos de {period} suma cero: las ganancias y las pérdidas de esos años se cancelan". Then "prueba otra fecha u otra empresa". Nothing renamed or removed; no run that works today changes.
+
+## Results (Step 2, nov.14.2026)
+
+On the restored snapshot (`warren-20261110T202538Z`), with the Step 1b code: `python -m domains.analysis reproduce --all --rebuild` gives 903 of 903 stored runs reproduced to the cent, and 821 of 903 rebuilt to identical rows. The same command on `main` (b59d162) gives the same two counts and, apart from the commit id printed per run, byte-identical output: the 82 rebuild differences are older runs whose reading rules weren't recorded, and none comes from this change. No stored run reaches a zero divisor. Took about 3 minutes.
