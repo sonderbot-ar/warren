@@ -84,6 +84,7 @@ REFUSAL_GROUPS = {
     "balance_item_not_reported": "company_data",
     "no_share_count": "company_data",
     "no_interest_with_debt": "company_data",
+    "zero_divisor": "company_data",
     "balance_item_negative": "inconsistent_data",
     "securities_exceed_current_assets": "inconsistent_data",
     "company_not_ingested": "setup",
@@ -102,6 +103,25 @@ REFUSAL_GROUP_ORDER = (
     "setup",
 )
 ENGINE_REFUSAL_CODES = frozenset(REFUSAL_GROUPS)
+
+# The closed value sets of `zero_divisor`'s params (backlog #383), so the app's text catalogue can
+# cover every value: `ratio` is the figure that couldn't be computed, `divisor` the filed figure
+# that is zero, and `period_kind` what `period` is: one quarter (`FY2018Q3`), one fiscal year
+# (`FY2018`), the sum of a year's four quarters (`FY2018`), or the sum of the history's fiscal
+# years (`FY2017-FY2019`), where no single report needs to show a zero.
+ZERO_DIVISOR_RATIOS = frozenset(
+    {
+        "revenue_seed",
+        "revenue_growth",
+        "operating_margin",
+        "tax_rate",
+        "da_pct",
+        "capex_pct",
+        "nwc_pct",
+    }
+)
+ZERO_DIVISOR_ITEMS = frozenset({"revenue", "pretax"})
+ZERO_DIVISOR_PERIOD_KINDS = frozenset({"quarter", "year", "quarters_sum", "years_sum"})
 
 
 def refusal(exc: BaseException) -> Coded | None:

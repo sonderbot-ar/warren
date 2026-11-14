@@ -26,7 +26,15 @@ from pathlib import Path
 from domains.analysis import dcf
 from domains.analysis import financial_math as fm
 from domains.analysis import sources as src
-from domains.analysis.coded import ENGINE_REFUSAL_CODES, Coded, coded_warnings, pass_on
+from domains.analysis.coded import (
+    ENGINE_REFUSAL_CODES,
+    ZERO_DIVISOR_ITEMS,
+    ZERO_DIVISOR_PERIOD_KINDS,
+    ZERO_DIVISOR_RATIOS,
+    Coded,
+    coded_warnings,
+    pass_on,
+)
 from domains.analysis.dcf import QUARTERS, SEED, YEARS
 from domains.analysis.reading_rules import READING_RULES_VERSION
 from domains.analysis.schemas import SINGLE, Assumption
@@ -595,8 +603,10 @@ def _revenue_seed(history: History, last_year: int, last_quarter: int, result: E
         annual = history.annual.get(("revenue", year))
         if annual is not None and all(quarters):
             total = sum(q.value for q in quarters)
+            _nonzero(result, annual.value, "revenue_seed", "revenue", f"FY{year}", "year")
             gap = (total - annual.value) / abs(annual.value)
             if abs(gap) > CONSISTENCY_TOLERANCE:
+                _nonzero(result, total, "revenue_seed", "revenue", f"FY{year}", "quarters_sum")
                 shared = True
                 value = annual.value * fact.value / total
                 method = (
@@ -1218,6 +1228,48 @@ def _sum(result: EngineResult, item: str, years: list[int]) -> float:
     return sum(result.value_of(f"history:{item}", f"FY{y}") for y in years)
 
 
+def _nonzero(
+    result: EngineResult,
+    divisor: float,
+    ratio: str,
+    divisor_item: str,
+    period: str,
+    period_kind: str,
+) -> None:
+    """Refuse with a code when a divisor on the way to a run is exactly zero (backlog #383): a
+    `ZeroDivisionError` would carry no reason the app can show. `period_kind` says what `period`
+    is (one quarter, one year, or a sum over quarters or years), so the app never parses it."""
+    assert ratio in ZERO_DIVISOR_RATIOS, ratio
+    assert divisor_item in ZERO_DIVISOR_ITEMS, divisor_item
+    assert period_kind in ZERO_DIVISOR_PERIOD_KINDS, period_kind
+    if divisor == 0:
+        raise EngineError(
+            f"{result.ticker}: {divisor_item} is zero in {period}, so {ratio} can't be computed",
+            code="zero_divisor",
+            params={
+                "ticker": result.ticker,
+                "ratio": ratio,
+                "divisor": divisor_item,
+                "period": period,
+                "period_kind": period_kind,
+            },
+        )
+
+
+def _ratio(
+    result: EngineResult,
+    numerator: float,
+    divisor: float,
+    ratio: str,
+    divisor_item: str,
+    period: str,
+    period_kind: str,
+) -> float:
+    """`numerator / divisor` for a forecast ratio, refused by `_nonzero` on a zero divisor."""
+    _nonzero(result, divisor, ratio, divisor_item, period, period_kind)
+    return numerator / divisor
+
+
 def _drivers(
     history: History,
     comparisons: list,
@@ -1239,6 +1291,15 @@ def _drivers(
             f"{result.ticker}: {HISTORY_YEARS} annual reports with comparatives needed",
             code="too_few_comparatives",
             params={"ticker": result.ticker, "needed": HISTORY_YEARS, "found": len(recent)},
+        )
+    for c in recent:
+        _nonzero(
+            result,
+            c.prior.value,
+            "revenue_growth",
+            "revenue",
+            f"FY{c.fiscal_year - 1}",
+            "year",
         )
     start = sum(c.growth for c in recent) / len(recent)
     terminal = result.value_of("terminal_growth")
@@ -1273,8 +1334,12 @@ def _drivers(
         if revenue is None:
             continue
         ebit = resolve("ebit", get, f"FY{year} Q{quarter}")
-        margins[quarter].append(ebit.value / revenue.value)
         label = quarter_label(year, quarter)
+        margins[quarter].append(
+            _ratio(
+                result, ebit.value, revenue.value, "operating_margin", "revenue", label, "quarter"
+            )
+        )
         result.read("operating_margin", label, revenue)
         used.append(
             label
@@ -1292,7 +1357,15 @@ def _drivers(
             "history:revenue", revenue.value, trace(revenue), label, sources=[src.filing(revenue)]
         )
         margin_rows[quarter] += [("history:ebit", label), ("history:revenue", label)]
-    annual_margin = _sum(result, "ebit", fiscal_years) / _sum(result, "revenue", fiscal_years)
+    annual_margin = _ratio(
+        result,
+        _sum(result, "ebit", fiscal_years),
+        _sum(result, "revenue", fiscal_years),
+        "operating_margin",
+        "revenue",
+        span,
+        "years_sum",
+    )
     for period in periods:
         if period in YEARS:
             margin = annual_margin
@@ -1325,7 +1398,15 @@ def _drivers(
         )
 
     # tax rate, reinvestment and working capital: 3-year annual ratios
-    tax = _sum(result, "tax", fiscal_years) / _sum(result, "pretax", fiscal_years)
+    tax = _ratio(
+        result,
+        _sum(result, "tax", fiscal_years),
+        _sum(result, "pretax", fiscal_years),
+        "tax_rate",
+        "pretax",
+        span,
+        "years_sum",
+    )
     clipped = min(max(tax, TAX_RATE_BOUNDS[0]), TAX_RATE_BOUNDS[1])
     tax_method = f"Σ income tax / Σ pretax income, {span}"
     if clipped != tax:
@@ -1345,15 +1426,41 @@ def _drivers(
     }
     ratios = {
         "tax_rate": (clipped, tax_method),
-        "da_pct": (_sum(result, "d_and_a", fiscal_years) / revenue, f"Σ D&A / Σ revenue, {span}"),
+        "da_pct": (
+            _ratio(
+                result,
+                _sum(result, "d_and_a", fiscal_years),
+                revenue,
+                "da_pct",
+                "revenue",
+                span,
+                "years_sum",
+            ),
+            f"Σ D&A / Σ revenue, {span}",
+        ),
         "capex_pct": (
-            _sum(result, "capex", fiscal_years) / revenue,
+            _ratio(
+                result,
+                _sum(result, "capex", fiscal_years),
+                revenue,
+                "capex_pct",
+                "revenue",
+                span,
+                "years_sum",
+            ),
             f"Σ capex / Σ revenue, {span}",
         ),
         "nwc_pct": (
             sum(
-                result.value_of("history:nwc", f"FY{y}")
-                / result.value_of("history:revenue", f"FY{y}")
+                _ratio(
+                    result,
+                    result.value_of("history:nwc", f"FY{y}"),
+                    result.value_of("history:revenue", f"FY{y}"),
+                    "nwc_pct",
+                    "revenue",
+                    f"FY{y}",
+                    "year",
+                )
                 for y in fiscal_years
             )
             / len(fiscal_years),
