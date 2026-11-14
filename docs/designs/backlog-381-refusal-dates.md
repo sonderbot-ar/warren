@@ -1,6 +1,6 @@
 # Backlog #381: a refused run says which date or filing to try
 
-Issue: https://github.com/sonderbot-ar/warren/issues/381 (from the #376 and #383 reviews) · Branch `backlog-381-refusal-dates`.
+Issue: https://github.com/sonderbot-ar/warren/issues/381 (from the #376 and #383 reviews) · Branch `backlog-381-refusal-dates` · Version v0.9.71, merged nov.14.2026 (PR #389, merge `5022a0c`, after CI green and a gatekeeper GO with no blockers).
 
 ## Problem
 
@@ -18,7 +18,7 @@ No number changes: these are params on errors that are already raised.
 
 - **Step 0.** This design doc. No build plan change (a backlog item).
 
-- **Step 1. One date that works for all three series.** New module `domains/market/coverage.py` with `RUN_SERIES` (the three `(source, symbol)` pairs a run reads, the company's symbol as `None`) and `run_covered_through(conn, ticker) -> date | None`: the earliest `last_ended_day(fetched_at)` of the selected download of each series, or `None` when one of them was never loaded. `store.covered_through(fetch)` computes one download's date, and `require_coverage` uses it too, so the per-series param and the combined one can't disagree. `build_inputs` (`domains/analysis/math_engine.py`) catches a `MarketDataError` with code `market_data_not_refreshed`, adds param `all_covered_through` (ISO, or `None`) and raises it again; its text is unchanged. The orchestration's `MARKET_SERIES` is replaced by `RUN_SERIES`, so the list of series lives in one place.
+- **Step 1. One date that works for all three series.** New module `domains/market/coverage.py` with `RUN_SERIES` (the three `(source, symbol)` pairs a run reads, the company's symbol as `None`) and `run_covered_through(conn, ticker) -> date | None`: the earliest `last_ended_day(fetched_at)` of the selected download of each series, or `None` when one of them was never loaded. `store.covered_through(fetch)` computes one download's date, and `require_coverage` uses it too, so the per-series param and the combined one can't disagree. `build_inputs` (`domains/analysis/math_engine.py`) catches a `MarketDataError` with code `market_data_not_refreshed`, adds param `all_covered_through` (ISO, or `None`) and raises it again; its text is unchanged. The orchestration's `MARKET_SERIES` is now an alias of `RUN_SERIES` (kept for its tests), so the list of series lives in one place.
   Every coverage check on the `build_inputs` path is on the as-of date (the company's close and weekly returns, the index's weekly returns, the 10-year yield) or on a year-end at least eight days before it (the risk premium's annual returns), so a date every download covers passes them all (analyst review).
   Tests (`tests/market/test_coverage.py` and `tests/analysis/test_refusal_codes.py`): the earliest of three different download days wins, whichever series is older; `None` when a series is missing; a download made at New York midnight covers the day that has just ended; on Test Corp, with each of the three series downloaded earlier in turn, the refusal carries `all_covered_through` equal to the earliest of the three, and a run on that date is not refused with `market_data_not_refreshed` (it builds).
   Exit: tests pass; ruff clean.
@@ -68,3 +68,7 @@ For the app (issue item c): never show the English of a refusal. `market_data_no
 On the restored snapshot (`warren-20261110T202538Z`), with the Step 3 code: `python -m domains.analysis reproduce --all --rebuild` gives 903 of 903 stored runs reproduced to the cent and 821 of 903 rebuilt to identical rows, the same two counts as v0.9.70 on `main` (the 82 rebuild differences are older runs whose reading rules weren't recorded, as in the #383 results). No number changes.
 
 Asking for Nov 13, 2026 for Apple, Microsoft, Exxon and Coca-Cola is refused with `market_data_not_refreshed` carrying `covered_through` and `all_covered_through` both `2026-10-30`: the snapshot's three downloads were made the same day, so here the two dates agree. A run on `2026-10-30` builds for all four (140 to 143 rows). The case where the series differ is covered by the Test Corp tests.
+
+## Gatekeeper (nov.14.2026)
+
+GO, no blockers: ruff clean, 2,295 passed (10 skipped for a missing browser), fingerprint `b9b57dc7c910` matches the reading-rules row, no test weakened. Nits: `MARKET_SERIES` is kept as an alias (the doc's wording fixed above); `_nonzero` asserts the fact on every call, not only on a zero, which is safe today because every quarter and year site passes the fact it already holds; `first_as_of` has no upper bound, by design.
