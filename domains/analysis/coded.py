@@ -84,6 +84,7 @@ REFUSAL_GROUPS = {
     "balance_item_not_reported": "company_data",
     "no_share_count": "company_data",
     "no_interest_with_debt": "company_data",
+    "zero_divisor": "company_data",
     "balance_item_negative": "inconsistent_data",
     "securities_exceed_current_assets": "inconsistent_data",
     "company_not_ingested": "setup",
