@@ -1,6 +1,6 @@
 # Backlog #383: a zero revenue or pretax sum is refused with a code, not a crash
 
-Issue: https://github.com/sonderbot-ar/warren/issues/383 (from the #376 review) · Branch `backlog-383-zero-divisor` · Version v0.9.70 when merged.
+Issue: https://github.com/sonderbot-ar/warren/issues/383 (from the #376 review) · Branch `backlog-383-zero-divisor` · Version v0.9.70, merged nov.14.2026 (PR #386, merge `1ea1a91`, after CI green and a gatekeeper GO).
 
 ## Problem
 
@@ -24,7 +24,7 @@ When a divisor is exactly 0, Python raises `ZeroDivisionError`. That is not an `
 
 - **Step 1. One guarded division, one new code.**
   *As built, after the design review:* a check `_nonzero(result, divisor, ratio, divisor_item, period, period_kind)` raises the refusal, and `_ratio` calls it and divides. The two sites the analyst found before `_drivers`' ratios (the seed's check against its year, and growth) call `_nonzero` before their own unchanged arithmetic. Params gain `period_kind` (`quarter`, `year`, `quarters_sum`, `years_sum`), and the value sets of `ratio`, `divisor` and `period_kind` are closed constants in `coded.py` (`ZERO_DIVISOR_RATIOS`, `ZERO_DIVISOR_ITEMS`, `ZERO_DIVISOR_PERIOD_KINDS`), asserted by `_nonzero`.
-  The first draft: a helper `_ratio(result, numerator, divisor, ratio, divisor_item, period)` in `math_engine.py` returns `numerator / divisor`, or raises `EngineError` with code `zero_divisor` when the divisor is 0, with params `ticker`, `ratio` (the forecast input: `operating_margin`, `tax_rate`, `da_pct`, `capex_pct`, `nwc_pct`), `divisor` (`revenue` or `pretax`) and `period` (a quarter label `FY2018Q3`, a year `FY2018`, or the span `FY2017-FY2019`). Text: "TST: revenue is zero in FY2018Q3, so operating_margin can't be computed". All six divisions in the table go through it; nothing else changes, and a non-zero divisor gives the same float as today (the same single `/`).
+  The first draft: a helper `_ratio(result, numerator, divisor, ratio, divisor_item, period)` in `math_engine.py` returns `numerator / divisor`, or raises `EngineError` with code `zero_divisor` when the divisor is 0, with params `ticker`, `ratio` (the forecast input: `operating_margin`, `tax_rate`, `da_pct`, `capex_pct`, `nwc_pct`), `divisor` (`revenue` or `pretax`) and `period` (a quarter label `FY2018Q3`, a year `FY2018`, or the span `FY2017-FY2019`). Text: "TST: revenue is zero in FY2018Q3, so operating_margin can't be computed". All six divisions in the first draft's table went through it (the seed and growth rows, added at review, call `_nonzero` directly); nothing else changes, and a non-zero divisor gives the same float as today (the same single `/`).
   `zero_divisor` joins `coded.REFUSAL_GROUPS` in group `company_data` (the filings give a figure Warren can't use: try another date or company). The #376 scan tests then require it to be raised somewhere and catalogued, which it is.
   Tests (`tests/analysis/test_refusal_codes.py`, on Test Corp): a zero quarterly revenue in FY2018 Q3 (the 10-Q row and its comparative a year later), and a zero pretax income in every 10-K year row, each refused as `zero_divisor` with the exact params and text; and a unit test of `_ratio` for the years-sum and per-year cases (revenue) and that a non-zero divisor returns `numerator / divisor` unchanged.
   Exit: tests pass; full suite and ruff clean.
@@ -52,7 +52,7 @@ When a divisor is exactly 0, Python raises `ZeroDivisionError`. That is not an `
 
 ## Files to change
 
-`domains/analysis/math_engine.py`, `domains/analysis/coded.py`, `tests/analysis/test_refusal_codes.py`, `docs/versions.md` and `docs/team-sync.md` on merge.
+`domains/analysis/math_engine.py`, `domains/analysis/coded.py`, `domains/analysis/reading_rules.md`, `tests/analysis/test_refusal_codes.py`, `docs/versions.md` and `docs/team-sync.md` on merge.
 
 ## Product impact
 
