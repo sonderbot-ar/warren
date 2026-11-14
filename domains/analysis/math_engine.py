@@ -827,7 +827,8 @@ def _shares(
     conn: sqlite3.Connection, history: History, result: EngineResult, price: PricePoint
 ) -> float:
     """Cover-page shares outstanding, split-adjusted to the price date (D4); diluted as fallback,
-    skipping a diluted count filed in the wrong unit (backlog #343)."""
+    skipping a diluted count filed in the wrong unit (backlog #343) and any count of zero or below
+    (backlog #364)."""
 
     def basis(fact: Fact) -> date:
         # a cover-page count is as of its own date; statement share counts in a filing made
@@ -846,10 +847,40 @@ def _shares(
             "diluted_period_end": fact.period_end.isoformat(),
         }
 
-    cover = history.instants.get("shares_outstanding", [])
+    def positive(facts: list[Fact], count: str, label: str, divisor: bool) -> list[Fact]:
+        """The counts above zero, newest first. A count of zero or below is never used (backlog
+        #364). Each one newer than the newest count above zero, which it would have replaced, is
+        noted; with none above zero, only the newest is. An older one is left out silently (it
+        only leaves the fallback's middle count). `divisor`: whether the newest such count
+        would have been the run's share count, not only a check beside it."""
+        kept = [f for f in facts if f.value > 0]
+        skipped = [f for f in facts if f.value <= 0]
+        if kept:
+            skipped = [f for f in skipped if f.period_end > kept[0].period_end]
+        for fact in skipped if kept else skipped[:1]:
+            result.warn(
+                "shares_not_positive",
+                {
+                    "count": count,
+                    "value": fact.value,
+                    "accession_no": fact.accession_no,
+                    "period_end": fact.period_end.isoformat(),
+                    "divisor": divisor,
+                },
+                f"{label} for {fact.period_end} are filed as {fact.value:g} "
+                f"({fact.accession_no}); a share count must be above zero, so that count is not "
+                "used",
+            )
+        return kept
+
+    cover_filed = sorted(
+        history.instants.get("shares_outstanding", []), key=lambda f: f.period_end, reverse=True
+    )
+    cover = positive(cover_filed, "cover", "Cover-page shares", True)[:1]  # the newest, as before
     diluted = [f for (n, _y, _p), f in history.quarterly.items() if n == "diluted_shares"]
     diluted += [f for (n, _y), f in history.annual.items() if n == "diluted_shares"]
     diluted.sort(key=lambda f: f.period_end, reverse=True)
+    diluted = positive(diluted, "diluted", "Diluted shares", not cover)
     latest_diluted = diluted[0] if diluted else None
     if cover:
         shares, factor = adjusted(cover[-1])
@@ -880,6 +911,8 @@ def _shares(
         shares, factor = adjusted(counted)
         method = f"fallback: weighted diluted shares {trace(counted)}"
     else:
+        if cover_filed or any(n.code == "shares_not_positive" for n in result.notes):
+            raise EngineError(f"{result.ticker}: no share count above zero reported")
         raise EngineError(
             f"{result.ticker}: neither shares_outstanding nor diluted_shares reported"
         )
