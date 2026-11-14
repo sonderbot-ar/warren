@@ -62,3 +62,9 @@ Added:
 - `zero_divisor` with `period_kind` `quarter` or `year`: `period_end` (ISO date), `accession_no` (string, or `null` for a quarter Warren derived) and `inputs` (list of accessions; empty for a reported figure). Show the period's end date beside its label, and "Ver reporte" on `accession_no`, or on each of `inputs` when it is `null` (a derived quarter can list four filings). The EDGAR link is built from the accession and the company's CIK, as the share-count notes' links are; no new param. The sum kinds carry none of the three.
 
 For the app (issue item c): never show the English of a refusal. `market_data_not_refreshed`'s ends with advice for whoever runs Warren ("refresh it"); the student's sentence comes from the code and params only.
+
+## Results (Step 4, nov.14.2026)
+
+On the restored snapshot (`warren-20261110T202538Z`), with the Step 3 code: `python -m domains.analysis reproduce --all --rebuild` gives 903 of 903 stored runs reproduced to the cent and 821 of 903 rebuilt to identical rows, the same two counts as v0.9.70 on `main` (the 82 rebuild differences are older runs whose reading rules weren't recorded, as in the #383 results). No number changes.
+
+Asking for Nov 13, 2026 for Apple, Microsoft, Exxon and Coca-Cola is refused with `market_data_not_refreshed` carrying `covered_through` and `all_covered_through` both `2026-10-30`: the snapshot's three downloads were made the same day, so here the two dates agree. A run on `2026-10-30` builds for all four (140 to 143 rows). The case where the series differ is covered by the Test Corp tests.
