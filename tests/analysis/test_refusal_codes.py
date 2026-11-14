@@ -390,7 +390,13 @@ def test_a_zero_quarterly_revenue_is_refused_with_a_code(make_company):
     )
     assert (e.code, e.params) == (
         "zero_divisor",
-        {"ticker": "TST", "ratio": "operating_margin", "divisor": "revenue", "period": "FY2018Q3"},
+        {
+            "ticker": "TST",
+            "ratio": "operating_margin",
+            "divisor": "revenue",
+            "period": "FY2018Q3",
+            "period_kind": "quarter",
+        },
     )
     assert str(e) == "TST: revenue is zero in FY2018Q3, so operating_margin can't be computed"
     assert REFUSAL_GROUPS[e.code] == "company_data"
@@ -401,7 +407,40 @@ def test_a_zero_pretax_sum_is_refused_with_a_code(make_company):
     e = refused(make_company(zero_where(lambda t, r: t.startswith(pretax) and r["fp"] == "FY")))
     assert (e.code, e.params) == (
         "zero_divisor",
-        {"ticker": "TST", "ratio": "tax_rate", "divisor": "pretax", "period": "FY2017-FY2019"},
+        {
+            "ticker": "TST",
+            "ratio": "tax_rate",
+            "divisor": "pretax",
+            "period": "FY2017-FY2019",
+            "period_kind": "years_sum",
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    ("year", "ratio"),
+    [
+        (2017, "revenue_growth"),  # the prior year of the FY2018 10-K's comparative
+        (2019, "revenue_seed"),  # a seed year whose quarters are checked against it
+    ],
+)
+def test_a_zero_annual_revenue_is_refused_with_a_code(make_company, year, ratio):
+    e = refused(
+        make_company(
+            zero_where(
+                lambda t, r: t == "Revenues" and r["fp"] == "FY" and r["end"] == f"{year}-12-31"
+            )
+        )
+    )
+    assert (e.code, e.params) == (
+        "zero_divisor",
+        {
+            "ticker": "TST",
+            "ratio": ratio,
+            "divisor": "revenue",
+            "period": f"FY{year}",
+            "period_kind": "year",
+        },
     )
 
 
@@ -412,10 +451,23 @@ class _Result:
 def test_ratio_divides_or_refuses_a_zero_divisor():
     from domains.analysis.math_engine import _ratio
 
-    assert _ratio(_Result(), 3.0, 7.0, "da_pct", "revenue", "FY2017-FY2019") == 3.0 / 7.0
-    assert _ratio(_Result(), -3.0, 7.0, "tax_rate", "pretax", "FY2017-FY2019") == -3.0 / 7.0
+    args = ("da_pct", "revenue", "FY2017-FY2019", "years_sum")
+    assert _ratio(_Result(), 3.0, 7.0, *args) == 3.0 / 7.0
+    assert _ratio(_Result(), -3.0, 7.0, *args) == -3.0 / 7.0
     for divisor in (0, 0.0, -0.0):
         with pytest.raises(EngineError) as caught:
-            _ratio(_Result(), 1.0, divisor, "nwc_pct", "revenue", "FY2018")
+            _ratio(_Result(), 1.0, divisor, "revenue_seed", "revenue", "FY2018", "quarters_sum")
         assert caught.value.code == "zero_divisor"
-        assert caught.value.params["period"] == "FY2018"
+        assert caught.value.params["period_kind"] == "quarters_sum"
+
+
+def test_zero_divisor_params_come_from_closed_sets():
+    from domains.analysis.math_engine import _nonzero
+
+    for bad in (
+        ("gross_margin", "revenue", "FY2018", "year"),
+        ("tax_rate", "ebit", "FY2018", "year"),
+        ("tax_rate", "pretax", "FY2018", "decade"),
+    ):
+        with pytest.raises(AssertionError):
+            _nonzero(_Result(), 1.0, *bad)
