@@ -24,7 +24,7 @@ Run notes already have codes (#172), and so do simulation refusals (`montecarlo.
   | Code | Where | Params |
   |---|---|---|
   | `as_of_too_early` | `build_inputs` | `as_of`, `supported_from` |
-  | `as_of_not_ended` | `build_inputs` (after today, which is the last ended New York day) | `as_of`, `last_ended_day` |
+  | `as_of_in_future` | `build_inputs` (a date after today in New York) | `as_of`, `today` |
   | `company_not_ingested` | `build_inputs` | `ticker` |
   | `no_ingest_run` | `_snapshot` | `ticker` |
   | `no_quarterly_revenue` | `_last_actual_quarter` | `ticker`, `as_of` |
@@ -32,15 +32,15 @@ Run notes already have codes (#172), and so do simulation refusals (`montecarlo.
   | `too_few_comparatives` | growth, in `_drivers` | `ticker`, `needed`, `found` |
   | `too_few_quarters` | margin by quarter, in `_drivers` | `ticker`, `quarter`, `needed`, `found`, `window` |
   | `seed_quarter_not_reported` | `_revenue_seed` | `ticker`, `fiscal_year`, `quarter` |
-  | `item_not_reported` | `resolve` (a figure with no reported alternative) | `item`, `where`, `tried` (list of alternatives, each a list of items) |
+  | `flow_item_not_reported` | `resolve` (an income or cash-flow figure with no reported alternative) | `item`, `fiscal_year`, `quarter` (None for a year), `tried` (list of alternatives, each a list of items) |
   | `no_balance_sheet` | `_balance` | `ticker`, `as_of` |
-  | `balance_item_not_reported` | `_balance`, `_operating_nwc` | `item`, `where` |
-  | `balance_item_negative` | `_balance` | `ticker`, `item`, `period_end`, `value` |
-  | `securities_exceed_current_assets` | `_balance` (both checks) | `ticker`, `balance_date`, `with_cash` (bool), `securities`, `current_assets` |
-  | `no_share_count` | `_shares` | `ticker`, `reason`: `none_reported` or `none_above_zero` |
+  | `balance_item_not_reported` | `_operating_nwc` (a year's working capital), `_balance` (the latest balance sheet) | `item` and `fiscal_year`, `quarter`; or `ticker`, `item`, `period_end` |
+  | `balance_item_negative` | `_balance` | `ticker`, `item`, `period_end`, `value`, `currency` |
+  | `securities_exceed_current_assets` | `_balance` (both checks) | `ticker`, `period_end`, `with_cash` (bool), `securities` (with cash when `with_cash`), `current_assets`, `currency` |
+  | `no_share_count` | `_shares` | `ticker`, `reason`: `none_reported` or `none_above_zero`; with the second, `skipped`: the counts left out (each `shares_not_positive` note's params), since a refused run stores no notes |
   | `no_interest_with_debt` | `_cost_of_debt` | `ticker`, `fiscal_years` |
   | `market_data_not_loaded` | `market.store.require_coverage`, `market.prices.split_factor` | `source`, `symbol` |
-  | `market_data_not_refreshed` | `require_coverage` (download made before the date ended) | `source`, `symbol`, `fetched_at`, `as_of` |
+  | `market_data_not_refreshed` | `require_coverage` (download made before the date ended) | `source`, `symbol`, `fetched_at` (as stored, UTC), `as_of`, `covered_through` (the newest date that download serves, ISO) |
   | `no_price_on_date` | `raw_close` | `ticker`, `as_of` |
   | `no_risk_free_rate` | `risk_free_rate` | `series`, `as_of` |
   | `too_few_return_weeks` | `aligned_weekly_returns` | `ticker`, `as_of`, `found`, `needed` |
@@ -81,11 +81,35 @@ Run notes already have codes (#172), and so do simulation refusals (`montecarlo.
 Nothing renamed or removed; every refusal's English text is unchanged. Adds:
 
 - `EngineError` and `MarketDataError` have `code`, `params` and `coded()`; `code` is None for text-only refusals.
-- `coded.ENGINE_REFUSAL_CODES` (the 23 codes above) and `coded.refusal(exc)`. Add the codes to the app's text catalogue; any refusal with `code` None keeps the generic sentence.
+- `coded.ENGINE_REFUSAL_CODES` (the 23 codes above, each with its group in `coded.REFUSAL_GROUPS`) and `coded.refusal(exc)`. Add the codes to the app's text catalogue; any refusal with `code` None keeps the generic sentence.
 - R8 is served, with one correction: "beyond history" is a run note, not a refusal, and already has its code.
+
+- `coded.REFUSAL_GROUPS` and `REFUSAL_GROUP_ORDER`: what the student can do, for the screen to group by: `later_date`, `earlier_date`, `company_data`, `inconsistent_data`, `setup` (Warren's own data isn't ready; the words must not blame the student).
+- The money params (`value`, `securities`, `current_assets`) are in the filing's unit (`currency`, e.g. USD), unscaled, as the facts are.
+- `item` and `tried` are engine item names; their Spanish labels depend on the line labels still owed to the brief (#297 item 5).
 
 Questions served: brief Q3, Q5 and Q8 (R8's list): when a run can't be built, the app can say why and what to try (a later date, another company, wait for the day to end). No question changes status.
 
-## Design review
+## Design review (nov.14.2026)
 
-(to come)
+Explainer, analyst, professor and the product lead, fresh context, in parallel. No blockers. Taken:
+
+- **A group per code (professor's "family", product lead's "next step").** `coded.REFUSAL_GROUPS` maps every code to what the student can do, and a test checks every code has one. The app no longer has to hard-code engine knowledge per code.
+- **Free-text `where` (product lead).** Split into `fiscal_year` and `quarter` (`math_engine.where_params`); the English label stays only in the text.
+- **One name for one date (product lead).** `balance_date` became `period_end`, as run notes use.
+- **Money with a unit (product lead).** `currency` from the fact's unit beside every amount.
+- **`covered_through` (product lead).** `market_data_not_refreshed` says which newest date that download serves, so the app doesn't redo New York day-end logic.
+- **The counts left out (product lead).** `no_share_count` with `none_above_zero` carries them in `skipped`, since a refused run stores no notes for the "Ver reporte" link.
+- **`item_not_reported` sat too close to `balance_item_not_reported` (professor).** Renamed `flow_item_not_reported`.
+- **"As SimulationError" was vague (explainer).** The base classes stay (`EngineError` a `ValueError`, `MarketDataError` a `RuntimeError`), the constructor asserts as `SimulationError`'s does; params may hold lists of lists (`tried`).
+- **`as_of_not_ended` named the wrong thing (explainer).** `build_inputs` compares with today's New York date, so the code is `as_of_in_future` with `today`; a date that is today but not over is `market_data_not_refreshed`.
+- **Codes no small fixture reaches (explainer).** `no_ingest_run`, `history_too_short`, `too_few_quarters` and `no_balance_sheet` are covered by the AST tests (coded at the raise, catalogued) but not by a behaviour test: on Test Corp, dropping every current-assets fact trips the working-capital check first, and too few years trips the comparatives check first.
+
+Not taken: lessons per refusal (professor, product lead) and the ERP's standard error on `erp_too_few_years` (professor) go to backlog issues, not this PR; equity is not a balance item here, so the negative-equity exemption the professor raised doesn't arise (`BALANCE_ITEMS`, `math_engine.py:110`).
+
+## Results on real data (Step 3, nov.14.2026)
+
+On the restored snapshot (saved nov.10.2026, schema 23 after migrations):
+
+- `python -m domains.analysis reproduce --all`: 903 of 903 stored runs reproduce to the cent.
+- 1,680 asks (the eight Phase 1 companies on 2019-02-28, every 14 days from 2019-03-01 to today, the last six days, and tomorrow): 1,608 build, 72 are refused, and **every refusal carries a code**; no other kind of error. The refusals: `as_of_too_early` (8, the day before the first supported date), `as_of_in_future` (8, tomorrow) and `market_data_not_refreshed` (56, every date from Nov 1 on, because the snapshot's prices were downloaded on Oct 31; `covered_through` says 2026-10-30). No real company hits a data refusal on any of these dates.
