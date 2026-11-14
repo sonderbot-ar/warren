@@ -1,9 +1,12 @@
 """Words a reader sees for the analysis engine's codes, kept apart from the logic so reports can
 later be translated (Decision 11, guardrail 5). Phase 1 is in English."""
 
+import math
 from dataclasses import dataclass
 
 from domains.analysis import math_engine
+from domains.analysis.coded import REFUSAL_GROUPS
+from domains.market import erp
 
 # Short cause of a missing value, per financial_math.REASONS code (backlog #9).
 REASON_WORDS = {
@@ -337,3 +340,132 @@ WARNING_LESSONS = {
         None,
     ),
 }
+
+
+# A lesson per refusal group, and per refusal code where the group's lesson isn't enough
+# (backlog #382): why Warren refuses, why a real company or date can hit it, and what the
+# student can do next. Same `Lesson` as the run warnings; its `group` is the refusal group
+# (`coded.REFUSAL_GROUPS`), and `refusal_lesson(code)` picks the code's own lesson or its group's.
+_POINT_IN_TIME = "point-in-time data (Structure Guide, Decision 7)"
+_CURRENT_ASSETS = (
+    "AICPA Accounting Research Bulletin No. 43, chapter 3A, paragraph 4 (current assets include "
+    "cash and marketable securities held as a resource for current operations; now FASB ASC "
+    "210-10-45-1)"
+)
+_ELEMENTS = "FASB Concepts Statement No. 6, paragraphs 25 and 35 (assets and liabilities)"
+_INCONSISTENT_RULE = (
+    "Warren's checks on the balance sheet it reads (math_engine, the balance sheet step); the "
+    "app links the filing so the figure can be seen"
+)
+
+REFUSAL_GROUP_LESSONS = {
+    "later_date": Lesson(
+        "later_date",
+        "Warren builds an estimate only from what was public on its date, and a forecast needs "
+        "a few years of reports and market prices behind it. On an early date that history is "
+        "too short, so a later date, when more of it has been published, will work.",
+        {},
+        None,
+        f"{_POINT_IN_TIME}; the history each input needs (math_engine.build_inputs)",
+    ),
+    "earlier_date": Lesson(
+        "earlier_date",
+        "Warren uses only days that have ended in New York and whose market prices it has "
+        "already downloaded, so that nothing in an estimate comes from after its date. The "
+        "newest day it can use is a little behind today: pick that day or an earlier one.",
+        {},
+        None,
+        f"{_POINT_IN_TIME}; the day-end rule (shared_kernel.calendar)",
+    ),
+    "company_data": Lesson(
+        "company_data",
+        "The company's reports up to this date leave out a figure the forecast needs, or give "
+        "one it can't divide by, such as revenue of zero. Real filings have gaps like this (a "
+        "line filed under a name Warren doesn't read, a quarter never reported on its own), so "
+        "another date or another company usually works.",
+        {},
+        None,
+        "the concept map, domains/fundamentals/concept_map.csv (Structure Guide, Decision 2), "
+        "and the figures each input needs (math_engine.build_inputs)",
+    ),
+    "inconsistent_data": Lesson(
+        "inconsistent_data",
+        "Some facts about a balance sheet hold for every company: a balance the company holds "
+        "or owes can't be below zero, and short-term securities are part of current assets, so "
+        "they can't be larger than them. When a filed figure breaks one of these, the filing "
+        "has almost always put the wrong number under that line, so Warren refuses rather than "
+        "value the company on it: open the report to see the figure, or try another date.",
+        {},
+        f"{_ELEMENTS}; {_CURRENT_ASSETS}",
+        _INCONSISTENT_RULE,
+    ),
+    "no_value": Lesson(
+        "no_value",
+        "A DCF's terminal value divides next year's cash flow by the cost of capital minus "
+        "long-term growth, which gives a finite number only while growth stays below the cost "
+        "of capital. With the assumptions Warren reads from the data on this date it doesn't, "
+        "so the model has no value to show.",
+        {},
+        _GORDON,
+        None,
+    ),
+    "setup": Lesson(
+        "setup",
+        "Warren's own copy of the data this estimate needs isn't loaded yet: a company's "
+        "filings, its market prices or the Treasury rate. This doesn't depend on the student "
+        "or the company; whoever runs Warren has to load it.",
+        {},
+        None,
+        "Warren's data loads (the fundamentals ingest and the market load), which run before "
+        "any estimate",
+    ),
+}
+
+_ERP_SD = 0.2  # the annual standard deviation of stock returns, rounded as Damodaran does
+
+REFUSAL_LESSONS = {
+    "balance_item_negative": Lesson(
+        "inconsistent_data",
+        "Each balance sheet line Warren reads (cash, securities, current assets and "
+        "liabilities, debt) is an amount the company holds or owes, so none can be below zero; "
+        "a negative one usually means the filing put a change or an adjustment under the line "
+        "instead of the balance. Warren refuses rather than guess which number was meant: open "
+        "the report to compare, or try another date.",
+        {},
+        _ELEMENTS,
+        _INCONSISTENT_RULE,
+    ),
+    "securities_exceed_current_assets": Lesson(
+        "inconsistent_data",
+        "Short-term securities, and cash with them, are part of current assets, so together "
+        "they can't be larger than current assets; when they are, a line in the filing almost "
+        "certainly holds a different measure, such as a total that also counts long-term "
+        "holdings. Warren refuses rather than count cash the company may not have: open the "
+        "report to compare, or try another date.",
+        {},
+        _CURRENT_ASSETS,
+        _INCONSISTENT_RULE,
+    ),
+    "erp_too_few_years": Lesson(
+        "later_date",
+        "Warren estimates how much more stocks earn than government bonds as the average of "
+        "past years, and needs at least {min_years} full years of it. Stock returns swing by "
+        "about {sd}% from year to year, so even a {min_years}-year average is uncertain by "
+        "about {se} percentage points either way, and a shorter one would be noisier still: a "
+        "later date adds years.",
+        {
+            "min_years": erp.MIN_YEARS,
+            "sd": _ERP_SD,
+            "se": round(_ERP_SD / math.sqrt(erp.MIN_YEARS), 4),
+        },
+        "Damodaran (2022), Equity Risk Premiums (ERP): Determinants, Estimation and "
+        "Implications, The 2022 Edition, Table 2 (standard errors in historical risk "
+        "premiums: 20% over the square root of the years)",
+        f"the {erp.MIN_YEARS}-year minimum is a working rule, domains/market/erp.py MIN_YEARS",
+    ),
+}
+
+
+def refusal_lesson(code: str) -> Lesson:
+    """The lesson for a refusal code: its own when it has one, otherwise its group's."""
+    return REFUSAL_LESSONS.get(code) or REFUSAL_GROUP_LESSONS[REFUSAL_GROUPS[code]]
