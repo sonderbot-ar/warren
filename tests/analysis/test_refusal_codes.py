@@ -19,7 +19,7 @@ from domains.analysis.math_engine import EngineError, UserChoice, build_inputs, 
 from domains.analysis.montecarlo import SimulationError
 from domains.market.prices import MARKET_INDEX
 from domains.market.store import MarketDataError
-from tests.analysis.conftest import AS_OF, CHOICES
+from tests.analysis.conftest import AS_OF, CHOICES, revenue
 
 REPO = Path(__file__).resolve().parents[2]
 SCANNED = (
@@ -421,6 +421,10 @@ def test_a_zero_quarterly_revenue_is_refused_with_a_code(make_company):
             "divisor": "revenue",
             "period": "FY2018Q3",
             "period_kind": "quarter",
+            # the figure as the FY2019 Q3 10-Q compares it, the newest filing of it (#381)
+            "period_end": "2018-09-30",
+            "accession_no": "0000000123-19-000014",
+            "inputs": [],
         },
     )
     assert str(e) == "TST: revenue is zero in FY2018Q3, so operating_margin can't be computed"
@@ -443,13 +447,15 @@ def test_a_zero_pretax_sum_is_refused_with_a_code(make_company):
 
 
 @pytest.mark.parametrize(
-    ("year", "ratio"),
+    ("year", "ratio", "accession"),
     [
-        (2017, "revenue_growth"),  # the prior year of the FY2018 10-K's comparative
-        (2019, "revenue_seed"),  # a seed year whose quarters are checked against it
+        # the prior year of the FY2018 10-K's comparative
+        (2017, "revenue_growth", "0000000123-19-000011"),
+        # a seed year whose quarters are checked against it
+        (2019, "revenue_seed", "0000000123-20-000015"),
     ],
 )
-def test_a_zero_annual_revenue_is_refused_with_a_code(make_company, year, ratio):
+def test_a_zero_annual_revenue_is_refused_with_a_code(make_company, year, ratio, accession):
     e = refused(
         make_company(
             zero_where(
@@ -465,6 +471,10 @@ def test_a_zero_annual_revenue_is_refused_with_a_code(make_company, year, ratio)
             "divisor": "revenue",
             "period": f"FY{year}",
             "period_kind": "year",
+            "period_end": f"{year}-12-31",
+            # FY2017 as the FY2018 10-K compares it; FY2019 from its own 10-K (#381)
+            "accession_no": accession,
+            "inputs": [],
         },
     )
 
@@ -496,3 +506,39 @@ def test_zero_divisor_params_come_from_closed_sets():
     ):
         with pytest.raises(AssertionError):
             _nonzero(_Result(), 1.0, *bad)
+
+
+def test_a_zero_derived_quarter_names_the_filings_it_comes_from(make_company):
+    # FY2018 revenue filed equal to its first three quarters, so Q4 (the year less Q1-Q3) is zero
+    nine_months = sum(revenue(2018, q) for q in (1, 2, 3))
+
+    def edit(tag, row):
+        if tag == "Revenues" and row["fp"] == "FY" and row["end"] == "2018-12-31":
+            return {**row, "val": nine_months}
+        return row
+
+    e = refused(make_company(edit))
+    assert e.code == "zero_divisor"
+    assert {k: e.params[k] for k in ("ratio", "period", "period_kind", "period_end")} == {
+        "ratio": "operating_margin",
+        "period": "FY2018Q4",
+        "period_kind": "quarter",
+        "period_end": "2018-12-31",
+    }
+    assert e.params["accession_no"] is None  # Warren derived it: no one filing shows the zero
+    # the FY2019 10-K's comparative year less the three quarters as the 2019 10-Qs compare them
+    assert e.params["inputs"] == [
+        "0000000123-20-000015",
+        "0000000123-19-000012",
+        "0000000123-19-000013",
+        "0000000123-19-000014",
+    ]
+
+
+def test_one_quarter_or_year_needs_its_fact_and_a_sum_takes_none():
+    from domains.analysis.math_engine import _nonzero
+
+    with pytest.raises(AssertionError):
+        _nonzero(_Result(), 0.0, "nwc_pct", "revenue", "FY2018", "year")
+    with pytest.raises(AssertionError):
+        _nonzero(_Result(), 0.0, "nwc_pct", "revenue", "FY2018", "quarter")

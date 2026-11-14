@@ -624,7 +624,7 @@ def _revenue_seed(history: History, last_year: int, last_quarter: int, result: E
         annual = history.annual.get(("revenue", year))
         if annual is not None and all(quarters):
             total = sum(q.value for q in quarters)
-            _nonzero(result, annual.value, "revenue_seed", "revenue", f"FY{year}", "year")
+            _nonzero(result, annual.value, "revenue_seed", "revenue", f"FY{year}", "year", annual)
             gap = (total - annual.value) / abs(annual.value)
             if abs(gap) > CONSISTENCY_TOLERANCE:
                 _nonzero(result, total, "revenue_seed", "revenue", f"FY{year}", "quarters_sum")
@@ -1256,14 +1256,30 @@ def _nonzero(
     divisor_item: str,
     period: str,
     period_kind: str,
+    fact: Fact | None = None,
 ) -> None:
     """Refuse with a code when a divisor on the way to a run is exactly zero (backlog #383): a
     `ZeroDivisionError` would carry no reason the app can show. `period_kind` says what `period`
-    is (one quarter, one year, or a sum over quarters or years), so the app never parses it."""
+    is (one quarter, one year, or a sum over quarters or years), so the app never parses it.
+
+    One quarter or year comes with the divisor's `fact`, and the refusal names its period end and
+    the filing that gives it (`accession_no`; None for a figure Warren derived, whose filings are
+    `inputs`), so the app can show the date and link the report (backlog #381). A sum has no
+    single filing and takes none."""
     assert ratio in ZERO_DIVISOR_RATIOS, ratio
     assert divisor_item in ZERO_DIVISOR_ITEMS, divisor_item
     assert period_kind in ZERO_DIVISOR_PERIOD_KINDS, period_kind
+    assert (fact is not None) == (period_kind in ("quarter", "year")), period_kind
     if divisor == 0:
+        filing = (
+            {
+                "period_end": fact.period_end.isoformat(),
+                "accession_no": fact.accession_no,
+                "inputs": list(fact.inputs),
+            }
+            if fact is not None
+            else {}
+        )
         raise EngineError(
             f"{result.ticker}: {divisor_item} is zero in {period}, so {ratio} can't be computed",
             code="zero_divisor",
@@ -1273,7 +1289,8 @@ def _nonzero(
                 "divisor": divisor_item,
                 "period": period,
                 "period_kind": period_kind,
-            },
+            }
+            | filing,
         )
 
 
@@ -1285,9 +1302,10 @@ def _ratio(
     divisor_item: str,
     period: str,
     period_kind: str,
+    fact: Fact | None = None,
 ) -> float:
     """`numerator / divisor` for a forecast ratio, refused by `_nonzero` on a zero divisor."""
-    _nonzero(result, divisor, ratio, divisor_item, period, period_kind)
+    _nonzero(result, divisor, ratio, divisor_item, period, period_kind, fact)
     return numerator / divisor
 
 
@@ -1321,6 +1339,7 @@ def _drivers(
             "revenue",
             f"FY{c.fiscal_year - 1}",
             "year",
+            c.prior,
         )
     start = sum(c.growth for c in recent) / len(recent)
     terminal = result.value_of("terminal_growth")
@@ -1358,7 +1377,14 @@ def _drivers(
         label = quarter_label(year, quarter)
         margins[quarter].append(
             _ratio(
-                result, ebit.value, revenue.value, "operating_margin", "revenue", label, "quarter"
+                result,
+                ebit.value,
+                revenue.value,
+                "operating_margin",
+                "revenue",
+                label,
+                "quarter",
+                revenue,
             )
         )
         result.read("operating_margin", label, revenue)
@@ -1481,6 +1507,7 @@ def _drivers(
                     "revenue",
                     f"FY{y}",
                     "year",
+                    history.year(y)("revenue"),
                 )
                 for y in fiscal_years
             )
