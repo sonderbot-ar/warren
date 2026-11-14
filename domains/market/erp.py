@@ -38,6 +38,12 @@ def last_complete_year(as_of: date) -> int:
     return year if as_of >= date(year + 1, 1, 1) + YEAR_END_LAG else year - 1
 
 
+def first_as_of(first_year: int) -> date:
+    """The first as-of date whose window from first_year has MIN_YEARS years (backlog #381): the
+    day year first_year + MIN_YEARS - 1 counts as complete. It can be after today."""
+    return date(first_year + MIN_YEARS, 1, 1) + YEAR_END_LAG
+
+
 def equity_risk_premium(conn: sqlite3.Connection, as_of: date, first_year: int) -> ERPEstimate:
     last_year = last_complete_year(as_of)
     if last_year - first_year + 1 < MIN_YEARS:
@@ -50,6 +56,7 @@ def equity_risk_premium(conn: sqlite3.Connection, as_of: date, first_year: int) 
                 "first_year": first_year,
                 "last_year": last_year,
                 "min_years": MIN_YEARS,
+                "first_as_of": first_as_of(first_year).isoformat(),
             },
         )
     equity = annual_total_returns(conn, MARKET_INDEX, first_year, last_year)

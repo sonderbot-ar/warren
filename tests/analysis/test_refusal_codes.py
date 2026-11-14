@@ -234,6 +234,7 @@ def test_too_few_years_for_the_risk_premium(company):
         "first_year": 2015,
         "last_year": 2019,
         "min_years": 10,
+        "first_as_of": "2025-01-08",
     }
 
 
