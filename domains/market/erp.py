@@ -43,7 +43,14 @@ def equity_risk_premium(conn: sqlite3.Connection, as_of: date, first_year: int) 
     if last_year - first_year + 1 < MIN_YEARS:
         raise MarketDataError(
             f"equity risk premium as of {as_of}: {first_year}-{last_year} is fewer than "
-            f"{MIN_YEARS} years"
+            f"{MIN_YEARS} years",
+            code="erp_too_few_years",
+            params={
+                "as_of": as_of.isoformat(),
+                "first_year": first_year,
+                "last_year": last_year,
+                "min_years": MIN_YEARS,
+            },
         )
     equity = annual_total_returns(conn, MARKET_INDEX, first_year, last_year)
     bonds = annual_bond_returns(conn, first_year, last_year)

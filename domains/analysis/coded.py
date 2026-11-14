@@ -56,6 +56,63 @@ SIMULATION_NOTE_CODES = frozenset(
 # refusal without a code is text only. The app's text catalogue covers this set too.
 SIMULATION_REFUSAL_CODES = frozenset({"wacc_set_with_risk_premium_shock"})
 
+# Every code a refused run can carry (backlog #376): `math_engine.EngineError.code` and
+# `market.store.MarketDataError.code`, raised on the way from a company and a date to a stored
+# baseline run (`build_inputs`, then `runs.run_baseline`'s valuation). A refusal without a code
+# is text only: it can't be reached by picking a company and a date. The app's text catalogue
+# covers this set too.
+# What the student can do about each refusal, in the order a screen groups them (professor and
+# product lead, #376 review): `later_date` and `earlier_date` (pick another date), `company_data`
+# (the company's filings lack a figure: try another date or company), `inconsistent_data` (the
+# filed figures break an accounting identity), `no_value` (the inputs are read, but the base case
+# has no value: terminal growth at or above the discount rate) and `setup` (Warren's own data
+# isn't ready; never the student's doing).
+REFUSAL_GROUPS = {
+    "as_of_too_early": "later_date",
+    "no_quarterly_revenue": "later_date",
+    "history_too_short": "later_date",
+    "too_few_comparatives": "later_date",
+    "too_few_quarters": "later_date",
+    "no_price_on_date": "later_date",
+    "too_few_return_weeks": "later_date",
+    "erp_too_few_years": "later_date",
+    "as_of_in_future": "earlier_date",
+    "market_data_not_refreshed": "earlier_date",
+    "seed_quarter_not_reported": "company_data",
+    "flow_item_not_reported": "company_data",
+    "no_balance_sheet": "company_data",
+    "balance_item_not_reported": "company_data",
+    "no_share_count": "company_data",
+    "no_interest_with_debt": "company_data",
+    "balance_item_negative": "inconsistent_data",
+    "securities_exceed_current_assets": "inconsistent_data",
+    "company_not_ingested": "setup",
+    "no_ingest_run": "setup",
+    "market_data_not_loaded": "setup",
+    "no_risk_free_rate": "setup",
+    "market_year_end_missing": "setup",
+    "no_base_value": "no_value",
+}
+REFUSAL_GROUP_ORDER = (
+    "later_date",
+    "earlier_date",
+    "company_data",
+    "inconsistent_data",
+    "no_value",
+    "setup",
+)
+ENGINE_REFUSAL_CODES = frozenset(REFUSAL_GROUPS)
+
+
+def refusal(exc: BaseException) -> Coded | None:
+    """Why a run or a simulation was refused, as a code with params (backlog #376): any exception
+    with a `code` (`EngineError`, `MarketDataError`, `SimulationError`); None when it has none,
+    and the app shows its generic sentence."""
+    code = getattr(exc, "code", None)
+    if code is None:
+        return None
+    return Coded(code, dict(getattr(exc, "params", {}) or {}), str(exc))
+
 
 def coded_warnings(caught) -> list[Coded]:
     """Warren's own data warnings caught while reading facts, one per text (the first one's

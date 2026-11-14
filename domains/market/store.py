@@ -15,7 +15,8 @@ from datetime import UTC, date, datetime
 from types import MappingProxyType
 from typing import Any
 
-from shared_kernel.calendar import known_by
+from domains.analysis.coded import ENGINE_REFUSAL_CODES, Coded
+from shared_kernel.calendar import known_by, last_ended_day
 
 ROWS_TABLE = {"yahoo": ("prices", "ticker"), "fred": ("yields", "series")}
 
@@ -26,7 +27,18 @@ _pins: ContextVar[Mapping[tuple[str, str], int]] = ContextVar(
 
 
 class MarketDataError(RuntimeError):
-    """Market data is missing, unusable, or older than the date a query asks about."""
+    """Market data is missing, unusable, or older than the date a query asks about.
+
+    A refusal a student's run can reach has a `code` from `coded.ENGINE_REFUSAL_CODES` and
+    `params` (backlog #376); every other one (downloads, pins) has `code` None and is text only."""
+
+    def __init__(self, text: str, code: str | None = None, params: dict | None = None):
+        super().__init__(text)
+        assert code is None or code in ENGINE_REFUSAL_CODES, code
+        self.text, self.code, self.params = text, code, dict(params or {})
+
+    def coded(self) -> Coded | None:
+        return None if self.code is None else Coded(self.code, self.params, self.text)
 
 
 def utc_now() -> datetime:
@@ -117,14 +129,27 @@ def require_coverage(
     """
     fetch = selected_fetch(conn, source, symbol)
     if fetch is None:
-        raise MarketDataError(f"No {source} data for {symbol}: load it first")
+        raise MarketDataError(
+            f"No {source} data for {symbol}: load it first",
+            code="market_data_not_loaded",
+            params={"source": source, "symbol": symbol},
+        )
     fetched = datetime.fromisoformat(fetch["fetched_at"].replace("Z", "+00:00"))
     if fetched.tzinfo is None:
         fetched = fetched.replace(tzinfo=UTC)
     if fetched < known_by(as_of):
         raise MarketDataError(
             f"{source} data for {symbol} was fetched {fetch['fetched_at']}, before the as-of "
-            f"date {as_of} ended in New York: refresh it"
+            f"date {as_of} ended in New York: refresh it",
+            code="market_data_not_refreshed",
+            params={
+                "source": source,
+                "symbol": symbol,
+                "fetched_at": fetch["fetched_at"],
+                "as_of": as_of.isoformat(),
+                # the newest date this download can serve: the last day ended when it was made
+                "covered_through": last_ended_day(fetched).isoformat(),
+            },
         )
     return fetch
 
@@ -148,6 +173,10 @@ def year_end_values(
     out = {}
     for year in range(first_year, last_year + 1):
         if year not in values or values[year][0] < f"{year}-12-24":
-            raise MarketDataError(f"{what}: no observation in the last week of {year}")
+            raise MarketDataError(
+                f"{what}: no observation in the last week of {year}",
+                code="market_year_end_missing",
+                params={"what": what, "year": year},
+            )
         out[year] = values[year][1]
     return out
