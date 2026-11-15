@@ -38,7 +38,7 @@ from domains.analysis.coded import (
 from domains.analysis.dcf import QUARTERS, SEED, YEARS
 from domains.analysis.reading_rules import READING_RULES_VERSION
 from domains.analysis.schemas import SINGLE, Assumption
-from domains.analysis.statutory_tax import statutory_rate
+from domains.analysis.statutory_tax import StatutoryRateError, statutory_rate
 from domains.fundamentals.concepts import concept_map_sha256
 from domains.fundamentals.facts import (
     MeaningChange,
@@ -1547,7 +1547,16 @@ def _statutory_tax(
     """The statutory rate and its note, for a run whose three-year pretax income is at or below
     `PRETAX_MARGIN_FLOOR` of its revenue (backlog #385): the effective rate on such a sum is noise
     (or its sign is meaningless), and future profits pay the statutory rate. No clip applies."""
-    law = statutory_rate(TAX_JURISDICTION, result.as_of)
+    try:
+        law = statutory_rate(TAX_JURISDICTION, result.as_of)
+    except StatutoryRateError as e:
+        # Warren's table of laws has no row for this country and date (backlog #395)
+        raise EngineError(
+            f"{e}; the run's three-year pretax income is at or below "
+            f"{PRETAX_MARGIN_FLOOR:.0%} of revenue, so it needs the statutory rate",
+            code="no_statutory_rate",
+            params={"jurisdiction": TAX_JURISDICTION, "as_of": result.as_of.isoformat()},
+        ) from e
     units = [
         s["unit"]
         for s in result.sources.get(("history:pretax", f"FY{fiscal_years[-1]}"), [])

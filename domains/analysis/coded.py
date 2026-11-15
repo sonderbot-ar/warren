@@ -94,6 +94,7 @@ REFUSAL_GROUPS = {
     "market_data_not_loaded": "setup",
     "no_risk_free_rate": "setup",
     "market_year_end_missing": "setup",
+    "no_statutory_rate": "setup",
     "no_base_value": "no_value",
 }
 REFUSAL_GROUP_ORDER = (

@@ -431,13 +431,13 @@ REFUSAL_GROUP_LESSONS = {
     ),
     "setup": Lesson(
         "setup",
-        "Warren's own copy of the data this estimate needs isn't loaded yet: a company's "
-        "filings, its market prices or the Treasury rate. This doesn't depend on the student "
-        "or the company; whoever runs Warren has to load it.",
+        "Warren's own data for this estimate isn't there yet: a company's filings, its market "
+        "prices, the Treasury rate, or a country's tax rate in Warren's table of tax laws. This "
+        "doesn't depend on the student or the company; whoever runs Warren has to load or add it.",
         {},
         None,
-        "Warren's data loads (the fundamentals ingest and the market load), which run before "
-        "any estimate",
+        "Warren's data loads (the fundamentals ingest and the market load) and its table of "
+        "statutory tax rates, which come before any estimate",
     ),
 }
 
