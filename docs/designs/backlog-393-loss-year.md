@@ -64,4 +64,4 @@ On the restored snapshot (`warren-20261110T202538Z`), all 903 stored baseline ru
 | 2023-03-01 to 2024-02-15 (16 runs) | FY2020–FY2022 | 27.7% → 25.5% | +2.5% |
 
   The 2021 values are small because the run's forecast starts from Exxon's 2020 trough; the tax rule moves them a lot in percent and little in dollars. Revenue and EBIT forecasts do not use the tax rate, so the forecast-error scores (M3, M8, M9) do not move.
-- **Stored runs** keep their stored rows and reproduce to the cent (`reproduce --all`); a rebuild of the 44 runs differs on `tax_rate`, `debt_tax_rate` and the rows built from them, as expected under reading rules v4.
+- **Stored runs** keep their stored rows: `python -m domains.analysis reproduce --all --rebuild` gives 903 of 903 reproduced to the cent, and 777 of 903 rebuilt to identical rows against 821 on `main`. The 44 fewer are exactly the Exxon runs above (their `tax_rate` and `debt_tax_rate` values differ, as expected under reading rules v4); the other 82 differences are the older runs whose reading rules weren't recorded, as in #385's results.
