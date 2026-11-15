@@ -465,7 +465,7 @@ def rebuild(
     elif not any(a.name == "terminal_method" for a in stored_rows):
         # made before the owner set terminal_method (M4): rebuild it under the rule it used
         choices = {k: v for k, v in choices.items() if k != "terminal_method"}
-    with pin_fetches(pins), concept_map_in_force(conn, own_map):
+    with pin_fetches(pins), concept_map_in_force(conn, own_map, run["ticker"]):
         result = build_inputs(
             conn, run["ticker"], date.fromisoformat(run["as_of"]), choices=choices, today=today
         )

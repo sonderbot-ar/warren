@@ -26,7 +26,7 @@ JNJ,commercial_paper,*,*,[bundled] Commercial paper is included in 'Loans and no
 CAT,operating_expenses,2020-2025,*,"[not presented] From FY2020 Caterpillar tags only total costs including cost of revenue (CostsAndExpenses, not mapped)."
 CAT,cash,2016,Q1;Q2;Q3,"[different line] The FY2016 10-Qs present 'Cash and short-term investments' (CashCashEquivalentsAndShortTermInvestments), which is not mapped."
 CAT,debt_noncurrent,*,Q1;Q2;Q3,[annual only] Total long-term debt is tagged only at year-end; quarterly it is split by segment (Machinery/Financial Products) with dimensions that companyfacts omits.
-CAT,debt_current,*,*,"[extension tag] 'Long-term debt due within one year' is reported only by segment (dimensional facts), which companyfacts omits."
+CAT,debt_current,*,Q1;Q2;Q3,"[annual only] 'Long-term debt due within one year' is reported only by segment (dimensional facts, which companyfacts omits); the debt maturity note's consolidated total (mapped for CAT only, backlog #341) is tagged only at year end."
 CAT,short_term_borrowings,*,Q1;Q2;Q3,[annual only] Total short-term borrowings are tagged only at year-end; quarterly they are split by segment.
 CAT,commercial_paper,*,*,[bundled] Commercial paper is included in short-term borrowings (mainly Cat Financial) and not tagged as a balance.
 CAT,interest_expense,*,*,[extension tag] 'Interest expense excluding Financial Products' uses a company-specific tag.

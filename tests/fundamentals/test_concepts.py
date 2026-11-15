@@ -268,3 +268,80 @@ def test_todays_map_changes_nothing_and_maps_do_not_nest(conn, tmp_path, monkeyp
             with concept_map_in_force(conn, sha):
                 pass
         assert _priorities(conn, "revenue")  # the outer block's map is still there
+
+
+SCOPED_HEADER = ",".join(concepts.SCOPED_COLUMNS)
+DEBT = "debt_current,us-gaap:{tag},{p},USD,instant,required,Current debt.,,{companies}"
+
+
+def write_scoped(tmp_path, *lines):
+    path = tmp_path / "scoped.csv"
+    path.write_text("\n".join([SCOPED_HEADER, *lines]) + "\n")
+    return path
+
+
+def test_a_scoped_row_reads_its_companies(tmp_path):
+    path = write_scoped(
+        tmp_path,
+        DEBT.format(tag="LongTermDebtCurrent", p=1, companies=""),
+        DEBT.format(tag="DebtFallback", p=2, companies="CAT; JNJ"),
+    )
+    first, fallback = load_concept_map(path)
+    assert first.companies == frozenset() and first.applies_to("AAPL")
+    assert fallback.companies == {"CAT", "JNJ"}
+    assert fallback.applies_to("CAT") and not fallback.applies_to("AAPL")
+
+
+def test_a_scoped_row_with_an_unknown_ticker_or_on_priority_1_is_refused(tmp_path):
+    path = write_scoped(
+        tmp_path,
+        DEBT.format(tag="LongTermDebtCurrent", p=1, companies="CAT"),
+        DEBT.format(tag="DebtFallback", p=2, companies="ZZZZ"),
+    )
+    with pytest.raises(ConceptMapError) as err:
+        load_concept_map(path)
+    assert "can't be priority 1" in str(err.value)
+    assert "['ZZZZ'] are not in universe.csv" in str(err.value)
+
+
+def test_a_copy_without_the_companies_column_reads_as_unscoped(tmp_path):
+    rows = load_concept_map(write_map(tmp_path, DEBT.format(tag="X", p=1, companies="")[:-1]))
+    assert rows[0].companies == frozenset()
+
+
+def test_the_shipped_maps_scope_only_caterpillars_maturity_note_total():
+    scoped = [r for r in load_concept_map() if r.companies]
+    assert [(r.canonical_name, r.tag, r.priority, r.companies) for r in scoped] == [
+        (
+            "debt_current",
+            "LongTermDebtMaturitiesRepaymentsOfPrincipalInNextTwelveMonths",
+            3,
+            {"CAT"},
+        )
+    ]
+
+
+def test_a_scope_only_ever_widens():
+    """Backlog #341: today's map must read every company an older copy read under a tag, since
+    facts stored for a company are never removed and today's map is read without a filter."""
+    today = {r.xbrl_concept: r for r in load_concept_map()}
+    for copy in sorted(CONCEPT_MAPS_DIR.glob("*.csv")):
+        for old in archived_concept_map(copy.stem):
+            now = today.get(old.xbrl_concept)
+            if now is None or not now.companies:
+                continue
+            assert old.companies and old.companies <= now.companies, (copy.stem, old.xbrl_concept)
+
+
+def test_an_archived_map_leaves_out_rows_scoped_to_other_companies(conn, monkeypatch, tmp_path):
+    scoped = next(r for r in load_concept_map() if r.companies)
+    sha = concept_map_sha256()
+    unscoped = tmp_path / "today.csv"  # a later map that widened the row to every company
+    unscoped.write_text(CONCEPT_MAP_PATH.read_text().replace(",CAT\n", ",\n"))
+    monkeypatch.setattr(concepts, "CONCEPT_MAP_PATH", unscoped)
+    sync_concepts(conn, load_concept_map())
+    sql = "SELECT 1 FROM concepts WHERE xbrl_concept = ?"
+    with concept_map_in_force(conn, sha, "AAPL"):
+        assert conn.execute(sql, (scoped.xbrl_concept,)).fetchone() is None
+    with concept_map_in_force(conn, sha, "CAT"):
+        assert conn.execute(sql, (scoped.xbrl_concept,)).fetchone() is not None
