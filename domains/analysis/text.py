@@ -275,6 +275,20 @@ WARNING_LESSONS = {
         "Damodaran, Investment Valuation (3rd ed.), chapter 10 (the tax effect)",
         "the 0% to 50% range is a working rule, math_engine.TAX_RATE_BOUNDS",
     ),
+    "tax_rate_statutory": Lesson(
+        "assumption",
+        "The company's pretax income over the years the run reads added up to {floor}% of "
+        "revenue or less, or to a loss, and a tax rate worked out on so little profit says "
+        "nothing about the tax future profits will pay, so Warren uses the statutory corporate "
+        "rate, the rate a profitable company pays on each extra dollar, as an analyst would. It "
+        "simplifies three things: it is the US federal rate only (state taxes add a few "
+        "percentage points), profits earned abroad pay other countries' rates, and a company "
+        "coming out of losses can usually deduct them from later profits and pay less for a while.",
+        {"floor": math_engine.PRETAX_MARGIN_FLOOR},
+        "Damodaran, Investment Valuation (3rd ed.), chapter 10 (the tax effect, net operating "
+        "losses); 26 U.S.C. §11(b) and §172; Koller, Goedhart and Wessels, Valuation (7th ed.)",
+        "the 1% pretax-margin line is a working rule, math_engine.PRETAX_MARGIN_FLOOR",
+    ),
     "margin_outside_history": Lesson(
         "assumption",
         "A forecast quarter's operating margin is more than {sigmas} standard deviations away "

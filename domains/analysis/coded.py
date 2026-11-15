@@ -4,6 +4,7 @@ hard-coded in logic"): the app owns the words; `text` is the English fallback.""
 import warnings
 from dataclasses import dataclass
 
+from domains.analysis.statutory_tax import JURISDICTIONS
 from shared_kernel.data_warnings import DataWarning
 
 
@@ -33,6 +34,7 @@ RUN_NOTE_CODES = frozenset(
         "shares_not_positive",
         "cost_of_debt_out_of_bounds",
         "tax_rate_clipped",
+        "tax_rate_statutory",
         "margin_outside_history",
         "margin_quarter_two_bases",
         "seed_year_two_bases",
@@ -122,6 +124,9 @@ ZERO_DIVISOR_RATIOS = frozenset(
 )
 ZERO_DIVISOR_ITEMS = frozenset({"revenue", "pretax"})
 ZERO_DIVISOR_PERIOD_KINDS = frozenset({"quarter", "year", "quarters_sum", "years_sum"})
+
+# The closed value set of `tax_rate_statutory`'s `jurisdiction` param (backlog #385).
+TAX_JURISDICTIONS = JURISDICTIONS
 
 
 def refusal(exc: BaseException) -> Coded | None:

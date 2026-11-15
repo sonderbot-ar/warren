@@ -35,6 +35,10 @@ RULES = {
     "not_reported_zero": "Not reported within a year of the balance sheet: counted as zero.",
     "no_debt": "No debt on the balance sheet: the cost of debt is not used (its weight is 0).",
     "not_in_annual_report_zero": "Not reported in that year's annual report: counted as zero.",
+    "statutory_tax_rate": (
+        "Three years of pretax income at or below 1% of revenue: the federal statutory tax rate "
+        "is used instead of the effective rate."
+    ),
 }
 PROVIDERS = {"yahoo": "Yahoo Finance", "fred": "FRED"}
 MEASURES = ("close", "splits", "weekly_total_return", "annual_total_return", "yield")
