@@ -1463,9 +1463,15 @@ def _drivers(
         tax_inputs = _yearly(("tax", "pretax", "revenue"), fiscal_years)
         tax_sources = [src.rule("statutory_tax_rate"), src.derived(*tax_inputs)]
     else:
-        tax = _ratio(result, tax_sum, pretax_sum, "tax_rate", "pretax", span, "years_sum")
+        loss_years = [y for y in fiscal_years if result.value_of("history:pretax", f"FY{y}") <= 0]
+        if loss_years:
+            tax, tax_method = _tax_without_losses(
+                result, fiscal_years, loss_years, span, tax_sum, pretax_sum
+            )
+        else:
+            tax = _ratio(result, tax_sum, pretax_sum, "tax_rate", "pretax", span, "years_sum")
+            tax_method = f"Σ income tax / Σ pretax income, {span}"
         clipped = min(max(tax, TAX_RATE_BOUNDS[0]), TAX_RATE_BOUNDS[1])
-        tax_method = f"Σ income tax / Σ pretax income, {span}"
         if clipped != tax:
             low, high = TAX_RATE_BOUNDS
             result.warn(
@@ -1528,12 +1534,65 @@ def _drivers(
             sources = tax_sources if name == "tax_rate" else [src.derived(*ratio_inputs[name])]
             result.add(name, value, method, period, sources=sources)
     statutory = any(s["kind"] == "rule" for s in tax_sources)
+    loss_year_note = any(n.code == "tax_rate_loss_year_left_out" for n in result.notes)
     result.add(
         "debt_tax_rate",
         clipped,
-        tax_method if statutory else f"effective tax rate, {span}",
+        tax_method if statutory or loss_year_note else f"effective tax rate, {span}",
         sources=tax_sources,
     )
+
+
+def _tax_without_losses(
+    result: EngineResult,
+    fiscal_years: list[int],
+    loss_years: list[int],
+    span: str,
+    tax_sum: float,
+    pretax_sum: float,
+) -> tuple[float, str]:
+    """The effective rate of the window's profitable years and its note, for a window above
+    `PRETAX_MARGIN_FLOOR` that holds a year with pretax income of zero or below (backlog #393): a
+    loss year's tax benefit is a refund rate on a loss, not the rate profits pay, and adding it to
+    the sums mixes the two. The kept years always exist and their pretax sum is above the floor on
+    their own revenue: losses only lower the window's sum, which is already above it."""
+    kept = [y for y in fiscal_years if y not in loss_years]
+    kept_tax = _sum(result, "tax", kept)
+    kept_pretax = _sum(result, "pretax", kept)
+    rate = _ratio(result, kept_tax, kept_pretax, "tax_rate", "pretax", span, "years_sum")
+    effective = tax_sum / pretax_sum
+    units = [
+        s["unit"]
+        for s in result.sources.get(("history:pretax", f"FY{fiscal_years[-1]}"), [])
+        if s["kind"] == "filing"
+    ]
+    kept_labels = [f"FY{y}" for y in kept]
+    loss_labels = [f"FY{y}" for y in loss_years]
+    kept_text = ", ".join(kept_labels)
+    loss_text = ", ".join(loss_labels)
+    were = "was a loss year" if len(loss_years) == 1 else "were loss years"
+    result.warn(
+        "tax_rate_loss_year_left_out",
+        {
+            "period": span,
+            "loss_years": loss_labels,
+            "kept_years": kept_labels,
+            "tax_sum": tax_sum,
+            "pretax_sum": pretax_sum,
+            "effective_rate": effective,
+            "kept_tax_sum": kept_tax,
+            "kept_pretax_sum": kept_pretax,
+            "rate": rate,
+            "rate_used": min(max(rate, TAX_RATE_BOUNDS[0]), TAX_RATE_BOUNDS[1]),
+            "clipped": not TAX_RATE_BOUNDS[0] <= rate <= TAX_RATE_BOUNDS[1],
+            "currency": units[0] if units else None,
+            "assumptions": ["tax_rate", "debt_tax_rate"],
+        },
+        f"{loss_text} {were}, so the tax rate is read from {kept_text} only: {rate:.1%} instead "
+        f"of {effective:.1%} over {span}",
+    )
+    years = "a loss year" if len(loss_years) == 1 else "loss years"
+    return rate, f"Σ income tax / Σ pretax income, {kept_text} ({loss_text}, {years}, left out)"
 
 
 def _statutory_tax(

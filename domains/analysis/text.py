@@ -289,6 +289,18 @@ WARNING_LESSONS = {
         "losses); 26 U.S.C. §11(b) and §172; Koller, Goedhart and Wessels, Valuation (7th ed.)",
         "the 1% pretax-margin line is a working rule, math_engine.PRETAX_MARGIN_FLOOR",
     ),
+    "tax_rate_loss_year_left_out": Lesson(
+        "assumption",
+        "In a year that ended in a loss the company books a tax benefit, a refund on the loss "
+        "that depends on carrybacks and on what it expects to recover, which is not the rate its "
+        "profits pay, so adding that year to the others mixes the two and Warren reads the tax "
+        "rate from the profitable years only. One thing is still left out: a company coming out "
+        "of losses can usually deduct them from later profits and pay less tax for a while.",
+        {},
+        "Damodaran, Investment Valuation (3rd ed.), chapter 10 (the tax effect, net operating "
+        "losses); 26 U.S.C. §172; Koller, Goedhart and Wessels, Valuation (7th ed.)",
+        "a year with pretax income of zero or below is left out of the three-year tax rate",
+    ),
     "margin_outside_history": Lesson(
         "assumption",
         "A forecast quarter's operating margin is more than {sigmas} standard deviations away "
