@@ -1,6 +1,6 @@
 # Backlog #395: the statutory tax rate's exact floor, a coded refusal, and the real date rule
 
-Issue: https://github.com/sonderbot-ar/warren/issues/395 · Branch `backlog-395-statutory-tidy` · Version v0.9.74 (patch)
+Issue: https://github.com/sonderbot-ar/warren/issues/395 · Branch `backlog-395-statutory-tidy` · Version v0.9.74, merged nov.15.2026 (PR #398, merge `5b55ca9`)
 
 ## Problem
 
