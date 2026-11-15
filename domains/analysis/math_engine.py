@@ -1463,10 +1463,18 @@ def _drivers(
         tax_inputs = _yearly(("tax", "pretax", "revenue"), fiscal_years)
         tax_sources = [src.rule("statutory_tax_rate"), src.derived(*tax_inputs)]
     else:
-        loss_years = [y for y in fiscal_years if result.value_of("history:pretax", f"FY{y}") <= 0]
-        if loss_years:
-            tax, tax_method = _tax_without_losses(
-                result, fiscal_years, loss_years, span, tax_sum, pretax_sum
+        years = tax_years(
+            {
+                y: (
+                    result.value_of("history:pretax", f"FY{y}"),
+                    result.value_of("history:tax", f"FY{y}"),
+                )
+                for y in fiscal_years
+            }
+        )
+        if years.loss or years.outside:
+            tax, tax_method = _tax_kept_years(
+                result, fiscal_years, years, span, tax_sum, pretax_sum
             )
         else:
             tax = _ratio(result, tax_sum, pretax_sum, "tax_rate", "pretax", span, "years_sum")
@@ -1534,29 +1542,61 @@ def _drivers(
             sources = tax_sources if name == "tax_rate" else [src.derived(*ratio_inputs[name])]
             result.add(name, value, method, period, sources=sources)
     statutory = any(s["kind"] == "rule" for s in tax_sources)
-    loss_year_note = any(n.code == "tax_rate_loss_year_left_out" for n in result.notes)
+    kept_years_note = any(n.code in KEPT_YEARS_NOTES for n in result.notes)
     result.add(
         "debt_tax_rate",
         clipped,
-        tax_method if statutory or loss_year_note else f"effective tax rate, {span}",
+        tax_method if statutory or kept_years_note else f"effective tax rate, {span}",
         sources=tax_sources,
     )
 
 
-def _tax_without_losses(
+@dataclass(frozen=True)
+class TaxYears:
+    """Which of the window's fiscal years the tax rate reads (backlogs #393 and #400)."""
+
+    loss: list[int]  # pretax of zero or below
+    outside: list[int]  # profitable, with an own rate outside TAX_RATE_BOUNDS
+    outside_left_out: bool  # False when every profitable year is outside
+    kept: list[int]
+
+
+def tax_years(pretax_tax: dict[int, tuple[float, float]]) -> TaxYears:
+    """Sort the window's years, given `{year: (pretax, tax)}`, for a window above
+    `PRETAX_MARGIN_FLOOR`. A loss year (pretax ≤ 0) is left out (#393): its tax benefit is a refund
+    on a loss, not the rate profits pay. A profitable year whose own rate is outside
+    `TAX_RATE_BOUNDS` is left out too (#400): a rate that far out comes from a one-off (the 2017
+    tax reform's charge or remeasurement, a settlement), not from the rate profits pay; unless every
+    profitable year is outside, when there would be nothing left to read and all are kept. The kept
+    years are never empty and their pretax is above zero: a window above the floor has a
+    profitable year (#393's proof), and either one of them is inside or all are kept."""
+    low, high = TAX_RATE_BOUNDS
+    years = sorted(pretax_tax)
+    loss = [y for y in years if pretax_tax[y][0] <= 0]
+    profitable = [y for y in years if y not in loss]
+    # pretax > 0, so the division is safe
+    outside = [y for y in profitable if not low <= pretax_tax[y][1] / pretax_tax[y][0] <= high]
+    left_out = len(outside) < len(profitable)
+    kept = [y for y in profitable if not (left_out and y in outside)]
+    return TaxYears(loss, outside, bool(outside) and left_out, kept)
+
+
+# The notes that say the tax rate reads only some of the window's years.
+KEPT_YEARS_NOTES = ("tax_rate_loss_year_left_out", "tax_rate_outside_year_left_out")
+
+
+def _tax_kept_years(
     result: EngineResult,
     fiscal_years: list[int],
-    loss_years: list[int],
+    years: TaxYears,
     span: str,
     tax_sum: float,
     pretax_sum: float,
 ) -> tuple[float, str]:
-    """The effective rate of the window's profitable years and its note, for a window above
-    `PRETAX_MARGIN_FLOOR` that holds a year with pretax income of zero or below (backlog #393): a
-    loss year's tax benefit is a refund rate on a loss, not the rate profits pay, and adding it to
-    the sums mixes the two. The kept years always exist and their pretax sum is above the floor on
-    their own revenue: losses only lower the window's sum, which is already above it."""
-    kept = [y for y in fiscal_years if y not in loss_years]
+    """The effective rate of the window's kept years (`tax_years`) and its notes, for a window
+    above `PRETAX_MARGIN_FLOOR` that holds a loss year (#393) or a profitable year whose own rate
+    is outside `TAX_RATE_BOUNDS` (#400). Both notes carry the same kept years and rates."""
+    kept = years.kept
     kept_tax = _sum(result, "tax", kept)
     kept_pretax = _sum(result, "pretax", kept)
     rate = _ratio(result, kept_tax, kept_pretax, "tax_rate", "pretax", span, "years_sum")
@@ -1566,33 +1606,82 @@ def _tax_without_losses(
         for s in result.sources.get(("history:pretax", f"FY{fiscal_years[-1]}"), [])
         if s["kind"] == "filing"
     ]
+    low, high = TAX_RATE_BOUNDS
     kept_labels = [f"FY{y}" for y in kept]
-    loss_labels = [f"FY{y}" for y in loss_years]
     kept_text = ", ".join(kept_labels)
-    loss_text = ", ".join(loss_labels)
-    were = "was a loss year" if len(loss_years) == 1 else "were loss years"
-    result.warn(
-        "tax_rate_loss_year_left_out",
-        {
-            "period": span,
-            "loss_years": loss_labels,
-            "kept_years": kept_labels,
-            "tax_sum": tax_sum,
-            "pretax_sum": pretax_sum,
-            "effective_rate": effective,
-            "kept_tax_sum": kept_tax,
-            "kept_pretax_sum": kept_pretax,
-            "rate": rate,
-            "rate_used": min(max(rate, TAX_RATE_BOUNDS[0]), TAX_RATE_BOUNDS[1]),
-            "clipped": not TAX_RATE_BOUNDS[0] <= rate <= TAX_RATE_BOUNDS[1],
-            "currency": units[0] if units else None,
-            "assumptions": ["tax_rate", "debt_tax_rate"],
-        },
-        f"{loss_text} {were}, so the tax rate is read from {kept_text} only: {rate:.1%} instead "
-        f"of {effective:.1%} over {span}",
+    shared = {
+        "kept_years": kept_labels,
+        "tax_sum": tax_sum,
+        "pretax_sum": pretax_sum,
+        "effective_rate": effective,
+        "kept_tax_sum": kept_tax,
+        "kept_pretax_sum": kept_pretax,
+        "rate": rate,
+        "rate_used": min(max(rate, low), high),
+        "clipped": not low <= rate <= high,
+        "currency": units[0] if units else None,
+        "assumptions": ["tax_rate", "debt_tax_rate"],
+    }
+    reasons = []
+    if years.loss:
+        loss_labels = [f"FY{y}" for y in years.loss]
+        loss_text = ", ".join(loss_labels)
+        were = "was a loss year" if len(years.loss) == 1 else "were loss years"
+        # with an outside year left out too, say where the missing year went (product lead)
+        also = ""
+        if years.outside_left_out:
+            out = [f"FY{y}" for y in years.outside]
+            verb = "is" if len(out) == 1 else "are"
+            also = f" ({', '.join(out)} {verb} also left out, see the next note)"
+        result.warn(
+            "tax_rate_loss_year_left_out",
+            {"period": span, "loss_years": loss_labels, **shared},
+            f"{loss_text} {were}, so the tax rate is read from {kept_text} only{also}: "
+            f"{rate:.1%} instead of {effective:.1%} over {span}",
+        )
+        reasons.append(f"{loss_text}, {'a loss year' if len(years.loss) == 1 else 'loss years'}")
+    if years.outside:
+        labels = [f"FY{y}" for y in years.outside]
+        own = [
+            result.value_of("history:tax", y) / result.value_of("history:pretax", y) for y in labels
+        ]
+        one = len(labels) == 1
+        bounds = f"{low:.0%} to {high:.0%}"
+        head = (
+            f"{', '.join(labels)}'s own tax rate{'' if one else 's'} "
+            f"{'was' if one else 'were'} {', '.join(f'{r:.1%}' for r in own)}"
+        )
+        if years.outside_left_out:
+            text = (
+                f"{head}, outside {bounds}, so the tax rate is read from {kept_text} only: "
+                f"{rate:.1%} instead of {effective:.1%} over {span}"
+            )
+            reasons.append(f"{', '.join(labels)}, own rate outside {bounds}")
+        else:
+            every = "the only profitable year" if one else "every profitable year"
+            text = (
+                f"{head}, outside {bounds}, but {'it is' if one else 'they are'} {every}, so "
+                f"none is left out: the tax rate is read from {kept_text}: {rate:.1%}"
+            )
+        result.warn(
+            "tax_rate_outside_year_left_out",
+            {
+                "period": span,
+                "outside_years": labels,
+                "outside_rates": own,
+                "low": low,
+                "high": high,
+                "outside_left_out": years.outside_left_out,
+                **shared,
+            },
+            text,
+        )
+    if not reasons:
+        return rate, f"Σ income tax / Σ pretax income, {kept_text}"
+    return (
+        rate,
+        f"Σ income tax / Σ pretax income, {kept_text} ({', left out; '.join(reasons)}, left out)",
     )
-    years = "a loss year" if len(loss_years) == 1 else "loss years"
-    return rate, f"Σ income tax / Σ pretax income, {kept_text} ({loss_text}, {years}, left out)"
 
 
 def _statutory_tax(

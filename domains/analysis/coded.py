@@ -36,6 +36,7 @@ RUN_NOTE_CODES = frozenset(
         "tax_rate_clipped",
         "tax_rate_statutory",
         "tax_rate_loss_year_left_out",
+        "tax_rate_outside_year_left_out",
         "margin_outside_history",
         "margin_quarter_two_bases",
         "seed_year_two_bases",

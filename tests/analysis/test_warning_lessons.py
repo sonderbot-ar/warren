@@ -77,6 +77,9 @@ THRESHOLDS = {
     ),
     "tax_rate_clipped": dict(zip(("low", "high"), math_engine.TAX_RATE_BOUNDS, strict=True)),
     "tax_rate_statutory": {"floor": math_engine.PRETAX_MARGIN_FLOOR},
+    "tax_rate_outside_year_left_out": dict(
+        zip(("low", "high"), math_engine.TAX_RATE_BOUNDS, strict=True)
+    ),
     "margin_outside_history": {
         "sigmas": math_engine.MARGIN_SIGMAS,
         "quarters": math_engine.HISTORY_QUARTERS,
