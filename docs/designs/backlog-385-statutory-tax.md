@@ -1,6 +1,6 @@
 # Backlog #385: the statutory tax rate when three years of pretax income are at or near zero
 
-Issue: https://github.com/sonderbot-ar/warren/issues/385 (from the #383 review) · Branch `backlog-385-statutory-tax`.
+Issue: https://github.com/sonderbot-ar/warren/issues/385 (from the #383 review) · Branch `backlog-385-statutory-tax` · Version v0.9.73, merged nov.15.2026 (PR #394, merge `a3c2f90`, after CI green and a gatekeeper GO).
 
 ## Problem
 
