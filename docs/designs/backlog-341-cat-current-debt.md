@@ -1,6 +1,6 @@
 # Backlog #341: Caterpillar's current debt, counted as zero in every run
 
-Issue: https://github.com/sonderbot-ar/warren/issues/341 (from the #197 design review) · Branch `backlog-341-cat-current-debt` · Status: built, PR open (nov.15.2026).
+Issue: https://github.com/sonderbot-ar/warren/issues/341 (from the #197 design review) · Branch `backlog-341-cat-current-debt` · Version v0.9.77, merged nov.15.2026 (PR #407, merge `33ced2e`, after CI green and a gatekeeper GO).
 
 ## Problem
 
@@ -57,7 +57,7 @@ The maturity tag is also principal, not carrying value (PG 2013: 4,083M principa
 
 ## Design review (nov.15.2026)
 
-- **Analyst, GO, no blockers.** Checked the tag against the balance sheet's two segment lines for two more years: FY2024 46 + 6,619 = 6,665 (0000018230-25-000008), FY2025 35 + 7,085 = 7,120 (0000018230-26-000008); FY2025's non-current segment lines add to the `LongTermDebtNoncurrent` Warren already counts, so the new piece is on the same basis. JNJ double count confirmed. Taken: the working-capital, cost-of-debt and WACC effects (section above) and Step 2's columns. Found a separate, existing problem: JNJ's `LongTermDebtCurrent` at three year ends (2016 to 2018) is already inside its `ShortTermBorrowings`, so 87 stored JNJ runs overstate debt by $1.5bn to $2.6bn: filed as a backlog issue, not this PR's scope. Idea not taken: refuse a scoped row where a higher-priority fact exists at the same date (the priority order already picks the higher one; a CAT switch to a consolidated balance-sheet tag would simply win).
+- **Analyst, GO, no blockers.** Checked the tag against the balance sheet's two segment lines for two more years: FY2024 46 + 6,619 = 6,665 (0000018230-25-000008), FY2025 35 + 7,085 = 7,120 (0000018230-26-000008); FY2025's non-current segment lines add to the `LongTermDebtNoncurrent` Warren already counts, so the new piece is on the same basis. JNJ double count confirmed. Taken: the working-capital, cost-of-debt and WACC effects (section above) and Step 2's columns. Found a separate, existing problem: JNJ's `LongTermDebtCurrent` at three year ends (2016 to 2018) is already inside its `ShortTermBorrowings`, so 87 stored JNJ runs overstate debt by $1.5bn to $2.6bn: filed as #408, not this PR's scope. Idea not taken: refuse a scoped row where a higher-priority fact exists at the same date (the priority order already picks the higher one; a CAT switch to a consolidated balance-sheet tag would simply win).
 - **Professor, GO, no blockers.** Defensible as a stopgap: neither Koller nor Damodaran argues for half-counting. Taken: the claim is "complete consolidated debt", not "a consistent valuation of CAT" (Problem). Ideas filed on #233: a run note on CAT runs saying debt includes the finance arm's borrowings and the arm is not valued separately; value Cat Financial on cash flow to equity; a lesson on captive finance arms. The principal-vs-carrying gap for CAT was not checked separately; the analyst's segment sums match the balance sheet's own lines, so for CAT the two agree at the four year ends checked.
 - **Explainer.** Eight gaps. Taken: the row's shared fields, how the ticker reaches ingest, the archived-map scope (now filtered, above), the re-ingest before runs, Step 2's rebuild meaning (stored rows reproduce; `--rebuild` recomputes with today's code through each run's own map). The 370-day carry-forward limit is unchanged and applies as it does to CAT's other year-end debt items.
 - **Product lead, no blocking objection.** Taken: the rules version stays 5 (above); the team-sync entry lists the moved runs' before and after.
@@ -90,3 +90,7 @@ On the restored snapshot (`warren-20261110T202538Z`):
 | 2026 | 16 | 6.7bn to 7.1bn | 5.4% → 4.5% | 10.79% → 10.55% | 16.2% → 27.5% | −5.8% to −7.4% |
 
   For example, as of 2026-10-30: debt $36.21bn → $43.33bn, value per share $218.45 → $205.62. Value falls on 102 of 113 dates. On 11 dates in 2020 it rises slightly (up to +2.4%): those runs' WACC is about 4.3%, and the lower cost of debt and higher debt weight lower it enough to outweigh the extra debt. That is the WACC formula working as written, but it shows how much CAT's value leans on the cost of debt, which divides interest by a debt total that includes the finance arm (#233). Revenue and EBIT forecasts do not read debt or working capital, so the forecast-error scores (M3, M8, M9, and M10's batch) do not move.
+
+## Gatekeeper (nov.15.2026)
+
+GO, no blockers: 2,352 passed, ruff clean, `CAT_2026-10-30_1` rebuilt identically through its own map, the 16 new facts all CAT's, the map copy byte-identical. Notes filed as #409: an archived copy scoped to a ticker that later leaves the universe would stop loading; a quality-report check that no fact sits outside its tag's scope. The 2020 cost-of-debt sensitivity belongs to #233 (commented there).
