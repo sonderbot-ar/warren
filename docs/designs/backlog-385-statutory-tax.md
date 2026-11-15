@@ -59,3 +59,10 @@ A practitioner uses the marginal or statutory rate when the effective rate is no
 ## Product impact
 
 Serves the estimate questions of `docs/product/brief.md` (Q3, Q5, Q8 and value per share): a company with near-zero or negative profits over three years now gets a run with a tax rate a student can defend, instead of a refusal (Σ pretax exactly 0) or a rate stuck at 0% or 50%. Added: run-note code `tax_rate_statutory` (group `assumption`) with the params above, its lesson (`floor`), source rule `statutory_tax_rate`, and the closed set `coded.TAX_JURISDICTIONS`. The front end marks the brief's `years_sum` pretax refusal sentence as no longer reached and adds the note and lesson to the Spanish catalogue (#344). Changed: a Σ pretax of exactly zero no longer refuses with `zero_divisor` (ratio `tax_rate`); the code and its value sets stay in the catalogue. Nothing renamed or removed. No stored or fresh run of today's companies changes.
+
+## Results (Step 2, nov.15.2026)
+
+On the restored snapshot (`warren-20261110T202538Z`):
+
+- **No stored run is at or below the floor.** The three-year pretax margin (Σ `history:pretax` / Σ `history:revenue` over each run's fiscal years) of all 903 stored baseline runs: lowest per company AAPL 25.7%, CAT 8.7%, JNJ 20.1%, KO 21.3%, MSFT 30.9%, PG 16.4%, WMT 3.0%, XOM 3.0%. The closest are XOM's runs from 2021-03-01 (FY2018–FY2020, 3.00%, effective rate 41.5%: #393) and WMT's from 2020-04-01 (3.03%, 29.5%).
+- **Nothing moves.** `python -m domains.analysis reproduce --all --rebuild` gives 903 of 903 reproduced to the cent and 821 of 903 rebuilt to identical rows, on this branch and on `main` (8d8ccf5) alike, and the two outputs are identical line for line apart from the commit id printed per run. The 82 rebuild differences are older runs whose reading rules weren't recorded, as in #383's results. About 2 minutes each.
