@@ -132,12 +132,16 @@ def _current_debt_under_another_tag(tag, row):
 
 
 def _read_maturities_too(tmp_path, monkeypatch):
-    """Today's map edited to read current debt under the maturities tag at priority 3."""
+    """Today's map edited so every company's current debt is read under the maturities tag at
+    priority 3 (today's map reads it for CAT only, backlog #341, so Test Corp's facts under it
+    are skipped at ingest until the edit)."""
     edited = tmp_path / "concept_map.csv"
     lines = concepts.CONCEPT_MAP_PATH.read_text().splitlines(keepends=True)
-    at = max(n for n, line in enumerate(lines) if line.startswith("debt_current,"))
-    row = lines[at].split(",", 3)
-    lines.insert(at + 1, ",".join(["debt_current", f"us-gaap:{MATURITIES}", "3", row[3]]))
+    at = [
+        n for n, line in enumerate(lines) if line.startswith(f"debt_current,us-gaap:{MATURITIES},")
+    ]
+    assert len(at) == 1 and lines[at[0]].endswith(",CAT\n")
+    lines[at[0]] = lines[at[0]][: -len("CAT\n")] + "\n"
     edited.write_text("".join(lines))
     monkeypatch.setattr(concepts, "CONCEPT_MAP_PATH", edited)
 
@@ -178,7 +182,7 @@ def test_an_edited_map_without_the_copy_would_break_the_old_run(
     before = run(conn)
     _read_maturities_too(tmp_path, monkeypatch)
     ingest_company(conn, "TST", client=fake_edgar(_current_debt_under_another_tag))
-    monkeypatch.setattr(runs, "concept_map_in_force", lambda conn, sha: nullcontext())
+    monkeypatch.setattr(runs, "concept_map_in_force", lambda conn, sha, ticker=None: nullcontext())
     result = rebuild(conn, before, choices=CHOICES, today=AS_OF)
     assert ("debt", "-", "value") in result.mismatches
     assert ("balance:debt_current", "-", "only rebuilt") in result.mismatches

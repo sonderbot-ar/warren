@@ -460,6 +460,9 @@ def extract_facts(
         if concept is None:
             continue
         result.facts_seen += 1
+        if not concept.applies_to(result.ticker):
+            result.skipped["company_scope"] += 1  # a tag mapped for other companies only (#341)
+            continue
         if fact.get("form") not in FORMS:
             result.skipped["form"] += 1
             continue

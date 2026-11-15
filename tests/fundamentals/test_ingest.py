@@ -548,3 +548,28 @@ def test_a_renumbered_filing_keeps_the_secs_fy_beside_warrens_label(conn):
         ("cover", "10-Q/A", None, 2016, "Q1", None, None),  # cover-only: no own period
         ("w16", "10-K", "2016-01-31", 2016, "FY", 2016, "FY"),
     ]
+
+
+def _revenue_row(companies=frozenset()):
+    from domains.fundamentals.concepts import ConceptRow
+
+    return ConceptRow(
+        "revenue", "us-gaap:Revenues", 1, "USD", "duration", "Revenue.", companies=companies
+    )
+
+
+def test_a_tag_scoped_to_other_companies_is_skipped_and_counted():
+    """Backlog #341: a map row limited to some tickers never stores another company's facts."""
+    from domains.fundamentals.ingest import IngestResult, extract_facts
+
+    facts = FakeEdgar().facts
+    everyone = IngestResult(ticker="AAPL", cik=TEST_CIK)
+    all_rows = extract_facts(TEST_CIK, facts, [_revenue_row()], everyone)
+    assert all_rows and everyone.skipped["company_scope"] == 0
+
+    listed = IngestResult(ticker="CAT", cik=TEST_CIK)
+    assert extract_facts(TEST_CIK, facts, [_revenue_row(frozenset({"CAT"}))], listed) == all_rows
+
+    other = IngestResult(ticker="AAPL", cik=TEST_CIK)
+    assert extract_facts(TEST_CIK, facts, [_revenue_row(frozenset({"CAT"}))], other) == []
+    assert other.skipped["company_scope"] == other.facts_seen == everyone.facts_seen

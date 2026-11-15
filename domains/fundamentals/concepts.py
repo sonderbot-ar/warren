@@ -25,6 +25,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+from domains.fundamentals.universe import load_universe
+
 CONCEPT_MAP_PATH = Path(__file__).parent / "concept_map.csv"
 CONCEPT_MAP_REPORTED_PATH = Path(__file__).parent / "concept_map_reported.csv"
 # A byte-for-byte copy of each concept_map.csv a run may have been made with, named by its SHA-256.
@@ -39,6 +41,10 @@ COLUMNS = [
     "definition",
     "note",
 ]
+# The shipped maps add a last column (backlog #341): `companies`, empty for a tag every company's
+# facts are read under, else the `;`-separated tickers it applies to (companies as data, Decision
+# 11). Copies in concept_maps/ made before it have the eight columns above and read as unscoped.
+SCOPED_COLUMNS = [*COLUMNS, "companies"]
 UNITS = {"USD", "shares", "USD/shares"}
 PERIOD_TYPES = {"duration", "instant"}
 # required: every gap must be explained (the quality gate). optional: fallbacks and items a company
@@ -60,6 +66,11 @@ class ConceptRow:
     period_type: str
     definition: str
     gate: str = "required"
+    # Tickers whose facts are read under this tag; empty means every company (backlog #341).
+    companies: frozenset[str] = frozenset()
+
+    def applies_to(self, ticker: str) -> bool:
+        return not self.companies or ticker in self.companies
 
     @property
     def taxonomy(self) -> str:
@@ -83,12 +94,14 @@ def load_concept_map(
     for source in paths:
         with open(source, newline="") as f:
             reader = csv.DictReader(f)
-            if reader.fieldnames != COLUMNS:
+            if reader.fieldnames not in (COLUMNS, SCOPED_COLUMNS):
                 raise ConceptMapError(
-                    f"{Path(source).name}: expected columns {COLUMNS}, got {reader.fieldnames}"
+                    f"{Path(source).name}: expected columns {SCOPED_COLUMNS} (or {COLUMNS} in a "
+                    f"copy made before backlog #341), got {reader.fieldnames}"
                 )
             raw += [(f"{Path(source).name} line {n}", r) for n, r in enumerate(reader, start=2)]
 
+    known = {c.ticker for c in load_universe()}
     errors, rows = [], []
     for line, r in raw:
         if None in r or None in r.values():
@@ -105,6 +118,7 @@ def load_concept_map(
             period_type=r["period_type"].strip(),
             definition=r["definition"].strip(),
             gate=r["gate"].strip(),
+            companies=frozenset(t.strip() for t in r.get("companies", "").split(";") if t.strip()),
         )
         if not row.xbrl_concept.startswith(TAXONOMIES):
             errors.append(f"{line}: {row.xbrl_concept} must start with one of {TAXONOMIES}")
@@ -116,6 +130,12 @@ def load_concept_map(
             errors.append(f"{line}: gate must be one of {sorted(GATES)}")
         if not row.definition:
             errors.append(f"{line}: definition is required")
+        unknown = sorted(row.companies - known)
+        if unknown:
+            errors.append(f"{line}: companies {unknown} are not in universe.csv")
+        if row.companies and row.priority == 1:
+            # a company-only tag is a fallback: every other company keeps the item's first tag
+            errors.append(f"{line}: a tag limited to some companies can't be priority 1")
         files.setdefault(row.canonical_name, set()).add(line.split(" line ")[0])
         rows.append(row)
 
@@ -161,18 +181,24 @@ def archived_concept_map(sha256: str) -> list[ConceptRow]:
 
 
 @contextmanager
-def concept_map_in_force(conn: sqlite3.Connection, sha256: str) -> Iterator[None]:
+def concept_map_in_force(
+    conn: sqlite3.Connection, sha256: str, ticker: str | None = None
+) -> Iterator[None]:
     """Query facts through the map with this fingerprint for the length of the block.
 
     Today's map: nothing changes. Another map: a temporary `concepts` table holding that map's
     rows, which SQLite reads in place of the main one wherever a query names `concepts` without a
     schema; it lives on this connection only, is never written to the database file, and is
     dropped on exit, also when the block raises.
+
+    With `ticker`, an archived map's rows limited to other companies are left out (backlog #341):
+    the facts table may hold another company's facts under such a tag, stored under a later map
+    that widened the row, which the run's own map never read.
     """
     if sha256 == concept_map_sha256():
         yield
         return
-    rows = archived_concept_map(sha256)
+    rows = [r for r in archived_concept_map(sha256) if ticker is None or r.applies_to(ticker)]
     if conn.execute("SELECT 1 FROM temp.sqlite_master WHERE name = 'concepts'").fetchone():
         raise ConceptMapError("A concept map is already in force on this connection")
     conn.execute("CREATE TEMP TABLE concepts AS SELECT * FROM main.concepts WHERE 0")
