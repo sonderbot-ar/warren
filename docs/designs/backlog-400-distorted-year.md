@@ -1,6 +1,6 @@
 # Backlog #400: a profitable year with a distorted tax rate inside the three-year window
 
-Issue: https://github.com/sonderbot-ar/warren/issues/400 (from the #393 review) · Branch `backlog-400-distorted-year` · Version v0.9.76 (planned).
+Issue: https://github.com/sonderbot-ar/warren/issues/400 (from the #393 review) · Branch `backlog-400-distorted-year` · Version v0.9.76, merged nov.15.2026 (PR #404, merge `0cccb17`, after CI green and a gatekeeper GO).
 
 ## Problem
 
