@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from domains.analysis import coded
+from domains.analysis import coded, math_engine
 from domains.analysis.coded import (
     ENGINE_REFUSAL_CODES,
     REFUSAL_GROUP_ORDER,
@@ -438,6 +438,21 @@ def test_a_zero_pretax_sum_is_no_longer_refused(make_company):
     conn = make_company(zero_where(lambda t, r: t.startswith(pretax) and r["fp"] == "FY"))
     result = build_inputs(conn, "TST", AS_OF, choices=CHOICES, today=AS_OF)
     assert "tax_rate_statutory" in [n.code for n in result.notes]
+
+
+def test_no_statutory_rate_for_the_country_is_a_setup_refusal(make_company, monkeypatch):
+    # backlog #395: unreachable in Phase 1 (every company is US), so the country is patched
+    monkeypatch.setattr(math_engine, "TAX_JURISDICTION", "MX")
+    pretax = "IncomeLossFromContinuingOperationsBeforeIncomeTaxes"
+    conn = make_company(zero_where(lambda t, r: t.startswith(pretax) and r["fp"] == "FY"))
+    e = refused(conn)
+    assert e.code == "no_statutory_rate"
+    assert e.params == {"jurisdiction": "MX", "as_of": AS_OF.isoformat()}
+    assert str(e) == (
+        f"no statutory tax rate for 'MX' on {AS_OF}; the run's three-year pretax income is at "
+        "or below 1% of revenue, so it needs the statutory rate"
+    )
+    assert REFUSAL_GROUPS[e.code] == "setup"
 
 
 @pytest.mark.parametrize(
