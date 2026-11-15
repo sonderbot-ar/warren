@@ -72,10 +72,36 @@ def test_an_unknown_jurisdiction_or_a_date_before_every_law_is_refused():
         statutory_rate("US", date(1990, 1, 1))
 
 
+def applies_like_the_table(applies_from: date, enacted_on: date) -> bool:
+    """The effective-date form of the laws in the table (backlog #395): tax years beginning on
+    January 1 (Pub. L. 103-66 §13221(d): "beginning on or after January 1, 1993", signed August 10,
+    1993, so it reached back; Pub. L. 115-97 §13001(c)(1): "beginning after December 31, 2017",
+    signed December 22, 2017), within a year of enactment either way. It fits these rows, not
+    every US law: the Tax Reform Act of 1986 cut the rate for years beginning on or after
+    July 1, 1987, so a row like it would need this check widened, on purpose."""
+    return (applies_from.month, applies_from.day) == (1, 1) and (
+        abs((applies_from - enacted_on).days) <= 366
+    )
+
+
+@pytest.mark.parametrize(
+    ("applies_from", "fits"),
+    [
+        (date(2018, 1, 1), True),  # Pub. L. 115-97 as it is
+        (date(2017, 1, 1), True),  # reaching back a year, as Pub. L. 103-66 did
+        (date(2018, 7, 1), False),  # not a January 1
+        (date(1980, 1, 1), False),  # decades before the law was signed
+        (date(2020, 1, 1), False),  # two years after
+    ],
+)
+def test_the_date_rule_refuses_a_date_unlike_the_tables(applies_from, fits):
+    assert applies_like_the_table(applies_from, date(2017, 12, 22)) is fits
+
+
 def test_every_rate_is_a_dated_sourced_fraction():
     for r in RATES:
         assert 0 < r.rate < 1
-        assert r.applies_from <= r.enacted_on.replace(year=r.enacted_on.year + 1)
+        assert applies_like_the_table(r.applies_from, r.enacted_on), r.law
         assert r.law and r.source
     assert coded.TAX_JURISDICTIONS == {"US"}
 
