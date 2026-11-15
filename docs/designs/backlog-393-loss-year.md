@@ -1,6 +1,6 @@
 # Backlog #393: a loss year inside the tax rate's three-year window
 
-Issue: https://github.com/sonderbot-ar/warren/issues/393 (from the #385 review) · Branch `backlog-393-loss-year`.
+Issue: https://github.com/sonderbot-ar/warren/issues/393 (from the #385 review) · Branch `backlog-393-loss-year` · Version v0.9.75, merged nov.15.2026 (PR #401, merge `55fa116`, after CI green and a gatekeeper GO).
 
 ## Problem
 
