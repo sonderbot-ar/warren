@@ -1,5 +1,6 @@
 """Backlog #385: the statutory tax rate when three years of pretax income are at or near zero."""
 
+import math
 from datetime import date
 
 import pytest
@@ -162,9 +163,39 @@ def test_just_above_the_floor_keeps_the_effective_rate(make_company, company):
     assert [a.value for a in rows(result, "tax_rate")] == pytest.approx([0.25] * 11)
 
 
-def test_at_the_floor_takes_the_statutory_rate(make_company, company):
+def test_just_below_the_floor_takes_the_statutory_rate(make_company, company):
     result = build(make_company(scaled(PRETAX, 0.0099 / margin(company), also=TAX)))
     assert note(result).params["pretax_margin"] == pytest.approx(0.0099)
+
+
+def last_year_only(pretax):
+    """FY2017 and FY2018 pretax set to 0 and FY2019's to `pretax`, so Σ pretax is `pretax`
+    exactly (0 + 0 + x == x in floating point), in every filing that gives those years."""
+
+    def edit(tag, row):
+        if tag.startswith(PRETAX) and row["fp"] == "FY" and row["end"][:4] in {"2017", "2018"}:
+            return {**row, "val": 0}
+        if tag.startswith(PRETAX) and row["fp"] == "FY" and row["end"] == "2019-12-31":
+            return {**row, "val": pretax}
+        return row
+
+    return edit
+
+
+def test_exactly_at_the_floor_takes_the_statutory_rate(make_company, company):
+    # the rule is "at or below" (backlog #395): Σ pretax equal to the floor × Σ revenue
+    floor = math_engine.PRETAX_MARGIN_FLOOR * annual(build(company), "revenue")
+    result = build(make_company(last_year_only(floor)))
+    assert annual(result, "pretax") == floor  # the case is the one meant
+    assert note(result).params["pretax_sum"] == floor
+    assert {a.value for a in rows(result, "tax_rate")} == {0.21}
+
+
+def test_one_step_above_the_floor_keeps_the_effective_rate(make_company, company):
+    floor = math_engine.PRETAX_MARGIN_FLOOR * annual(build(company), "revenue")
+    result = build(make_company(last_year_only(math.nextafter(floor, math.inf))))
+    assert annual(result, "pretax") > floor
+    assert "tax_rate_statutory" not in codes(result)
 
 
 def test_zero_revenue_with_a_loss_has_no_margin():
