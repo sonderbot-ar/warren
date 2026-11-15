@@ -79,8 +79,10 @@ def applies_like_the_table(applies_from: date, enacted_on: date) -> bool:
     signed December 22, 2017), within a year of enactment either way. It fits these rows, not
     every US law: the Tax Reform Act of 1986 cut the rate for years beginning on or after
     July 1, 1987, so a row like it would need this check widened, on purpose."""
+    year_before = enacted_on.replace(year=enacted_on.year - 1)
+    year_after = enacted_on.replace(year=enacted_on.year + 1)
     return (applies_from.month, applies_from.day) == (1, 1) and (
-        abs((applies_from - enacted_on).days) <= 366
+        year_before <= applies_from <= year_after
     )
 
 
@@ -92,6 +94,7 @@ def applies_like_the_table(applies_from: date, enacted_on: date) -> bool:
         (date(2018, 7, 1), False),  # not a January 1
         (date(1980, 1, 1), False),  # decades before the law was signed
         (date(2020, 1, 1), False),  # two years after
+        (date(2016, 1, 1), False),  # more than a year before
     ],
 )
 def test_the_date_rule_refuses_a_date_unlike_the_tables(applies_from, fits):
