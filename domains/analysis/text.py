@@ -294,12 +294,31 @@ WARNING_LESSONS = {
         "In a year that ended in a loss the company books a tax benefit, a refund on the loss "
         "that depends on carrybacks and on what it expects to recover, which is not the rate its "
         "profits pay, so adding that year to the others mixes the two and Warren reads the tax "
-        "rate from the profitable years only. One thing is still left out: a company coming out "
-        "of losses can usually deduct them from later profits and pay less tax for a while.",
+        "rate from the profitable years only (when only one is left, the rate rests on that year "
+        "alone, a thinner base). One thing is still left out: a company coming out of losses can "
+        "usually deduct them from later profits and pay less tax for a while.",
         {},
         "Damodaran, Investment Valuation (3rd ed.), chapter 10 (the tax effect, net operating "
         "losses); 26 U.S.C. §172; Koller, Goedhart and Wessels, Valuation (7th ed.)",
         "a year with pretax income of zero or below is left out of the three-year tax rate",
+    ),
+    "tax_rate_outside_year_left_out": Lesson(
+        "assumption",
+        "In one of the years the run reads, the company made a profit but booked a tax rate "
+        "outside {low}% to {high}% on it, which comes from a one-off (a tax reform's one-time "
+        "charge on profits kept abroad or its revaluation of deferred taxes, a settlement with "
+        "the tax authority, a write-off the law doesn't let it deduct) rather than the rate its "
+        "profits pay, so Warren reads the tax rate from the other years, unless every profitable "
+        "year is that far out. An analyst would remove only the one-off item and keep the year, "
+        "but filings don't tag those items reliably, so Warren drops the whole year; it is a "
+        "screen, not a cure, since a smaller one-off that leaves a year inside the range stays "
+        "in, and when only one year is left the rate rests on that year alone, a thinner base.",
+        {"low": math_engine.TAX_RATE_BOUNDS[0], "high": math_engine.TAX_RATE_BOUNDS[1]},
+        "Koller, Goedhart and Wessels, Valuation (7th ed., 2020), ch. 20 (taxes) and ch. 21 "
+        "(nonoperating items); Damodaran, Investment Valuation (3rd ed.), chapter 10 (the tax "
+        "effect); Pub. L. 115-97 (the 2017 US tax reform)",
+        "the 0% to 50% range a profitable year's own rate must fall in is a working rule, "
+        "math_engine.TAX_RATE_BOUNDS, left out unless every profitable year is outside it",
     ),
     "margin_outside_history": Lesson(
         "assumption",
