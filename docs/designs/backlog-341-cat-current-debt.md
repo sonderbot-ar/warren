@@ -1,6 +1,6 @@
 # Backlog #341: Caterpillar's current debt, counted as zero in every run
 
-Issue: https://github.com/sonderbot-ar/warren/issues/341 (from the #197 design review) · Branch `backlog-341-cat-current-debt` · Status: design (nov.15.2026).
+Issue: https://github.com/sonderbot-ar/warren/issues/341 (from the #197 design review) · Branch `backlog-341-cat-current-debt` · Status: built, PR open (nov.15.2026).
 
 ## Problem
 
@@ -69,3 +69,24 @@ The maturity tag is also principal, not carrying value (PG 2013: 4,083M principa
 ## Product impact
 
 Serves the estimate questions of `docs/product/brief.md` (Q3, Q5, Q8, value per share): every fresh CAT run counts its current debt, so its net debt, working capital and value per share are right on the consolidated view. Fresh CAT runs move (Step 2 gives the numbers); stored runs keep their rows. A CAT run loses `debt_current` from its `balance_counted_zero` note and, when its balance sheet is a quarter end, gains `debt_current` in `balance_carried_forward`. A CAT run's `debt` source now cites the 10-K's maturity-note fact. `reading_rules_version` stays 5, so beside an older CAT run of the same date the app shows the brief's "different map fingerprints" case (brief line 108): the fresh run uses the corrected reading. No code, note, param or lesson is added, renamed or removed. The working-capital ratio, cost of debt and WACC of fresh CAT runs move too (Step 2).
+
+## Results (Step 2, nov.15.2026)
+
+On the restored snapshot (`warren-20261110T202538Z`):
+
+- **Ingest.** `fundamentals ingest --all`: CAT gains exactly 16 facts (the year ends 2010 to 2025); every other company gains none and skips its facts under the CAT-only tag (`company_scope`: KO 20, PG 22, JNJ 16, and AAPL, MSFT, WMT, XOM likewise where they file it). `fundamentals report --all`: 0 unexplained gaps for all eight companies.
+- **Stored runs.** `reproduce --all --rebuild`: 903 of 903 reproduced to the cent, and 692 of 903 rebuilt to identical rows, the same 692 as before the ingest. No stored run moves, by design: every stored run was made with the old map, which never read the tag, and is rebuilt through it.
+- **Fresh CAT runs.** Each of the 113 stored CAT dates built twice in memory (same pinned market data and choices), through the old map and through the new one; none stored. All 113 now count current debt (5.3bn to 9.1bn more debt). Per year of run date (last run of each year for the rates):
+
+| Runs dated | Runs | Debt added | Cost of debt | WACC | Working capital / revenue | Value per share |
+|---|---|---|---|---|---|---|
+| 2019 | 12 | 5.8bn | 3.7% → 3.0% | 5.78% → 5.49% | 14.4% → 28.3% | −1.3% to −3.7% |
+| 2020 | 15 | 5.8bn to 6.2bn | 3.4% → 2.8% | 4.33% → 4.13% | 15.1% → 27.1% | −3.4% to +2.4% |
+| 2021 | 14 | 6.2bn to 9.1bn | 3.7% → 2.9% | 4.91% → 4.62% | 16.0% → 30.7% | −0.9% to −5.9% |
+| 2022 | 14 | 6.4bn to 9.1bn | 3.1% → 2.5% | 7.37% → 7.06% | 17.4% → 32.7% | −1.2% to −5.0% |
+| 2023 | 14 | 5.3bn to 6.4bn | 3.0% → 2.6% | 8.02% → 7.76% | 17.8% → 32.2% | −3.3% to −5.4% |
+| 2024 | 14 | 5.3bn to 8.8bn | 5.6% → 4.6% | 9.52% → 9.20% | 17.6% → 29.1% | −4.7% to −6.7% |
+| 2025 | 14 | 6.7bn to 8.8bn | 5.7% → 4.6% | 10.16% → 9.92% | 16.8% → 27.6% | −3.3% to −7.9% |
+| 2026 | 16 | 6.7bn to 7.1bn | 5.4% → 4.5% | 10.79% → 10.55% | 16.2% → 27.5% | −5.8% to −7.4% |
+
+  For example, as of 2026-10-30: debt $36.21bn → $43.33bn, value per share $218.45 → $205.62. Value falls on 102 of 113 dates. On 11 dates in 2020 it rises slightly (up to +2.4%): those runs' WACC is about 4.3%, and the lower cost of debt and higher debt weight lower it enough to outweigh the extra debt. That is the WACC formula working as written, but it shows how much CAT's value leans on the cost of debt, which divides interest by a debt total that includes the finance arm (#233). Revenue and EBIT forecasts do not read debt or working capital, so the forecast-error scores (M3, M8, M9, and M10's batch) do not move.
