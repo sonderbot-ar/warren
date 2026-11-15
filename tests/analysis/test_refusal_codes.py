@@ -431,19 +431,13 @@ def test_a_zero_quarterly_revenue_is_refused_with_a_code(make_company):
     assert REFUSAL_GROUPS[e.code] == "company_data"
 
 
-def test_a_zero_pretax_sum_is_refused_with_a_code(make_company):
+def test_a_zero_pretax_sum_is_no_longer_refused(make_company):
+    # #383 refused it with zero_divisor; since #385 the run takes the statutory tax rate
+    # (tests/analysis/test_statutory_tax.py has the note's params)
     pretax = "IncomeLossFromContinuingOperationsBeforeIncomeTaxes"
-    e = refused(make_company(zero_where(lambda t, r: t.startswith(pretax) and r["fp"] == "FY")))
-    assert (e.code, e.params) == (
-        "zero_divisor",
-        {
-            "ticker": "TST",
-            "ratio": "tax_rate",
-            "divisor": "pretax",
-            "period": "FY2017-FY2019",
-            "period_kind": "years_sum",
-        },
-    )
+    conn = make_company(zero_where(lambda t, r: t.startswith(pretax) and r["fp"] == "FY"))
+    result = build_inputs(conn, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    assert "tax_rate_statutory" in [n.code for n in result.notes]
 
 
 @pytest.mark.parametrize(

@@ -38,6 +38,7 @@ from domains.analysis.coded import (
 from domains.analysis.dcf import QUARTERS, SEED, YEARS
 from domains.analysis.reading_rules import READING_RULES_VERSION
 from domains.analysis.schemas import SINGLE, Assumption
+from domains.analysis.statutory_tax import statutory_rate
 from domains.fundamentals.concepts import concept_map_sha256
 from domains.fundamentals.facts import (
     MeaningChange,
@@ -95,6 +96,10 @@ NT_EXTENSION_10Q_DAYS = 5
 NT_EXTENSION_10K_DAYS = 15
 ANNUAL_MIN_DAYS = 300  # a flow longer than this is a fiscal year's (52 or 53 weeks)
 TAX_RATE_BOUNDS = (0.0, 0.5)
+# At or below this three-year pretax margin the effective tax rate means little, and the run uses
+# the statutory rate instead (backlog #385). A working rule, not a sourced line.
+PRETAX_MARGIN_FLOOR = 0.01
+TAX_JURISDICTION = "US"  # every Phase 1 company files with the SEC as a US company
 COST_OF_DEBT_BOUNDS = (0.0, 0.15)
 SHARES_TOLERANCE = 0.10  # cover-page vs diluted shares
 SHARE_SCALES = (1_000, 1_000_000)  # the steps between units a filing states (thousands, millions)
@@ -1445,28 +1450,31 @@ def _drivers(
         )
 
     # tax rate, reinvestment and working capital: 3-year annual ratios
-    tax = _ratio(
-        result,
-        _sum(result, "tax", fiscal_years),
-        _sum(result, "pretax", fiscal_years),
-        "tax_rate",
-        "pretax",
-        span,
-        "years_sum",
-    )
-    clipped = min(max(tax, TAX_RATE_BOUNDS[0]), TAX_RATE_BOUNDS[1])
-    tax_method = f"Σ income tax / Σ pretax income, {span}"
-    if clipped != tax:
-        low, high = TAX_RATE_BOUNDS
-        result.warn(
-            "tax_rate_clipped",
-            {"tax_rate": tax, "clipped_to": clipped, "low": low, "high": high},
-            f"Effective tax rate {tax:.1%} clipped to {clipped:.0%}",
-        )
-        tax_method += f"; {tax:.2%} clipped to {TAX_RATE_BOUNDS}"
     revenue = _sum(result, "revenue", fiscal_years)
+    tax_inputs = _yearly(("tax", "pretax"), fiscal_years)
+    tax_sources = [src.derived(*tax_inputs)]
+    tax_sum = _sum(result, "tax", fiscal_years)
+    pretax_sum = _sum(result, "pretax", fiscal_years)
+    # a multiplication, so a zero pretax sum never reaches a division (backlog #385)
+    if pretax_sum <= PRETAX_MARGIN_FLOOR * revenue:
+        clipped, tax_method = _statutory_tax(
+            result, fiscal_years, span, tax_sum, pretax_sum, revenue
+        )
+        tax_inputs = _yearly(("tax", "pretax", "revenue"), fiscal_years)
+        tax_sources = [src.rule("statutory_tax_rate"), src.derived(*tax_inputs)]
+    else:
+        tax = _ratio(result, tax_sum, pretax_sum, "tax_rate", "pretax", span, "years_sum")
+        clipped = min(max(tax, TAX_RATE_BOUNDS[0]), TAX_RATE_BOUNDS[1])
+        tax_method = f"Σ income tax / Σ pretax income, {span}"
+        if clipped != tax:
+            low, high = TAX_RATE_BOUNDS
+            result.warn(
+                "tax_rate_clipped",
+                {"tax_rate": tax, "clipped_to": clipped, "low": low, "high": high},
+                f"Effective tax rate {tax:.1%} clipped to {clipped:.0%}",
+            )
+            tax_method += f"; {tax:.2%} clipped to {TAX_RATE_BOUNDS}"
     ratio_inputs = {
-        "tax_rate": _yearly(("tax", "pretax"), fiscal_years),
         "da_pct": _yearly(("d_and_a", "revenue"), fiscal_years),
         "capex_pct": _yearly(("capex", "revenue"), fiscal_years),
         "nwc_pct": _yearly(("nwc", "revenue"), fiscal_years),
@@ -1517,12 +1525,63 @@ def _drivers(
     }
     for name, (value, method) in ratios.items():
         for period in periods:
-            result.add(name, value, method, period, sources=[src.derived(*ratio_inputs[name])])
+            sources = tax_sources if name == "tax_rate" else [src.derived(*ratio_inputs[name])]
+            result.add(name, value, method, period, sources=sources)
+    statutory = any(s["kind"] == "rule" for s in tax_sources)
     result.add(
         "debt_tax_rate",
         clipped,
-        f"effective tax rate, {span}",
-        sources=[src.derived(*ratio_inputs["tax_rate"])],
+        tax_method if statutory else f"effective tax rate, {span}",
+        sources=tax_sources,
+    )
+
+
+def _statutory_tax(
+    result: EngineResult,
+    fiscal_years: list[int],
+    span: str,
+    tax_sum: float,
+    pretax_sum: float,
+    revenue: float,
+) -> tuple[float, str]:
+    """The statutory rate and its note, for a run whose three-year pretax income is at or below
+    `PRETAX_MARGIN_FLOOR` of its revenue (backlog #385): the effective rate on such a sum is noise
+    (or its sign is meaningless), and future profits pay the statutory rate. No clip applies."""
+    law = statutory_rate(TAX_JURISDICTION, result.as_of)
+    units = [
+        s["unit"]
+        for s in result.sources.get(("history:pretax", f"FY{fiscal_years[-1]}"), [])
+        if s["kind"] == "filing"
+    ]
+    margin = pretax_sum / revenue if revenue else None
+    shown = f"{margin:.1%} of revenue" if margin is not None else "with no revenue"
+    result.warn(
+        "tax_rate_statutory",
+        {
+            "tax_sum": tax_sum,
+            "pretax_sum": pretax_sum,
+            "revenue_sum": revenue,
+            "currency": units[0] if units else None,
+            "pretax_margin": margin,
+            "effective_rate": tax_sum / pretax_sum if pretax_sum else None,
+            "floor": PRETAX_MARGIN_FLOOR,
+            "period": span,
+            "rate": law.rate,
+            "jurisdiction": law.jurisdiction,
+            "law": law.law,
+            "enacted_on": law.enacted_on.isoformat(),
+            "applies_from": law.applies_from.isoformat(),
+            "source": law.source,
+            "assumptions": ["tax_rate", "debt_tax_rate"],
+        },
+        f"Pretax income over {span} is {shown}, at or below {PRETAX_MARGIN_FLOOR:.0%}, so the "
+        f"effective tax rate means little; the {law.jurisdiction} federal statutory rate of "
+        f"{law.rate:.0%} is used instead",
+    )
+    return law.rate, (
+        f"{law.jurisdiction} federal statutory rate ({law.law}, enacted {law.enacted_on}, "
+        f"applies from {law.applies_from}); "
+        f"Σ pretax income {span} at or below {PRETAX_MARGIN_FLOOR:.0%} of Σ revenue"
     )
 
 
