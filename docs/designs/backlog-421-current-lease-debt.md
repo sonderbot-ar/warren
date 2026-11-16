@@ -1,6 +1,6 @@
 # Backlog #421: the current portion read on the same basis as the non-current debt
 
-Issue: https://github.com/sonderbot-ar/warren/issues/421 (from the #415 design and gatekeeper reviews), items 1 to 3 · Branch `backlog-421-current-lease-debt`. Item 4 is an app idea for the front-end team and stays open.
+Issue: https://github.com/sonderbot-ar/warren/issues/421 (from the #415 design and gatekeeper reviews), items 1 to 3 · Branch `backlog-421-current-lease-debt` · Version v0.9.81, merged nov.16.2026 (PR #425, merge `997eb1f`, after CI green and a gatekeeper GO). Item 4 is an app idea for the front-end team and stays open.
 
 ## Problem
 
