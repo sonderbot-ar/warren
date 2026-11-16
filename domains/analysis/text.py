@@ -176,6 +176,21 @@ WARNING_LESSONS = {
         None,
         "rule D3, balance sheet (docs/build-plan.md)",
     ),
+    "debt_current_inside_short_term": Lesson(
+        "data",
+        "This company's short-term borrowings already include the part of its long-term debt "
+        "due within a year (its total debt due within a year is closer to short-term borrowings "
+        "alone than to the two added), so Warren counted that part once instead of adding it "
+        "again from the debt note. Counted twice, it would overstate debt and working capital "
+        "and understate the cost of debt, effects that partly offset each other, so the value "
+        "per share moves much less than the debt.",
+        {},
+        "Koller, Goedhart and Wessels, Valuation (7th ed.), Moving from Enterprise Value to "
+        "Value per Share (each debt claim counted once); US GAAP Taxonomy, ShortTermBorrowings "
+        "and LongTermDebtCurrent; FASB ASC 470-10-45 (debt classified as current)",
+        "rule D3, balance sheet (docs/build-plan.md); the check is Warren's own "
+        "(math_engine.current_debt_inside, backlog #408)",
+    ),
     "balance_date_differs": Lesson(
         "data",
         "The balance sheet Warren takes net debt from is dated differently from the last "

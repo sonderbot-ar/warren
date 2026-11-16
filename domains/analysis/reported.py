@@ -40,9 +40,11 @@ from domains.analysis.coded import Coded, coded_warnings, pass_on
 from domains.analysis.math_engine import (
     CASH_ITEMS,
     CHAINS,
+    LEASES_SKIPPED,
     MINUEND_WORDS,
     History,
     basis_kind,
+    current_debt_inside,
     debt_parts,
 )
 from domains.fundamentals.facts import (
@@ -1271,7 +1273,7 @@ def _net_debt(views: _Views, revenue: Fact, period: Period, lines: list[Line]) -
     cash = get("cash")
     if cash is None:
         return Ratio("net_debt", fid, formula, None, "USD", [], _missing(["cash"]))
-    debt, used, zero, debt_notes = debt_parts(get)
+    debt, used, zero, debt_notes = debt_parts(get, views.latest.on)
     cash_facts = [f for f in (get(i) for i in CASH_ITEMS) if f is not None]
     zero += [i for i in CASH_ITEMS if get(i) is None]
     value = fm.net_debt(debt, sum(f.value for f in cash_facts))
@@ -1301,8 +1303,24 @@ def _net_debt(views: _Views, revenue: Fact, period: Period, lines: list[Line]) -
                 + ", ".join(items),
             )
         )
-    if debt_notes:
-        notes.append(Coded("finance_leases_in_debt_tag", {}, debt_notes))
+    if LEASES_SKIPPED in debt_notes:
+        notes.append(Coded("finance_leases_in_debt_tag", {}, LEASES_SKIPPED))
+    inside = current_debt_inside(get("debt_current"), get("short_term_borrowings"), views.latest.on)
+    if inside:
+        notes.append(
+            Coded(
+                "debt_current_inside_short_term",
+                {
+                    "period_end": inside.current.period_end.isoformat(),
+                    "debt_current": inside.current.value,
+                    "short_term_borrowings": inside.short_term.value,
+                    "debt_current_total": inside.total.value,
+                    "currency": inside.current.unit,
+                    "accession_no": inside.current.accession_no,
+                },
+                inside.text,
+            )
+        )
     if value < 0:
         notes.append(Coded("net_cash", {}, "negative: the company holds more cash than debt"))
     notes += _changed_note(facts, lines)

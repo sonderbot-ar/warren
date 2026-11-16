@@ -6,3 +6,4 @@ Each `<sha256>.csv` here is a byte-for-byte copy of a `concept_map.csv` that run
 |---|---|---|
 | `2a263604a945` | oct.26.2026 (`1e81c37`) | Securities and fallback items, the optional gate. The map every run up to v0.9.64 was made with. |
 | `91062f49b580` | nov.15.2026 (backlog #341) | A last column, `companies`, limits a tag to named tickers (empty for every existing row); new `debt_current` priority 3 `LongTermDebtMaturitiesRepaymentsOfPrincipalInNextTwelveMonths` for CAT only, whose balance-sheet current debt is tagged only by segment, so every CAT run counted it as zero. |
+| `c621cb3eaf6e` | nov.16.2026 (backlog #408) | New optional item `debt_current_total` (`DebtCurrent`, the filing's total debt due within one year), never counted as debt: the engine reads it only to check whether short-term borrowings already include the current portion of long-term debt, which JNJ's Loans and notes payable do, so every JNJ run with a current-portion fact counted it twice. |
