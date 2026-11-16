@@ -206,7 +206,7 @@ assumptions(run_id TEXT REFERENCES runs, name TEXT, period TEXT, value REAL,
 
 - **D1 Securities.** Map marketable securities (current, non-current) and other short-term investments. Reverses the M1.1 choice: without them both net debt and operating working capital are wrong for AAPL and MSFT.
 - **D2 Growth basis and seasonality.** Annual growth from each 10-K's own current-vs-prior-year comparatives (one restatement basis per pair), 3-year average, fading linearly to terminal growth by year 5. Quarters grow from the same quarter a year earlier; a fiscal year listed under "Quarters vs full year" falls back to the full year × average seasonal share.
-- **D3 Net debt.** Debt components plus finance leases (skipped where the selected debt tag already includes them, KO 2024+), commercial paper only when short-term borrowings are absent, minus cash, marketable securities and other short-term investments. Operating leases excluded (GAAP EBIT already deducts lease cost). Minority interest subtracted after EV. A missing component counts as zero, with a warning.
+- **D3 Net debt.** Debt components plus finance leases (skipped where the selected debt tag already includes them, KO 2024+), commercial paper when short-term borrowings are absent, or beside them when the filing's total debt due within one year shows it is a separate line (backlog #412), minus cash, marketable securities and other short-term investments. Operating leases excluded (GAAP EBIT already deducts lease cost). Minority interest subtracted after EV. A missing component counts as zero, with a warning.
 - **D4 Shares.** Value per share uses the latest cover-page shares outstanding, split-adjusted to the as-of date; weighted-average diluted shares are the fallback.
 - **D5 Risk-free rate.** FRED DGS10, the latest observation before the as-of date. Prices: the last close on or before the as-of date.
 - **D6 Beta.** 2 years of weekly total returns against the S&P 500 Total Return index (`^SP500TR`, revised from `^GSPC` so both sides are total returns; betas unchanged within 0.001), Blume-adjusted.
@@ -509,7 +509,7 @@ When the milestone before the one that needs an item merges, email the owner (CL
 | KO's 2019 diluted shares are tagged in millions (4,306 under a shares unit) | Caught by the shares invariant (warning); cover-page shares are used |
 | Known gaps are listed row by row per company (review point 11) | Under the universal-checks principle (D11), pattern rules are the next step; deferred until the universe grows |
 | CAT's consolidated debt includes its captive finance arm (Cat Financial), which a free-cash-flow DCF does not model | Phase 1 accepts it and the DCF report says so; companyfacts has no non-dimensional split |
-| `ShortTermBorrowings` may already include commercial paper | M2 counts commercial paper only when short-term borrowings are absent (D3) |
+| `ShortTermBorrowings` may already include commercial paper | M2 counts commercial paper only when short-term borrowings are absent (D3); since backlog #412 also beside them when the filing's own total (`DebtCurrent`) shows a separate line (Exxon, P&G) |
 | MSFT D&A fallback (depreciation + intangibles amortization) excludes the 'other' in its cash-flow line | Slightly understates D&A; documented `computed` method |
 | Quarterly series can mix restatement vintages (13 item-years, M1.1 report) | M2 chooses the basis for growth rates (e.g. latest 10-K comparatives) |
 | Finance leases may also sit inside lease-inclusive debt tags (KO 2024+) | M2 must not count them twice in net debt |

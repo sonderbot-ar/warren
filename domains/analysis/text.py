@@ -191,6 +191,22 @@ WARNING_LESSONS = {
         "rule D3, balance sheet (docs/build-plan.md); the check is Warren's own "
         "(math_engine.current_debt_inside, backlog #408)",
     ),
+    "commercial_paper_beside_short_term": Lesson(
+        "data",
+        "This company lists its commercial paper (short IOUs sold to investors for a few "
+        "weeks or months) as a line of its own beside its short-term bank loans, as its total "
+        "debt due within a year shows, so Warren counted both; when a filing gives no such "
+        "total, Warren assumes the paper is part of the loans. Left out, the paper would "
+        "understate debt and working capital and, because Warren's cost of debt is interest "
+        "divided by average debt, overstate the cost of debt.",
+        {},
+        "Koller, Goedhart and Wessels, Valuation (7th ed.), Moving from Enterprise Value to "
+        "Value per Share (every debt claim counted) and Reorganizing the Financial Statements "
+        "(short-term debt kept out of operating working capital); US GAAP Taxonomy, "
+        "CommercialPaper, ShortTermBankLoansAndNotesPayable and DebtCurrent",
+        "rule D3, balance sheet (docs/build-plan.md); the check is Warren's own "
+        "(math_engine.paper_beside, backlog #412)",
+    ),
     "balance_date_differs": Lesson(
         "data",
         "The balance sheet Warren takes net debt from is dated differently from the last "
