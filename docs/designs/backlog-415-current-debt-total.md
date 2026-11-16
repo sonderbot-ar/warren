@@ -1,6 +1,6 @@
 # Backlog #415: the filing's own total when the parts of current debt are older or missing
 
-Issue: https://github.com/sonderbot-ar/warren/issues/415 (from the #412 design review), items 1 and 2 · Branch `backlog-415-current-debt-total`.
+Issue: https://github.com/sonderbot-ar/warren/issues/415 (from the #412 design review), items 1 and 2 · Branch `backlog-415-current-debt-total` · Version v0.9.80, merged nov.16.2026 (PR #420, merge `c28578e`, after CI green and a gatekeeper GO).
 
 ## Problem
 
@@ -88,3 +88,7 @@ On the restored snapshot (`warren-20261116T053654Z`; no ingest needed, #408's in
 The runs that don't move are the ones read right after a year end, whose balance date is the year end itself (parts tagged). For example, Exxon as of 2020-08-01: debt $52.4bn → $59.6bn, value per share $98.49 → $99.14 (the June quarter's own total, 22.95bn, in place of December's parts); as of 2021-11-15: $64.1bn → $56.6bn, $12.98 → $14.37 (Exxon paid down its commercial paper during 2021, which the December 2020 parts didn't show; where equity value is small, as in 2021, a few billion of debt is a large share of it); P&G as of 2023-08-01: $31.3bn → $36.6bn, $106.72 → $105.78. The cost of debt doesn't move: it reads year ends only, and their parts are tagged. Revenue and EBIT forecasts don't read debt, so the forecast-error scores don't move.
 
 **Exxon before 2011 can't be run today.** Every date tried (2010-06-01, 2010-11-15, 2011-05-15, 2011-06-01) is refused `as_of_too_early` with or without the rule: runs start at `SUPPORTED_FROM` (2019-03-01, three full fiscal years of FY2016+ history), and the fiscal years those runs read all have their parts. So item 2 changes no run today; it applies through the same code if the supported range is ever widened, and the tests pin it.
+
+## Gatekeeper (nov.16.2026)
+
+GO, no blockers: 2,405 passed, 10 skipped; ruff check and format clean; the reading-rules row's fingerprint `7f98bf236195` matches v8; point-in-time holds (the rule reads only through the as-of lookups); `XOM_2020-08-01_1` reproduces to the cent with the same rebuild list as on `main`; the changed #412 test keeps its assertions and the dropped case is tested with its new value. Ideas (tests for a fiscal year's total dated before its parts and for a zero total; a report of same-date parts between 1.0 and 1.5 times the total) added to #421.
