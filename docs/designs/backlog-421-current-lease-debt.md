@@ -60,6 +60,22 @@ Issue: https://github.com/sonderbot-ar/warren/issues/421 (from the #415 design a
 - **Explainer.** Gaps taken: "it" in the bound (now gone), the tag-name test, a lone plain current, the map in force, CAT's priority and `sync_concepts`, the merged fact's filing, the filing day itself, the zero total, the rule names and the near-miss line, the command's defaults, what is built in Step 4, the FY2015–FY2017 limit. Not taken: glosses of #408, #412, #415 and the brief's questions (their docs explain them).
 - **Product lead, one blocker, taken.** Step 4 lists the run-note codes that appear or disappear on Exxon's 2019 and 2025 year ends, and the results say so. Ideas for the app (a side-panel sentence when the debt row's tag is lease-inclusive; the FY2015–FY2017 limit in the brief) go to team-sync.
 
+## Results (Step 4, nov.16.2026)
+
+On the restored snapshot (`warren-20261116T053654Z`; no ingest needed: facts are stored by tag, and the map only moves one tag to a new item).
+
+- **Stored runs.** `reproduce --all --rebuild`: 903 of 903 reproduced to the cent; 692 of 903 rebuilt to identical rows, the same count as on `main`; the other 211 were made by older code and differ as before. No stored run moves: each rebuilds through its own map, where the lease-inclusive tag is still `debt_current` priority 2.
+- **Fresh runs.** All 903 stored run dates built twice in memory (same pinned market data and choices), through #408's map and through today's; none refused, none stored. **Only Exxon moves, on 44 dates, and by at most 0.03% of value per share.** No run-note code appears or disappears on any date (the product lead's check), so #408's and #412's notes fire exactly as before.
+  - 4 runs (2020-03-01 to 2020-05-01) read the 2019-12-31 balance sheet: debt $46,836M → $46,920M (+84M), value per share +0.01% to +0.02% (e.g. 2020-04-01 $99.83 → $99.85).
+  - 39 runs (2020-06-01 to 2023-02-01) read FY2019 only as history: that year's working capital and the working-capital forecast move, and the cost of debt where FY2019 is in its window; debt unchanged; value per share within ±0.03% (2021-03-01 $4.87 → $4.88, where equity is small).
+  - 1 run (2026-10-30) reads FY2025 as history: $115.34 → $115.35.
+  - Apple, Microsoft, Coca-Cola, Johnson & Johnson, Procter & Gamble, Caterpillar and Walmart: nothing moves on any date.
+- **Near misses** (`debt-checks --as-of 2026-11-15 --near-misses`): 155 balance dates carry a filed total (JNJ 16, P&G 70, Exxon 69); 11 are near misses.
+  - **P&G year ends 2009, 2013–2016, 2019–2022:** the total is above the same-date current portion + commercial paper by 98M to 481M (2009: 4,352M, the year its short-term borrowings were not tagged). P&G's debt note has a third line of short-term debt (other short-term borrowings, not tagged under a mapped concept), so year-end P&G runs undercount debt due within a year by about 1% to 4% of it. Filed as a follow-up.
+  - **JNJ 2014-12-28:** total 3,600M, short-term borrowings 3,638M (rounded total, 1.0%); not a real miss.
+  - **Exxon 2009-12-31:** parts 1,592M against a total of 2,476M (the issue's item 1, before 2011; not runnable, `SUPPORTED_FROM`).
+  - Exxon's 2019-12-31 and 2025-12-31 are no longer near misses: the parts now add up to the total.
+
 ## Files to change
 
 `domains/fundamentals/concept_map.csv`, `concept_maps/52635076391a….csv`, `concept_maps/CHANGES.md`, `domains/fundamentals/facts.py`; `domains/analysis/reading_rules.py` and `.md`; `domains/analysis/debt_checks.py`, `domains/analysis/__main__.py`; `tests/analysis/test_current_lease_debt.py`, `tests/analysis/test_debt_current_total_in_place.py`, `tests/analysis/test_debt_checks.py`, `tests/fundamentals/test_concepts.py` (one expected priority); on merge `docs/versions.md`, `docs/team-sync.md`.
