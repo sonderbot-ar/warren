@@ -1041,7 +1041,99 @@ def _quarterly(
     return sorted(quarters, key=lambda f: (f.canonical_name, f.period_end))
 
 
+# The current portion of long-term debt is filed under two tags: debt only (`debt_current`) and
+# debt with finance leases (`debt_current_with_leases`). It must be on the same basis as the
+# non-current debt, because D3 skips the finance-lease line when the non-current tag already
+# holds leases: Exxon tags both current figures (1,617M and 1,701M at 2019-12-31, the 84M being
+# the finance leases due within a year that its lease note puts in notes and loans payable) beside
+# a lease-inclusive non-current, so the plain one lost them (backlog #421). The lease-inclusive
+# figure is never below the plain one, and one equal to the same date's non-current debt is the
+# long-term debt under the wrong tag (Exxon's 12,227M at 2010-12-31, 12,316M at 2011-03-31; the
+# analyst's design review), so neither is taken in place of the plain one.
+CURRENT_ITEMS = ("debt_current", "debt_current_with_leases", "debt_noncurrent")
+
+
+def lease_inclusive(fact: Fact | None) -> bool:
+    """Whether a debt fact's tag includes finance (capital) leases."""
+    return fact is not None and (
+        "CapitalLease" in fact.xbrl_concept or "FinanceLease" in fact.xbrl_concept
+    )
+
+
+def current_on_noncurrent_basis(
+    plain: Fact | None, with_leases: Fact | None, noncurrent: Fact | None
+) -> Fact | None:
+    """The current portion for one balance date, on the non-current debt's basis (backlog #421):
+    the only one filed; or, with both, the lease-inclusive one when the non-current debt is
+    lease-inclusive and it is above the plain one (equal figures keep the plain tag, which then
+    already holds any leases) and is not the non-current debt again (a mis-tag)."""
+    if with_leases is None:
+        return plain
+    with_leases = with_leases.model_copy(update={"canonical_name": "debt_current"})
+    if plain is None:
+        return with_leases  # the lease-inclusive tag alone (Coca-Cola 2024+), as before #421
+    if (
+        lease_inclusive(noncurrent)
+        and plain.value >= 0
+        and with_leases.value > plain.value
+        and with_leases.value != noncurrent.value
+    ):
+        return with_leases
+    return plain
+
+
+def _merge_current(facts: list[Fact], asked: list[str]) -> list[Fact]:
+    """Read `debt_current_with_leases` into `debt_current` per period (backlog #421)."""
+    by_period: dict[tuple, dict[str, Fact]] = defaultdict(dict)
+    rest = []
+    for f in facts:
+        if f.canonical_name in CURRENT_ITEMS:
+            key = (f.period_start, f.period_end, f.fiscal_year, f.fiscal_period)
+            by_period[key][f.canonical_name] = f
+        else:
+            rest.append(f)
+    for items in by_period.values():
+        current = current_on_noncurrent_basis(
+            items.get("debt_current"),
+            items.get("debt_current_with_leases"),
+            items.get("debt_noncurrent"),
+        )
+        if current is not None:
+            items["debt_current"] = current
+        rest.extend(f for name, f in items.items() if name in asked)
+    order = {name: i for i, name in enumerate(asked)}
+    return sorted(rest, key=lambda f: (order.get(f.canonical_name, -1), f.period_end))
+
+
 def get_facts(
+    conn: sqlite3.Connection,
+    cik: str,
+    canonical_names: list[str],
+    as_of: date | str,
+    mode: Mode = "latest",
+    frequency: Frequency = "reported",
+    one_basis: bool = False,
+) -> list[Fact]:
+    """Point-in-time facts (`_get_facts`). When `debt_current` is asked and the map in force has
+    `debt_current_with_leases`, the two are read as one current portion on the non-current
+    debt's basis (backlog #421, `current_on_noncurrent_basis`); a map without the item (every
+    run stored before #421) reads what it read before."""
+    names = list(canonical_names)
+    merge = (
+        "debt_current" in names
+        and conn.execute(
+            "SELECT 1 FROM concepts WHERE canonical_name = 'debt_current_with_leases' LIMIT 1"
+        ).fetchone()
+        is not None
+    )
+    if not merge:
+        return _get_facts(conn, cik, names, as_of, mode, frequency, one_basis)
+    wide = names + [n for n in CURRENT_ITEMS if n not in names]
+    facts = _get_facts(conn, cik, wide, as_of, mode, frequency, one_basis)
+    return _merge_current(facts, names)
+
+
+def _get_facts(
     conn: sqlite3.Connection,
     cik: str,
     canonical_names: list[str],

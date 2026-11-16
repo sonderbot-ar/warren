@@ -3,6 +3,7 @@ the parts is filed for the balance date (backlog #415: Exxon's and P&G's quarter
 only the total is tagged, and Exxon before 2011, when only the total was filed)."""
 
 from datetime import date
+from functools import partial
 
 import pytest
 
@@ -260,3 +261,45 @@ def test_a_map_without_the_total_reads_what_it_read_before(make_company):
         result = build(conn)
     assert by_key(result)[("debt", "-")].value == 200  # the year-end portion carried
     assert notes(result) == []
+
+
+# Tests the #415 reviews asked for (backlog #421 item 2 and the gatekeeper's ideas).
+# the parts first filed as the comparative in the next annual report (P&G: the FY2010 10-K)
+LATE_PARTS = ("2019-12-31", 2020, "FY", "10-K", "0000000123-20-000077", "2020-05-30")
+
+
+def test_a_total_filed_before_its_parts_is_read_until_the_parts_are_public(make_company):
+    # P&G FY2009: its total for 2009-06-30 was filed 2009-10-29, its parts first on 2010-08-13;
+    # a history read between the two counts the total, and after the parts are public, the parts
+    from domains.analysis.math_engine import load_history
+
+    def no_year_end_portion(tag, row):
+        return None if tag == "LongTermDebtCurrent" and row["end"] == "2019-12-31" else row
+
+    conn = make_company(no_year_end_portion)
+    put(conn, "DebtCurrent", 40, FY2019)  # filed 2020-02-15
+    put(conn, "LongTermDebtCurrent", 20, LATE_PARTS)  # filed 2020-05-30
+    day = date(2019, 12, 31)
+    cases = ((date(2020, 3, 1), 40), (date(2020, 5, 29), 40), (date(2020, 5, 30), None))
+    for as_of, counted in cases:
+        history = load_history(conn, "0000000123", as_of)
+        in_place = total_in_place(partial(history.latest_before, day=day), day)
+        assert (in_place.total.value if in_place else None) == counted, as_of
+
+
+def test_a_fiscal_years_total_dated_before_its_parts_is_not_used():
+    # day None (a fiscal year's figures): the total's own date decides, and a part dated after
+    # it keeps the parts
+    total = fact("debt_current_total", 40, "2019-12-31")
+    part = fact("debt_current", 20, "2020-03-31")
+    assert total_in_place(getter(total, part)) is None
+
+
+def test_a_zero_total_is_counted():
+    # the filing says nothing is due within a year: zero is used, the older parts left out
+    total = fact("debt_current_total", 0, "2020-06-30")
+    part = fact("debt_current", 20, "2019-12-31")
+    in_place = total_in_place(getter(total, part), date(2020, 6, 30))
+    assert in_place is not None and in_place.total.value == 0
+    total_debt, used, _, _ = debt_parts(getter(total, part, fact("debt_noncurrent", 180)))
+    assert total_debt == 180
