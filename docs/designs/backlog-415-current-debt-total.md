@@ -59,6 +59,32 @@ Serves the estimate questions of `docs/product/brief.md` (Q3, Q5, Q8, value per 
 - **A Q2 series of net debt** can mix year ends (three parts) and quarter ends (the total); both measure the same debt, so no series note is added.
 - Nothing renamed or removed. For the front-end team: the code and lesson in the Spanish catalogue (#344's list); a line label for `balance:debt_current_total` in the brief's own words ("Deuda que vence en el año (total del reporte)"); labels for the three items `parts_left_out` can name (`debt_current`, `short_term_borrowings`, `commercial_paper`; "Papel comercial" exists, the other two wait on #297 item 5), or the app shows the dated values without labels; the app lists `parts_left_out` one by one with their dates and never sums them against the total (the brief's rule that the app explains nothing with numbers of its own); a variant when `parts_left_out` is empty; the lesson sets both `reference` and `warren_rule`; the "Two runs of the same date" paragraph's rules-version history gains "8 since this version".
 
-## Results (Step 2)
+## Results (Step 2, nov.16.2026)
 
-To come.
+On the restored snapshot (`warren-20261116T053654Z`; no ingest needed, #408's ingest already holds every `DebtCurrent` fact):
+
+- **Stored runs.** `reproduce --all --rebuild`: 903 of 903 reproduced to the cent; 692 of 903 rebuilt to identical rows, the same count as on `main`; the other 211 were made by older code and differ as before. No stored run moves, by design: each rebuilds through its own map, which never read `DebtCurrent`.
+- **Fresh runs.** Every stored run date of all eight companies (903) built twice in memory, same pinned market data and choices, with and without the rule; none stored, none refused. Every moved debt carries the note. Apple, Microsoft, Coca-Cola, Johnson & Johnson, Caterpillar and Walmart: nothing moves on any date. History working capital and the cost of debt move on no run: every year end the stored runs read has its parts.
+
+| Runs dated | Runs | Debt moves | Change in debt | Value per share |
+|---|---|---|---|---|
+| Exxon 2019 | 12 | 10 | +3.9bn to +8.9bn | −0.4% to −0.2% |
+| Exxon 2020 | 16 | 12 | +1.4bn to +7.3bn | −0.2% to +0.7% |
+| Exxon 2021 | 14 | 11 | −7.5bn to +1.4bn | 0.0% to +10.9% |
+| Exxon 2022 | 14 | 11 | −7.5bn to +3.1bn | −1.1% to +15.0% |
+| Exxon 2023 | 15 | 12 | +1.7bn to +4.1bn | −0.5% to +0.2% |
+| Exxon 2024 | 14 | 12 | +1.5bn to +4.1bn | +0.1% to +0.3% |
+| Exxon 2025 | 14 | 11 | −0.2bn to +4.3bn | 0.0% to +0.1% |
+| Exxon 2026 | 1 | 1 | +5.3bn | −0.5% |
+| P&G 2019 | 13 | 11 | −1.4bn to +1.8bn | −0.3% to +0.3% |
+| P&G 2020 | 14 | 11 | −3.3bn to +3.1bn | −0.7% to +0.6% |
+| P&G 2021 | 14 | 12 | −3.3bn to +3.2bn | −0.5% to +0.7% |
+| P&G 2022 | 14 | 11 | +1.1bn to +4.5bn | −1.0% to −0.3% |
+| P&G 2023 | 14 | 12 | +1.6bn to +5.8bn | −0.9% to −0.3% |
+| P&G 2024 | 15 | 12 | −2.5bn to +3.2bn | −0.7% to +0.6% |
+| P&G 2025 | 14 | 12 | +2.1bn to +3.2bn | −0.7% to −0.4% |
+| P&G 2026 | 16 | 11 | +1.6bn to +5.7bn | −1.2% to −0.3% |
+
+The runs that don't move are the ones read right after a year end, whose balance date is the year end itself (parts tagged). For example, Exxon as of 2020-08-01: debt $52.4bn → $59.6bn, value per share $98.49 → $99.14 (the June quarter's own total, 22.95bn, in place of December's parts); as of 2021-11-15: $64.1bn → $56.6bn, $12.98 → $14.37 (Exxon paid down its commercial paper during 2021, which the December 2020 parts didn't show; where equity value is small, as in 2021, a few billion of debt is a large share of it); P&G as of 2023-08-01: $31.3bn → $36.6bn, $106.72 → $105.78. The cost of debt doesn't move: it reads year ends only, and their parts are tagged. Revenue and EBIT forecasts don't read debt, so the forecast-error scores don't move.
+
+**Exxon before 2011 can't be run today.** Every date before 2011-06-01 tried (2010-06-01, 2010-11-15, 2011-05-15, 2011-06-01) is refused `as_of_too_early` with or without the rule (not enough market history for the ERP window), so item 2 changes no run now; it applies through the same code once such dates can be run, and the tests pin it.
