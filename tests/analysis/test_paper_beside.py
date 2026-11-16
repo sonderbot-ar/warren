@@ -47,6 +47,8 @@ def test_paper_beside_bank_loans_is_counted(company):
         "debt_current_total": 100,
         "currency": "USD",
         "accession_no": "0000000123-20-000016",
+        "short_term_left_out": None,
+        "short_term_left_out_period_end": None,
         "assumptions": ["debt", "cost_of_debt", "nwc_pct"],
     }
 
@@ -114,6 +116,34 @@ def test_a_year_end_judgement_carries_to_a_quarter(make_company):
     assert note.params["period_end"] == "2019-12-31"
 
 
+def test_an_older_short_term_line_gives_way_to_this_dates_paper(company):
+    # P&G at 2019-06-30: bank loans last tagged at the 2018 year end, paper at every year end;
+    # the 2019 total holds only paper and the current portion (review of #412)
+    put(company, "ShortTermBankLoansAndNotesPayable", 10, FY2019)
+    put(company, "CommercialPaper", 70, Q1)
+    put(company, "DebtCurrent", 90, Q1)  # 20 + 70, no bank loans
+    result = build(company)
+    rows = by_key(result)
+    assert rows[("debt", "-")].value == 270  # 20 + 180 + 70, not 210 (10 carried, paper dropped)
+    assert ("balance:short_term_borrowings", "-") not in rows
+    assert "left out: not tagged at 2020-03-31" in rows[("debt", "-")].method
+    [note] = notes(result)
+    assert note.params["short_term_borrowings"] == 0
+    assert note.params["short_term_left_out"] == 10
+    assert note.params["short_term_left_out_period_end"] == "2019-12-31"
+    carried = [n for n in result.notes if n.code == "balance_carried_forward"]
+    assert all(i["item"] != "short_term_borrowings" for n in carried for i in n.params["items"])
+
+
+def test_an_older_short_term_line_stays_when_the_total_holds_it(company):
+    put(company, "ShortTermBankLoansAndNotesPayable", 10, FY2019)
+    put(company, "CommercialPaper", 70, Q1)
+    put(company, "DebtCurrent", 30, Q1)  # fits neither sum with paper: not judged
+    result = build(company)
+    assert by_key(result)[("debt", "-")].value == 210
+    assert notes(result) == []
+
+
 def fact(item, value, day="2018-06-30"):
     return Fact(
         canonical_name=item,
@@ -147,6 +177,19 @@ def lookup_get(*facts):
     return lambda item: by_item.get(item)
 
 
+def test_pg_2019_year_end_reads_this_years_paper():
+    # P&G's 10-K for FY2019 (0000080424-19-000050): no bank loans tagged; 800 carried from 2018
+    day = "2019-06-30"
+    short, paper = fact("short_term_borrowings", 800), fact("commercial_paper", 6183, day)
+    current, total = fact("debt_current", 3388, day), fact("debt_current_total", 9697, day)
+    beside = paper_beside(short, paper, lookup(current, total))
+    assert beside is not None and beside.stale
+    debt, used, _, _ = debt_parts(lambda i: {f.canonical_name: f for f in (short, paper, current,
+                                  total)}.get(i), lookup(current, total))  # fmt: skip
+    assert debt == 3388 + 6183
+    assert short not in used
+
+
 def test_xom_2019_year_end_is_beside():
     day = "2019-12-31"
     short, paper = fact("short_term_borrowings", 316, day), fact("commercial_paper", 18561, day)
@@ -159,7 +202,7 @@ def test_xom_2019_year_end_is_beside():
     [
         (0, 2572, "2018-06-30"),  # no paper to add
         (7761, 2572 + 7761 / 2, "2018-06-30"),  # equally near both sums: not shown
-        (7761, 10423, "2018-03-31"),  # paper dated apart from the short-term figure
+        (7761, 10423, "2018-03-31"),  # paper older than the short-term figure
         (7761, 2572 + 7761 * 3, "2018-06-30"),  # total far above both: a broken figure
     ],
 )

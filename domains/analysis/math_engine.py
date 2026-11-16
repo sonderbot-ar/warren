@@ -765,7 +765,7 @@ def _operating_nwc(
         parts["short_term_borrowings"], parts["commercial_paper"], _on_date(get), inside
     )
     if beside:
-        short_term += beside.paper.value
+        short_term = beside.short_value + beside.paper.value
     nwc = (
         v["current_assets"]
         - v["cash"]
@@ -848,18 +848,34 @@ class PaperBeside:
     """Commercial paper is a separate line beside short-term borrowings, not inside them (#412)."""
 
     paper: Fact  # the commercial paper counted beside short-term borrowings
-    short_term: Fact  # short-term borrowings at the same date
-    total: Fact  # the filing's total debt due within one year (DebtCurrent), same date
+    short_term: Fact  # the short-term borrowings figure the run would read
+    total: Fact  # the filing's total debt due within one year (DebtCurrent), at the paper's date
     current: float  # the current portion of long-term debt counted at that date (0 if none)
 
     @property
+    def stale(self) -> bool:
+        """Short-term borrowings were not tagged at the paper's date: the figure the run would
+        read is an older one, carried forward, and the total shows none is due then."""
+        return self.short_term.period_end < self.paper.period_end
+
+    @property
+    def short_value(self) -> float:
+        return 0.0 if self.stale else self.short_term.value
+
+    @property
     def text(self) -> str:
-        parts = self.short_term.value + self.current
-        return (
+        parts = self.short_value + self.current
+        out = (
             f"commercial paper counted beside short-term borrowings: a separate line (debt due "
             f"within one year {self.total.value:,.0f} is nearer {parts + self.paper.value:,.0f} "
             f"with it than {parts:,.0f} without it, at {self.paper.period_end})"
         )
+        if self.stale:
+            out += (
+                f"; short-term borrowings of {self.short_term.value:,.0f} at "
+                f"{self.short_term.period_end} left out: not tagged at {self.paper.period_end}"
+            )
+        return out
 
 
 def paper_beside(
@@ -869,7 +885,7 @@ def paper_beside(
     inside: CurrentDebtInside | None = None,
 ) -> PaperBeside | None:
     """Whether commercial paper is a line of its own beside the short-term borrowings counted
-    (backlog #412), judged at their shared date: there, the filing's total debt due within one
+    (backlog #412), judged at the paper's date: there, the filing's total debt due within one
     year (DebtCurrent) is nearer short-term borrowings + the current portion + commercial paper
     than the same without commercial paper, and within half the commercial paper of the sum with
     it. Exxon's "Notes and loans payable" and P&G's "Debt due within one year" list commercial
@@ -877,20 +893,24 @@ def paper_beside(
     as a part of short-term borrowings, and none of them tags the total, so for them nothing
     changes: without the total, commercial paper counts only in place of short-term borrowings.
 
-    Needs both lines dated the same day, commercial paper above zero and the total on that day.
-    The current portion is the one dated that day (zero when there is none, or when #408 found it
-    inside short-term borrowings)."""
+    Needs commercial paper above zero, a short-term figure no newer than it, and the total at the
+    paper's date. A short-term figure older than the paper was not tagged at that date, so it
+    counts as zero there (P&G tags its bank loans only at 2017 and 2018 year ends, its paper every
+    year end; review of #412); when the check holds, that older figure is left out. The current
+    portion is the one dated that day (zero when there is none, or when #408 found it inside
+    short-term borrowings)."""
     if short_term is None or paper is None or paper.value <= 0:
         return None
-    day = short_term.period_end
-    if paper.period_end != day:
+    day = paper.period_end
+    if short_term.period_end > day:
         return None
     total = on("debt_current_total", day)
     if total is None:
         return None
     current_fact = None if inside is not None else on("debt_current", day)
     current = current_fact.value if current_fact is not None else 0.0
-    without = short_term.value + current
+    short_value = short_term.value if short_term.period_end == day else 0.0
+    without = short_value + current
     gap = abs(total.value - without - paper.value)
     # nearer the sum with commercial paper, and close to it: a total that fits neither sum is not
     # evidence of either presentation
@@ -900,14 +920,18 @@ def paper_beside(
 
 def paper_params(beside: PaperBeside, assumptions: bool = True) -> dict:
     """The note's params (backlog #412); the reported view leaves out `assumptions`."""
+    left_out = beside.short_term if beside.stale else None
     params = {
         "period_end": beside.paper.period_end.isoformat(),
         "commercial_paper": beside.paper.value,
-        "short_term_borrowings": beside.short_term.value,
+        "short_term_borrowings": beside.short_value,
         "debt_current": beside.current,
         "debt_current_total": beside.total.value,
         "currency": beside.paper.unit,
         "accession_no": beside.paper.accession_no,
+        # an older short-term figure left out (null when short-term borrowings share the date)
+        "short_term_left_out": left_out.value if left_out else None,
+        "short_term_left_out_period_end": left_out.period_end.isoformat() if left_out else None,
     }
     if assumptions:
         params["assumptions"] = ["debt", "cost_of_debt", "nwc_pct"]
@@ -957,6 +981,8 @@ def debt_parts(
         if fact is None:
             zero.append(item)
     paper = beside.paper if beside else None
+    if beside and beside.stale:
+        short_term = None  # not tagged at the paper's date; the paper is counted in its place
     for fact in (None if inside else current, noncurrent, short_term, paper, leases):
         if fact is not None:
             used.append(fact)
@@ -1021,6 +1047,8 @@ def _balance(history: History, base_date: date, result: EngineResult) -> date:
         facts["short_term_borrowings"], facts["commercial_paper"], history.on, inside
     )
     if beside:
+        if beside.stale:
+            facts["short_term_borrowings"] = None  # left out, so never carried forward
         result.warn("commercial_paper_beside_short_term", paper_params(beside), beside.text)
     carried = [
         f"{i} ({f.period_end})" for i, f in facts.items() if f and f.period_end < balance_date
