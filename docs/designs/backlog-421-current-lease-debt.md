@@ -76,6 +76,10 @@ On the restored snapshot (`warren-20261116T053654Z`; no ingest needed: facts are
   - **Exxon 2009-12-31:** parts 1,592M against a total of 2,476M (the issue's item 1, before 2011; not runnable, `SUPPORTED_FROM`).
   - Exxon's 2019-12-31 and 2025-12-31 are no longer near misses: the parts now add up to the total.
 
+## Gatekeeper (nov.16.2026)
+
+GO, no blockers: 2,424 passed, 10 skipped; ruff check and format clean; point-in-time holds (the merge only chooses among facts the as-of query already returned); a map without the new item reads what it read before (`XOM_2020-04-01_1` rebuilds with the same differences on this branch and on `main`); no duplicate `debt_current` period on any company, mode or frequency; the test's priority 3 → 2 follows the map; fingerprint `04a7c2600421` matches v9; the map copy is byte-identical. Ideas (pairing the two tags on dates alone, with a guard against two fiscal labels at one date; the merged list's order) filed as a backlog issue; the P&G near misses are #426.
+
 ## Files to change
 
 `domains/fundamentals/concept_map.csv`, `concept_maps/52635076391a….csv`, `concept_maps/CHANGES.md`, `domains/fundamentals/facts.py`; `domains/analysis/reading_rules.py` and `.md`; `domains/analysis/debt_checks.py`, `domains/analysis/__main__.py`; `tests/analysis/test_current_lease_debt.py`, `tests/analysis/test_debt_current_total_in_place.py`, `tests/analysis/test_debt_checks.py`, `tests/fundamentals/test_concepts.py` (one expected priority); on merge `docs/versions.md`, `docs/team-sync.md`.
