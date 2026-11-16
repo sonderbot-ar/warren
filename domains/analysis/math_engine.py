@@ -766,6 +766,8 @@ def _operating_nwc(
     )
     if beside:
         short_term = beside.short_value + beside.paper.value
+        if beside.stale:
+            parts["short_term_borrowings"] = None  # left out: not tagged at the paper's date
     nwc = (
         v["current_assets"]
         - v["cash"]

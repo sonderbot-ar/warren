@@ -135,6 +135,24 @@ def test_an_older_short_term_line_gives_way_to_this_dates_paper(company):
     assert all(i["item"] != "short_term_borrowings" for n in carried for i in n.params["items"])
 
 
+def test_working_capital_leaves_out_an_older_short_term_line():
+    from domains.analysis.math_engine import _operating_nwc
+
+    day = "2019-06-30"
+    facts = {
+        "current_assets": fact("current_assets", 300, day),
+        "cash": fact("cash", 60, day),
+        "current_liabilities": fact("current_liabilities", 150, day),
+        "debt_current": fact("debt_current", 20, day),
+        "short_term_borrowings": fact("short_term_borrowings", 10),  # 2018-06-30
+        "commercial_paper": fact("commercial_paper", 70, day),
+        "debt_current_total": fact("debt_current_total", 90, day),
+    }
+    nwc, method, used, _ = _operating_nwc(facts.get, "FY2019")
+    assert nwc == pytest.approx((300 - 60) - (150 - 20 - 70))
+    assert facts["short_term_borrowings"] not in used
+
+
 def test_an_older_short_term_line_stays_when_the_total_holds_it(company):
     put(company, "ShortTermBankLoansAndNotesPayable", 10, FY2019)
     put(company, "CommercialPaper", 70, Q1)
