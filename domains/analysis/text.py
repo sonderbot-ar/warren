@@ -207,6 +207,23 @@ WARNING_LESSONS = {
         "rule D3, balance sheet (docs/build-plan.md); the check is Warren's own "
         "(math_engine.paper_beside, backlog #412)",
     ),
+    "debt_current_total_in_place": Lesson(
+        "data",
+        "On this balance sheet date the company filed only its total debt due within a year, "
+        "not the pieces it adds up (debt due soon, bank loans, commercial paper), which come "
+        "once a year in the annual report or were not yet filed in a form Warren reads, so "
+        "Warren counted that total instead of older pieces from another date or none at all. "
+        "A valuation needs only the sum of short-term debt, so the total costs detail, not "
+        "accuracy, while old or missing pieces would misstate debt, working capital and the "
+        "cost of debt.",
+        {},
+        "Koller, Goedhart and Wessels, Valuation (7th ed.), Moving from Enterprise Value to "
+        "Value per Share (every debt claim counted, at the valuation date); Penman, Financial "
+        "Statement Analysis and Security Valuation (5th ed.), the reformulated balance sheet "
+        "(short-term debt as a financial obligation); US GAAP Taxonomy, DebtCurrent",
+        "rule D3, balance sheet (docs/build-plan.md); the rule is Warren's own "
+        "(math_engine.total_in_place, backlog #415)",
+    ),
     "balance_date_differs": Lesson(
         "data",
         "The balance sheet Warren takes net debt from is dated differently from the last "

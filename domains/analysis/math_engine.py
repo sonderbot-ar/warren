@@ -753,6 +753,13 @@ def _operating_nwc(
         parts[item] = fact
         if fact is None:
             missing.append(item)
+    in_place = total_in_place(get)
+    if in_place:
+        # the filing's total stands for every part (backlog #415)
+        for item in CURRENT_DEBT_PARTS:
+            parts[item] = None
+        missing = [m for m in missing if m not in CURRENT_DEBT_PARTS]
+        parts["debt_current_total"] = in_place.total
     v = {k: (f.value if f else 0.0) for k, f in parts.items()}
     short_term = (
         v["short_term_borrowings"] if parts["short_term_borrowings"] else v["commercial_paper"]
@@ -760,7 +767,7 @@ def _operating_nwc(
     inside = current_debt_inside(
         parts["debt_current"], parts["short_term_borrowings"], _on_date(get)
     )
-    current = 0.0 if inside else v["debt_current"]
+    current = in_place.total.value if in_place else 0.0 if inside else v["debt_current"]
     beside = paper_beside(
         parts["short_term_borrowings"], parts["commercial_paper"], _on_date(get), inside
     )
@@ -775,6 +782,8 @@ def _operating_nwc(
         - v["other_short_term_investments"]
     ) - (v["current_liabilities"] - current - short_term)
     method = "; ".join(trace(f) for f in parts.values() if f)
+    if in_place:
+        method += f"; {in_place.text}"
     if inside:
         method += f"; {inside.text}"
     if beside:
@@ -940,6 +949,98 @@ def paper_params(beside: PaperBeside, assumptions: bool = True) -> dict:
     return params
 
 
+# The parts of debt due within one year that the filing's total (DebtCurrent) adds up.
+CURRENT_DEBT_PARTS = ("debt_current", "short_term_borrowings", "commercial_paper")
+# A part dated with the total and above this multiple of it is not one of its parts (#415).
+# A working rule, like #408's and #412's "within half": no rounding comes near it.
+TOO_BIG = 1.5
+
+
+@dataclass(frozen=True)
+class TotalInPlace:
+    """The filing's total debt due within one year counted in place of its parts (#415)."""
+
+    total: Fact  # DebtCurrent at the balance date
+    left_out: tuple[Fact, ...]  # the older parts not counted (empty when none was ever filed)
+
+    @property
+    def text(self) -> str:
+        out = (
+            f"debt due within one year {self.total.value:,.0f} at {self.total.period_end} "
+            "counted in place of its parts: "
+        )
+        if not self.left_out:
+            return out + "no part filed for that date or before it"
+        parts = ", ".join(
+            f"{f.canonical_name} {f.value:,.0f} at {f.period_end}"
+            + (
+                " (larger than the total, so not one of its parts)"
+                if _too_big(f, self.total)
+                else ""
+            )
+            for f in self.left_out
+        )
+        return out + f"no part of it is filed for that date (left out: {parts})"
+
+
+def total_in_place(
+    get: Callable[[str], Fact | None], day: date | None = None
+) -> TotalInPlace | None:
+    """Whether the filing's own total debt due within one year (DebtCurrent) is counted in
+    place of the current portion, short-term borrowings and commercial paper (backlog #415):
+    the total is dated at the balance date (`day`; the total's own date when None) and no part
+    is. Exxon and P&G tag the parts only in the 10-K's debt note and only the total at quarter
+    ends, so a quarter-end run would carry year-end parts beside quarter-end figures (Exxon at
+    2020-06-30: parts 20,494M, total 22,952M); and before 2011 Exxon's parts were not yet
+    filed in XBRL, only its total, so its current debt counted as zero. A part dated with the
+    total but more than half as large again (`_too_big`) is not one of its parts and doesn't
+    keep the parts: it is left out with the older ones.
+
+    The parts stay what a student reads whenever one of them is dated at the balance date: the
+    #408 and #412 checks then judge them as before. A total below zero is not used."""
+    total = get("debt_current_total")
+    if total is None or total.value < 0 or (day is not None and total.period_end != day):
+        return None
+    parts = [p for p in (get(item) for item in CURRENT_DEBT_PARTS) if p is not None]
+    if any(p.period_end >= total.period_end and not _too_big(p, total) for p in parts):
+        return None
+    return TotalInPlace(total, tuple(parts))
+
+
+def _too_big(part: Fact, total: Fact) -> bool:
+    """A part dated with the total and more than half as large again can't be inside it: a
+    figure under the wrong tag (Exxon's 10-Q for 2011-03-31 tags its long-term debt, 12,316M,
+    as the current portion beside a total of 3,560M; design review of #415). A total rounded
+    to a tenth of a billion (JNJ's 7,600M beside short-term borrowings of 7,617M) is far
+    inside the margin."""
+    return part.period_end == total.period_end and part.value > total.value * TOO_BIG
+
+
+def total_params(in_place: TotalInPlace, assumptions: bool = True) -> dict:
+    """The note's params (backlog #415); the reported view leaves out `assumptions`."""
+    params = {
+        "period_end": in_place.total.period_end.isoformat(),
+        "debt_current_total": in_place.total.value,
+        "currency": in_place.total.unit,
+        "accession_no": in_place.total.accession_no,
+        # each older part left out (current portion, short-term borrowings, commercial paper)
+        "parts_left_out": [
+            {
+                "item": f.canonical_name,
+                "value": f.value,
+                "period_end": f.period_end.isoformat(),
+                # "older": filed for an earlier date; "larger_than_total": dated with the total
+                # but more than half as large again, so a figure under the wrong tag
+                "reason": "larger_than_total" if _too_big(f, in_place.total) else "older",
+            }
+            for f in in_place.left_out
+        ],
+    }
+    if assumptions:
+        params["assumptions"] = ["debt", "cost_of_debt", "nwc_pct"]
+    return params
+
+
 LEASES_SKIPPED = "finance leases skipped: the debt tag already includes them"
 
 
@@ -952,27 +1053,36 @@ def _lease_inclusive(*facts: Fact | None) -> bool:
 def debt_parts(
     get: Callable[[str], Fact | None],
     on: Callable[[str, date], Fact | None] | None = None,
+    day: date | None = None,
 ) -> tuple[float, list[Fact], list[str], str]:
     """Debt (D3): long-term debt, current and non-current, short-term borrowings (or commercial
     paper when there are none, and beside them when the filing's total shows it is a separate
     line, backlog #412), and finance leases unless a debt tag already includes them; the
     current portion is left out when short-term borrowings already include it (backlog #408).
     `on(item, day)` gives an item's fact dated exactly `day` (default: `get`'s fact if so dated).
-    Returns (total, facts used, items counted as zero, notes)."""
+    When the filing's total debt due within one year is dated at the balance date `day` (the
+    total's own date when None) and none of its parts is, the total is counted in their place
+    (backlog #415; `total_in_place`). Returns (total, facts used, items counted as zero, notes)."""
     used, zero, notes = [], [], []
-    current, noncurrent = get("debt_current"), get("debt_noncurrent")
-    short_term = get("short_term_borrowings")
-    on = on or _on_date(get)
-    inside = current_debt_inside(current, short_term, on)
-    if inside:
-        notes.append(inside.text)
-    beside = paper_beside(short_term, get("commercial_paper"), on, inside)
-    if beside:
-        notes.append(beside.text)
-    if short_term is None:
-        short_term = get("commercial_paper")
+    noncurrent = get("debt_noncurrent")
+    in_place = total_in_place(get, day)
+    if in_place:
+        # the filing's total stands for every part; none is judged or counted (backlog #415)
+        notes.append(in_place.text)
+        current, short_term, inside, beside = in_place.total, None, None, None
+    else:
+        current, short_term = get("debt_current"), get("short_term_borrowings")
+        on = on or _on_date(get)
+        inside = current_debt_inside(current, short_term, on)
+        if inside:
+            notes.append(inside.text)
+        beside = paper_beside(short_term, get("commercial_paper"), on, inside)
+        if beside:
+            notes.append(beside.text)
         if short_term is None:
-            zero.append("short_term_borrowings/commercial_paper")
+            short_term = get("commercial_paper")
+            if short_term is None:
+                zero.append("short_term_borrowings/commercial_paper")
     leases = get("finance_lease_liabilities")
     if leases is not None and _lease_inclusive(current, noncurrent):
         notes.append(LEASES_SKIPPED)
@@ -1027,6 +1137,12 @@ def _balance(history: History, base_date: date, result: EngineResult) -> date:
                     "currency": fact.unit,
                 },
             )
+    in_place = total_in_place(get, balance_date)
+    if in_place:
+        # the older parts are neither counted nor carried forward (backlog #415)
+        for item in CURRENT_DEBT_PARTS:
+            facts[item] = None
+        result.warn("debt_current_total_in_place", total_params(in_place), in_place.text)
     inside = current_debt_inside(facts["debt_current"], facts["short_term_borrowings"], history.on)
     if inside:
         # never counted, so never carried forward (backlog #408)
@@ -1102,7 +1218,7 @@ def _balance(history: History, base_date: date, result: EngineResult) -> date:
             },
         )
 
-    debt, used, zero, notes = debt_parts(get, history.on)
+    debt, used, zero, notes = debt_parts(get, history.on, balance_date)
     for fact in used:
         result.add(
             f"balance:{fact.canonical_name}",

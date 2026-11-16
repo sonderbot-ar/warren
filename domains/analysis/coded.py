@@ -31,6 +31,7 @@ RUN_NOTE_CODES = frozenset(
         "balance_date_differs",
         "debt_current_inside_short_term",
         "commercial_paper_beside_short_term",
+        "debt_current_total_in_place",
         "shares_cover_differs",
         "shares_scale_mismatch",
         "shares_not_positive",

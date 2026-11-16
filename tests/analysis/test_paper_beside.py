@@ -99,7 +99,9 @@ def test_working_capital_takes_the_paper_out_too(company):
 
 
 def test_a_year_end_judgement_carries_to_a_quarter(make_company):
-    # Exxon's quarters: the parts are tagged only at the year end, the total at every quarter
+    # the parts are tagged only at the year end and the quarter has no total of its own; when
+    # the quarter does tag its total, the total is counted in place of the year-end parts
+    # (backlog #415, tests/analysis/test_debt_current_total_in_place.py)
     def year_end_only(tag, row):
         if tag == "LongTermDebtCurrent" and row["end"] == "2020-03-31":
             return None
@@ -109,7 +111,6 @@ def test_a_year_end_judgement_carries_to_a_quarter(make_company):
     put(conn, "ShortTermBankLoansAndNotesPayable", 10, FY2019)
     put(conn, "CommercialPaper", 70, FY2019)
     put(conn, "DebtCurrent", 100, FY2019)
-    put(conn, "DebtCurrent", 140, Q1)
     result = build(conn)
     assert by_key(result)[("debt", "-")].value == 280
     [note] = notes(result)
