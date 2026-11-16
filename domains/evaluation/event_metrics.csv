@@ -1,0 +1,24 @@
+event_type,metric_id,metric,where_to_find,source,source_url
+guidance,known_trends,What management says about known trends or uncertainties that will move revenue or income,"10-Q and 10-K, Management's Discussion and Analysis (MD&A)","SEC Regulation S-K, Item 303(b)(2)(ii)",https://www.ecfr.gov/current/title-17/section-229.303
+guidance,segment_results,Revenue and operating income of each segment against the year before,"10-Q and 10-K, segment note","FASB ASC 280, Segment Reporting",
+guidance,stated_outlook,"The outlook the company states with its results (voluntary: no rule requires it, so compare it with what it said before)","Earnings release furnished on Form 8-K, Item 2.02","SEC Form 8-K, Item 2.02 Results of Operations and Financial Condition",https://www.sec.gov/files/form8-k.pdf
+m_and_a,acquiree_revenue,Revenue and earnings of the acquired company since the deal closed and pro forma revenue as if it had closed at the start of the year,"10-Q and 10-K, business combinations note","FASB ASC 805-10-50-2(h), Business Combinations",
+m_and_a,goodwill_intangibles,Goodwill and acquired intangible assets recorded and their amortisation,"10-Q and 10-K, goodwill and intangible assets note","FASB ASC 350, Intangibles: Goodwill and Other",
+m_and_a,deal_financing,Debt and cash used to pay for the deal,"10-Q and 10-K, MD&A liquidity and capital resources","SEC Regulation S-K, Item 303(b)(1)",https://www.ecfr.gov/current/title-17/section-229.303
+litigation,loss_accrued,Amount accrued for the loss and the reasonably possible loss beyond it,"10-Q and 10-K, commitments and contingencies note","FASB ASC 450-20-50, Loss Contingencies",
+litigation,legal_proceedings,Material pending legal proceedings and the relief sought,"10-K, Item 3 Legal Proceedings","SEC Regulation S-K, Item 103",https://www.ecfr.gov/current/title-17/section-229.103
+regulation,regulatory_effects,Material effects of complying with government regulation on capital spending and earnings,"10-K, Item 1 Business","SEC Regulation S-K, Item 101(c)",https://www.ecfr.gov/current/title-17/section-229.101
+regulation,product_revenue,Revenue of the product or line the rule affects,"10-Q and 10-K, revenue note (disaggregation of revenue)","FASB ASC 606-10-50-5, Revenue from Contracts with Customers",
+regulation,risk_factors,The regulatory risks the company itself names,"10-K, Item 1A Risk Factors","SEC Regulation S-K, Item 105",https://www.ecfr.gov/current/title-17/section-229.105
+supply_chain,inventory,Inventory on the balance sheet and how it changed,"10-Q and 10-K, inventories note","FASB ASC 330, Inventory",
+supply_chain,gross_margin_explained,Gross margin and the reasons MD&A gives for its change,"10-Q and 10-K, MD&A results of operations","SEC Regulation S-K, Item 303(b)(2)",https://www.ecfr.gov/current/title-17/section-229.303
+supply_chain,supply_risks,The supply and production risks the company itself names,"10-K, Item 1A Risk Factors","SEC Regulation S-K, Item 105",https://www.ecfr.gov/current/title-17/section-229.105
+macro,market_risk,"How much earnings move with commodity prices, interest rates and exchange rates","10-K, Item 7A Quantitative and Qualitative Disclosures About Market Risk","SEC Regulation S-K, Item 305",https://www.ecfr.gov/current/title-17/section-229.305
+macro,segment_results,Revenue and operating income of each segment against the year before,"10-Q and 10-K, segment note","FASB ASC 280, Segment Reporting",
+macro,asset_impairments,Impairments of long-lived assets when prices fall,"10-Q and 10-K, property and impairments note","FASB ASC 360-10, Impairment or Disposal of Long-Lived Assets",
+restructuring,exit_costs,Restructuring charges by kind and the liability still owed,"10-Q and 10-K, restructuring note","FASB ASC 420-10-50-1, Exit or Disposal Cost Obligations",
+restructuring,goodwill_impairment,Goodwill impairment and the unit it belongs to,"10-Q and 10-K, goodwill note","FASB ASC 350-20, Goodwill",
+restructuring,discontinued_operations,Results of a business being separated or sold shown apart from the rest,"10-Q and 10-K, discontinued operations note","FASB ASC 205-20, Discontinued Operations",
+policy,geographic_revenue,"Revenue by country or region, including the share from the United States","10-K, segment note (geographic information)","FASB ASC 280-10-50-41, Segment Reporting: entity-wide disclosures",
+policy,policy_risks,"The legislative, pricing and trade risks the company itself names","10-K, Item 1A Risk Factors","SEC Regulation S-K, Item 105",https://www.ecfr.gov/current/title-17/section-229.105
+policy,regulatory_effects,Material effects of complying with government regulation on capital spending and earnings,"10-K, Item 1 Business","SEC Regulation S-K, Item 101(c)",https://www.ecfr.gov/current/title-17/section-229.101

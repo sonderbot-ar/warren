@@ -23,9 +23,16 @@ from domains.analysis.math_engine import (
     build_inputs,
     post_check_notes,
 )
+from domains.analysis.reading_rules import READING_RULES_VERSION
 from domains.analysis.schemas import Assumption
-from domains.analysis.text import REASON_WORDS
-from domains.fundamentals.concepts import concept_map_sha256
+from domains.analysis.text import REASON_WORDS, WARNING_LESSONS
+from domains.fundamentals.concepts import (
+    ConceptMapError,
+    archived_concept_map,
+    concept_map_in_force,
+    concept_map_sha256,
+)
+from domains.fundamentals.universe import COVERAGE_FIELDS, coverage_fields
 from domains.market.prices import MARKET_INDEX
 from domains.market.store import fetch_with_hash, pin_fetches
 from domains.market.yields import RISK_FREE_SERIES
@@ -60,6 +67,7 @@ SNAPSHOT_COLUMNS = (
     "price_fetch_sha256",
     "index_fetch_sha256",
     "yield_fetch_sha256",
+    "reading_rules_version",  # backlog #365; NULL on runs stored before it
 )
 
 
@@ -177,10 +185,10 @@ def insert_rows(
     `runs.notes` as their texts, one per line, and to `run_notes` with their codes (backlog
     #172); a plain string is stored as `note_text`."""
     notes = [as_coded(n) for n in notes]
+    columns = ("run_id", "cik", "ticker", "as_of", "code_version", *SNAPSHOT_COLUMNS)
+    columns += ("notes", "parent_run_id")
     conn.execute(
-        "INSERT INTO runs (run_id, cik, ticker, as_of, code_version, ingest_run_id, "
-        "concept_map_sha256, price_fetch_sha256, index_fetch_sha256, yield_fetch_sha256, "
-        "notes, parent_run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        f"INSERT INTO runs ({', '.join(columns)}) VALUES ({', '.join('?' * len(columns))})",
         (
             run_id,
             run["cik"],
@@ -242,8 +250,15 @@ class RunNotes:
         return {
             "run_id": self.run_id,
             "recorded": self.recorded,
-            "notes": [dataclasses.asdict(n) for n in self.notes],
+            "notes": [{**dataclasses.asdict(n), "group": note_group(n.code)} for n in self.notes],
         }
+
+
+def note_group(code: str) -> str | None:
+    """The `text.WARNING_GROUPS` code a run note is sorted under (backlog #197); None for a
+    line Warren could not code (`note_text`)."""
+    lesson = WARNING_LESSONS.get(code)
+    return lesson.group if lesson else None
 
 
 def run_notes(conn: sqlite3.Connection, run_id: str) -> RunNotes:
@@ -255,9 +270,22 @@ def run_notes(conn: sqlite3.Connection, run_id: str) -> RunNotes:
     ).fetchall()
     lines = _lines(run["notes"])
     if rows or not lines:
-        notes = [Coded(r["code"], json.loads(r["params"]), r["text"]) for r in rows]
+        notes = [_with_coverage(Coded(r["code"], json.loads(r["params"]), r["text"])) for r in rows]
         return RunNotes(run_id, True, notes)
     return RunNotes(run_id, False, [Coded("note_text", {}, line) for line in lines])
+
+
+def _with_coverage(note: Coded) -> Coded:
+    """A `beyond_history` note stored before backlog #196 lacks `reason`, `successor_cik` and
+    `successor_name`: they are added on read from today's universe row with the note's own `cik`
+    and `history_ends` (a fact about the company, not the run), with `filled_on_read` true so the
+    provenance shows; all None when no row matches. The stored row is unchanged."""
+    if note.code != "beyond_history" or set(COVERAGE_FIELDS) <= note.params.keys():
+        return note
+    found = coverage_fields(note.params.get("cik"), note.params.get("history_ends"))
+    found = found or dict.fromkeys(COVERAGE_FIELDS)
+    missing = {k: v for k, v in found.items() if k not in note.params}
+    return Coded(note.code, {**note.params, **missing, "filled_on_read": True}, note.text)
 
 
 def _lines(notes: str | None) -> list[str]:
@@ -374,6 +402,14 @@ class Rebuild:
     mismatches: list[tuple[str, str, str]]  # name, period, what differs
     sources: dict = dataclasses.field(default_factory=dict, compare=False)  # rebuilt (#175)
     notes: list = dataclasses.field(default_factory=list, compare=False)  # rebuilt (#172)
+    archived_map: bool = False  # read through the run's own, older concept map (#357)
+    rules_version: int | None = None  # the run's reading rules (#365); None: not recorded
+
+    @property
+    def older_rules(self) -> bool:
+        """Made under other reading rules than today's code, or with none recorded: today's code
+        rebuilds it, so a difference in its rows is expected rather than a fault (#365)."""
+        return self.rules_version != READING_RULES_VERSION
 
     @property
     def ok(self) -> bool:
@@ -397,7 +433,8 @@ def rebuild(
     changes nothing; passing `choices` rebuilds the run as if they had been different. Market
     queries are pinned to the downloads the run used (by content hash). Facts need no pin: the
     point-in-time query only sees filings public on the as-of date, and ingests only add facts.
-    A different concept map can change which tag is selected, so it is refused.
+    A different concept map can change which tag is selected, so the facts are read through the
+    run's own map, from its copy in concept_maps/ (backlog #357); a map with no copy is refused.
     """
     run = conn.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
     if run is None:
@@ -407,8 +444,13 @@ def rebuild(
             f"{run_id} is a what-if of {run['parent_run_id']}: its rows are not meant to match "
             "the data; rebuild the parent"
         )
-    if run["concept_map_sha256"] != concept_map_sha256():
-        raise ValueError(f"{run_id}: concept_map.csv changed since the run, it can't be rebuilt")
+    own_map = run["concept_map_sha256"]
+    archived = own_map != concept_map_sha256()
+    if archived:
+        try:
+            archived_concept_map(own_map)
+        except ConceptMapError as e:
+            raise ValueError(f"{run_id}: {e}, it can't be rebuilt") from e
     pins = {
         (source, symbol): fetch_with_hash(conn, source, symbol, run[column])["fetch_id"]
         for source, symbol, column in (
@@ -423,7 +465,7 @@ def rebuild(
     elif not any(a.name == "terminal_method" for a in stored_rows):
         # made before the owner set terminal_method (M4): rebuild it under the rule it used
         choices = {k: v for k, v in choices.items() if k != "terminal_method"}
-    with pin_fetches(pins):
+    with pin_fetches(pins), concept_map_in_force(conn, own_map, run["ticker"]):
         result = build_inputs(
             conn, run["ticker"], date.fromisoformat(run["as_of"]), choices=choices, today=today
         )
@@ -438,7 +480,15 @@ def rebuild(
         for field in ("value", "source", "method"):
             if getattr(before, field) != getattr(after, field):
                 mismatches.append((*key, field))
-    return Rebuild(run_id, len(stored), mismatches, result.sources, result.notes)
+    return Rebuild(
+        run_id,
+        len(stored),
+        mismatches,
+        result.sources,
+        result.notes,
+        archived_map=archived,
+        rules_version=run["reading_rules_version"],
+    )
 
 
 def run_baseline(
@@ -450,7 +500,21 @@ def run_baseline(
 ) -> str:
     """Build, value and store a baseline DCF; returns the run id."""
     result = build_inputs(conn, ticker, as_of, choices=choices, today=today)
-    outputs, gaps = dcf.outputs_and_gaps(result.assumptions)
+    try:
+        outputs, gaps = dcf.outputs_and_gaps(result.assumptions)
+    except fm.FinancialMathError as e:
+        if e.reason not in dcf.NO_VALUE_REASONS:
+            raise
+        # the base case itself has no value, e.g. terminal growth at or above WACC (#376 review)
+        raise EngineError(
+            f"{result.ticker}: the base case has no value on {result.as_of}: {e}",
+            code="no_base_value",
+            params={
+                "ticker": result.ticker,
+                "as_of": result.as_of.isoformat(),
+                "reason": e.reason,
+            },
+        ) from e
     notes = result.notes + valuation_notes(result.assumptions, outputs, gaps)
     return save_run(conn, result, outputs, notes, gaps)
 

@@ -1,0 +1,304 @@
+"""The question reader's prompt, its model interface and its runner (F2 Step 3, part 2).
+
+No model runs here: a fake backend stands in, so these tests check the plumbing and the rules
+around the model, not its score. The score is recorded from a real run in
+`docs/designs/f2-web-app.md`.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from datetime import date
+
+import pytest
+
+from webapp.reader import model as reader
+from webapp.reader import prompt
+from webapp.reader import run as runner
+from webapp.reader import score as scoring
+from webapp.reader.reading import INPUTS, KINDS, OUT_OF_SCOPE, Reading, check, normalise, tickers
+
+TODAY = date(2026, 11, 4)
+ROWS = scoring.load_set()
+
+
+class Fake:
+    name = "fake"
+
+    def __init__(self, answers):
+        self.answers = answers
+        self.calls = []
+
+    def complete(self, system, user, schema):
+        self.calls.append((system, user, schema))
+        answer = self.answers(user) if callable(self.answers) else self.answers
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+
+# --- the exam does not leak into the prompt -----------------------------------------------
+
+
+def _grams(text: str, n: int = 5) -> set[tuple[str, ...]]:
+    words = normalise(text).split()
+    return {tuple(words[i : i + n]) for i in range(len(words) - n + 1)}
+
+
+def test_the_prompt_quotes_no_question_of_the_set():
+    """No question of the set, nor any run of five of its words, is in the prompt (Step 3:
+    the set is the reader's exam; Dwork et al. 2015)."""
+    text = prompt.system_prompt()
+    prompt_grams = _grams(text)
+    for row in ROWS:
+        assert normalise(row["text"]) not in normalise(text), row["id"]
+        shared = _grams(row["text"]) & prompt_grams
+        assert not shared, (row["id"], shared)
+
+
+def test_the_examples_pass_the_code_check_unchanged():
+    for question, partial in prompt.EXAMPLES:
+        answer = prompt._example_answer(partial)
+        checked = check(Reading.from_dict(answer), question, TODAY)
+        assert not checked.unsure, (question, checked.dropped)
+        assert checked.kind == answer["kind"]
+
+
+def test_the_prompt_offers_exactly_the_vocabularies_the_check_accepts():
+    schema = prompt.answer_schema()
+    props = schema["properties"]
+    assert props["kind"]["enum"] == list(KINDS)
+    assert props["companies"]["items"]["enum"] == list(tickers())
+    assert props["inputs"]["items"]["properties"]["name"]["enum"] == list(INPUTS)
+    assert [v for v in props["out_of_scope"]["enum"] if v] == list(OUT_OF_SCOPE)
+    assert set(prompt.INPUT_MEANINGS) == set(INPUTS)
+    assert set(prompt.COMPANY_NAMES) == set(tickers())
+    text = prompt.system_prompt()
+    for name in (*INPUTS, *tickers(), *OUT_OF_SCOPE):
+        assert name in text
+
+
+def test_the_prompt_asks_for_no_number():
+    rules = prompt.RULES.lower()
+    assert "never compute" in rules and "copy" in rules
+
+
+# --- the reader ---------------------------------------------------------------------------
+
+
+def test_a_good_answer_is_checked_and_returned():
+    answer = {
+        "kind": "cambio_de_supuesto",
+        "out_of_scope": None,
+        "companies": ["AAPL"],
+        "period": None,
+        "as_of": None,
+        "inputs": [
+            {"name": "beta", "how": "set", "direction": None, "value_text": "1,3", "via": None}
+        ],
+        "unsure": False,
+    }
+    fake = Fake(json.dumps(answer))
+    reading = reader.read_question("¿Y si la beta de Apple fuera 1,3?", TODAY, fake)
+    assert reading.kind == "cambio_de_supuesto" and not reading.unsure
+    assert reading.inputs[0].value_text == "1,3"
+    system, user, schema = fake.calls[0]
+    assert system == prompt.system_prompt() and "beta de Apple" in user
+    assert schema == prompt.answer_schema()
+
+
+def test_a_value_the_question_never_wrote_is_dropped():
+    answer = {
+        "kind": "cambio_de_supuesto",
+        "companies": ["AAPL"],
+        "inputs": [{"name": "beta", "how": "set", "value_text": "1.5"}],
+    }
+    reading = reader.read_question("¿Y si sube la beta de Apple?", TODAY, Fake(json.dumps(answer)))
+    assert reading.unsure and reading.inputs[0].value_text is None
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [OSError("connection refused"), TimeoutError(), "not json", "[1, 2]", ""],
+)
+def test_a_reader_that_cannot_answer_gives_an_unsure_empty_reading(answer):
+    reading = reader.read_question("¿Cuánto vendió Apple?", TODAY, Fake(answer))
+    assert reading.unsure and reading.kind == "" and reading.dropped == ("reader",)
+
+
+def test_an_empty_think_block_before_the_answer_is_tolerated():
+    raw = '<think>\n\n</think>\n{"kind": "dato", "companies": ["KO"]}'
+    assert reader.parse_answer(raw) == {"kind": "dato", "companies": ["KO"]}
+
+
+def test_ollama_backend_sends_the_schema_and_temperature_zero(monkeypatch):
+    sent = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return json.dumps({"message": {"content": '{"kind": "dato"}'}}).encode()
+
+    def fake_urlopen(request, timeout):
+        sent["url"] = request.full_url
+        sent["body"] = json.loads(request.data)
+        return Response()
+
+    monkeypatch.setattr(reader.urllib.request, "urlopen", fake_urlopen)
+    out = reader.OllamaBackend(model="qwen3:8b").complete("S", "U", {"type": "object"})
+    assert out == '{"kind": "dato"}'
+    assert sent["url"] == "http://127.0.0.1:11434/api/chat"
+    body = sent["body"]
+    assert body["format"] == {"type": "object"} and body["think"] is False
+    assert body["options"]["temperature"] == 0 and body["options"]["seed"] == reader.SEED
+
+
+def test_the_schema_sent_to_claude_allows_the_same_answers():
+    closed = reader.closed_schema(prompt.answer_schema())
+    assert closed["additionalProperties"] is False
+    assert closed["properties"]["inputs"]["items"]["additionalProperties"] is False
+    reason = closed["properties"]["out_of_scope"]["anyOf"]
+    assert reason == [{"type": "string", "enum": list(OUT_OF_SCOPE)}, {"type": "null"}]
+    assert closed["required"] == prompt.answer_schema()["required"]
+
+
+def test_claude_backend_sends_the_rules_cached_and_keeps_the_tokens(monkeypatch):
+    sent = {}
+
+    class Usage:
+        input_tokens, output_tokens = 40, 60
+        cache_creation_input_tokens, cache_read_input_tokens = 0, 4300
+
+    class Block:
+        type, text = "text", '{"kind": "dato"}'
+
+    class Message:
+        content, usage = [Block()], Usage()
+
+    class Messages:
+        def create(self, **kwargs):
+            sent.update(kwargs)
+            return Message()
+
+    backend = reader.ClaudeBackend.__new__(reader.ClaudeBackend)
+    backend.model, backend.effort, backend.max_tokens, backend.usage = "m", "low", 10, []
+    backend._client = type("C", (), {"messages": Messages()})()
+    backend._anthropic = type("A", (), {"APIError": RuntimeError})
+    assert backend.complete("S", "U", {"type": "object"}) == '{"kind": "dato"}'
+    assert sent["system"][0]["cache_control"] == {"type": "ephemeral"}
+    assert sent["output_config"]["effort"] == "low"
+    assert sent["output_config"]["format"]["schema"]["additionalProperties"] is False
+    assert "temperature" not in sent
+    assert backend.usage == [{"input": 40, "cache_write": 0, "cache_read": 4300, "output": 60}]
+
+
+def test_an_api_error_reads_as_unavailable():
+    class Messages:
+        def create(self, **kwargs):
+            raise RuntimeError("overloaded")
+
+    backend = reader.ClaudeBackend.__new__(reader.ClaudeBackend)
+    backend.model, backend.effort, backend.max_tokens, backend.usage = "m", "low", 10, []
+    backend._client = type("C", (), {"messages": Messages()})()
+    backend._anthropic = type("A", (), {"APIError": RuntimeError})
+    reading = reader.read_question("¿Cuánto vendió Apple?", TODAY, backend)
+    assert reading.dropped == ("reader",) and backend.usage == []
+
+
+def test_the_runner_stores_tokens_and_null_for_a_failed_call(tmp_path):
+    class Counting(Fake):
+        usage: list
+
+    calls = iter([json.dumps({"kind": "dato"}), OSError()])
+    fake = Counting(lambda user: next(calls))
+    fake.usage = []
+    real = fake.complete
+
+    def complete(system, user, schema):
+        out = real(system, user, schema)
+        fake.usage.append({"input": 1, "cache_write": 0, "cache_read": 0, "output": 2})
+        return out
+
+    fake.complete = complete
+    out = tmp_path / "answers.jsonl"
+    runner.run(fake, ROWS[:2], out, {}, log=open("/dev/null", "w"))
+    lines = [json.loads(x) for x in out.read_text().splitlines()[1:]]
+    assert lines[0]["tokens"]["output"] == 2 and lines[1]["tokens"] is None
+
+
+# --- the runner and the scorer ------------------------------------------------------------
+
+
+def test_the_runner_writes_answers_the_scorer_reads(tmp_path):
+    """The labels themselves, sent through the runner, score 100% and clear the bar."""
+    by_text = {f"Question: {row['text']}\nAnswer:": row["expected"] for row in ROWS}
+    fake = Fake(lambda user: json.dumps(by_text[user]))
+    out = tmp_path / "answers.jsonl"
+    runner.run(fake, ROWS, out, {"backend": "fake"}, log=open("/dev/null", "w"))
+    lines = out.read_text(encoding="utf-8").splitlines()
+    assert json.loads(lines[0]) == {"meta": {"backend": "fake"}}
+    assert len(lines) == len(ROWS) + 1
+    assert scoring.main(["--answers", str(out), "--today", TODAY.isoformat()]) == 0
+
+
+def test_an_unanswered_question_is_stored_as_null_and_scored_unsure(tmp_path):
+    out = tmp_path / "answers.jsonl"
+    runner.run(Fake(OSError()), ROWS[:3], out, {}, log=open("/dev/null", "w"))
+    answers = [json.loads(line) for line in out.read_text().splitlines()[1:]]
+    assert all(a["reading"] is None for a in answers)
+    report = scoring.score(ROWS[:3], {a["id"]: a["reading"] for a in answers}, TODAY)
+    assert report["overall"]["unsure"] == 1.0 and report["overall"]["right"] == 0.0
+
+
+def test_prompt_hash_changes_with_the_prompt(monkeypatch):
+    before = runner.prompt_sha256()
+    monkeypatch.setattr(prompt, "RULES", prompt.RULES + " ")
+    monkeypatch.setattr(runner, "system_prompt", prompt.system_prompt)
+    assert runner.prompt_sha256() != before
+
+
+# --- the recorded runs (nov.05.2026) ------------------------------------------------------
+
+RUNS = scoring.LABELLED_SET.parent / "runs"
+# The first prompt (commit 8b778c6), which is the live one, and the second (commit 93c1674,
+# withdrawn nov.06.2026: its wording drew on held-out errors, so its held-out score is not clean).
+PROMPT_1 = "b29a95aafe5e8d100781b812bd033b9228812e8789b07d0e0be91c9b5d34548c"
+PROMPT_2 = "4609d4fd9efa3ac8af1e76a235207ceffae4cae1b8a669ea939b2cb165ba7055"
+# The third (F2 Step 3 part 3, nov.07.2026): prompt 1 with the order of precedence stated at
+# each kind and the no-size rule repeated. Written after the 204 were read, so it is judged
+# only on the fresh set, which did not exist when it was committed.
+PROMPT_3 = "28b34b33d9adff1c73713e2e5e991c4ea4107c53d4612a19e8e8068692d9a7bf"
+RECORDED = {  # file: (GGUF sha256 prefix or Claude model id, prompt, fully right, clears the bar)
+    "2026-11-05-qwen3-4b-q4km.jsonl": ("7485fe6f", PROMPT_1, 140, False),
+    "2026-11-05-qwen3-8b-q4km.jsonl": ("d98cdcbd", PROMPT_1, 161, False),
+    "2026-11-06-claude-haiku-5-5.jsonl": ("claude-haiku-5-5", PROMPT_1, 188, False),
+    "2026-11-06-claude-haiku-5-5-prompt2.jsonl": ("claude-haiku-5-5", PROMPT_2, 194, False),
+    "2026-11-06-claude-sonnet-5-5.jsonl": ("claude-sonnet-5-5", PROMPT_1, 188, False),
+}
+
+
+@pytest.mark.parametrize("name", sorted(RECORDED))
+def test_a_recorded_run_reproduces_its_score(name):
+    """The score in the design doc comes back from the stored answers, without the model."""
+    lines = (RUNS / name).read_text(encoding="utf-8").splitlines()
+    meta = json.loads(lines[0])["meta"]
+    model_prefix, prompt_sha, right, passes = RECORDED[name]
+    assert meta["model"].get("sha256", meta["model"].get("id", "")).startswith(model_prefix)
+    assert meta["prompt_sha256"] == prompt_sha
+    assert meta["set_sha256"] == hashlib.sha256(scoring.LABELLED_SET.read_bytes()).hexdigest()
+    answers = {json.loads(x)["id"]: json.loads(x)["reading"] for x in lines[1:]}
+    report = scoring.score(ROWS, answers, TODAY)
+    assert sum(q["right"] for q in report["questions"]) == right
+    assert report["passes"] is passes
+
+
+def test_the_prompt_is_the_one_locked_before_the_fresh_set():
+    """A prompt edit needs a new, unseen set before its score is quoted (Step 3 part 3): the
+    live prompt is prompt 3, committed before any fresh question was written."""
+    assert runner.prompt_sha256() == PROMPT_3

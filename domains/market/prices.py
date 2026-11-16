@@ -113,7 +113,11 @@ def split_factor(conn: sqlite3.Connection, ticker: str, after: date, through: da
     """
     fetch = selected_fetch(conn, "yahoo", ticker)
     if fetch is None:
-        raise MarketDataError(f"No yahoo data for {ticker}: load it first")
+        raise MarketDataError(
+            f"No yahoo data for {ticker}: load it first",
+            code="market_data_not_loaded",
+            params={"source": "yahoo", "symbol": ticker},
+        )
     factor = 1.0
     for (ratio,) in conn.execute(
         "SELECT split_ratio FROM prices WHERE ticker = ? AND fetch_id = ? "
@@ -133,7 +137,11 @@ def raw_close(conn: sqlite3.Connection, ticker: str, as_of: date) -> PricePoint:
         (ticker, fetch["fetch_id"], as_of.isoformat()),
     ).fetchone()
     if row is None:
-        raise MarketDataError(f"No price for {ticker} on or before {as_of}")
+        raise MarketDataError(
+            f"No price for {ticker} on or before {as_of}",
+            code="no_price_on_date",
+            params={"ticker": ticker, "as_of": as_of.isoformat()},
+        )
     day = date.fromisoformat(row["date"])
     # undo the splits Yahoo applied after that day (up to the download)
     later = split_factor(conn, ticker, day, date.fromisoformat(fetch["last_date"]))
@@ -179,7 +187,14 @@ def aligned_weekly_returns(
     )
     if len(joined) < weeks:
         raise MarketDataError(
-            f"{ticker}: only {len(joined)} weeks of returns before {as_of}, {weeks} needed"
+            f"{ticker}: only {len(joined)} weeks of returns before {as_of}, {weeks} needed",
+            code="too_few_return_weeks",
+            params={
+                "ticker": ticker,
+                "as_of": as_of.isoformat(),
+                "found": len(joined),
+                "needed": weeks,
+            },
         )
     return ReturnPairs(
         stock=joined.iloc[:, 0].tolist(),

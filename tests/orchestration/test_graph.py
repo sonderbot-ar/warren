@@ -125,7 +125,8 @@ def test_the_report_has_every_section_and_renders_the_same_twice(world, folders)
     written = path.read_text()
     headings = ("## 1. Value per share", "## 2. Paths", "## 3. Shocks and their evidence",
                 "## 4. News used", "## 5. Assumptions with sources",
-                f"## {text.HINDSIGHT_HEADING}", "## 7. Trace")  # fmt: skip
+                f"## {text.HINDSIGHT_HEADING}", f"## 7. {text.RANGE_HEADING}",
+                "## 8. Trace")  # fmt: skip
     for heading in headings:
         assert heading in written
     assert text.RANGE in written and "not a forecast of the share price" in written
@@ -198,10 +199,65 @@ def test_the_hindsight_section_reads_filings_to_the_day_the_download_had_ended(w
 def test_a_pipeline_written_before_backlog_128_renders_as_it_did(world, folders):
     out = go(world, folders)
     final = graph.resume(world.deps(), folders, out.pipeline_id).state
-    old = final.model_copy(update={"actuals_on": None})
+    old = final.model_copy(update={"actuals_on": None, "range_errors_sha256": None})
     body = report.render(world.conn, old)
-    assert text.HINDSIGHT_HEADING not in body
+    assert text.HINDSIGHT_HEADING not in body and text.RANGE_HEADING not in body
     assert "## 6. Trace" in report.trace(old, folders.telemetry / "x.jsonl")
+
+
+def test_a_pipeline_written_before_backlog_167_renders_as_it_did(world, folders):
+    out = go(world, folders)
+    final = graph.resume(world.deps(), folders, out.pipeline_id).state
+    old = final.model_copy(update={"range_errors_sha256": None})
+    body = report.render(world.conn, old)
+    assert text.RANGE_HEADING not in body
+    new = report.render(world.conn, final)
+    assert new.startswith(body.rstrip("\n")) and f"## 7. {text.RANGE_HEADING}" in new
+    assert "## 7. Trace" in report.trace(old, folders.telemetry / "x.jsonl")
+
+
+def test_write_report_stores_the_hash_of_the_misses_known_on_the_date(world, folders):
+    from domains.evaluation import ranges
+
+    out = go(world, folders)
+    final = graph.resume(world.deps(), folders, out.pipeline_id).state
+    known = [p for p in ranges.load_pairs(world.conn) if p.filed_at <= final.as_of]
+    assert final.range_errors_sha256 == ranges.pairs_sha256(known)
+
+
+def test_the_range_section_has_the_baseline_and_each_simulation_once(world, folders):
+    from tests.evaluation.test_run_ranges import add_origin
+
+    for i in range(25):  # past misses public before 2020-06-30, so bands exist at h1 and h2
+        quarters = [{"h": h, "period": f"S{i}_{h}", "period_end": "2019-12-31",
+                     "filed": date(2020, 3, 1), "actual_rev": 100.0 + (i % 5) - 2,
+                     "actual_ebit": 10.0 + (i % 3) - 1} for h in (1, 2)]  # fmt: skip
+        add_origin(world.conn, "TST" if i < 15 else "OTH", date(2019, 6, 1) + timedelta(days=i),
+                   quarters)  # fmt: skip
+    out = go(world, folders)
+    final = graph.resume(world.deps(), folders, out.pipeline_id).state
+    section = "\n".join(report.range_section(world.conn, final))
+    assert section.startswith(f"## 7. {text.RANGE_HEADING}")
+    assert "### Baseline" in section and section.count("### With shocks") == 1
+    sim_id = final.sim["named"].sim_id
+    assert f"### With shocks: named (simulation {sim_id})" in section
+    assert "Track record of the range" in section and "no_coverage_history" in section
+    assert "counted twice" in section and "does not include news" in section
+    assert section.count("past ranges were tested without shocks") == 1
+    shared = final.model_copy(update={"variants": ["named", "masked"],
+                                      "sim": {"named": final.sim["named"],
+                                              "masked": final.sim["named"]}})  # fmt: skip
+    both = "\n".join(report.range_section(world.conn, shared))
+    assert both.count("### With shocks") == 1 and "named and masked" in both
+    from domains.evaluation import run_ranges as RN
+
+    r = RN.run_ranges(world.conn, final.run_id, check_basis=False, sim_id=sim_id, coverage=False)
+    q1 = r.quarters[0]
+    row = (
+        f"| {q1.period} | {report._m(q1.revenue_center)} | {report._m(q1.bands[0].revenue['p10'])}"
+    )
+    assert row in section
+    assert "| no_history |" not in section.split("### With shocks")[1].split("\n")[4]
 
 
 def test_the_hindsight_section_shows_reported_quarters_and_their_misses(world, folders):

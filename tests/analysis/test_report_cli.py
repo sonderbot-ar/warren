@@ -171,10 +171,31 @@ def test_whatif_command_prints_the_ripple_and_json(company, monkeypatch, capsys)
     assert "1 of 1 runs rebuilt to identical rows" in out and "2 what-ifs not rebuilt" in out
 
 
+def test_whatif_command_sets_wacc_and_the_report_says_the_range_is_not_computed(
+    company, monkeypatch, capsys
+):
+    from domains.analysis.report import render
+
+    _wire(company, monkeypatch, datetime(2020, 7, 2, tzinfo=UTC))
+    run_id = run(company)
+    assert cli.main(["whatif", "--run-id", run_id, "--set", "wacc=0.12"]) == 0
+    out = capsys.readouterr().out
+    assert "wacc" in out and "WACC is set directly" in out
+    assert "not computed: WACC set directly" in render(company, f"{run_id}_whatif_1")
+
+
+def test_whatif_command_switches_the_terminal_formula(company, monkeypatch, capsys):
+    _wire(company, monkeypatch, datetime(2020, 7, 2, tzinfo=UTC))
+    run_id = run(company)
+    assert cli.main(["whatif", "--run-id", run_id, "--switch", "terminal_method=gordon_fcff"]) == 0
+    out = capsys.readouterr().out
+    assert "value_driver_ronic_wacc → gordon_fcff" in out and "(switch)" in out
+
+
 def test_whatif_command_refuses_with_its_code(company, monkeypatch, capsys):
     _wire(company, monkeypatch, datetime(2020, 7, 2, tzinfo=UTC))
     run_id = run(company)
-    assert cli.main(["whatif", "--run-id", run_id, "--set", "debt=0"]) == 1
+    assert cli.main(["whatif", "--run-id", run_id, "--set", "equity_market_value=0"]) == 1
     assert "REFUSED (not_changeable)" in capsys.readouterr().out
 
 
@@ -217,3 +238,50 @@ def test_sensitivity_steps_must_be_numbers():
     with pytest.raises(argparse.ArgumentTypeError):
         cli.parse_steps("0.01,abc")
     assert cli.parse_steps("-0.01, 0,0.01") == [-0.01, 0.0, 0.01]
+
+
+def test_whatif_command_changes_debt_with_a_use(company, monkeypatch, capsys):
+    _wire(company, monkeypatch, datetime(2020, 7, 2, tzinfo=UTC))
+    run_id = run(company)
+    assert (
+        cli.main(["whatif", "--run-id", run_id, "--add", "debt=100", "--debt-use", "buyback"]) == 0
+    )
+    out = capsys.readouterr().out
+    assert "relevered" in out and "Hamada" in out
+    # --debt-use with no debt change is a usage mistake, not an engine refusal (backlog #234)
+    assert (
+        cli.main(["whatif", "--run-id", run_id, "--add", "beta=0.1", "--debt-use", "buyback"]) == 2
+    )
+    out, err = capsys.readouterr()
+    assert "REFUSED" not in out and "--debt-use needs a --set or --add on debt" in err
+
+
+def _warnings(text: str) -> str:
+    return text.split("## Warnings\n\n", 1)[1].split("\n\n## ", 1)[0]
+
+
+def test_report_teaches_each_warning_once_with_its_source(company):
+    """Backlog #197: under the first line of each code, why it matters and where that comes
+    from; the stored lines themselves are unchanged and in their order."""
+    from domains.analysis.runs import run_notes
+    from domains.analysis.text import WARNING_LESSONS
+
+    run_id = run(company)
+    section = _warnings(report.render(company, run_id))
+    notes = run_notes(company, run_id).notes
+    stored = (company.execute("SELECT notes FROM runs WHERE run_id = ?", (run_id,)).fetchone())[0]
+    bullets = [line[2:] for line in section.split("\n") if line.startswith("- ")]
+    assert bullets == [n for n in stored.split("\n") if n]
+    for code in {n.code for n in notes}:
+        lesson = WARNING_LESSONS[code]
+        line = f"  - *Why it matters:* {lesson.text()} (Source: {lesson.source()}.)"
+        assert section.count(line) == 1, code
+
+
+def test_report_prints_text_only_runs_without_a_lesson_and_none_when_clean(company):
+    run_id = run(company)
+    company.execute("DELETE FROM run_notes WHERE run_id = ?", (run_id,))
+    section = _warnings(report.render(company, run_id))
+    assert section.startswith("- ") and "Why it matters" not in section
+    company.execute("UPDATE runs SET notes = '' WHERE run_id = ?", (run_id,))
+    assert _warnings(report.render(company, run_id)) == "None."

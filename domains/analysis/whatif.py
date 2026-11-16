@@ -21,7 +21,7 @@ import math
 import sqlite3
 from dataclasses import asdict, dataclass, field
 
-from domains.analysis import dcf
+from domains.analysis import dcf, gordon
 from domains.analysis import financial_math as fm
 from domains.analysis import sources as src
 from domains.analysis.math_engine import post_check_notes
@@ -37,9 +37,15 @@ from domains.analysis.runs import (
 from domains.analysis.schemas import SINGLE, Assumption
 from domains.analysis.text import REASON_WORDS
 
-# `debt` is left out on purpose (design review): one row is both the WACC's debt weight and the
-# claim on the firm, and beta is not relevered, so more debt would lower WACC for free (Hamada
-# 1972; Modigliani–Miller 1958). A leverage what-if needs its own design.
+# `debt` changes only with a use (backlog #170): one row is both the WACC's debt weight and the
+# claim on the firm, so a debt change swaps debt with equity at the as-of price, relevers beta
+# (Hamada 1972) and prices the debt at no less than the risk-free rate; see `_leverage_rows`.
+DEBT = "debt"
+DEBT_USES = ("buyback",)
+# known uses that part 1 does not value, with why (design doc, What changes 1)
+DEBT_USES_NOT_BUILT = ("cash_kept", "acquisition")
+# rows a debt change computes, so the student can't also name them
+SET_BY_DEBT = ("beta", "shares")
 CHANGEABLE_SINGLE = (
     "risk_free",
     "beta",
@@ -50,12 +56,25 @@ CHANGEABLE_SINGLE = (
     "cash_and_investments",
     "minority_interest",
     "shares",
+    DEBT,
+    # WACC set directly (backlog #171): not a row of the parent, whose WACC is an output; the
+    # child gets a `wacc` row that dcf reads in place of the computed rate
+    dcf.WACC_SET,
 )
 CHANGEABLE = dcf.DRIVERS + CHANGEABLE_SINGLE
+# The terminal formula, switched on a what-if only (backlog #171 part 2; owner decision
+# nov.05.2026, Decision 4): a choice, not a number, so it comes as Change(method=...)
+TERMINAL = "terminal_method"
+TERMINAL_METHODS = (dcf.GORDON, dcf.VALUE_DRIVER)
+# The inputs the computed WACC is built from: with WACC set they would move nothing but the
+# cost-of-equity line, which a student would read as a result, so they are refused beside it
+WACC_INPUTS = ("risk_free", "beta", "erp", "cost_of_debt", "debt_tax_rate", DEBT)
 # (low, high, low included, high included): checked before any arithmetic; None = no bound
 BOUNDS = {
     "shares": (0.0, None, False, None),
+    dcf.WACC_SET: (0.0, None, False, None),
     "cash_and_investments": (0.0, None, True, None),
+    DEBT: (0.0, None, True, None),
     "minority_interest": (0.0, None, True, None),
     "tax_rate": (0.0, 1.0, True, False),
     "debt_tax_rate": (0.0, 1.0, True, False),
@@ -94,8 +113,8 @@ FRACTIONS = {"cost_of_equity", "wacc", "terminal_growth", "terminal_share", "dis
 # inputs behind it (`driven_by`) and the app never guesses a cause (design principle 8).
 _REVENUE = {"revenue_growth"}
 _CASH_FLOW = set(dcf.DRIVERS)
-_RATE = {"risk_free", "beta", "erp", "cost_of_debt", "debt_tax_rate"}
-_VALUE = _CASH_FLOW | _RATE | {"terminal_growth"}
+_RATE = set(WACC_INPUTS) | {dcf.WACC_SET, "equity_market_value"}
+_VALUE = _CASH_FLOW | _RATE | {"terminal_growth", TERMINAL}
 DEPENDS = {
     "revenue": _REVENUE,
     "ebit": _REVENUE | {"operating_margin"},
@@ -115,10 +134,10 @@ DEPENDS = {
     "enterprise_value": _VALUE,
     "terminal_share": _VALUE,
     "enterprise_value_as_of": _VALUE,
-    "net_debt": {"cash_and_investments"},
+    "net_debt": {"cash_and_investments", DEBT},
     "minority_interest": {"minority_interest"},
-    "equity_value": _VALUE | {"cash_and_investments", "minority_interest"},
-    "value_per_share": _VALUE | {"cash_and_investments", "minority_interest", "shares"},
+    "equity_value": _VALUE | {"cash_and_investments", "minority_interest", DEBT},
+    "value_per_share": _VALUE | {"cash_and_investments", "minority_interest", "shares", DEBT},
 }
 FADE = "fading linearly to terminal growth"  # math_engine's revenue growth rule, in its method
 TERMINAL_FORMULAS = {
@@ -158,15 +177,19 @@ class Change:
     value: float | None = None
     delta: float | None = None
     period: str | None = None
+    method: str | None = None  # only for terminal_method: the formula to switch to
+    use: str | None = None  # only for debt: what the money is for (DEBT_USES)
 
 
 @dataclass(frozen=True)
 class RowChange:
     name: str
     period: str
-    before: float
-    after: float
-    how: str  # set, add, follows_risk_free, follows_terminal_growth
+    before: float | str  # a method name for terminal_method
+    after: float | str
+    # set, add, follows_risk_free, follows_terminal_growth, switch; for a debt change (#170)
+    # buyback (shares, equity_market_value), relevered (beta), floored_at_risk_free (cost_of_debt)
+    how: str
 
 
 @dataclass(frozen=True)
@@ -258,27 +281,38 @@ def _targets(change: Change, periods: list[str]) -> list[str]:
     return [change.period]
 
 
-def _changed_rows(rows: list[Assumption], changes: list[Change]) -> list[RowChange]:
-    index = {(a.name, a.period): a for a in rows}
-    periods = dcf.forecast_periods(dcf._index(rows))[1]
-    out: dict[tuple[str, str], RowChange] = {}
-    for change in changes:
-        for period in _targets(change, periods):
-            key = (change.name, period)
-            if key in out:
+def _changed_rows(
+    rows: list[Assumption], changes: list[Change], parent_outputs: dict
+) -> list[RowChange]:
+    """The rows `changes` move, or the first refusal. A refusal about what the request is comes
+    before one about the numbers in it, so a student never fixes a number only to be told the
+    change isn't allowed at all (backlog #234). Three stages:
+
+    1. each change's shape, in the order given: a use or method where none belongs, the debt's
+       use, the terminal switch's method, the name, value or delta, the period, a duplicate;
+    2. the combination and what the run must have for it: `wacc_with_rate_input`, then for a
+       debt change `set_by_debt_change`, `no_price` and `cost_of_debt_needed`;
+    3. the numbers: `invalid_input` and `out_of_range` for each change in the order given, then
+       `buyback_exceeds_market_value`, then the bounds on rows that follow (the growth fade).
+
+    The valuation's own refusals (`_value`, such as `growth_not_below_rate`) come after."""
+    index, out, periods = _shape_rows(rows, changes, parent_outputs)
+    # stage 2: the combination, and what the run must have for it
+    if (dcf.WACC_SET, SINGLE) in out:
+        for name in WACC_INPUTS:
+            if (name, SINGLE) in out:
                 raise _refuse(
-                    "duplicate_change",
-                    f"{change.name} {period} is changed twice",
-                    name=change.name,
-                    period=period,
+                    "wacc_with_rate_input",
+                    f"WACC is set directly, so {name} would not move it: change one or the other",
+                    name=name,
                 )
-            before = index[key].value
-            if change.value is not None:
-                after, how = change.value, "set"
-            else:
-                after, how = before + change.delta, "add"
-            _check_bounds(change.name, after)
-            out[key] = RowChange(change.name, period, before, after, how)
+    floored = (DEBT, SINGLE) in out and _refuse_debt_request(index, out)
+    # stage 3: the numbers, in the order the changes were given
+    for c in list(out.values()):
+        if c.how in ("set", "add"):
+            _check_bounds(c.name, c.after)
+    if (DEBT, SINGLE) in out:
+        out |= _leverage_rows(index, out, floored)
     rf_key, tg_key = ("risk_free", SINGLE), ("terminal_growth", SINGLE)
     if rf_key in out and tg_key not in out and _follows_risk_free(rows):
         before = index[tg_key].value
@@ -295,6 +329,210 @@ def _changed_rows(rows: list[Assumption], changes: list[Change]) -> list[RowChan
                     "revenue_growth", period, before, after, "follows_terminal_growth"
                 )
     return list(out.values())
+
+
+def _shape_rows(
+    rows: list[Assumption], changes: list[Change], parent_outputs: dict
+) -> tuple[dict[tuple[str, str], Assumption], dict[tuple[str, str], RowChange], list[str]]:
+    """Stage 1 of `_changed_rows`: each change's shape, in the order given, and the row it moves
+    (before, after, how), with no bounds checked yet. Returns the parent's rows by (name,
+    period), the moved rows by the same key, and the forecast periods. Stage 2 reads what this
+    returns; the tests build stage 2's input through it too, so they can't drift from it
+    (backlog #241)."""
+    index = {(a.name, a.period): a for a in rows}
+    # the parent has no `wacc` row: a set WACC starts from the WACC the parent computed
+    before_of = {key: a.value for key, a in index.items()}
+    before_of.setdefault((dcf.WACC_SET, SINGLE), parent_outputs[("wacc", SINGLE)])
+    periods = dcf.forecast_periods(dcf.index_rows(rows))[1]
+    out: dict[tuple[str, str], RowChange] = {}
+    for change in changes:
+        if change.name == TERMINAL:
+            key = (TERMINAL, SINGLE)
+            if key in out:
+                raise _refuse(
+                    "duplicate_change", f"{TERMINAL} is changed twice", name=TERMINAL, period=SINGLE
+                )
+            out[key] = _switch(rows, change)
+            continue
+        if change.use is not None and change.name != DEBT:
+            raise _refuse(
+                "use_on_other_input",
+                f"only {DEBT} takes a use; {change.name} does not",
+                name=change.name,
+            )
+        if change.name == DEBT and change.use is None:
+            raise _refuse(
+                "debt_use_needed",
+                f"say what the debt is for: one of {', '.join(DEBT_USES)}",
+                supported=list(DEBT_USES),
+            )
+        if change.name == DEBT and change.use not in DEBT_USES:
+            raise _refuse(
+                "debt_use_not_supported",
+                f"a debt change used for {change.use!r} is not valued yet",
+                use=change.use,
+                supported=list(DEBT_USES),
+            )
+        if change.method is not None:
+            raise _refuse(
+                "method_on_number",
+                f"{change.name} takes a number; only {TERMINAL} takes a method",
+                name=change.name,
+            )
+        for period in _targets(change, periods):
+            key = (change.name, period)
+            if key in out:
+                raise _refuse(
+                    "duplicate_change",
+                    f"{change.name} {period} is changed twice",
+                    name=change.name,
+                    period=period,
+                )
+            before = before_of[key]
+            if change.value is not None:
+                after, how = change.value, "set"
+            else:
+                after, how = before + change.delta, "add"
+            out[key] = RowChange(change.name, period, before, after, how)  # bounds in stage 3
+    return index, out, periods
+
+
+def _leverage_rows(
+    index: dict[tuple[str, str], Assumption],
+    out: dict[tuple[str, str], RowChange],
+    floored: bool,
+) -> dict[tuple[str, str], RowChange]:
+    """The rows a debt change moves besides debt (backlog #170, use buyback): the change in debt
+    is swapped with equity at the as-of price, so the share count and the market value of equity
+    follow; beta is relevered by Hamada's rule (unlevered on the parent's structure and tax rate,
+    relevered on the child's); and the cost of debt, when the student didn't set it, is held but
+    never below the risk-free rate (a lender's floor, and Hamada's riskless debt: the run's book
+    interest over book debt can be below it, and would make more debt cheaper than riskless).
+    `floored` is `_would_floor`'s answer, computed once in stage 2 so the refusal and the floor
+    read the same condition (backlog #238)."""
+
+    def child(name: str) -> float:
+        c = out.get((name, SINGLE))
+        return index[(name, SINGLE)].value if c is None else c.after
+
+    debt = out[(DEBT, SINGLE)]
+    price = index[("price", SINGLE)]  # checked by _refuse_debt_request
+    d_before, d_after = debt.before, debt.after
+    shares, equity = index[("shares", SINGLE)].value, index[("equity_market_value", SINGLE)].value
+    shares_after = shares - (d_after - d_before) / price.value
+    if not shares_after > 0:
+        raise _refuse(
+            "buyback_exceeds_market_value",
+            "a buyback can't retire more than every share at the as-of price",
+            debt_change=d_after - d_before,
+            equity_market_value=equity,
+        )
+    equity_after = price.value * shares_after
+    moved: dict[tuple[str, str], RowChange] = {}
+    if d_after != d_before:
+        moved[("shares", SINGLE)] = RowChange("shares", SINGLE, shares, shares_after, "buyback")
+        moved[("equity_market_value", SINGLE)] = RowChange(
+            "equity_market_value", SINGLE, equity, equity_after, "buyback"
+        )
+        beta = index[("beta", SINGLE)].value
+        unlevered = fm.unlevered_beta(
+            beta, d_before, equity, index[("debt_tax_rate", SINGLE)].value
+        )
+        relevered = fm.relevered_beta(unlevered, d_after, equity_after, child("debt_tax_rate"))
+        moved[("beta", SINGLE)] = RowChange("beta", SINGLE, beta, relevered, "relevered")
+        if floored:
+            moved[("cost_of_debt", SINGLE)] = RowChange(
+                "cost_of_debt",
+                SINGLE,
+                index[("cost_of_debt", SINGLE)].value,
+                child("risk_free"),
+                "floored_at_risk_free",
+            )
+    return moved
+
+
+def _would_floor(
+    index: dict[tuple[str, str], Assumption], out: dict[tuple[str, str], RowChange]
+) -> bool:
+    """Whether a debt change floors the cost of debt at the risk-free rate (`_leverage_rows`):
+    the student didn't give a cost of debt, debt moved and is still above zero, and the run's
+    cost of debt is below the child's risk-free rate (the student's, or the run's). The one
+    place this condition lives (backlog #238): stage 2 reads it to decide a refusal, and
+    `_leverage_rows` gets its answer to write the floored row."""
+    debt = out[(DEBT, SINGLE)]
+    if ("cost_of_debt", SINGLE) in out or debt.after == debt.before or not debt.after > 0:
+        return False
+    rf = out.get(("risk_free", SINGLE))
+    rf = index[("risk_free", SINGLE)].value if rf is None else rf.after
+    return index[("cost_of_debt", SINGLE)].value < rf
+
+
+def _refuse_debt_request(
+    index: dict[tuple[str, str], Assumption], out: dict[tuple[str, str], RowChange]
+) -> bool:
+    """Stage 2 for a debt change (see `_changed_rows`): the refusals no number in the request
+    can fix. Beta and shares follow the debt change, a buyback needs the run's price, and debt
+    above zero needs a cost of debt above zero. Returns `_would_floor`'s answer for
+    `_leverage_rows`."""
+    for name in SET_BY_DEBT:
+        if (name, SINGLE) in out:
+            raise _refuse(
+                "set_by_debt_change",
+                f"{name} follows the debt change (bought back at the as-of price, beta "
+                "relevered); change debt or it, not both",
+                name=name,
+            )
+    price = index.get(("price", SINGLE))
+    if price is None or price.value is None or not price.value > 0:
+        raise _refuse("no_price", "the run has no positive as-of share price to trade at")
+    debt = out[(DEBT, SINGLE)]
+    d_before, d_after = debt.before, debt.after
+    floored = _would_floor(index, out)
+    given = out.get(("cost_of_debt", SINGLE))
+    kd = index[("cost_of_debt", SINGLE)].value if given is None else given.after
+    # a run with no debt stores cost of debt 0 as a placeholder, not a rate to hold or floor:
+    # new debt on it needs the student's rate, even where the floor would give one
+    new_debt_without_a_rate = d_before == 0 and floored
+    # a zero rate on debt above zero makes debt free, unless the floor replaces it (a run that
+    # had debt, held at zero, below a positive risk-free rate)
+    zero_rate_not_floored = kd == 0 and not (floored and d_before != 0)
+    if d_after > 0 and (new_debt_without_a_rate or zero_rate_not_floored):
+        raise _refuse(
+            "cost_of_debt_needed",
+            "the run had no debt, so it has no cost of debt: set cost_of_debt above 0"
+            if d_before == 0
+            else "a cost of debt of 0 would make the debt free: set cost_of_debt above 0",
+            debt_before=d_before,
+        )
+    return floored
+
+
+def _switch(rows: list[Assumption], change: Change) -> RowChange:
+    """The terminal formula switched to `change.method` (a what-if only, owner decision)."""
+    if change.value is not None or change.delta is not None or change.method is None:
+        raise _refuse("value_and_delta", f"{TERMINAL}: give a method, not a number")
+    if change.period not in (None, SINGLE):
+        raise _refuse(
+            "period_on_single_value",
+            f"{TERMINAL} has one value for the whole run",
+            name=TERMINAL,
+            period=change.period,
+        )
+    if change.method not in TERMINAL_METHODS:
+        raise _refuse(
+            "unknown_terminal_method",
+            f"no terminal method {change.method!r}",
+            method=change.method,
+            allowed=list(TERMINAL_METHODS),
+        )
+    before = dcf.terminal_method(rows)
+    if change.method == before:
+        raise _refuse(
+            "same_terminal_method",
+            f"the run already uses {before}",
+            method=before,
+        )
+    return RowChange(TERMINAL, SINGLE, before, change.method, "switch")
 
 
 def forecast_year(i: int) -> int:
@@ -318,11 +556,33 @@ def _follows_risk_free(rows: list[Assumption]) -> bool:
 
 def _child_rows(rows: list[Assumption], moved: list[RowChange], parent: str) -> list[Assumption]:
     by_key = {(c.name, c.period): c for c in moved}
+    have = {(a.name, a.period) for a in rows}
+    # a row the parent doesn't have (a set WACC) goes last, after the parent's rows
+    new = [
+        Assumption(
+            name=c.name,
+            period=c.period,
+            value=None if c.how == "switch" else c.before,
+            source="user",
+            method="new",
+        )
+        for c in moved
+        if (c.name, c.period) not in have
+    ]
     out = []
-    for a in rows:
+    for a in rows + new:
         c = by_key.get((a.name, a.period))
         if c is None:
             out.append(a)
+            continue
+        if c.how == "switch":  # the choice is read before the first colon, as on every run
+            method = (
+                f"{c.after}: what-if on {parent}: switched from {c.before} (a student's contrast, "
+                "allowed on what-ifs only, owner decision nov.05.2026)"
+            )
+            out.append(
+                Assumption(name=a.name, period=a.period, value=None, source="user", method=method)
+            )
             continue
         how = {
             "set": f"set to {c.after!r}",
@@ -332,7 +592,15 @@ def _child_rows(rows: list[Assumption], moved: list[RowChange], parent: str) -> 
                 f"{c.before!r} + {c.after - c.before!r}: the fade to terminal growth, "
                 "with the new terminal growth"
             ),
+            "buyback": f"{c.after!r}: follows the debt change, swapped with equity at the "
+            "as-of price",
+            "relevered": f"{c.after!r}: Hamada, unlevered at the run's debt and relevered at "
+            "the new debt and market value of equity",
+            "floored_at_risk_free": f"{c.after!r}: the risk-free rate, since the run's book "
+            "cost of debt is below it and the debt changed",
         }[c.how]
+        if a.name == DEBT and a.period == SINGLE:
+            how += " (use buyback: swapped with equity at the as-of price)"
         method = f"what-if on {parent}: {how} (was {c.before!r})"
         out.append(
             Assumption(name=a.name, period=a.period, value=c.after, source="user", method=method)
@@ -344,7 +612,14 @@ def _value(rows: list[Assumption]):
     try:
         return dcf.outputs_and_gaps(rows)
     except fm.FinancialMathError as e:
-        raise _refuse(e.reason, f"{REASON_WORDS[e.reason]}: {e}") from e
+        params = {}
+        if e.reason == "growth_not_below_rate":  # the two numbers, so the app can say them
+            try:
+                inp = dcf.inputs(rows)
+                params = {"wacc": dcf.base_wacc(inp), "terminal_growth": inp.one["terminal_growth"]}
+            except (dcf.DCFInputError, fm.FinancialMathError):
+                params = {}  # never hide the refusal behind a second error
+        raise _refuse(e.reason, f"{REASON_WORDS[e.reason]}: {e}", **params) from e
 
 
 def _change_pct(before: float | None, after: float | None) -> float | None:
@@ -420,10 +695,10 @@ def revalue(conn: sqlite3.Connection, run_id: str, changes: list[Change]) -> Wha
     if not changes:
         raise _refuse("no_change", "name at least one input to change")
     rows = load_assumptions(conn, run_id)
-    moved = _changed_rows(rows, changes)
+    parent_rows_out = load_outputs(conn, run_id)
+    moved = _changed_rows(rows, changes, parent_rows_out)
     child_rows = _child_rows(rows, moved, run_id)
     outputs, gaps = _value(child_rows)
-    parent_rows_out = load_outputs(conn, run_id)
 
     checks = post_check_notes(child_rows, outputs)  # coded (backlog #172)
     version = code_version()  # a git call: kept outside the lock
@@ -460,6 +735,44 @@ def revalue(conn: sqlite3.Connection, run_id: str, changes: list[Change]) -> Wha
         for check in checks
     ]
     changed = {c.name for c in moved}
+    method = dcf.terminal_method(child_rows)
+    switched = next((c for c in moved if c.how == "switch"), None)
+    if switched is not None:
+        notes.append(
+            Coded(
+                "terminal_method_switched",
+                {"before": switched.before, "after": switched.after},
+                f"A contrast: valued under {switched.after} instead of the run's "
+                f"{switched.before}; a hypothetical, not Warren's value (Koller, Goedhart and "
+                "Wessels, Valuation, ch. 14, on why the two differ).",
+            )
+        )
+        if method == dcf.GORDON:
+            notes += _gordon_notes(outputs, child_rows)
+    wacc_set = next((c for c in moved if c.name == dcf.WACC_SET), None)
+    if wacc_set is not None:
+        notes.append(
+            Coded(
+                "wacc_set_on_what_if",
+                {"before": wacc_set.before, "after": wacc_set.after},
+                "WACC is set directly, as an override and not a weighted average: it is the "
+                "discount rate in every period and carries the value to the as-of date; the cost "
+                "of equity, beta, the ERP and the debt weights no longer drive it, and the cost "
+                "of equity shown is the run's CAPM, for reference.",
+            )
+        )
+        if method == dcf.VALUE_DRIVER:
+            notes.append(
+                Coded(
+                    "ronic_follows_wacc",
+                    {"terminal_method": dcf.VALUE_DRIVER},
+                    "Under the value-driver formula new investment is assumed to earn exactly "
+                    "WACC, so the return on new investment after year 5 moved with the WACC set "
+                    "here.",
+                )
+            )
+    if any(c.name == DEBT for c in moved):
+        notes += _leverage_notes(rows, child_rows, parent_rows_out, outputs, moved)
     if any(c.how == "follows_terminal_growth" for c in moved):
         notes.append(
             Coded(
@@ -469,7 +782,11 @@ def revalue(conn: sqlite3.Connection, run_id: str, changes: list[Change]) -> Wha
                 "years 2–5 moved with the new terminal growth; set revenue_growth to hold them.",
             )
         )
-    if "risk_free" in changed and "cost_of_debt" not in changed:
+    # when debt rises, cost_of_debt_held_on_leverage says it (one reason, product lead); debt
+    # lowered or unchanged leaves it to this note (backlog #234)
+    debt = next((c for c in moved if c.name == DEBT), None)
+    debt_rose = debt is not None and debt.after > debt.before
+    if "risk_free" in changed and "cost_of_debt" not in changed and not debt_rose:
         notes.append(
             Coded(
                 "cost_of_debt_held",
@@ -505,8 +822,7 @@ def revalue(conn: sqlite3.Connection, run_id: str, changes: list[Change]) -> Wha
                 f"No {name.replace('_', ' ')}: {REASON_WORDS[gap.reason]}",
             )
         )
-    periods = dcf.forecast_periods(dcf._index(rows))[1]
-    method = dcf.terminal_method(rows)
+    periods = dcf.forecast_periods(dcf.index_rows(rows))[1]
     currency = _currency(conn)
     return WhatIf(
         run_id=child_id,
@@ -523,6 +839,166 @@ def revalue(conn: sqlite3.Connection, run_id: str, changes: list[Change]) -> Wha
         ),
         notes=notes,
     )
+
+
+def _leverage_notes(
+    parent_rows: list[Assumption],
+    child_rows: list[Assumption],
+    parent_out: dict,
+    child_out: dict,
+    moved: list[RowChange],
+) -> list[Coded]:
+    """What a debt change did, with every number the app needs to say why WACC and value per
+    share moved (product lead): the swap, the weights, beta relevered, the interest coverage, and
+    value per share split into the swap at the parent's enterprise value and the rest."""
+    before = {a.name: a.value for a in parent_rows if a.period == SINGLE}
+    after = {a.name: a.value for a in child_rows if a.period == SINGLE}
+
+    def weight(row: dict) -> float:
+        return fm.ratio(row[DEBT], row[DEBT] + row["equity_market_value"])
+
+    def coverage(row: dict, out: dict) -> float | None:
+        """Year-1 forecast EBIT over the interest the debt costs (cost of debt × debt)."""
+        quarters = dcf.forecast_periods(dcf.index_rows(child_rows))[1][:4]
+        ebit = sum(out[("ebit", p)] for p in quarters)
+        interest = row["cost_of_debt"] * row[DEBT]
+        return fm.ratio(ebit, interest) if interest > 0 else None
+
+    unlevered = fm.unlevered_beta(
+        before["beta"], before[DEBT], before["equity_market_value"], before["debt_tax_rate"]
+    )
+    params = {
+        "use": "buyback",
+        "debt_before": before[DEBT],
+        "debt_after": after[DEBT],
+        "shares_before": before["shares"],
+        "shares_after": after["shares"],
+        "price": before["price"],
+        "beta_before": before["beta"],
+        "beta_after": after["beta"],
+        "unlevered_beta": unlevered,
+        "debt_tax_rate_before": before["debt_tax_rate"],
+        "debt_tax_rate_after": after["debt_tax_rate"],
+        "cost_of_debt_before": before["cost_of_debt"],
+        "cost_of_debt_after": after["cost_of_debt"],
+        "debt_weight_before": weight(before),
+        "debt_weight_after": weight(after),
+        "interest_coverage_before": coverage(before, parent_out),
+        "interest_coverage_after": coverage(after, child_out),
+    }
+    notes = [
+        Coded(
+            "leverage_changed",
+            params,
+            f"Debt went from {params['debt_before']:,.0f} to {params['debt_after']:,.0f}, swapped "
+            f"with equity at the as-of price of {params['price']:,.2f} a share. Beta was "
+            f"relevered by Hamada's rule, from {params['beta_before']:.3f} to "
+            f"{params['beta_after']:.3f} (the business alone: {unlevered:.3f}); it starts from "
+            "the run's Blume-adjusted beta and the run's effective tax rate, assumes the debt "
+            "carries no market risk, and of the usual rules gives the largest tax saving. Debt is "
+            "at book value as the run counts it (operating leases out).",
+        )
+    ]
+    # value per share at the parent's enterprise value: what the swap alone does at the price,
+    # with the parent's cash and minority interest, so a change to those made beside the debt
+    # lands in the rest, as the note says (gatekeeper)
+    swapped = fm.value_per_share(
+        fm.equity_value(
+            parent_out[("enterprise_value_as_of", SINGLE)],
+            fm.net_debt(after[DEBT], before["cash_and_investments"]),
+            before["minority_interest"],
+        ),
+        after["shares"],
+    )
+    vps_before = parent_out[("value_per_share", SINGLE)]
+    vps_after = child_out[("value_per_share", SINGLE)]
+    notes.append(
+        Coded(
+            "buyback_at_market_price",
+            {
+                "price": before["price"],
+                "value_per_share_before": vps_before,
+                "value_per_share_at_parent_enterprise_value": swapped,
+                "swap_effect": swapped - vps_before,
+                "enterprise_value_effect": vps_after - swapped,
+            },
+            "Shares are bought back (or issued) at the market price, not at Warren's value: when "
+            "Warren's value per share is below the price, a buyback moves value away from the "
+            "shareholders who stay, and above it, towards them. Of the change in value per share, "
+            f"{swapped - vps_before:+,.2f} is the swap at the run's enterprise value and "
+            f"{vps_after - swapped:+,.2f} the rest: the change in enterprise value (the new WACC "
+            "and any other input changed) and any cash or minority interest changed.",
+        )
+    )
+    floored = next((c for c in moved if c.how == "floored_at_risk_free"), None)
+    if floored is not None:
+        notes.append(
+            Coded(
+                "cost_of_debt_floored_at_risk_free",
+                {"before": floored.before, "after": floored.after},
+                "The run's cost of debt is past interest over book debt and is below the "
+                "risk-free rate, which no lender charges on new borrowing; with debt changed, "
+                "the whole debt is priced at the risk-free rate, the lowest a lender would ask. "
+                "Set cost_of_debt to price it higher.",
+            )
+        )
+    student_set = any(c.name == "cost_of_debt" and c.how in ("set", "add") for c in moved)
+    if params["debt_after"] > params["debt_before"] and not student_set:
+        notes.append(
+            Coded(
+                "cost_of_debt_held_on_leverage",
+                {"cost_of_debt": params["cost_of_debt_after"], "floored": floored is not None},
+                (
+                    "The cost of debt rose only to the risk-free floor, not with the new debt"
+                    if floored is not None
+                    else "The cost of debt did not rise with the new debt"
+                )
+                + ", though lenders charge more "
+                "as debt grows, and the what-if counts no cost of financial distress: the fall "
+                "in WACC is the tax saving on interest, before those costs, so it overstates "
+                "the gain (Damodaran, Applied Corporate Finance, ch. 8). Set cost_of_debt to "
+                "price the new debt.",
+            )
+        )
+    return notes
+
+
+def _gordon_notes(outputs: dict, rows: list[Assumption]) -> list[Coded]:
+    """What a Gordon value on this child assumes, with the sensitivity grid's codes and params so
+    one screen string serves both (product lead): year 5's reinvestment is held while growth runs
+    on, and, when year 5 reinvests nothing (or NOPAT isn't positive), its growth comes from no
+    investment; otherwise the return on new investment it implies, g ÷ the reinvestment rate. The
+    rule is `gordon`'s, shared with the grid (backlog #216)."""
+    last = dcf.YEARS[-1]
+    growth = next(a.value for a in rows if a.name == "terminal_growth" and a.period == SINGLE)
+    reinvest = gordon.year5_reinvestment(outputs[("fcff", last)], outputs[("nopat", last)])
+    notes = gordon.reinvestment_notes(
+        reinvest,
+        "The Gordon formula grows year 5's free cash flow, whose reinvestment is fixed, so "
+        "more growth comes at no extra investment.",
+        "In year 5 this run reinvests nothing or takes capital out, so the Gordon "
+        "formula's growth comes from no investment and implies no return: read its "
+        "value as a formula, not a valuation.",
+    )
+    if not gordon.reinvests(reinvest):
+        return notes
+    ronic = gordon.implied_ronic(growth, reinvest)
+    params = {
+        "implied_ronic": ronic,
+        "reinvestment_rate": reinvest,
+        "terminal_growth": growth,
+        "wacc": outputs[("wacc", SINGLE)],
+    }
+    notes.append(
+        Coded(
+            "gordon_implied_ronic",
+            params,
+            f"Under Gordon, growth of {growth:.2%} with {reinvest:.1%} of NOPAT reinvested "
+            f"assumes new investment earns {ronic:.1%} forever, against a WACC of "
+            f"{params['wacc']:.2%}.",
+        )
+    )
+    return notes
 
 
 def _next_child_id(conn: sqlite3.Connection, parent: str) -> str:

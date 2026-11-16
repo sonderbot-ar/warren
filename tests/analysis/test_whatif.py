@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from domains.analysis import dcf
+from domains.analysis import dcf, whatif
 from domains.analysis import financial_math as fm
 from domains.analysis.runs import load_assumptions, load_outputs, rebuild, reproduce, run_baseline
 from domains.analysis.schemas import SINGLE
@@ -68,7 +68,7 @@ def test_set_and_add_give_the_same_values(company, parent):
 
 
 def test_one_period_margin_moves_only_that_periods_cash_flow(company, parent):
-    periods = dcf.forecast_periods(dcf._index(load_assumptions(company, parent)))[1]
+    periods = dcf.forecast_periods(dcf.index_rows(load_assumptions(company, parent)))[1]
     result = revalue(company, parent, [Change("operating_margin", delta=0.02, period=periods[2])])
     moved = {x.period for x in result.lines if x.name == "fcff" and x.change}
     assert moved == {periods[2]}
@@ -77,7 +77,7 @@ def test_one_period_margin_moves_only_that_periods_cash_flow(company, parent):
 
 @pytest.mark.parametrize("name", ["revenue_growth", "nwc_pct"])
 def test_growth_and_working_capital_ripple_past_their_period(company, parent, name):
-    periods = dcf.forecast_periods(dcf._index(load_assumptions(company, parent)))[1]
+    periods = dcf.forecast_periods(dcf.index_rows(load_assumptions(company, parent)))[1]
     result = revalue(company, parent, [Change(name, delta=0.02, period=periods[0])])
     moved = [x.period for x in result.lines if x.name == "fcff" and x.change]
     assert periods[0] in moved and len(moved) > 1  # lag-4 compounding, or next period's ΔNWC
@@ -90,7 +90,7 @@ def test_risk_free_moves_terminal_growth_and_the_fade(company, parent):
     assert hows[("terminal_growth", SINGLE)] == "follows_risk_free"
     tg = next(c for c in result.changes if c.name == "terminal_growth")
     assert abs(tg.after - tg.before - 0.0025) < 1e-15
-    periods = dcf.forecast_periods(dcf._index(list(rows.values())))[1]
+    periods = dcf.forecast_periods(dcf.index_rows(list(rows.values())))[1]
     child = _rows(company, result.run_id)
     for i, period in enumerate(periods):
         shift = child[("revenue_growth", period)].value - rows[("revenue_growth", period)].value
@@ -173,7 +173,9 @@ def test_asking_again_returns_the_stored_child(company, parent):
     [
         ([Change("nonsense", value=1)], "unknown_input"),
         ([Change("equity_market_value", value=1)], "not_changeable"),
-        ([Change("debt", delta=1e9)], "not_changeable"),
+        # debt is changeable since #170, but only with what the money is for
+        ([Change("debt", delta=1e9)], "debt_use_needed"),
+        ([Change("revenue_seed", value=1)], "not_changeable"),
         ([Change("roll_years", value=0)], "not_changeable"),
         ([Change("beta", value=1, period="FY2021Q1")], "period_on_single_value"),
         ([Change("operating_margin", value=0.1, period="FY1999Q1")], "unknown_period"),
@@ -242,3 +244,818 @@ def test_rates_change_in_points_not_percent(company, parent):
     result = revalue(company, parent, [Change("erp", delta=0.01)])
     wacc = _line(result, "wacc")
     assert wacc.unit == "fraction" and wacc.change > 0 and wacc.change_pct is None
+
+
+# -- WACC set directly (backlog #171) -------------------------------------------------------------
+
+
+def _wacc(conn, run_id):
+    return load_outputs(conn, run_id)[("wacc", SINGLE)]
+
+
+def test_wacc_set_and_added_give_the_same_child_and_reproduce(company, parent):
+    wacc = _wacc(company, parent)
+    a = revalue(company, parent, [Change("wacc", value=wacc + 0.01)])
+    b = revalue(company, parent, [Change("wacc", delta=0.01)])
+    assert abs(_line(a, "value_per_share").after - _line(b, "value_per_share").after) < 1e-9
+    (change,) = a.changes
+    assert (change.name, change.period, change.before) == ("wacc", SINGLE, wacc)
+    assert reproduce(company, a.run_id).ok and reproduce(company, b.run_id).ok
+
+
+def test_a_set_wacc_is_one_new_row_and_values_as_the_override(company, parent):
+    result = revalue(company, parent, [Change("wacc", value=0.12)])
+    before, after = _rows(company, parent), _rows(company, result.run_id)
+    assert after.keys() - before.keys() == {("wacc", SINGLE)}
+    assert all(after[k] == before[k] for k in before)
+    row = after[("wacc", SINGLE)]
+    assert row.value == 0.12 and row.source == "user" and f"what-if on {parent}" in row.method
+    inp = dcf.inputs(load_assumptions(company, parent)).replace(wacc_override=0.12)
+    assert _line(result, "value_per_share").after == dcf.compute(inp).value_per_share
+    assert _line(result, "wacc").after == 0.12
+
+
+def test_the_parents_own_wacc_set_directly_changes_no_value(company, parent):
+    result = revalue(company, parent, [Change("wacc", value=_wacc(company, parent))])
+    assert _line(result, "value_per_share").change == 0
+    assert all(not x.change for x in result.lines)
+
+
+def test_with_wacc_set_the_cost_of_equity_is_held_and_the_erp_range_is_not_computed(
+    company, parent
+):
+    result = revalue(company, parent, [Change("wacc", delta=0.01)])
+    coe = _line(result, "cost_of_equity")
+    assert coe.change == 0 and coe.driven_by == []
+    assert "wacc" in _line(result, "value_per_share").driven_by
+    assert "wacc" in _line(result, "discount_factor", result.lines[-1].period).driven_by
+    outputs = load_outputs(company, result.run_id)
+    assert not any(name.startswith("value_per_share_erp") for name, _ in outputs)
+    codes = [n.code for n in result.notes]
+    warnings = [n.params["warning_code"] for n in result.notes if n.code == "run_warning"]
+    assert "wacc_set_on_what_if" in codes and "erp_bounds_not_computed" in warnings
+    assert "no_value" not in codes
+    note = next(n for n in result.notes if n.code == "wacc_set_on_what_if")
+    assert note.params == {"before": _wacc(company, parent), "after": _wacc(company, parent) + 0.01}
+
+
+def test_terminal_growth_may_be_changed_beside_a_set_wacc(company, parent):
+    result = revalue(
+        company, parent, [Change("wacc", value=0.12), Change("terminal_growth", delta=0.005)]
+    )
+    assert reproduce(company, result.run_id).ok
+    assert {c.name for c in result.changes} >= {"wacc", "terminal_growth"}
+
+
+@pytest.mark.parametrize("name", ["risk_free", "beta", "erp", "cost_of_debt", "debt_tax_rate"])
+def test_a_set_wacc_beside_an_input_it_is_built_from_is_refused(company, parent, name):
+    count = _count(company)
+    with pytest.raises(WhatIfError) as e:
+        revalue(company, parent, [Change("wacc", value=0.1), Change(name, delta=0.001)])
+    assert (e.value.code, e.value.params) == ("wacc_with_rate_input", {"name": name})
+    assert _count(company) == count
+
+
+@pytest.mark.parametrize(
+    ("change", "code"),
+    [
+        (Change("wacc", value=0.0), "out_of_range"),
+        (Change("wacc", value=-0.02), "out_of_range"),
+        (Change("wacc", value=float("nan")), "invalid_input"),
+        (Change("wacc", value=0.1, period="FY2021Q1"), "period_on_single_value"),
+        (Change("wacc", value=0.001), "growth_not_below_rate"),
+    ],
+)
+def test_a_set_wacc_out_of_range_is_refused(company, parent, change, code):
+    count = _count(company)
+    with pytest.raises(WhatIfError) as e:
+        revalue(company, parent, [change])
+    assert e.value.code == code
+    assert _count(company) == count
+
+
+def test_a_set_wacc_asked_again_is_reused_and_has_sources(company, parent):
+    from domains.analysis import sources as src
+
+    first = revalue(company, parent, [Change("wacc", value=0.11)])
+    again = revalue(company, parent, [Change("wacc", value=0.11)])
+    assert again.reused and again.run_id == first.run_id
+    sources = src.load(company, first.run_id)
+    (item,) = sources[("wacc", SINGLE)]
+    assert item["kind"] == "what_if" and item["before"] == _wacc(company, parent)
+    src.check(load_assumptions(company, first.run_id), sources, child=True)
+    trace = src.run_sources(company, first.run_id).to_dict()["outputs"]
+    wacc_out = next(o for o in trace if o["name"] == "wacc")
+    assert wacc_out["formula"] == "wacc_as_set"
+
+
+def test_a_set_wacc_at_growth_is_refused_with_both_numbers(company, parent):
+    growth = _rows(company, parent)[("terminal_growth", SINGLE)].value
+    with pytest.raises(WhatIfError) as e:
+        revalue(company, parent, [Change("wacc", value=growth)])
+    assert e.value.code == "growth_not_below_rate"
+    assert e.value.params == {"wacc": growth, "terminal_growth": growth}
+
+
+def test_a_set_wacc_outside_its_parts_says_so_and_inside_does_not(company, parent):
+    outputs = load_outputs(company, parent)
+    rows = _rows(company, parent)
+    coe = outputs[("cost_of_equity", SINGLE)]
+    kd = fm.after_tax_cost_of_debt(
+        rows[("cost_of_debt", SINGLE)].value, rows[("debt_tax_rate", SINGLE)].value
+    )
+    low, high = sorted((kd, coe))
+
+    def warning_codes(wacc):
+        result = revalue(company, parent, [Change("wacc", value=wacc)])
+        return {n.params["warning_code"]: n for n in result.notes if n.code == "run_warning"}
+
+    above = warning_codes(high + 0.01)["wacc_outside_its_parts"]
+    assert above.params["warning_params"] == {
+        "wacc": high + 0.01,
+        "cost_of_equity": coe,
+        "after_tax_cost_of_debt": kd,
+    }
+    assert "wacc_outside_its_parts" not in warning_codes((low + high) / 2)
+
+
+def test_a_set_wacc_on_a_value_driver_run_says_ronic_follows(company, parent):
+    result = revalue(company, parent, [Change("wacc", delta=0.005)])
+    assert result.terminal_method == dcf.VALUE_DRIVER
+    assert "ronic_follows_wacc" in [n.code for n in result.notes]
+
+
+# -- the terminal formula switched on a what-if (backlog #171 part 2, owner decision) ------------
+
+
+def _gordon_parent(company):
+    """A run stored before M4: no terminal_method row, so Gordon on FCFF."""
+    choices = {k: v for k, v in CHOICES.items() if k != "terminal_method"}
+    return run_baseline(company, "TST", AS_OF, choices=choices, today=AS_OF)
+
+
+def test_a_switch_to_gordon_values_as_dcf_under_gordon_and_reproduces(company, parent):
+    result = revalue(company, parent, [Change("terminal_method", method=dcf.GORDON)])
+    inp = dcf.inputs(load_assumptions(company, parent)).replace(terminal_method=dcf.GORDON)
+    assert _line(result, "value_per_share").after == dcf.compute(inp).value_per_share
+    assert reproduce(company, result.run_id).ok
+    assert result.terminal_method == dcf.GORDON and result.terminal_formula.code == "gordon"
+    (change,) = result.changes
+    assert (change.before, change.after, change.how) == (dcf.VALUE_DRIVER, dcf.GORDON, "switch")
+    row = _rows(company, result.run_id)[("terminal_method", SINGLE)]
+    assert row.source == "user" and row.value is None
+    assert row.method.startswith(f"{dcf.GORDON}: what-if on {parent}")
+    assert dcf.terminal_method(load_assumptions(company, parent)) == dcf.VALUE_DRIVER
+
+
+def test_a_switch_moves_only_the_terminal_value_and_what_follows(company, parent):
+    result = revalue(company, parent, [Change("terminal_method", method=dcf.GORDON)])
+    moved = {x.name for x in result.lines if x.change}
+    assert moved <= {
+        "terminal_value",
+        "pv_terminal",
+        "enterprise_value",
+        "terminal_share",
+        "enterprise_value_as_of",
+        "equity_value",
+        "value_per_share",
+    }
+    assert "value_per_share" in moved
+    assert _line(result, "value_per_share").driven_by == ["terminal_method"]
+    assert _line(result, "wacc").change == 0 and _line(result, "pv_explicit").change == 0
+
+
+def test_a_run_stored_before_m4_can_be_seen_under_the_value_driver(company):
+    gordon = _gordon_parent(company)
+    result = revalue(company, gordon, [Change("terminal_method", method=dcf.VALUE_DRIVER)])
+    rows = _rows(company, result.run_id)
+    assert ("terminal_method", SINGLE) in rows and ("terminal_method", SINGLE) not in _rows(
+        company, gordon
+    )
+    assert result.terminal_method == dcf.VALUE_DRIVER
+    assert reproduce(company, result.run_id).ok
+    from domains.analysis import sources as src
+
+    (item,) = src.load(company, result.run_id)[("terminal_method", SINGLE)]
+    assert item["kind"] == "what_if" and item["before"] == dcf.GORDON and item["how"] == "switch"
+    src.check(load_assumptions(company, result.run_id), src.load(company, result.run_id), True)
+
+
+@pytest.mark.parametrize(
+    ("change", "code"),
+    [
+        (Change("terminal_method", method="nonsense"), "unknown_terminal_method"),
+        (Change("terminal_method", method=dcf.VALUE_DRIVER), "same_terminal_method"),
+        (Change("terminal_method", value=1.0), "value_and_delta"),
+        (Change("terminal_method", method=dcf.GORDON, value=1.0), "value_and_delta"),
+        (Change("beta", method=dcf.GORDON), "method_on_number"),
+        (Change("terminal_method", method=dcf.GORDON, period="FY2021Q1"), "period_on_single_value"),
+    ],
+)
+def test_switch_refusals_have_a_code_and_store_nothing(company, parent, change, code):
+    count = _count(company)
+    with pytest.raises(WhatIfError) as e:
+        revalue(company, parent, [change])
+    assert e.value.code == code
+    assert _count(company) == count
+
+
+def test_a_switch_to_gordon_names_what_it_assumes_with_the_grids_codes(company, parent):
+    result = revalue(company, parent, [Change("terminal_method", method=dcf.GORDON)])
+    by_code = {n.code: n for n in result.notes}
+    assert "terminal_method_switched" in by_code
+    out = load_outputs(company, result.run_id)
+    g = _rows(company, parent)[("terminal_growth", SINGLE)].value
+    reinvest = fm.reinvestment_rate(out[("fcff", "Y5")], out[("nopat", "Y5")])
+    assert reinvest > 0  # the test company reinvests in year 5: this branch, always
+    assert by_code["gordon_holds_reinvestment"].params == {"reinvestment_rate": reinvest}
+    assert "gordon_reinvestment_not_positive" not in by_code
+    assert by_code["gordon_implied_ronic"].params == {
+        "implied_ronic": fm.implied_ronic(g, reinvest),
+        "reinvestment_rate": reinvest,
+        "terminal_growth": g,
+        "wacc": out[("wacc", SINGLE)],
+    }
+
+
+def test_a_switch_to_gordon_on_a_year_that_takes_capital_out_implies_no_return(company, parent):
+    """The other branch end to end (backlog #216): year 5's capex set to 0 beside the switch, so
+    year 5's free cash flow is above its NOPAT and Gordon's growth comes from no investment."""
+    result = revalue(
+        company,
+        parent,
+        [
+            Change("capex_pct", value=0.0, period="Y5"),
+            Change("terminal_method", method=dcf.GORDON),
+        ],
+    )
+    out = load_outputs(company, result.run_id)
+    reinvest = fm.reinvestment_rate(out[("fcff", "Y5")], out[("nopat", "Y5")])
+    assert reinvest < 0
+    by_code = {n.code: n for n in result.notes}
+    assert by_code["gordon_holds_reinvestment"].params == {"reinvestment_rate": reinvest}
+    assert by_code["gordon_reinvestment_not_positive"].params == {"reinvestment_rate": reinvest}
+    assert "read its value as a formula" in by_code["gordon_reinvestment_not_positive"].text
+    assert "gordon_implied_ronic" not in by_code
+    assert reproduce(company, result.run_id).ok
+
+
+def test_two_terminal_switches_are_refused_and_store_nothing(company, parent):
+    count = _count(company)
+    with pytest.raises(WhatIfError) as e:
+        revalue(
+            company,
+            parent,
+            [
+                Change("terminal_method", method=dcf.GORDON),
+                Change("terminal_method", method=dcf.VALUE_DRIVER),
+            ],
+        )
+    assert e.value.code == "duplicate_change"
+    assert e.value.params == {"name": "terminal_method", "period": SINGLE}
+    assert _count(company) == count
+
+
+@pytest.mark.parametrize(
+    ("fcff", "nopat", "codes"),
+    [
+        (80.0, 100.0, {"gordon_holds_reinvestment", "gordon_implied_ronic"}),
+        (120.0, 100.0, {"gordon_holds_reinvestment", "gordon_reinvestment_not_positive"}),
+        (100.0, 100.0, {"gordon_holds_reinvestment", "gordon_reinvestment_not_positive"}),
+        (-5.0, -10.0, {"gordon_holds_reinvestment", "gordon_reinvestment_not_positive"}),
+    ],
+)
+def test_gordon_notes_cover_negative_reinvestment_and_negative_nopat(fcff, nopat, codes):
+    from domains.analysis.schemas import Assumption
+    from domains.analysis.whatif import _gordon_notes
+
+    rows = [
+        Assumption(name="terminal_growth", period=SINGLE, value=0.04, source="computed", method="t")
+    ]
+    outputs = {("fcff", "Y5"): fcff, ("nopat", "Y5"): nopat, ("wacc", SINGLE): 0.09}
+    notes = _gordon_notes(outputs, rows)
+    assert {n.code for n in notes} == codes
+    if nopat <= 0:
+        assert notes[0].params == {"reinvestment_rate": None}
+
+
+def test_a_switch_beside_a_set_wacc_reproduces_and_follows_the_childs_method(company, parent):
+    result = revalue(
+        company,
+        parent,
+        [Change("terminal_method", method=dcf.GORDON), Change("wacc", delta=0.01)],
+    )
+    assert reproduce(company, result.run_id).ok
+    assert "ronic_follows_wacc" not in [n.code for n in result.notes]  # the child is Gordon
+    back = revalue(
+        company,
+        _gordon_parent(company),
+        [Change("terminal_method", method=dcf.VALUE_DRIVER), Change("wacc", delta=0.01)],
+    )
+    assert "ronic_follows_wacc" in [n.code for n in back.notes]  # the child is value-driver
+
+
+def test_a_gordon_child_stores_the_thin_spread_warning(company, parent):
+    rows = _rows(company, parent)
+    wacc = load_outputs(company, parent)[("wacc", SINGLE)]
+    g = rows[("terminal_growth", SINGLE)].value
+    result = revalue(
+        company,
+        parent,
+        [
+            Change("terminal_method", method=dcf.GORDON),
+            Change("terminal_growth", value=wacc - 0.02),
+        ],
+    )
+    warnings = [n.params["warning_code"] for n in result.notes if n.code == "run_warning"]
+    assert "thin_terminal_spread" in warnings
+    assert g != wacc - 0.02
+
+
+# -- a leverage what-if (backlog #170) ----------------------------------------------------------
+
+
+def _single(conn, run_id):
+    return {a.name: a.value for a in load_assumptions(conn, run_id) if a.period == SINGLE}
+
+
+def _note(result, code):
+    return next(n for n in result.notes if n.code == code)
+
+
+def _buyback(delta, *more):
+    return [Change("debt", delta=delta, use="buyback"), *more]
+
+
+def test_more_debt_equals_hand_edited_rows_with_hamada_beta(company, parent):
+    p = _single(company, parent)
+    result = revalue(company, parent, _buyback(100.0))
+    shares = p["shares"] - 100.0 / p["price"]
+    equity = p["price"] * shares
+    unlevered = p["beta"] / (1 + (1 - p["debt_tax_rate"]) * p["debt"] / p["equity_market_value"])
+    beta = unlevered * (1 + (1 - p["debt_tax_rate"]) * (p["debt"] + 100.0) / equity)
+    edited = {"debt": p["debt"] + 100.0, "shares": shares, "equity_market_value": equity}
+    edited["beta"] = beta
+    rows = [
+        a.model_copy(update={"value": edited[a.name]})
+        if a.period == SINGLE and a.name in edited
+        else a
+        for a in load_assumptions(company, parent)
+    ]
+    expected = dcf.value(rows).value_per_share
+    assert _line(result, "value_per_share").after == pytest.approx(expected, abs=1e-9)
+    child = _single(company, result.run_id)
+    assert child["beta"] == pytest.approx(beta, rel=1e-12)
+    assert child["equity_market_value"] == pytest.approx(p["equity_market_value"] - 100.0)
+
+
+def test_a_debt_child_reproduces_and_moves_exactly_four_rows(company, parent):
+    result = revalue(company, parent, _buyback(100.0))
+    assert reproduce(company, result.run_id).ok
+    before, after = _rows(company, parent), _rows(company, result.run_id)
+    assert before.keys() == after.keys()
+    differ = {k[0] for k in before if before[k] != after[k]}
+    # the fixture's cost of debt (4%) is above its risk-free rate (3%), so it is held
+    assert differ == {"debt", "shares", "equity_market_value", "beta"}
+    assert {c.how for c in result.changes} == {"add", "buyback", "relevered"}
+    assert "use buyback" in after[("debt", SINGLE)].method
+
+
+def test_no_change_in_debt_changes_no_value(company, parent):
+    result = revalue(company, parent, _buyback(0.0))
+    vps = _line(result, "value_per_share")
+    assert vps.after == pytest.approx(vps.before, abs=1e-9)
+    assert [c.name for c in result.changes] == ["debt"]
+
+
+def test_set_and_add_debt_give_the_same_values(company, parent):
+    debt = _single(company, parent)["debt"]
+    a = revalue(company, parent, [Change("debt", value=debt + 80.0, use="buyback")])
+    b = revalue(company, parent, _buyback(80.0))
+    assert _line(a, "value_per_share").after == pytest.approx(_line(b, "value_per_share").after)
+
+
+def test_more_debt_raises_beta_and_the_cost_of_equity_and_less_lowers_them(company, parent):
+    up, down = revalue(company, parent, _buyback(100.0)), revalue(company, parent, _buyback(-100.0))
+    assert _line(up, "cost_of_equity").change > 0 > _line(down, "cost_of_equity").change
+    assert _line(up, "cost_of_equity").driven_by == ["beta"]
+    beta = {c.name: c for c in up.changes}["beta"]
+    assert beta.after > beta.before
+    # with the cost of debt held and a tax saving on interest, more debt lowers WACC
+    assert _line(up, "wacc").change < 0
+    assert "debt" in _line(up, "wacc").driven_by and "debt" in _line(up, "net_debt").driven_by
+
+
+def test_modigliani_miller_no_tax_and_riskless_debt_keep_wacc(company, parent):
+    rf = _single(company, parent)["risk_free"]
+    mm = [Change("debt_tax_rate", value=0.0), Change("cost_of_debt", value=rf)]
+    low, high = (
+        revalue(company, parent, _buyback(50.0, *mm)),
+        revalue(company, parent, _buyback(250.0, *mm)),
+    )
+    assert _line(low, "wacc").after == pytest.approx(_line(high, "wacc").after, rel=1e-12)
+    # with a tax saving, riskless debt lowers WACC and raises the enterprise value
+    taxed = [Change("cost_of_debt", value=rf)]
+    a, b = (
+        revalue(company, parent, _buyback(50.0, *taxed)),
+        revalue(company, parent, _buyback(250.0, *taxed)),
+    )
+    assert _line(b, "wacc").after < _line(a, "wacc").after
+    assert _line(b, "enterprise_value_as_of").after > _line(a, "enterprise_value_as_of").after
+
+
+def test_a_book_cost_of_debt_below_the_risk_free_rate_is_floored(company, parent):
+    result = revalue(company, parent, _buyback(100.0, Change("risk_free", value=0.05)))
+    kd = {c.name: c for c in result.changes}["cost_of_debt"]
+    assert (kd.before, kd.after, kd.how) == (pytest.approx(0.04), 0.05, "floored_at_risk_free")
+    codes = [n.code for n in result.notes]
+    assert "cost_of_debt_floored_at_risk_free" in codes
+    assert "cost_of_debt_held_on_leverage" in codes
+    assert "cost_of_debt_held" not in codes  # one reason for one held number (product lead)
+    held = _note(result, "cost_of_debt_held_on_leverage")
+    assert held.params["floored"] is True and "risk-free floor" in held.text
+    assert reproduce(company, result.run_id).ok
+
+
+def test_a_cost_of_debt_set_by_the_student_is_used_and_not_called_held(company, parent):
+    result = revalue(company, parent, _buyback(100.0, Change("cost_of_debt", value=0.07)))
+    assert _single(company, result.run_id)["cost_of_debt"] == 0.07
+    codes = [n.code for n in result.notes]
+    assert "cost_of_debt_held_on_leverage" not in codes
+    assert "cost_of_debt_floored_at_risk_free" not in codes
+
+
+def test_the_leverage_notes_carry_the_numbers_behind_the_move(company, parent):
+    p = _single(company, parent)
+    result = revalue(company, parent, _buyback(100.0))
+    lev = _note(result, "leverage_changed").params
+    assert lev["debt_weight_before"] == pytest.approx(
+        p["debt"] / (p["debt"] + p["equity_market_value"])
+    )
+    assert lev["debt_weight_after"] > lev["debt_weight_before"]
+    assert lev["interest_coverage_after"] < lev["interest_coverage_before"]
+    assert lev["price"] == p["price"] and lev["use"] == "buyback"
+    split = _note(result, "buyback_at_market_price").params
+    vps = _line(result, "value_per_share")
+    assert split["swap_effect"] + split["enterprise_value_effect"] == pytest.approx(vps.change)
+    json.dumps(result.to_dict())  # every param is plain data
+
+
+@pytest.mark.parametrize(
+    ("changes", "code", "params"),
+    [
+        (
+            [Change("debt", delta=10.0, use="cash_kept")],
+            "debt_use_not_supported",
+            {"use": "cash_kept"},
+        ),
+        ([Change("beta", value=1.0, use="buyback")], "use_on_other_input", {"name": "beta"}),
+        (_buyback(10.0, Change("beta", value=1.0)), "set_by_debt_change", {"name": "beta"}),
+        (_buyback(10.0, Change("shares", value=90.0)), "set_by_debt_change", {"name": "shares"}),
+        (_buyback(10.0, Change("wacc", value=0.09)), "wacc_with_rate_input", {"name": "debt"}),
+        (_buyback(-1e6), "out_of_range", {"name": "debt"}),
+        (_buyback(1e9), "buyback_exceeds_market_value", {"debt_change": 1e9}),
+    ],
+)
+def test_leverage_refusals_have_a_code_and_store_nothing(company, parent, changes, code, params):
+    count = _count(company)
+    with pytest.raises(WhatIfError) as e:
+        revalue(company, parent, changes)
+    assert e.value.code == code
+    assert params.items() <= e.value.params.items()
+    assert _count(company) == count
+
+
+def test_new_debt_on_a_run_with_none_needs_a_cost_of_debt(company, parent):
+    # a run with no debt stores cost of debt 0 as a placeholder (math_engine._cost_of_debt)
+    for name in ("debt", "cost_of_debt"):
+        company.execute(
+            "UPDATE assumptions SET value = 0 WHERE run_id = ? AND name = ? AND period = ?",
+            (parent, name, SINGLE),
+        )
+    with pytest.raises(WhatIfError) as e:
+        revalue(company, parent, _buyback(50.0))
+    assert e.value.code == "cost_of_debt_needed" and e.value.params == {"debt_before": 0.0}
+    result = revalue(company, parent, _buyback(50.0, Change("cost_of_debt", value=0.06)))
+    assert _single(company, result.run_id)["cost_of_debt"] == 0.06
+
+
+def test_a_debt_change_asked_again_is_reused_and_has_sources(company, parent):
+    first = revalue(company, parent, _buyback(100.0))
+    again = revalue(company, parent, _buyback(100.0))
+    assert again.reused and again.run_id == first.run_id
+    from domains.analysis import sources as src
+
+    stored = src.load(company, first.run_id)
+    hows = {k[0]: v[0].get("how") for k, v in stored.items() if v[0]["kind"] == "what_if"}
+    assert hows == {
+        "debt": "add",
+        "shares": "buyback",
+        "equity_market_value": "buyback",
+        "beta": "relevered",
+    }
+
+
+def test_cash_changed_beside_debt_lands_in_the_rest_not_the_swap(company, parent):
+    alone = _note(revalue(company, parent, _buyback(100.0)), "buyback_at_market_price").params
+    both = revalue(company, parent, _buyback(100.0, Change("cash_and_investments", delta=30.0)))
+    split = _note(both, "buyback_at_market_price").params
+    assert split["swap_effect"] == pytest.approx(alone["swap_effect"])
+    assert split["swap_effect"] + split["enterprise_value_effect"] == pytest.approx(
+        _line(both, "value_per_share").change
+    )
+    held = _note(both, "cost_of_debt_held_on_leverage")
+    assert held.params["floored"] is False and "did not rise" in held.text
+
+
+# -- the order of refusals and the held cost of debt (backlog #234) -----------------------------
+
+
+@pytest.mark.parametrize(
+    ("changes", "code", "params"),
+    [
+        # a combination beats a number: fixing the number would only meet the combination
+        (
+            _buyback(10.0, Change("beta", value=1.0), Change("cash_and_investments", value=-1.0)),
+            "set_by_debt_change",
+            {"name": "beta"},
+        ),
+        (
+            [Change("wacc", value=0.09), Change("cost_of_debt", value=-0.01)],
+            "wacc_with_rate_input",
+            {"name": "cost_of_debt"},
+        ),
+        # within the combination, a set WACC first, naming the first input in WACC_INPUTS order
+        (
+            _buyback(10.0, Change("beta", value=1.0), Change("wacc", value=0.09)),
+            "wacc_with_rate_input",
+            {"name": "beta"},
+        ),
+        # the shape of a change beats a number given before it
+        (
+            [Change("cash_and_investments", value=-1.0), Change("no_such_input", value=1.0)],
+            "unknown_input",
+            {"name": "no_such_input"},
+        ),
+        # numbers in the order given
+        (
+            [Change("cash_and_investments", value=-1.0), Change("shares", value=0.0)],
+            "out_of_range",
+            {"name": "cash_and_investments"},
+        ),
+        # a number alone still gets its own refusal
+        (_buyback(-1e6), "out_of_range", {"name": "debt"}),
+        # a number beats the buyback's size check
+        (
+            _buyback(1e9, Change("cash_and_investments", value=-1.0)),
+            "out_of_range",
+            {"name": "cash_and_investments"},
+        ),
+    ],
+)
+def test_a_refusal_about_the_request_comes_before_one_about_a_number(
+    company, parent, changes, code, params
+):
+    count = _count(company)
+    with pytest.raises(WhatIfError) as e:
+        revalue(company, parent, changes)
+    assert e.value.code == code
+    assert params.items() <= e.value.params.items()
+    assert _count(company) == count
+
+
+def test_a_run_with_no_price_refuses_a_buyback_before_any_number(company, parent):
+    company.execute(
+        "UPDATE assumptions SET value = 0 WHERE run_id = ? AND name = 'price' AND period = ?",
+        (parent, SINGLE),
+    )
+    with pytest.raises(WhatIfError) as e:
+        revalue(company, parent, _buyback(10.0, Change("cash_and_investments", value=-1.0)))
+    assert e.value.code == "no_price"
+
+
+def test_a_run_with_no_debt_asks_for_a_cost_of_debt_before_any_number(company, parent):
+    for name in ("debt", "cost_of_debt"):
+        company.execute(
+            "UPDATE assumptions SET value = 0 WHERE run_id = ? AND name = ? AND period = ?",
+            (parent, name, SINGLE),
+        )
+    with pytest.raises(WhatIfError) as e:
+        revalue(company, parent, _buyback(50.0, Change("cash_and_investments", value=-1.0)))
+    assert e.value.code == "cost_of_debt_needed"
+
+
+def _codes(result):
+    return [n.code for n in result.notes]
+
+
+def test_less_debt_with_the_risk_free_rate_moved_says_the_cost_of_debt_was_held(company, parent):
+    rf = _single(company, parent)["risk_free"]
+    kd = _single(company, parent)["cost_of_debt"]
+    moved = rf + 0.0025
+    assert kd >= moved  # no floor in play, so nothing else says the cost of debt was held
+    result = revalue(company, parent, _buyback(-10.0, Change("risk_free", value=moved)))
+    assert "cost_of_debt" not in {c.name for c in result.changes}
+    codes = _codes(result)
+    assert "cost_of_debt_held" in codes
+    assert "cost_of_debt_held_on_leverage" not in codes
+    assert reproduce(company, result.run_id).ok
+
+
+def test_unchanged_debt_with_the_risk_free_rate_moved_says_the_cost_of_debt_was_held(
+    company, parent
+):
+    rf = _single(company, parent)["risk_free"]
+    result = revalue(company, parent, _buyback(0.0, Change("risk_free", value=rf + 0.0025)))
+    codes = _codes(result)
+    assert codes.count("cost_of_debt_held") == 1
+    assert "cost_of_debt_held_on_leverage" not in codes
+
+
+def test_more_debt_with_the_risk_free_rate_moved_gives_one_reason(company, parent):
+    rf = _single(company, parent)["risk_free"]
+    result = revalue(company, parent, _buyback(10.0, Change("risk_free", value=rf + 0.0025)))
+    codes = _codes(result)
+    assert "cost_of_debt_held_on_leverage" in codes
+    assert "cost_of_debt_held" not in codes
+
+
+def test_less_debt_with_a_floored_cost_of_debt_is_not_called_held(company, parent):
+    result = revalue(company, parent, _buyback(-10.0, Change("risk_free", value=0.05)))
+    assert {c.name: c.how for c in result.changes}["cost_of_debt"] == "floored_at_risk_free"
+    codes = _codes(result)
+    assert "cost_of_debt_floored_at_risk_free" in codes
+    assert "cost_of_debt_held" not in codes
+    assert "cost_of_debt_held_on_leverage" not in codes
+
+
+def test_a_cost_of_debt_set_beside_less_debt_is_not_called_held(company, parent):
+    rf = _single(company, parent)["risk_free"]
+    result = revalue(
+        company,
+        parent,
+        _buyback(-10.0, Change("risk_free", value=rf + 0.0025), Change("cost_of_debt", value=0.06)),
+    )
+    codes = _codes(result)
+    assert "cost_of_debt_held" not in codes
+    assert "cost_of_debt_held_on_leverage" not in codes
+
+
+def test_index_rows_refuses_two_rows_for_one_name_and_period(company, parent):
+    rows = load_assumptions(company, parent)
+    assert dcf.index_rows(rows)["risk_free"][SINGLE] == _single(company, parent)["risk_free"]
+    with pytest.raises(dcf.DCFInputError, match="two rows for risk_free"):
+        dcf.index_rows([*rows, next(a for a in rows if a.name == "risk_free")])
+
+
+# -- one "would be floored" check, and the two reasons a cost of debt is needed (backlog #238) --
+
+
+def _zero(conn, run_id, *names):
+    for name in names:
+        conn.execute(
+            "UPDATE assumptions SET value = 0 WHERE run_id = ? AND name = ? AND period = ?",
+            (run_id, name, SINGLE),
+        )
+
+
+def _stage2(conn, run_id, changes):
+    """The rows stage 2 sees, built by `whatif._shape_rows` itself (stage 1), so this helper
+    can't drift from how `_changed_rows` builds them (backlog #241)."""
+    index, out, _ = whatif._shape_rows(
+        load_assumptions(conn, run_id), changes, load_outputs(conn, run_id)
+    )
+    return index, out
+
+
+@pytest.mark.parametrize(
+    ("changes", "floored"),
+    [
+        (_buyback(100.0, Change("risk_free", value=0.05)), True),  # book 4% < 5%
+        (_buyback(-10.0, Change("risk_free", value=0.05)), True),  # less debt, still above 0
+        (_buyback(100.0, Change("risk_free", value=0.01)), False),  # book rate above it
+        (_buyback(0.0, Change("risk_free", value=0.05)), False),  # debt did not move
+        (
+            _buyback(100.0, Change("risk_free", value=0.05), Change("cost_of_debt", value=0.03)),
+            False,
+        ),
+    ],
+)
+def test_would_floor_is_the_one_condition_behind_the_floored_row(company, parent, changes, floored):
+    index, out = _stage2(company, parent, changes)
+    assert whatif._would_floor(index, out) is floored
+    # and the row the child stores agrees with it
+    hows = {c.name: c.how for c in revalue(company, parent, changes).changes}
+    assert (hows.get("cost_of_debt") == "floored_at_risk_free") is floored
+
+
+def test_a_cost_of_debt_equal_to_the_risk_free_rate_is_not_floored(company, parent):
+    # the floor is strict: a rate equal to risk-free is already at the floor, so no no-op
+    # `floored_at_risk_free` row (backlog #241; `<=` in `_would_floor` would add one)
+    kd = _single(company, parent)["cost_of_debt"]
+    assert kd > 0
+    changes = _buyback(100.0, Change("risk_free", value=kd))
+    index, out = _stage2(company, parent, changes)
+    assert whatif._would_floor(index, out) is False
+    result = revalue(company, parent, changes)
+    assert "cost_of_debt" not in {c.name for c in result.changes}
+    assert "cost_of_debt_floored_at_risk_free" not in _codes(result)
+    assert reproduce(company, result.run_id).ok
+
+
+def test_stage2_rows_are_the_rows_stage_one_builds(company, parent):
+    # `add` and `set` labels and befores as `_changed_rows` makes them, not a copy of its logic
+    rf = _single(company, parent)["risk_free"]
+    index, out = _stage2(company, parent, _buyback(10.0, Change("risk_free", value=rf + 0.01)))
+    debt, risk_free = out[("debt", SINGLE)], out[("risk_free", SINGLE)]
+    assert (debt.how, debt.after - debt.before) == ("add", pytest.approx(10.0))
+    assert (risk_free.how, risk_free.before, risk_free.after) == ("set", rf, rf + 0.01)
+    assert index[("debt", SINGLE)].value == debt.before
+
+
+def test_debt_down_to_zero_is_never_floored(company, parent):
+    debt = _single(company, parent)["debt"]
+    index, out = _stage2(company, parent, _buyback(-debt, Change("risk_free", value=0.05)))
+    assert whatif._would_floor(index, out) is False
+
+
+def test_a_zero_cost_of_debt_given_beside_unchanged_debt_is_refused(company, parent):
+    count = _count(company)
+    with pytest.raises(WhatIfError) as e:
+        revalue(company, parent, _buyback(0.0, Change("cost_of_debt", value=0.0)))
+    assert e.value.code == "cost_of_debt_needed"
+    assert e.value.params == {"debt_before": _single(company, parent)["debt"]}
+    assert "free" in str(e.value) and "had no debt" not in str(e.value)
+    assert _count(company) == count
+
+
+def test_a_run_with_debt_and_a_zero_book_rate_is_floored_not_refused(company, parent):
+    _zero(company, parent, "cost_of_debt")
+    rf = _single(company, parent)["risk_free"]
+    assert rf > 0
+    result = revalue(company, parent, _buyback(50.0))
+    kd = {c.name: c for c in result.changes}["cost_of_debt"]
+    assert (kd.before, kd.after, kd.how) == (0.0, rf, "floored_at_risk_free")
+    assert reproduce(company, result.run_id).ok
+
+
+def test_a_run_with_debt_and_a_zero_book_rate_unchanged_debt_is_refused(company, parent):
+    _zero(company, parent, "cost_of_debt")
+    count = _count(company)
+    with pytest.raises(WhatIfError) as e:
+        revalue(company, parent, _buyback(0.0))
+    assert e.value.code == "cost_of_debt_needed"
+    assert e.value.params == {"debt_before": _single(company, parent)["debt"]}
+    assert "free" in str(e.value) and "had no debt" not in str(e.value)
+    assert _count(company) == count
+
+
+def test_new_debt_on_a_debt_free_run_with_a_book_rate_below_risk_free_is_refused(company, parent):
+    # only `new_debt_without_a_rate`: the stored rate is not 0, so the zero-rate reason can't
+    # fire, and without the refusal the floor would quietly price the new debt at risk-free
+    _zero(company, parent, "debt")
+    with pytest.raises(WhatIfError) as e:
+        revalue(company, parent, _buyback(50.0, Change("risk_free", value=0.05)))
+    assert e.value.code == "cost_of_debt_needed" and e.value.params == {"debt_before": 0.0}
+    assert "had no debt" in str(e.value)
+    # with the book rate above risk-free nothing is floored, so the rate is held, not refused
+    result = revalue(company, parent, _buyback(50.0, Change("risk_free", value=0.03)))
+    assert "cost_of_debt" not in {c.name for c in result.changes}
+
+
+def test_a_negative_risk_free_rate_floors_nothing_and_a_zero_rate_is_refused(company, parent):
+    _zero(company, parent, "cost_of_debt")
+    with pytest.raises(WhatIfError) as e:
+        revalue(company, parent, _buyback(50.0, Change("risk_free", value=-0.005)))
+    assert e.value.code == "cost_of_debt_needed" and "free" in str(e.value)
+
+
+def test_new_debt_on_a_debt_free_run_needs_a_rate_even_with_a_zero_one_given(company, parent):
+    _zero(company, parent, "debt", "cost_of_debt")
+    with pytest.raises(WhatIfError) as e:
+        revalue(company, parent, _buyback(50.0, Change("cost_of_debt", value=0.0)))
+    assert e.value.code == "cost_of_debt_needed" and e.value.params == {"debt_before": 0.0}
+    assert "had no debt" in str(e.value)
+
+
+def test_a_nan_risk_free_beside_new_debt_on_a_debt_free_run_asks_for_a_cost_of_debt(
+    company, parent
+):
+    # stage 2 (what the run must have) comes before stage 3 (the numbers): the NaN can't be
+    # compared, so nothing is floored, and the placeholder 0 is refused before `invalid_input`
+    _zero(company, parent, "debt", "cost_of_debt")
+    count = _count(company)
+    with pytest.raises(WhatIfError) as e:
+        revalue(company, parent, _buyback(50.0, Change("risk_free", value=float("nan"))))
+    assert e.value.code == "cost_of_debt_needed"
+    assert _count(company) == count
+    # with the cost of debt given, the NaN is the refusal left
+    with pytest.raises(WhatIfError) as e:
+        revalue(
+            company,
+            parent,
+            _buyback(
+                50.0, Change("risk_free", value=float("nan")), Change("cost_of_debt", value=0.06)
+            ),
+        )
+    assert e.value.code == "invalid_input" and e.value.params["name"] == "risk_free"

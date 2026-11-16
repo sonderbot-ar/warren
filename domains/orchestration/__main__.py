@@ -7,6 +7,7 @@
     python main.py show --pipeline-id ID
     python main.py reproduce --pipeline-id ID
     python main.py report --pipeline-id ID
+    python main.py simulations --run-id R [--pipeline-id ID] [--check] [--json]
 
 `run` goes from filings to report for one company and date (without `--as-of`, the last day that
 has ended in New York, backlog #128; a past date's report adds the forecast against what was
@@ -176,6 +177,17 @@ def cmd_reproduce(args) -> int:
             print(f"{'OK' if ok else 'MISMATCH'} {variant} {sim.sim_id} {r.outputs_checked} "
                   f"outputs{elsewhere}")  # fmt: skip
             bad += not ok
+        if state.range_errors_sha256 is not None:  # backlog #167
+            now = graph.range_errors_sha256(conn, state.as_of)
+            if now == state.range_errors_sha256:
+                print(f"OK range misses {now[:12]}")
+            else:
+                print(f"MISMATCH range misses: stored {state.range_errors_sha256[:12]}, now "
+                      f"{now[:12]}: the past misses were rebuilt or rescored after the report "
+                      f"was written; `python main.py report --pipeline-id {state.pipeline_id}` "
+                      "writes it again with the misses as they are now (the report line below "
+                      "fails for the same reason)")  # fmt: skip
+                bad += 1
         path = FOLDERS.reports / f"{state.pipeline_id}.md"
         same = path.exists() and report.body(path) == report.render(conn, state)
         print(f"{'OK' if same else 'MISMATCH'} report {path} (up to the trace)")
@@ -187,6 +199,8 @@ def cmd_report(args) -> int:
     with get_db_connection() as conn:
         apply_migrations(conn)
         state = graph.final_state(conn, FOLDERS, args.pipeline_id)
+        if state is not None and state.range_errors_sha256 is not None:
+            state = graph.refresh_range(conn, FOLDERS, args.pipeline_id)  # backlog #167
         if state is None:
             print(f"{args.pipeline_id} is not done")
             return 2
@@ -194,6 +208,48 @@ def cmd_report(args) -> int:
                                    FOLDERS.telemetry / f"{state.pipeline_id}.jsonl")  # fmt: skip
     print(path)
     return 0
+
+
+def cmd_simulations(args) -> int:
+    """A run's simulations, masked first, with their variant (backlog #201)."""
+    import json
+
+    from domains.orchestration.simulations import SimulationListError, run_simulations
+
+    with get_db_connection() as conn:
+        apply_migrations(conn)
+        try:
+            out = run_simulations(conn, args.run_id, check=args.check,
+                                  pipeline_id=args.pipeline_id, folders=FOLDERS)  # fmt: skip
+        except SimulationListError as e:
+            print(e, file=sys.stderr)
+            return 2
+    if args.json:
+        print(json.dumps(out.to_dict(), indent=2, sort_keys=True))
+        return 0
+    if not out.simulations:
+        print(f"No simulation on {out.run_id}")
+    for s in out.simulations:
+        vps = s.value_per_share or {}
+        made = [p.pipeline_id for p in s.pipelines] + s.backtests
+        check = "" if s.reproduces is None else "  OK" if s.reproduces else "  MISMATCH"
+        print(f"{'*' if s.primary else ' '} {s.variant:6} {s.sim_id}  seed {s.seed}  "
+              f"n {s.n_samples:,}  value/share p10 {vps.get('p10', float('nan')):.2f} "
+              f"p50 {vps.get('p50', float('nan')):.2f} p90 {vps.get('p90', float('nan')):.2f} "
+              f"{s.currency}  by {', '.join(made) or 'hand'}{check}")  # fmt: skip
+        for n in s.notes:
+            print(f"    {n.code}: {n.text}")
+        for m in s.mismatches:
+            print(f"    {m}")
+    for x in out.proposal_sets:
+        if x.latest and not x.sim_ids:
+            why = (
+                "the model saw no impact" if x.no_impact
+                else "the call failed" if x.status == "failed"
+                else f"proposals {x.proposals}"
+            )  # fmt: skip
+            print(f"  {x.variant}: no simulation from set {x.set_id} ({why})")
+    return 1 if any(s.reproduces is False for s in out.simulations) else 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -223,6 +279,12 @@ def main(argv: list[str] | None = None) -> int:
         p = sub.add_parser(name, help=what)
         p.add_argument("--pipeline-id", required=True)
         p.set_defaults(func=func)
+    sims = sub.add_parser("simulations", help="a run's simulations with their variant")
+    sims.add_argument("--run-id", required=True)
+    sims.add_argument("--pipeline-id", help="only the simulations this pipeline filed")
+    sims.add_argument("--check", action="store_true", help="reproduce each to the cent")
+    sims.add_argument("--json", action="store_true")
+    sims.set_defaults(func=cmd_simulations)
     args = parser.parse_args(argv)
     return args.func(args)
 

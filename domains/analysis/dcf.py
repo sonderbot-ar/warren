@@ -40,6 +40,10 @@ SINGLE_VALUES = (
 # predates it and keeps the Gordon rule on Y5's free cash flow, so it still reproduces.
 VALUE_DRIVER = "value_driver_ronic_wacc"
 GORDON = "gordon_fcff"
+# WACC set directly (backlog #171): an optional user row, only ever on a what-if child. It becomes
+# Inputs.wacc_override, so it is the discount rate in every period and the roll-forward rate; the
+# cost of equity is still CAPM on the stored rows. A run without the row is valued as before.
+WACC_SET = "wacc"
 LINES = ("revenue", "ebit", "nopat", "d_and_a", "capex", "delta_nwc", "fcff", "discount_factor")
 
 
@@ -84,7 +88,8 @@ class Valuation:
         return out
 
 
-def _index(assumptions: Iterable[Assumption]) -> dict[str, dict[str, float]]:
+def index_rows(assumptions: Iterable[Assumption]) -> dict[str, dict[str, float]]:
+    """A run's rows as {name: {period: value}}; two rows for one name and period are refused."""
     rows: dict[str, dict[str, float]] = {}
     for a in assumptions:
         if a.period in rows.get(a.name, {}):
@@ -136,19 +141,27 @@ def terminal_method(assumptions: Iterable[Assumption]) -> str:
 
 def inputs(assumptions: Iterable[Assumption]) -> Inputs:
     assumptions = list(assumptions)
-    rows = _index(assumptions)
+    rows = index_rows(assumptions)
     seed_periods, periods = forecast_periods(rows)
     missing = [n for n in DRIVERS if set(rows.get(n, {})) != set(periods)]
     missing += [n for n in SINGLE_VALUES if SINGLE not in rows.get(n, {})]
     if missing:
         raise DCFInputError(f"missing or incomplete assumptions: {missing}")
+    if WACC_SET in rows and set(rows[WACC_SET]) != {SINGLE}:
+        raise DCFInputError(f"{WACC_SET} is a single value for the whole run")
     return Inputs(
         seed=[rows[SEED][p] for p in seed_periods],
         periods=periods,
         driver={name: [rows[name][p] for p in periods] for name in DRIVERS},
         one={name: rows[name][SINGLE] for name in SINGLE_VALUES},
         terminal_method=terminal_method(assumptions),
+        wacc_override=rows.get(WACC_SET, {}).get(SINGLE),
     )
+
+
+def wacc_is_set(assumptions: Iterable[Assumption]) -> bool:
+    """Does the run set WACC directly (a what-if child, backlog #171)?"""
+    return any(a.name == WACC_SET and a.period == SINGLE for a in assumptions)
 
 
 def value(assumptions: Iterable[Assumption]) -> Valuation:
@@ -166,7 +179,8 @@ def _wacc_at(one: dict, cost_of_equity):
 
 
 def base_wacc(inp: Inputs):
-    """The run's WACC before any risk-premium shock (or the grid's override, if set)."""
+    """The run's WACC before any risk-premium shock, or the override if set (the grid's, or a
+    what-if child's `wacc` row)."""
     if inp.wacc_override is not None:
         return inp.wacc_override
     one = inp.one
@@ -285,11 +299,16 @@ def outputs_and_gaps(
     assumptions: Iterable[Assumption],
 ) -> tuple[dict[tuple[str, str], float], dict[tuple[str, str], Gap]]:
     """Everything a run stores: the valuation, plus value per share at ERP ± 1 standard error,
-    and, for each of those that has no value, why (keys are (name, period) in both)."""
+    and, for each of those that has no value, why (keys are (name, period) in both).
+
+    With WACC set directly the ERP no longer enters the discount rate, so the bounds would equal
+    the point and look like precision: neither they nor a gap is stored (backlog #171)."""
     rows = list(assumptions)
     out = value(rows).outputs()
     gaps: dict[tuple[str, str], Gap] = {}
-    index = _index(rows)
+    if wacc_is_set(rows):
+        return out, gaps
+    index = index_rows(rows)
     erp, std_error = index["erp"][SINGLE], index.get("erp_std_error", {}).get(SINGLE)
     if std_error is None:
         raise DCFInputError("missing assumption erp_std_error")

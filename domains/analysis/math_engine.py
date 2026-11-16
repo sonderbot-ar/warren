@@ -20,25 +20,46 @@ import warnings
 from collections import defaultdict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from domains.analysis import dcf
 from domains.analysis import financial_math as fm
 from domains.analysis import sources as src
-from domains.analysis.coded import Coded, coded_warnings
+from domains.analysis.coded import (
+    ENGINE_REFUSAL_CODES,
+    ZERO_DIVISOR_ITEMS,
+    ZERO_DIVISOR_PERIOD_KINDS,
+    ZERO_DIVISOR_RATIOS,
+    Coded,
+    coded_warnings,
+    pass_on,
+)
 from domains.analysis.dcf import QUARTERS, SEED, YEARS
+from domains.analysis.reading_rules import READING_RULES_VERSION
 from domains.analysis.schemas import SINGLE, Assumption
+from domains.analysis.statutory_tax import StatutoryRateError, statutory_rate
 from domains.fundamentals.concepts import concept_map_sha256
-from domains.fundamentals.facts import get_facts, same_filing_annual_comparisons
+from domains.fundamentals.facts import (
+    MeaningChange,
+    dating_changes,
+    filing_dates,
+    get_facts,
+    mixes_meanings,
+    same_filing_annual_comparisons,
+    state_for_change,
+    tag_meaning_changes,
+)
 from domains.fundamentals.quality import CONSISTENCY_TOLERANCE
-from domains.fundamentals.schemas import Fact
+from domains.fundamentals.schemas import MINUEND_WORDS, Fact
 from domains.fundamentals.universe import FISCAL_YEARS
+from domains.market.coverage import run_covered_through
 from domains.market.erp import equity_risk_premium
 from domains.market.prices import MARKET_INDEX, PricePoint, aligned_weekly_returns, raw_close
 from domains.market.prices import split_factor as price_split_factor
-from domains.market.store import selected_fetch
+from domains.market.store import MarketDataError, selected_fetch
 from domains.market.yields import RISK_FREE_SERIES, risk_free_rate
+from shared_kernel.calendar import case_today
 
 USER_ASSUMPTIONS_PATH = Path(__file__).parent / "user_assumptions.csv"
 # A choice added later needs a rule for runs made before it: see CHOICES_ADDED_LATER in runs.py.
@@ -55,10 +76,33 @@ HISTORY_QUARTERS = 12
 MIN_QUARTERS_PER_LABEL = 2
 BETA_WEEKS = 104  # 2 years of weekly returns (D6)
 COMPONENT_MAX_AGE = timedelta(days=370)  # a balance older than this before the balance date is 0
-STALE_AFTER = timedelta(days=135)  # last reported quarter this long before as_of: warn
+# Stale fundamentals (backlog #342): warn when the newest quarter ended longer ago than the next
+# report's deadline allows. US SEC large accelerated filer deadlines: 40 days for a 10-Q (Form 10-Q,
+# General Instruction A.1) and 60 for a 10-K (Form 10-K, General Instruction A(2)(a)); a deadline on
+# a weekend or holiday moves to the next business day (Exchange Act Rule 0-3). After a third quarter
+# the next report is the 10-K, which covers the fourth quarter. Working rules, Warren's own; a
+# non-US source would bring its own deadlines.
+QUARTER_DAYS = 92
+LONG_QUARTER_DAYS = 98  # a 14-week fourth quarter in a 53-week year (JNJ FY2015)
+DEADLINE_10Q_DAYS = 40
+DEADLINE_10K_DAYS = 60
+DEADLINE_SLACK_DAYS = 3
+STALE_AFTER = timedelta(days=QUARTER_DAYS + DEADLINE_10Q_DAYS + DEADLINE_SLACK_DAYS)  # 135
+STALE_AFTER_Q3 = timedelta(days=LONG_QUARTER_DAYS + DEADLINE_10K_DAYS + DEADLINE_SLACK_DAYS)  # 161
+# A late-filing notice (Form NT 10-Q or NT 10-K, Exchange Act Rule 12b-25(b)) gives 5 or 15 more
+# days, and a report filed within them counts as on time. The lines above do not add them: the
+# stale lesson names the case instead (backlog #352).
+NT_EXTENSION_10Q_DAYS = 5
+NT_EXTENSION_10K_DAYS = 15
+ANNUAL_MIN_DAYS = 300  # a flow longer than this is a fiscal year's (52 or 53 weeks)
 TAX_RATE_BOUNDS = (0.0, 0.5)
+# At or below this three-year pretax margin the effective tax rate means little, and the run uses
+# the statutory rate instead (backlog #385). A working rule, not a sourced line.
+PRETAX_MARGIN_FLOOR = 0.01
+TAX_JURISDICTION = "US"  # every Phase 1 company files with the SEC as a US company
 COST_OF_DEBT_BOUNDS = (0.0, 0.15)
 SHARES_TOLERANCE = 0.10  # cover-page vs diluted shares
+SHARE_SCALES = (1_000, 1_000_000)  # the steps between units a filing states (thousands, millions)
 TERMINAL_SPREAD_WARNING = 0.03  # WACC − terminal growth below this: the terminal value dominates
 MARGIN_SIGMAS = 2
 ERP_INFO_FIRST_YEARS = (1999, 2009)  # alternative windows, shown for information only
@@ -105,7 +149,18 @@ ITEMS += [*BALANCE_ITEMS, *SHARE_ITEMS]
 
 
 class EngineError(ValueError):
-    """A run can't be built: a required input is missing or the data breaks an invariant."""
+    """A run can't be built: a required input is missing or the data breaks an invariant.
+
+    A refusal a student's run can reach has a `code` from `coded.ENGINE_REFUSAL_CODES` and
+    `params` (backlog #376); every other one has `code` None and is text only."""
+
+    def __init__(self, text: str, code: str | None = None, params: dict | None = None):
+        super().__init__(text)
+        assert code is None or code in ENGINE_REFUSAL_CODES, code
+        self.text, self.code, self.params = text, code, dict(params or {})
+
+    def coded(self) -> Coded | None:
+        return None if self.code is None else Coded(self.code, self.params, self.text)
 
 
 # -- user assumptions --------------------------------------------------------------------------
@@ -195,7 +250,50 @@ def _tag(fact: Fact) -> str:
 def trace(fact: Fact) -> str:
     """Item, tag, period and filing of one fact: enough to find it in EDGAR."""
     source = fact.accession_no or "derived from " + ", ".join(fact.inputs)
+    if fact.one_basis:  # backlog #264
+        source += " (year and year-to-date taken on one basis: a newer version of one was restated)"
+    if fact.narrower_tag:  # backlog #324
+        source += (
+            f" (worked out on the year's tag: its own filing gives the quarter only under "
+            f"{fact.narrower_tag.replace('us-gaap:', '')}, a tag ranked below it)"
+        )
+    if fact.kept_on_own_tag is not None:  # backlog #336
+        source += (
+            f" (kept as filed under a tag ranked below the year's "
+            f"{fact.kept_on_own_tag.year_tag.replace('us-gaap:', '')}: on its own tag "
+            f"{MINUEND_WORDS.get(fact.kept_on_own_tag.minuend, 'the year')} less the earlier "
+            f"periods is {fact.kept_on_own_tag.on_own_tag:,.0f})"
+        )
     return f"{fact.canonical_name} [{_tag(fact)}] {fact.period_end} {source}"
+
+
+def basis_kind(fact: Fact) -> str:
+    """Which basis a quarter fact the run reads sits on (backlog #279), from the flags
+    `get_facts(one_basis=True)` sets:
+
+    - `first_filed`: put back on the basis it was first filed on, because a newer version of an
+      input was restated (#264 rule 3);
+    - `restated`: on a newer basis than first filed (a restated reported quarter, a derivation
+      from restated inputs only, or #264 rule 2);
+    - `no_basis`: derived from restated and unrestated inputs and left so;
+    - `unchanged`: not refiled, no second version public by the as-of date; it may still be on
+      the old basis (analyst, #279 review).
+
+    `restated` is Warren's name (`Fact.restated`); text a student reads says "recast".
+    """
+    if fact.one_basis:
+        return "restated" if fact.restated else "first_filed"
+    if fact.mixed_vintage:
+        return "no_basis"
+    return "restated" if fact.restated else "unchanged"
+
+
+def two_bases(kinds: Iterable[str]) -> bool:
+    """Facts sit on two bases when one was kept as first reported while another is recast, or one
+    is on no basis (backlog #279). `unchanged` alone never makes a split: no filing public by the
+    as-of date says which basis it is on, so a note lists it apart as `not_refiled`."""
+    kinds = set(kinds)
+    return {"first_filed", "restated"} <= kinds or "no_basis" in kinds
 
 
 @dataclass(frozen=True)
@@ -216,7 +314,19 @@ def resolve(chain: str, get: Callable[[str], Fact | None], where: str) -> Resolv
                 method = f"fallback: {' + '.join(items)} = {method}"
             return Resolved(sum(f.value for f in facts), method, fallback=i > 0, facts=tuple(facts))
     tried = " | ".join(" + ".join(items) for items in alternatives)
-    raise EngineError(f"{chain} for {where}: none of the alternatives is reported ({tried})")
+    raise EngineError(
+        f"{chain} for {where}: none of the alternatives is reported ({tried})",
+        code="flow_item_not_reported",
+        params={"item": chain, **where_params(where), "tried": [list(a) for a in alternatives]},
+    )
+
+
+def where_params(where: str) -> dict:
+    """A refusal's period as params (backlog #376): "FY2020" or "FY2020 Q3" gives `fiscal_year`
+    and `quarter` (None for a year), so the app never translates the English label."""
+    match = re.fullmatch(r"FY(\d{4})(?: Q([1-4]))?", where)
+    assert match, where
+    return {"fiscal_year": int(match[1]), "quarter": int(match[2]) if match[2] else None}
 
 
 @dataclass
@@ -240,7 +350,7 @@ class History:
 
 
 def load_history(conn: sqlite3.Connection, cik: str, as_of: date) -> History:
-    quarterly = get_facts(conn, cik, ITEMS, as_of, frequency="quarterly")
+    quarterly = get_facts(conn, cik, ITEMS, as_of, frequency="quarterly", one_basis=True)
     annual = get_facts(conn, cik, ITEMS, as_of, frequency="annual")
     instants: dict[str, list[Fact]] = defaultdict(list)
     for f in sorted(quarterly + annual, key=lambda f: f.period_end):
@@ -277,6 +387,12 @@ class EngineResult:
     notes: list[Coded] = field(default_factory=list)  # warnings as codes (backlog #172)
     snapshot: dict = field(default_factory=dict)  # data the run was built from (hashes, ids)
     sources: dict[tuple[str, str], list[dict]] = field(default_factory=dict)  # by row (#175)
+    # each revenue fact the run reads, by part then period label; never stored (#297)
+    revenue_read: dict[str, dict[str, Fact]] = field(default_factory=dict, repr=False)
+    seed_years_times_share: list[int] = field(default_factory=list, repr=False)
+
+    def read(self, part: str, label: str, fact: Fact) -> None:
+        self.revenue_read.setdefault(part, {})[label] = fact
 
     @property
     def warnings(self) -> list[str]:
@@ -321,13 +437,47 @@ def build_inputs(
     choices: dict[str, UserChoice] | None = None,
     today: date | None = None,
 ) -> EngineResult:
-    """Every assumption a baseline DCF of `ticker` as of `as_of` needs, known on that date."""
-    today = today or date.today()
+    """Every assumption a baseline DCF of `ticker` as of `as_of` needs, known on that date.
+
+    A refusal because a download is older than the date (`market_data_not_refreshed`) also
+    carries `all_covered_through`: the newest date all the series a run reads can serve, so the
+    app can offer one date sure to pass that check (backlog #381)."""
+    try:
+        return _build_inputs(conn, ticker, as_of, choices, today)
+    except MarketDataError as e:
+        if e.code == "market_data_not_refreshed":
+            newest = run_covered_through(conn, ticker)
+            e.params["all_covered_through"] = newest.isoformat() if newest else None
+        raise
+
+
+def _build_inputs(
+    conn: sqlite3.Connection,
+    ticker: str,
+    as_of: date,
+    choices: dict[str, UserChoice] | None,
+    today: date | None,
+) -> EngineResult:
+    today = today or case_today(datetime.now(UTC))
     if not SUPPORTED_FROM <= as_of <= today:
-        raise EngineError(f"as-of date must be from {SUPPORTED_FROM} to {today}, got {as_of}")
+        early = as_of < SUPPORTED_FROM
+        raise EngineError(
+            f"as-of date must be from {SUPPORTED_FROM} to {today}, got {as_of}",
+            code="as_of_too_early" if early else "as_of_in_future",
+            params={"as_of": as_of.isoformat()}
+            | (
+                {"supported_from": SUPPORTED_FROM.isoformat()}
+                if early
+                else {"today": today.isoformat()}
+            ),
+        )
     company = conn.execute("SELECT * FROM companies WHERE ticker = ?", (ticker.upper(),)).fetchone()
     if company is None:
-        raise EngineError(f"{ticker} has not been ingested")
+        raise EngineError(
+            f"{ticker} has not been ingested",
+            code="company_not_ingested",
+            params={"ticker": ticker.upper()},
+        )
     choices = load_user_assumptions() if choices is None else choices
     result = EngineResult(company["ticker"], company["cik"], as_of)
     for choice in choices.values():
@@ -342,7 +492,9 @@ def build_inputs(
         warnings.simplefilter("always")
         history = load_history(conn, company["cik"], as_of)
         comparisons = same_filing_annual_comparisons(conn, company["cik"], "revenue", as_of)
+        changes = tag_meaning_changes(conn, company["cik"], ["revenue"], as_of)
     result.notes += coded_warnings(caught)  # one per text
+    pass_on(caught)  # a library's warning goes to the log, never into the notes (#196)
 
     last_year, last_quarter, base_date = _last_actual_quarter(history, result)
     fiscal_years = _history_years(history, last_year, result)
@@ -352,6 +504,8 @@ def build_inputs(
     price = _market(conn, history, result, choices, balance_date)
     _cost_of_debt(history, fiscal_years, result)
     _drivers(history, comparisons, fiscal_years, last_year, last_quarter, result)
+    if changes:
+        _meaning_notes(result, changes, filing_dates(conn, company["cik"], as_of))
     last_seed = quarter_label(last_year, last_quarter)
     result.add(
         "roll_years",
@@ -372,22 +526,74 @@ def build_inputs(
 def _last_actual_quarter(history: History, result: EngineResult) -> tuple[int, int, date]:
     revenue = [f for (n, _y, _p), f in history.quarterly.items() if n == "revenue"]
     if not revenue:
-        raise EngineError(f"{result.ticker}: no quarterly revenue reported by {result.as_of}")
+        raise EngineError(
+            f"{result.ticker}: no quarterly revenue reported by {result.as_of}",
+            code="no_quarterly_revenue",
+            params={"ticker": result.ticker, "as_of": result.as_of.isoformat()},
+        )
     last = max(revenue, key=lambda f: f.period_end)
-    if result.as_of - last.period_end > STALE_AFTER:
-        days = (result.as_of - last.period_end).days
+    days = (result.as_of - last.period_end).days
+    newer = _newer_figure(history, last.period_end)
+    if newer is not None:
+        # A newer report is loaded but its revenue wasn't read or derived (backlog #352): say so
+        # whatever the age; the stale line then keys on the newer period, since "ingest" would be
+        # the wrong advice for the unread one.
+        annual = (newer.period_end - newer.period_start).days > ANNUAL_MIN_DAYS
+        report = "the annual report for the year" if annual else "a report for the period"
+        result.warn(
+            "newer_report_not_read",
+            {
+                "last_quarter_end": last.period_end.isoformat(),
+                "newer_period_end": newer.period_end.isoformat(),
+                "newer_annual": annual,
+                "newer_accession_no": newer.accession_no,
+                "days": days,
+            },
+            f"The newest quarter with revenue ended {last.period_end}, but figures from {report} "
+            f"ended {newer.period_end} are loaded: that period's revenue could not be read or "
+            "derived, so the run starts at least one report behind (check that filing's revenue "
+            "line).",
+        )
+        # A second fault, a report after the newer one missing too, is still stale (analyst).
+        _warn_if_stale(result, newer.period_end, "Q4" if annual else newer.fiscal_period)
+    else:
+        _warn_if_stale(result, last.period_end, last.fiscal_period)
+    return last.fiscal_year, int(last.fiscal_period[1]), last.period_end
+
+
+def _warn_if_stale(result: EngineResult, period_end: date, fiscal_period: str | None) -> None:
+    """`fundamentals_stale` when the next report after the period ending `period_end` is past
+    its line: after a Q3 the next report is the 10-K, otherwise a 10-Q (backlog #342)."""
+    line = STALE_AFTER_Q3 if fiscal_period == "Q3" else STALE_AFTER
+    days = (result.as_of - period_end).days
+    if result.as_of - period_end > line:
         result.warn(
             "fundamentals_stale",
             {
-                "last_quarter_end": last.period_end.isoformat(),
+                "last_quarter_end": period_end.isoformat(),
                 "days": days,
-                "threshold_days": STALE_AFTER.days,
+                "threshold_days": line.days,
             },
-            f"Fundamentals may be stale: the last reported quarter ended {last.period_end}, "
-            f"{(result.as_of - last.period_end).days} days before the as-of date (check that "
-            "the newest filings are ingested).",
+            f"Fundamentals may be stale: the last reported quarter ended {period_end}, "
+            f"{days} days before the as-of date (check that the newest filings are ingested).",
         )
-    return last.fiscal_year, int(last.fiscal_period[1]), last.period_end
+
+
+def _newer_figure(history: History, last_quarter_end: date) -> Fact | None:
+    """A flow figure (one over a period, quarterly or annual) in the history that ends after the
+    newest revenue quarter, or None: the latest such end, the longest period on it, a reported
+    figure before a derived one (so its filing can be named). Balances are left out: the cover
+    page's share count is dated after the quarter it belongs to (backlog #352)."""
+    newer = [
+        f
+        for f in (*history.quarterly.values(), *history.annual.values())
+        if f.period_start is not None and f.period_end > last_quarter_end
+    ]
+    return max(
+        newer,
+        key=lambda f: (f.period_end, f.period_end - f.period_start, not f.derived),
+        default=None,
+    )
 
 
 def _history_years(history: History, last_year: int, result: EngineResult) -> list[int]:
@@ -395,28 +601,39 @@ def _history_years(history: History, last_year: int, result: EngineResult) -> li
     years = sorted({y for (n, y) in history.annual if n == "revenue" and y <= last_year})
     if len(years) < HISTORY_YEARS:
         raise EngineError(
-            f"{result.ticker}: {HISTORY_YEARS} fiscal years of history needed, found {years}"
+            f"{result.ticker}: {HISTORY_YEARS} fiscal years of history needed, found {years}",
+            code="history_too_short",
+            params={"ticker": result.ticker, "needed": HISTORY_YEARS, "found_years": years},
         )
     return years[-HISTORY_YEARS:]
 
 
 def _revenue_seed(history: History, last_year: int, last_quarter: int, result: EngineResult):
     """The last 4 actual quarters, the base that forecast quarters grow from (D2)."""
+    noted: dict[int, str] = {}  # a year whose quarters sit on two bases: its method words (#279)
     for step in range(-3, 1):
         year, quarter = step_quarter(last_year, last_quarter, step)
         period = f"Q{quarter}"
         fact = history.quarterly.get(("revenue", year, period))
         if fact is None:
-            raise EngineError(f"{result.ticker}: revenue for FY{year} {period} is not reported")
-        value, method, used = fact.value, trace(fact), [fact]
+            raise EngineError(
+                f"{result.ticker}: revenue for FY{year} {period} is not reported",
+                code="seed_quarter_not_reported",
+                params={"ticker": result.ticker, "fiscal_year": year, "quarter": quarter},
+            )
+        value, method, used, shared = fact.value, trace(fact), [fact], False
+        result.read("seed", quarter_label(year, quarter), fact)
         # a fiscal year whose quarters don't add up to it mixes restatement bases: use the
         # year (newest basis) times this quarter's share of it
         quarters = [history.quarterly.get(("revenue", year, f"Q{q}")) for q in range(1, 5)]
         annual = history.annual.get(("revenue", year))
         if annual is not None and all(quarters):
             total = sum(q.value for q in quarters)
+            _nonzero(result, annual.value, "revenue_seed", "revenue", f"FY{year}", "year", annual)
             gap = (total - annual.value) / abs(annual.value)
             if abs(gap) > CONSISTENCY_TOLERANCE:
+                _nonzero(result, total, "revenue_seed", "revenue", f"FY{year}", "quarters_sum")
+                shared = True
                 value = annual.value * fact.value / total
                 method = (
                     f"FY{year} quarters differ from the year by {gap:+.1%}: year × this "
@@ -424,6 +641,15 @@ def _revenue_seed(history: History, last_year: int, last_quarter: int, result: E
                 )
                 # the share's denominator is all four quarters (analyst, #175)
                 used = [annual, fact] + [q for q in quarters if q is not fact]
+                result.read("seed", f"FY{year}", annual)
+                for q, other in enumerate(quarters, start=1):
+                    result.read("seed", quarter_label(year, q), other)
+                if year not in result.seed_years_times_share:
+                    result.seed_years_times_share.append(year)
+        if all(quarters) and two_bases(basis_kind(q) for q in quarters):
+            if year not in noted:
+                noted[year] = _seed_basis_note(result, year, quarters, shared)
+            method = f"{noted[year]}; {method}"
         result.add(
             SEED,
             value,
@@ -433,10 +659,44 @@ def _revenue_seed(history: History, last_year: int, last_quarter: int, result: E
         )
 
 
+def _seed_basis_note(
+    result: EngineResult, year: int, quarters: list[Fact], year_times_share: bool
+) -> str:
+    """One note for a seed year whose revenue quarters sit on two bases (backlog #279); returns
+    the words the year's seed rows put in their method. The seed rule is unchanged (#265)."""
+    kinds = {f"Q{q}": basis_kind(f) for q, f in enumerate(quarters, start=1)}
+    groups = {
+        BASIS_PARAMS[k]: sorted(q for q, kind in kinds.items() if kind == k) for k in BASIS_WORDS
+    }
+    words = "; ".join(
+        f"{', '.join(groups[BASIS_PARAMS[k]])} {BASIS_WORDS[k]}"
+        for k in BASIS_WORDS
+        if groups[BASIS_PARAMS[k]]
+    )
+    text = (
+        f"FY{year}'s revenue quarters are not on one basis: {words}. The forecast grows from "
+        "these quarters"
+        + (
+            ", and because they don't add up to the year it splits the year by their shares, "
+            "so the mix also sets those shares."
+            if year_times_share
+            else "."
+        )
+    )
+    result.warn(
+        "seed_year_two_bases",
+        {"fiscal_year": year, **groups, "year_times_share": year_times_share},
+        text,
+    )
+    return f"FY{year}'s quarters are not on one basis ({words})"
+
+
 def _history_rows(history: History, fiscal_years: list[int], result: EngineResult) -> None:
     """Reported annual values the drivers are computed from, one row per item and year."""
     for year in fiscal_years:
         get = history.year(year)
+        if get("revenue") is not None:
+            result.read("history", f"FY{year}", get("revenue"))
         for chain in ("revenue", "ebit", "pretax", "tax", "d_and_a", "capex"):
             r = resolve(chain, get, f"FY{year}")
             result.add(
@@ -474,7 +734,11 @@ def _operating_nwc(
     ):
         fact = get(item)
         if fact is None and item in REQUIRED_BALANCE:
-            raise EngineError(f"{item} for {where} is not reported (needed for working capital)")
+            raise EngineError(
+                f"{item} for {where} is not reported (needed for working capital)",
+                code="balance_item_not_reported",
+                params={"item": item, **where_params(where)},
+            )
         parts[item] = fact
         if fact is None:
             missing.append(item)
@@ -530,16 +794,38 @@ def _balance(history: History, base_date: date, result: EngineResult) -> date:
     """Net debt, minority interest and the invariants, from the latest balance sheet (D3, D11)."""
     assets = history.latest_before("current_assets", result.as_of)
     if assets is None:
-        raise EngineError(f"{result.ticker}: no balance sheet within a year of {result.as_of}")
+        raise EngineError(
+            f"{result.ticker}: no balance sheet within a year of {result.as_of}",
+            code="no_balance_sheet",
+            params={"ticker": result.ticker, "as_of": result.as_of.isoformat()},
+        )
     balance_date = assets.period_end
     get = lambda item: history.latest_before(item, balance_date)  # noqa: E731
     facts = {item: get(item) for item in BALANCE_ITEMS}
     for item in REQUIRED_BALANCE:
         if facts[item] is None:
-            raise EngineError(f"{result.ticker}: {item} not reported at {balance_date}")
+            raise EngineError(
+                f"{result.ticker}: {item} not reported at {balance_date}",
+                code="balance_item_not_reported",
+                params={
+                    "ticker": result.ticker,
+                    "item": item,
+                    "period_end": balance_date.isoformat(),
+                },
+            )
     for item, fact in facts.items():
         if fact is not None and fact.value < 0 and item != "minority_interest":
-            raise EngineError(f"{result.ticker}: {trace(fact)} is negative")
+            raise EngineError(
+                f"{result.ticker}: {trace(fact)} is negative",
+                code="balance_item_negative",
+                params={
+                    "ticker": result.ticker,
+                    "item": item,
+                    "period_end": fact.period_end.isoformat(),
+                    "value": fact.value,
+                    "currency": fact.unit,
+                },
+            )
     carried = [
         f"{i} ({f.period_end})" for i, f in facts.items() if f and f.period_end < balance_date
     ]
@@ -565,11 +851,29 @@ def _balance(history: History, base_date: date, result: EngineResult) -> date:
         raise EngineError(
             f"{result.ticker}: current securities ({short_term_investments:,.0f}) exceed current "
             f"assets ({val('current_assets'):,.0f}) at {balance_date}: a tag picks up the wrong "
-            "measure"
+            "measure",
+            code="securities_exceed_current_assets",
+            params={
+                "ticker": result.ticker,
+                "period_end": balance_date.isoformat(),
+                "with_cash": False,
+                "securities": short_term_investments,
+                "current_assets": val("current_assets"),
+                "currency": facts["current_assets"].unit,
+            },
         )
     if val("cash") + short_term_investments > val("current_assets"):
         raise EngineError(
-            f"{result.ticker}: cash and current securities exceed current assets at {balance_date}"
+            f"{result.ticker}: cash and current securities exceed current assets at {balance_date}",
+            code="securities_exceed_current_assets",
+            params={
+                "ticker": result.ticker,
+                "period_end": balance_date.isoformat(),
+                "with_cash": True,
+                "securities": val("cash") + short_term_investments,
+                "current_assets": val("current_assets"),
+                "currency": facts["current_assets"].unit,
+            },
         )
 
     debt, used, zero, notes = debt_parts(get)
@@ -631,10 +935,27 @@ def _balance(history: History, base_date: date, result: EngineResult) -> date:
     return balance_date
 
 
+def share_scale(a: float, b: float) -> int | None:
+    """1,000 or 1,000,000 when two share counts, either way round, are that many times apart
+    within `SHARES_TOLERANCE`: one of them was filed in the wrong unit (backlog #343); else None.
+
+    A thousand is the step between the units filings state (thousands, millions); no split or
+    buyback comes near it, so a gap of that size is a unit error, not a change in the count."""
+    if not (a > 0 and b > 0):
+        return None
+    ratio = max(a, b) / min(a, b)
+    for scale in SHARE_SCALES:
+        if abs(ratio / scale - 1) <= SHARES_TOLERANCE:
+            return scale
+    return None
+
+
 def _shares(
     conn: sqlite3.Connection, history: History, result: EngineResult, price: PricePoint
 ) -> float:
-    """Cover-page shares outstanding, split-adjusted to the price date (D4); diluted as fallback."""
+    """Cover-page shares outstanding, split-adjusted to the price date (D4); diluted as fallback,
+    skipping a diluted count filed in the wrong unit (backlog #343) and any count of zero or below
+    (backlog #364)."""
 
     def basis(fact: Fact) -> date:
         # a cover-page count is as of its own date; statement share counts in a filing made
@@ -645,27 +966,113 @@ def _shares(
         factor = price_split_factor(conn, result.ticker, basis(fact), price.date)
         return fact.value * factor, factor
 
-    cover = history.instants.get("shares_outstanding", [])
+    def wrong_unit(params: dict, fact: Fact, value: float, scale: int) -> dict:
+        return params | {
+            "diluted_shares_adjusted": value,
+            "scale": scale,
+            "diluted_accession_no": fact.accession_no,
+            "diluted_period_end": fact.period_end.isoformat(),
+        }
+
+    def positive(facts: list[Fact], count: str, label: str, divisor: bool) -> list[Fact]:
+        """The counts above zero, newest first. A count of zero or below is never used (backlog
+        #364). Each one newer than the newest count above zero, which it would have replaced, is
+        noted; with none above zero, only the newest is. An older one is left out silently (it
+        only leaves the fallback's middle count). `divisor`: whether the newest such count
+        would have been the run's share count, not only a check beside it."""
+        kept = [f for f in facts if f.value > 0]
+        skipped = [f for f in facts if f.value <= 0]
+        if kept:
+            skipped = [f for f in skipped if f.period_end > kept[0].period_end]
+        for fact in skipped if kept else skipped[:1]:
+            result.warn(
+                "shares_not_positive",
+                {
+                    "count": count,
+                    "value": fact.value,
+                    "accession_no": fact.accession_no,
+                    "period_end": fact.period_end.isoformat(),
+                    "divisor": divisor,
+                },
+                f"{label} for {fact.period_end} are filed as {fact.value:g} "
+                f"({fact.accession_no}); a share count must be above zero, so that count is not "
+                "used",
+            )
+        return kept
+
+    cover_filed = sorted(
+        history.instants.get("shares_outstanding", []), key=lambda f: f.period_end, reverse=True
+    )
+    cover = positive(cover_filed, "cover", "Cover-page shares", True)[:1]  # the newest, as before
     diluted = [f for (n, _y, _p), f in history.quarterly.items() if n == "diluted_shares"]
     diluted += [f for (n, _y), f in history.annual.items() if n == "diluted_shares"]
-    latest_diluted = max(diluted, key=lambda f: f.period_end) if diluted else None
+    diluted.sort(key=lambda f: f.period_end, reverse=True)
+    diluted = positive(diluted, "diluted", "Diluted shares", not cover)
+    latest_diluted = diluted[0] if diluted else None
     if cover:
         shares, factor = adjusted(cover[-1])
         method = f"cover page: {trace(cover[-1])}"
         counted = cover[-1]
     elif latest_diluted is not None:
-        shares, factor = adjusted(latest_diluted)
-        method = f"fallback: weighted diluted shares {trace(latest_diluted)}"
-        counted = latest_diluted
+        # the newest diluted count whose unit agrees with the history's middle count (the lower
+        # middle one, so it is a filed count and always agrees with itself)
+        values = [adjusted(f)[0] for f in diluted]
+        middle = sorted(values)[(len(values) - 1) // 2]
+        for fact, value in zip(diluted, values, strict=True):
+            scale = share_scale(value, middle) if len(diluted) > 1 else None
+            if scale is None:
+                counted = fact
+                break
+            result.warn(
+                "shares_scale_mismatch",
+                wrong_unit(
+                    {"median_diluted_adjusted": middle, "tolerance": SHARES_TOLERANCE},
+                    fact,
+                    value,
+                    scale,
+                ),
+                f"Diluted shares for {fact.period_end} ({value:,.0f}) look filed in the wrong "
+                f"unit: the history's middle count ({middle:,.0f}) is about {scale:,} times "
+                f"{'larger' if middle > value else 'smaller'}; that count is not used",
+            )
+        shares, factor = adjusted(counted)
+        method = f"fallback: weighted diluted shares {trace(counted)}"
     else:
+        if cover_filed or any(n.code == "shares_not_positive" for n in result.notes):
+            raise EngineError(
+                f"{result.ticker}: no share count above zero reported",
+                code="no_share_count",
+                params={
+                    "ticker": result.ticker,
+                    "reason": "none_above_zero",
+                    # the counts left out (their notes' params), since a refused run stores none
+                    "skipped": [n.params for n in result.notes if n.code == "shares_not_positive"],
+                },
+            )
         raise EngineError(
-            f"{result.ticker}: neither shares_outstanding nor diluted_shares reported"
+            f"{result.ticker}: neither shares_outstanding nor diluted_shares reported",
+            code="no_share_count",
+            params={"ticker": result.ticker, "reason": "none_reported"},
         )
     if factor != 1:
         method += f"; × {factor:g} for splits up to {price.date}"
     if cover and latest_diluted is not None:
         diluted_now, _ = adjusted(latest_diluted)
-        if abs(shares / diluted_now - 1) > SHARES_TOLERANCE:
+        scale = share_scale(shares, diluted_now)
+        if scale is not None:
+            result.warn(
+                "shares_scale_mismatch",
+                wrong_unit(
+                    {"cover_shares_adjusted": shares, "tolerance": SHARES_TOLERANCE},
+                    latest_diluted,
+                    diluted_now,
+                    scale,
+                ),
+                f"Cover-page shares ({shares:,.0f}) and diluted shares ({diluted_now:,.0f}) are "
+                f"about {scale:,} times apart, so one was filed in the wrong unit; the cover-page "
+                "count is used",
+            )
+        elif abs(shares / diluted_now - 1) > SHARES_TOLERANCE:
             result.warn(
                 "shares_cover_differs",
                 {
@@ -752,8 +1159,10 @@ def _market(
     for info_year in ERP_INFO_FIRST_YEARS:
         try:
             alt = equity_risk_premium(conn, result.as_of, info_year)
-        except ValueError:
-            continue  # fewer than the minimum years
+        except MarketDataError as e:  # an information line never refuses the run (#376 review)
+            if e.code != "erp_too_few_years":
+                raise
+            continue
         result.add(
             f"info:erp_from_{info_year}",
             alt.premium.geometric,
@@ -835,12 +1244,74 @@ def _cost_of_debt(history: History, fiscal_years: list[int], result: EngineResul
     else:
         raise EngineError(
             f"{result.ticker}: no fiscal year in {fiscal_years} reports interest "
-            "(interest_expense | interest_paid) with debt"
+            "(interest_expense | interest_paid) with debt",
+            code="no_interest_with_debt",
+            params={"ticker": result.ticker, "fiscal_years": list(fiscal_years)},
         )
 
 
 def _sum(result: EngineResult, item: str, years: list[int]) -> float:
     return sum(result.value_of(f"history:{item}", f"FY{y}") for y in years)
+
+
+def _nonzero(
+    result: EngineResult,
+    divisor: float,
+    ratio: str,
+    divisor_item: str,
+    period: str,
+    period_kind: str,
+    fact: Fact | None = None,
+) -> None:
+    """Refuse with a code when a divisor on the way to a run is exactly zero (backlog #383): a
+    `ZeroDivisionError` would carry no reason the app can show. `period_kind` says what `period`
+    is (one quarter, one year, or a sum over quarters or years), so the app never parses it.
+
+    One quarter or year comes with the divisor's `fact`, and the refusal names its period end and
+    the filing that gives it (`accession_no`; None for a figure Warren derived, whose filings are
+    `inputs`), so the app can show the date and link the report (backlog #381). A sum has no
+    single filing and takes none."""
+    assert ratio in ZERO_DIVISOR_RATIOS, ratio
+    assert divisor_item in ZERO_DIVISOR_ITEMS, divisor_item
+    assert period_kind in ZERO_DIVISOR_PERIOD_KINDS, period_kind
+    assert (fact is not None) == (period_kind in ("quarter", "year")), period_kind
+    if divisor == 0:
+        filing = (
+            {
+                "period_end": fact.period_end.isoformat(),
+                "accession_no": fact.accession_no,
+                "inputs": list(fact.inputs),
+            }
+            if fact is not None
+            else {}
+        )
+        raise EngineError(
+            f"{result.ticker}: {divisor_item} is zero in {period}, so {ratio} can't be computed",
+            code="zero_divisor",
+            params={
+                "ticker": result.ticker,
+                "ratio": ratio,
+                "divisor": divisor_item,
+                "period": period,
+                "period_kind": period_kind,
+            }
+            | filing,
+        )
+
+
+def _ratio(
+    result: EngineResult,
+    numerator: float,
+    divisor: float,
+    ratio: str,
+    divisor_item: str,
+    period: str,
+    period_kind: str,
+    fact: Fact | None = None,
+) -> float:
+    """`numerator / divisor` for a forecast ratio, refused by `_nonzero` on a zero divisor."""
+    _nonzero(result, divisor, ratio, divisor_item, period, period_kind, fact)
+    return numerator / divisor
 
 
 def _drivers(
@@ -861,7 +1332,19 @@ def _drivers(
     recent = comparisons[:HISTORY_YEARS]
     if len(recent) < HISTORY_YEARS:
         raise EngineError(
-            f"{result.ticker}: {HISTORY_YEARS} annual reports with comparatives needed"
+            f"{result.ticker}: {HISTORY_YEARS} annual reports with comparatives needed",
+            code="too_few_comparatives",
+            params={"ticker": result.ticker, "needed": HISTORY_YEARS, "found": len(recent)},
+        )
+    for c in recent:
+        _nonzero(
+            result,
+            c.prior.value,
+            "revenue_growth",
+            "revenue",
+            f"FY{c.fiscal_year - 1}",
+            "year",
+            c.prior,
         )
     start = sum(c.growth for c in recent) / len(recent)
     terminal = result.value_of("terminal_growth")
@@ -896,9 +1379,25 @@ def _drivers(
         if revenue is None:
             continue
         ebit = resolve("ebit", get, f"FY{year} Q{quarter}")
-        margins[quarter].append(ebit.value / revenue.value)
-        used.append(f"FY{year}Q{quarter}" + (" (fallback)" if ebit.fallback else ""))
         label = quarter_label(year, quarter)
+        margins[quarter].append(
+            _ratio(
+                result,
+                ebit.value,
+                revenue.value,
+                "operating_margin",
+                "revenue",
+                label,
+                "quarter",
+                revenue,
+            )
+        )
+        result.read("operating_margin", label, revenue)
+        used.append(
+            label
+            + (" (fallback)" if ebit.fallback else "")
+            + _basis_mark(result, label, revenue, ebit.facts)
+        )
         result.add(
             "history:ebit",
             ebit.value,
@@ -910,7 +1409,15 @@ def _drivers(
             "history:revenue", revenue.value, trace(revenue), label, sources=[src.filing(revenue)]
         )
         margin_rows[quarter] += [("history:ebit", label), ("history:revenue", label)]
-    annual_margin = _sum(result, "ebit", fiscal_years) / _sum(result, "revenue", fiscal_years)
+    annual_margin = _ratio(
+        result,
+        _sum(result, "ebit", fiscal_years),
+        _sum(result, "revenue", fiscal_years),
+        "operating_margin",
+        "revenue",
+        span,
+        "years_sum",
+    )
     for period in periods:
         if period in YEARS:
             margin = annual_margin
@@ -921,7 +1428,15 @@ def _drivers(
             if len(margins[quarter]) < MIN_QUARTERS_PER_LABEL:
                 raise EngineError(
                     f"{result.ticker}: fewer than {MIN_QUARTERS_PER_LABEL} reported Q{quarter} in "
-                    f"the last {HISTORY_QUARTERS} quarters"
+                    f"the last {HISTORY_QUARTERS} quarters",
+                    code="too_few_quarters",
+                    params={
+                        "ticker": result.ticker,
+                        "quarter": quarter,
+                        "needed": MIN_QUARTERS_PER_LABEL,
+                        "found": len(margins[quarter]),
+                        "window": HISTORY_QUARTERS,
+                    },
                 )
             margin = sum(margins[quarter]) / len(margins[quarter])
             method = f"average Q{quarter} EBIT / revenue of the last {HISTORY_QUARTERS} quarters"
@@ -935,35 +1450,87 @@ def _drivers(
         )
 
     # tax rate, reinvestment and working capital: 3-year annual ratios
-    tax = _sum(result, "tax", fiscal_years) / _sum(result, "pretax", fiscal_years)
-    clipped = min(max(tax, TAX_RATE_BOUNDS[0]), TAX_RATE_BOUNDS[1])
-    tax_method = f"Σ income tax / Σ pretax income, {span}"
-    if clipped != tax:
-        low, high = TAX_RATE_BOUNDS
-        result.warn(
-            "tax_rate_clipped",
-            {"tax_rate": tax, "clipped_to": clipped, "low": low, "high": high},
-            f"Effective tax rate {tax:.1%} clipped to {clipped:.0%}",
-        )
-        tax_method += f"; {tax:.2%} clipped to {TAX_RATE_BOUNDS}"
     revenue = _sum(result, "revenue", fiscal_years)
+    tax_inputs = _yearly(("tax", "pretax"), fiscal_years)
+    tax_sources = [src.derived(*tax_inputs)]
+    tax_sum = _sum(result, "tax", fiscal_years)
+    pretax_sum = _sum(result, "pretax", fiscal_years)
+    # a multiplication, so a zero pretax sum never reaches a division (backlog #385)
+    if pretax_sum <= PRETAX_MARGIN_FLOOR * revenue:
+        clipped, tax_method = _statutory_tax(
+            result, fiscal_years, span, tax_sum, pretax_sum, revenue
+        )
+        tax_inputs = _yearly(("tax", "pretax", "revenue"), fiscal_years)
+        tax_sources = [src.rule("statutory_tax_rate"), src.derived(*tax_inputs)]
+    else:
+        years = tax_years(
+            {
+                y: (
+                    result.value_of("history:pretax", f"FY{y}"),
+                    result.value_of("history:tax", f"FY{y}"),
+                )
+                for y in fiscal_years
+            }
+        )
+        if years.loss or years.outside:
+            tax, tax_method = _tax_kept_years(
+                result, fiscal_years, years, span, tax_sum, pretax_sum
+            )
+        else:
+            tax = _ratio(result, tax_sum, pretax_sum, "tax_rate", "pretax", span, "years_sum")
+            tax_method = f"Σ income tax / Σ pretax income, {span}"
+        clipped = min(max(tax, TAX_RATE_BOUNDS[0]), TAX_RATE_BOUNDS[1])
+        if clipped != tax:
+            low, high = TAX_RATE_BOUNDS
+            result.warn(
+                "tax_rate_clipped",
+                {"tax_rate": tax, "clipped_to": clipped, "low": low, "high": high},
+                f"Effective tax rate {tax:.1%} clipped to {clipped:.0%}",
+            )
+            tax_method += f"; {tax:.2%} clipped to {TAX_RATE_BOUNDS}"
     ratio_inputs = {
-        "tax_rate": _yearly(("tax", "pretax"), fiscal_years),
         "da_pct": _yearly(("d_and_a", "revenue"), fiscal_years),
         "capex_pct": _yearly(("capex", "revenue"), fiscal_years),
         "nwc_pct": _yearly(("nwc", "revenue"), fiscal_years),
     }
     ratios = {
         "tax_rate": (clipped, tax_method),
-        "da_pct": (_sum(result, "d_and_a", fiscal_years) / revenue, f"Σ D&A / Σ revenue, {span}"),
+        "da_pct": (
+            _ratio(
+                result,
+                _sum(result, "d_and_a", fiscal_years),
+                revenue,
+                "da_pct",
+                "revenue",
+                span,
+                "years_sum",
+            ),
+            f"Σ D&A / Σ revenue, {span}",
+        ),
         "capex_pct": (
-            _sum(result, "capex", fiscal_years) / revenue,
+            _ratio(
+                result,
+                _sum(result, "capex", fiscal_years),
+                revenue,
+                "capex_pct",
+                "revenue",
+                span,
+                "years_sum",
+            ),
             f"Σ capex / Σ revenue, {span}",
         ),
         "nwc_pct": (
             sum(
-                result.value_of("history:nwc", f"FY{y}")
-                / result.value_of("history:revenue", f"FY{y}")
+                _ratio(
+                    result,
+                    result.value_of("history:nwc", f"FY{y}"),
+                    result.value_of("history:revenue", f"FY{y}"),
+                    "nwc_pct",
+                    "revenue",
+                    f"FY{y}",
+                    "year",
+                    history.year(y)("revenue"),
+                )
                 for y in fiscal_years
             )
             / len(fiscal_years),
@@ -972,13 +1539,356 @@ def _drivers(
     }
     for name, (value, method) in ratios.items():
         for period in periods:
-            result.add(name, value, method, period, sources=[src.derived(*ratio_inputs[name])])
+            sources = tax_sources if name == "tax_rate" else [src.derived(*ratio_inputs[name])]
+            result.add(name, value, method, period, sources=sources)
+    statutory = any(s["kind"] == "rule" for s in tax_sources)
+    kept_years_note = any(n.code in KEPT_YEARS_NOTES for n in result.notes)
     result.add(
         "debt_tax_rate",
         clipped,
-        f"effective tax rate, {span}",
-        sources=[src.derived(*ratio_inputs["tax_rate"])],
+        tax_method if statutory or kept_years_note else f"effective tax rate, {span}",
+        sources=tax_sources,
     )
+
+
+@dataclass(frozen=True)
+class TaxYears:
+    """Which of the window's fiscal years the tax rate reads (backlogs #393 and #400)."""
+
+    loss: list[int]  # pretax of zero or below
+    outside: list[int]  # profitable, with an own rate outside TAX_RATE_BOUNDS
+    outside_left_out: bool  # False when every profitable year is outside
+    kept: list[int]
+
+
+def tax_years(pretax_tax: dict[int, tuple[float, float]]) -> TaxYears:
+    """Sort the window's years, given `{year: (pretax, tax)}`, for a window above
+    `PRETAX_MARGIN_FLOOR`. A loss year (pretax ≤ 0) is left out (#393): its tax benefit is a refund
+    on a loss, not the rate profits pay. A profitable year whose own rate is outside
+    `TAX_RATE_BOUNDS` is left out too (#400): a rate that far out comes from a one-off (the 2017
+    tax reform's charge or remeasurement, a settlement), not from the rate profits pay; unless every
+    profitable year is outside, when there would be nothing left to read and all are kept. The kept
+    years are never empty and their pretax is above zero: a window above the floor has a
+    profitable year (#393's proof), and either one of them is inside or all are kept."""
+    low, high = TAX_RATE_BOUNDS
+    years = sorted(pretax_tax)
+    loss = [y for y in years if pretax_tax[y][0] <= 0]
+    profitable = [y for y in years if y not in loss]
+    # pretax > 0, so the division is safe
+    outside = [y for y in profitable if not low <= pretax_tax[y][1] / pretax_tax[y][0] <= high]
+    left_out = len(outside) < len(profitable)
+    kept = [y for y in profitable if not (left_out and y in outside)]
+    return TaxYears(loss, outside, bool(outside) and left_out, kept)
+
+
+# The notes that say the tax rate reads only some of the window's years.
+KEPT_YEARS_NOTES = ("tax_rate_loss_year_left_out", "tax_rate_outside_year_left_out")
+
+
+def _tax_kept_years(
+    result: EngineResult,
+    fiscal_years: list[int],
+    years: TaxYears,
+    span: str,
+    tax_sum: float,
+    pretax_sum: float,
+) -> tuple[float, str]:
+    """The effective rate of the window's kept years (`tax_years`) and its notes, for a window
+    above `PRETAX_MARGIN_FLOOR` that holds a loss year (#393) or a profitable year whose own rate
+    is outside `TAX_RATE_BOUNDS` (#400). Both notes carry the same kept years and rates."""
+    kept = years.kept
+    kept_tax = _sum(result, "tax", kept)
+    kept_pretax = _sum(result, "pretax", kept)
+    rate = _ratio(result, kept_tax, kept_pretax, "tax_rate", "pretax", span, "years_sum")
+    effective = tax_sum / pretax_sum
+    units = [
+        s["unit"]
+        for s in result.sources.get(("history:pretax", f"FY{fiscal_years[-1]}"), [])
+        if s["kind"] == "filing"
+    ]
+    low, high = TAX_RATE_BOUNDS
+    kept_labels = [f"FY{y}" for y in kept]
+    kept_text = ", ".join(kept_labels)
+    shared = {
+        "kept_years": kept_labels,
+        "tax_sum": tax_sum,
+        "pretax_sum": pretax_sum,
+        "effective_rate": effective,
+        "kept_tax_sum": kept_tax,
+        "kept_pretax_sum": kept_pretax,
+        "rate": rate,
+        "rate_used": min(max(rate, low), high),
+        "clipped": not low <= rate <= high,
+        "currency": units[0] if units else None,
+        "assumptions": ["tax_rate", "debt_tax_rate"],
+    }
+    reasons = []
+    if years.loss:
+        loss_labels = [f"FY{y}" for y in years.loss]
+        loss_text = ", ".join(loss_labels)
+        were = "was a loss year" if len(years.loss) == 1 else "were loss years"
+        # with an outside year left out too, say where the missing year went (product lead)
+        also = ""
+        if years.outside_left_out:
+            out = [f"FY{y}" for y in years.outside]
+            verb = "is" if len(out) == 1 else "are"
+            also = f" ({', '.join(out)} {verb} also left out, see the next note)"
+        result.warn(
+            "tax_rate_loss_year_left_out",
+            {"period": span, "loss_years": loss_labels, **shared},
+            f"{loss_text} {were}, so the tax rate is read from {kept_text} only{also}: "
+            f"{rate:.1%} instead of {effective:.1%} over {span}",
+        )
+        reasons.append(f"{loss_text}, {'a loss year' if len(years.loss) == 1 else 'loss years'}")
+    if years.outside:
+        labels = [f"FY{y}" for y in years.outside]
+        own = [
+            result.value_of("history:tax", y) / result.value_of("history:pretax", y) for y in labels
+        ]
+        one = len(labels) == 1
+        bounds = f"{low:.0%} to {high:.0%}"
+        head = (
+            f"{', '.join(labels)}'s own tax rate{'' if one else 's'} "
+            f"{'was' if one else 'were'} {', '.join(f'{r:.1%}' for r in own)}"
+        )
+        if years.outside_left_out:
+            text = (
+                f"{head}, outside {bounds}, so the tax rate is read from {kept_text} only: "
+                f"{rate:.1%} instead of {effective:.1%} over {span}"
+            )
+            reasons.append(f"{', '.join(labels)}, own rate outside {bounds}")
+        else:
+            every = "the only profitable year" if one else "every profitable year"
+            text = (
+                f"{head}, outside {bounds}, but {'it is' if one else 'they are'} {every}, so "
+                f"none is left out: the tax rate is read from {kept_text}: {rate:.1%}"
+            )
+        result.warn(
+            "tax_rate_outside_year_left_out",
+            {
+                "period": span,
+                "outside_years": labels,
+                "outside_rates": own,
+                "low": low,
+                "high": high,
+                "outside_left_out": years.outside_left_out,
+                **shared,
+            },
+            text,
+        )
+    if not reasons:
+        return rate, f"Σ income tax / Σ pretax income, {kept_text}"
+    return (
+        rate,
+        f"Σ income tax / Σ pretax income, {kept_text} ({', left out; '.join(reasons)}, left out)",
+    )
+
+
+def _statutory_tax(
+    result: EngineResult,
+    fiscal_years: list[int],
+    span: str,
+    tax_sum: float,
+    pretax_sum: float,
+    revenue: float,
+) -> tuple[float, str]:
+    """The statutory rate and its note, for a run whose three-year pretax income is at or below
+    `PRETAX_MARGIN_FLOOR` of its revenue (backlog #385): the effective rate on such a sum is noise
+    (or its sign is meaningless), and future profits pay the statutory rate. No clip applies."""
+    try:
+        law = statutory_rate(TAX_JURISDICTION, result.as_of)
+    except StatutoryRateError as e:
+        # Warren's table of laws has no row for this country and date (backlog #395)
+        raise EngineError(
+            f"{e}; the run's three-year pretax income is at or below "
+            f"{PRETAX_MARGIN_FLOOR:.0%} of revenue, so it needs the statutory rate",
+            code="no_statutory_rate",
+            params={"jurisdiction": TAX_JURISDICTION, "as_of": result.as_of.isoformat()},
+        ) from e
+    units = [
+        s["unit"]
+        for s in result.sources.get(("history:pretax", f"FY{fiscal_years[-1]}"), [])
+        if s["kind"] == "filing"
+    ]
+    margin = pretax_sum / revenue if revenue else None
+    shown = f"{margin:.1%} of revenue" if margin is not None else "with no revenue"
+    result.warn(
+        "tax_rate_statutory",
+        {
+            "tax_sum": tax_sum,
+            "pretax_sum": pretax_sum,
+            "revenue_sum": revenue,
+            "currency": units[0] if units else None,
+            "pretax_margin": margin,
+            "effective_rate": tax_sum / pretax_sum if pretax_sum else None,
+            "floor": PRETAX_MARGIN_FLOOR,
+            "period": span,
+            "rate": law.rate,
+            "jurisdiction": law.jurisdiction,
+            "law": law.law,
+            "enacted_on": law.enacted_on.isoformat(),
+            "applies_from": law.applies_from.isoformat(),
+            "source": law.source,
+            "assumptions": ["tax_rate", "debt_tax_rate"],
+        },
+        f"Pretax income over {span} is {shown}, at or below {PRETAX_MARGIN_FLOOR:.0%}, so the "
+        f"effective tax rate means little; the {law.jurisdiction} federal statutory rate of "
+        f"{law.rate:.0%} is used instead",
+    )
+    return law.rate, (
+        f"{law.jurisdiction} federal statutory rate ({law.law}, enacted {law.enacted_on}, "
+        f"applies from {law.applies_from}); "
+        f"Σ pretax income {span} at or below {PRETAX_MARGIN_FLOOR:.0%} of Σ revenue"
+    )
+
+
+# the run parts that read revenue (backlog #297), in note order, with their English words
+MEANING_PARTS = {
+    "seed": "the revenue the forecast starts from",
+    "operating_margin": "the quarterly operating margins",
+    "history": "the annual margin and the D&A, capex and working-capital shares",
+}
+
+
+def _label_order(label: str) -> tuple[int, int]:
+    """FY2019Q3 -> (2019, 3); a year FY2019 sorts after its Q4."""
+    return int(label[2:6]), int(label[7]) if len(label) > 6 else 5
+
+
+def _and(items: list[str]) -> str:
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def _meaning_notes(
+    result: EngineResult, changes: list[MeaningChange], filed_at: dict[str, date]
+) -> None:
+    """One `run_mixes_meanings` note per change of meaning whose revenue figures the run reads
+    together are not like for like (backlog #297 item 1; the rule of the series note, v0.9.50).
+    Values, rows and methods are unchanged: a note only."""
+    facts = {k: f for part in result.revenue_read.values() for k, f in part.items()}
+    for change in dating_changes(facts.values(), changes, filed_at):
+        state = {k: state_for_change(f, change, changes, filed_at) for k, f in facts.items()}
+        if not mixes_meanings(state.values()):
+            continue
+        parts = [
+            p
+            for p in MEANING_PARTS
+            if mixes_meanings(state[k] for k in result.revenue_read.get(p, {}))
+        ]
+        split = [
+            y
+            for y in sorted(result.seed_years_times_share)
+            if mixes_meanings(state[k] for k in state if k == f"FY{y}" or k.startswith(f"FY{y}Q"))
+        ]
+        result.notes.append(_meaning_note(change, state, parts, split))
+
+
+def _meaning_note(
+    change: MeaningChange, state: dict[str, str], parts: list[str], split: list[int]
+) -> Coded:
+    groups = {
+        s: sorted((k for k, v in state.items() if v == s), key=_label_order)
+        for s in ("old", "new", "mixed", "other")
+    }
+    day = change.filed_at.isoformat()
+    gap = max(abs(new / old - 1) for _s, _e, old, new in change.periods)
+    said = []
+    if groups["old"]:
+        verb = "carries" if len(groups["old"]) == 1 else "carry"
+        said.append(f"{_and(groups['old'])} {verb} the tag's earlier meaning")
+    if groups["new"]:
+        said.append(f"{_and(groups['new'])} the meaning the {change.form} filed {day} gave it")
+    if groups["mixed"]:
+        said.append(
+            f"{_and(groups['mixed'])} a mix of both (worked out from figures filed on both sides)"
+        )
+    if groups["other"]:
+        said.append(f"{_and(groups['other'])} another tag, of unknown meaning")
+    if parts:
+        where = (
+            "These are worked out on revenue that is not like for like: "
+            f"{_and([MEANING_PARTS[p] for p in parts])}."
+        )
+    else:
+        where = (
+            "Each part of the run is on one meaning, but not the same one, so the margins and "
+            "shares may not match the revenue the forecast starts from."
+        )
+    if split:
+        years = _and([f"FY{y}" for y in split])
+        where += (
+            f" For {years} the forecast starts from the year's total as filed, split by its "
+            "quarters' shares, so only the split between quarters mixes the two."
+        )
+    text = (
+        f"This run reads revenue as {change.xbrl_concept} with more than one meaning: "
+        f"{'; '.join(said)}. {where} On the periods the change shows, the two meanings differ "
+        f"by up to {gap:.1%}; there the earlier meaning is still filed, under "
+        f"{change.other_concept}. This says nothing about other changes within either side."
+    )
+    return Coded(
+        "run_mixes_meanings",
+        {
+            "item": change.canonical_name,
+            "tag": change.xbrl_concept,
+            "other_tag": change.other_concept,
+            "changed_on": day,
+            "form": change.form,
+            "accession_no": change.accession_no,
+            "old_periods": groups["old"],
+            "new_periods": groups["new"],
+            "mixed_periods": groups["mixed"],
+            "other_tag_periods": groups["other"],
+            "parts": parts,
+            "seed_split_years": split,
+            "largest_gap": gap,
+        },
+        text,
+    )
+
+
+def _basis_mark(result: EngineResult, label: str, revenue: Fact, ebit: Iterable[Fact]) -> str:
+    """A margin quarter's mark in the margin method, and a note when its revenue and EBIT sit on
+    two bases (backlog #279): "(two bases)", "(one basis)" when a fact was put on one basis, or
+    nothing."""
+    facts = [revenue, *ebit]
+    kinds = {f.canonical_name: basis_kind(f) for f in facts}
+    if not two_bases(kinds.values()):
+        return " (one basis)" if any(f.one_basis for f in facts) else ""
+    groups = {
+        BASIS_PARAMS[k]: sorted(n for n, kind in kinds.items() if kind == k) for k in BASIS_WORDS
+    }
+    words = [
+        f"{' and '.join(n.replace('_', ' ') for n in groups[BASIS_PARAMS[k]])} {BASIS_WORDS[k]}"
+        for k in BASIS_WORDS
+        if groups[BASIS_PARAMS[k]]
+    ]
+    result.warn(
+        "margin_quarter_two_bases",
+        {"period": label, **groups},
+        f"{label}'s operating margin divides figures that are not on one basis: "
+        f"{'; '.join(words)}. It is one of the {HISTORY_QUARTERS} quarters the quarterly "
+        "margins average.",
+    )
+    return " (two bases)"
+
+
+# the basis kinds a note names, in order, with their English words (professor, #279 review:
+# "restated" is kept for the code, the text says "recast", the term for a change of basis).
+# `unchanged` only means no second version is public yet, so a figure not given again may still
+# be on the old basis (analyst, #279 review): a note lists it apart, never as fine.
+BASIS_WORDS = {
+    "first_filed": "as first reported",
+    "restated": "as recast",
+    "no_basis": "worked out from recast and unrecast figures together",
+    "unchanged": "not given again since first reported, so possibly still on the old basis",
+}
+BASIS_PARAMS = {
+    "first_filed": "first_filed",
+    "restated": "restated",
+    "no_basis": "no_basis",
+    "unchanged": "not_refiled",
+}
 
 
 def _yearly(items: tuple[str, ...], fiscal_years: list[int]) -> list[tuple[str, str]]:
@@ -991,11 +1901,14 @@ def _snapshot(conn: sqlite3.Connection, cik: str, ticker: str, price: PricePoint
         "SELECT * FROM ingest_runs WHERE cik = ? ORDER BY run_id DESC LIMIT 1", (cik,)
     ).fetchone()
     if ingest is None:
-        raise EngineError(f"{ticker}: no ingest run recorded")
+        raise EngineError(
+            f"{ticker}: no ingest run recorded", code="no_ingest_run", params={"ticker": ticker}
+        )
     return {
         "ingest_run_id": ingest["run_id"],
         "concept_map_sha256": concept_map_sha256(),
         "ingest_concept_map_sha256": ingest["concept_map_sha256"],
+        "reading_rules_version": READING_RULES_VERSION,
         "price_fetch_sha256": selected_fetch(conn, "yahoo", ticker)["content_sha256"],
     }
 
@@ -1049,6 +1962,11 @@ def post_check_notes(
                     )
                 )
 
+    # WACC set directly on a what-if (backlog #171): it is an override, not a weighted average,
+    # so say when it lies outside the two costs it would average, and that the ERP is out of it
+    if dcf.wacc_is_set(assumptions):
+        out += _wacc_set_notes(rows, outputs)
+
     # under the value-driver terminal value the spread no longer drives the value (M4)
     if dcf.terminal_method(assumptions) != dcf.GORDON:
         return out
@@ -1076,7 +1994,8 @@ def post_check_notes(
     # the same check at ERP ± 1 SE (backlog #10): revalue the run's own rows with the ERP moved,
     # the path that made the stored sensitivity; a bound with no value is noted elsewhere (#9)
     std_error = rows.get("erp_std_error", {}).get(SINGLE)
-    if std_error is None:
+    # with WACC set directly (a what-if, backlog #171) the ERP doesn't enter the rate: no bounds
+    if std_error is None or dcf.wacc_is_set(assumptions):
         return out
     erp = rows["erp"][SINGLE]
     bounds = (
@@ -1108,6 +2027,41 @@ def post_check_notes(
                     f"mostly shows how the terminal value reacts to the {word} ERP",
                 )
             )
+    return out
+
+
+def _wacc_set_notes(rows: dict, outputs: dict) -> list[Coded]:
+    wacc = rows[dcf.WACC_SET][SINGLE]
+    cost_of_equity = outputs[("cost_of_equity", SINGLE)]
+    debt_after_tax = fm.after_tax_cost_of_debt(
+        rows["cost_of_debt"][SINGLE], rows["debt_tax_rate"][SINGLE]
+    )
+    out = []
+    low, high = sorted((debt_after_tax, cost_of_equity))
+    if not low <= wacc <= high:
+        params = {
+            "wacc": wacc,
+            "cost_of_equity": cost_of_equity,
+            "after_tax_cost_of_debt": debt_after_tax,
+        }
+        out.append(
+            Coded(
+                "wacc_outside_its_parts",
+                params,
+                f"The WACC set here ({wacc:.2%}) is outside the two costs a weighted average "
+                f"would lie between (debt after tax {debt_after_tax:.2%}, equity "
+                f"{cost_of_equity:.2%}): it is an override, not a weighted average of this "
+                "run's costs",
+            )
+        )
+    out.append(
+        Coded(
+            "erp_bounds_not_computed",
+            {},
+            "Value per share at ERP ± 1 standard error is not computed: with WACC set directly "
+            "the ERP no longer enters the discount rate",
+        )
+    )
     return out
 
 

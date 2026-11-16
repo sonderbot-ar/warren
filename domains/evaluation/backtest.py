@@ -7,7 +7,10 @@ docs/designs/m8-backtest.md (Metrics).
 - Populations. `all` (the headline): every scored quarter of every case; where the variant has
   no row (the AI proposed nothing that applies), its forecast is the baseline's. `moved`: only
   the case-items whose p50 differs from the baseline in some scored quarter. `no_scope`: `all`
-  without the cases whose horizon holds a deal closing (`scope_change`). `with_shocks` (company
+  without the cases whose horizon holds a deal closing (`scope_change`). `no_basis`: `all`
+  without the case quarters whose actual is on another basis than the run (backlog #162,
+  `harness.basis_change` on the baseline row; every variant of the quarter goes with it, so the
+  pairs stay matched). `with_shocks` (company
   guidance) is only ever judged on its own cases.
 - The unit of evidence for tests is the case: a case's quarters share one run and one set of
   shocks, so they are not independent.
@@ -20,12 +23,14 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from domains.evaluation.harness import basis_change
+
 CENT = 0.005  # a p50 within half a cent of the baseline has not moved
 BOOTSTRAP_SEED = 20261102
 BOOTSTRAP_DRAWS = 10_000
 ALPHA = 0.2  # p10-p90 is the central 80% interval
 Z95 = 1.959963984540054
-POPULATIONS = ("all", "moved", "no_scope")
+POPULATIONS = ("all", "moved", "no_scope", "no_basis")
 
 
 @dataclass(frozen=True)
@@ -72,6 +77,8 @@ def pairs(
         if keep is not None and (b["case_id"], b["item"]) not in keep:
             continue
         if population == "no_scope" and b["case_id"] in scope_cases:
+            continue
+        if population == "no_basis" and basis_change(b):
             continue
         v = own.get(_key(b))
         out.append(Pair(b["case_id"], b["item"], b["horizon"], b, v or b, v is None))

@@ -29,6 +29,7 @@ from domains.fundamentals.ingest import ingest_company
 from domains.fundamentals.universe import get_universe_company
 from domains.llm import extract, propose, review
 from domains.llm.client import LLMClient
+from domains.market.coverage import RUN_SERIES
 from domains.market.prices import MARKET_INDEX, MARKET_INDEX_HISTORY_START, load_prices
 from domains.market.store import MarketDataError, require_coverage, selected_fetch
 from domains.market.yields import RISK_FREE_SERIES, load_yields
@@ -36,7 +37,7 @@ from domains.news import cluster, gdelt, store
 from domains.news.matching import load_aliases, load_headline_rule
 from domains.orchestration.state import PipelineState, SimSummary
 from domains.orchestration.telemetry import batch_id
-from shared_kernel.calendar import known_by
+from shared_kernel.calendar import case_today, known_by
 
 NEWS_DAYS = 7  # the case window: the 7 New York days ending on the as-of date (M5)
 
@@ -67,7 +68,8 @@ class Deps:
         return self._client
 
     def today(self) -> date:
-        return self.now().date()
+        """The date in New York now, not the UTC date (backlog #163)."""
+        return case_today(self.now())
 
 
 def _iso(ts: datetime) -> str:
@@ -129,7 +131,7 @@ def load_fundamentals(state: PipelineState, deps: Deps) -> dict:
     return {"cik": company["cik"], "company": company["name"], "ingest_run_id": ingest["run_id"]}
 
 
-MARKET_SERIES = (("yahoo", None), ("yahoo", MARKET_INDEX), ("fred", RISK_FREE_SERIES))
+MARKET_SERIES = RUN_SERIES  # the series a run reads, listed once (backlog #381)
 
 
 def load_market(state: PipelineState, deps: Deps) -> dict:

@@ -13,6 +13,17 @@ latest values, and the ratios a student asks about, computed here and never by t
   division goes through `financial_math`.
 - Reader-facing words are not the contract: every ratio, gap, note and warning carries a stable
   code with its parameters, and the English `text` beside it is a fallback (front-end review).
+- A derived quarter whose inputs were recast is put on one basis, as a run reads it (backlog #264,
+  #290): the line's value is the one-basis figure, the plain derivation sits beside it in
+  `plain`, and `basis_note` says why; ratios use the one-basis figure and say so.
+- A version filed with its sign flipped is skipped (backlog #280); the line it would have been
+  says so in `sign_notes`, naming both filings, and ratios that use the line say so (#282).
+- A part a filing tagged as the whole is skipped (backlog #322, P&G's 2014 10-K giving one
+  segment's revenue as `Revenues`); the line it would have been says so in `part_notes`, naming
+  both figures, and ratios that use the line say so.
+- A tag that changed meaning (#295) is noted on growth and, since #297, on the line itself
+  (`meaning_note`): which meaning its figure, its first-reported figure and its plain derivation
+  carry, "mixed" for a derived quarter worked out from figures filed on both sides of the change.
 - Values are raw, unrounded, in the line's unit (USD, shares); ratios are fractions (0.2 = 20%).
 """
 
@@ -21,13 +32,37 @@ import sqlite3
 import warnings
 from collections import defaultdict
 from collections.abc import Callable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import date
 
 from domains.analysis import financial_math as fm
-from domains.analysis.coded import Coded, coded_warnings
-from domains.analysis.math_engine import CASH_ITEMS, CHAINS, History, debt_parts
-from domains.fundamentals.facts import get_facts, newest_filing_disagreements
+from domains.analysis.coded import Coded, coded_warnings, pass_on
+from domains.analysis.math_engine import (
+    CASH_ITEMS,
+    CHAINS,
+    MINUEND_WORDS,
+    History,
+    basis_kind,
+    debt_parts,
+)
+from domains.fundamentals.facts import (
+    MEANING_CHANGE_MATCH,
+    MeaningChange,
+    Recast,
+    dating_changes,
+    filing_dates,
+    get_facts,
+    item_recasts,
+    meaning_state,
+    mixes_meanings,
+    newest_filing_disagreements,
+    side_of_recast,
+    skipped_parts_as_whole,
+    skipped_sign_flips,
+    state_for_change,
+    tag_meaning_changes,
+    version_dates,
+)
 from domains.fundamentals.schemas import Fact
 from domains.fundamentals.universe import PHASE1_UNIVERSE
 
@@ -41,7 +76,8 @@ AS_REPORTED = {
     "code": "as_reported",
     "text": (
         "Ratios are as reported: one-off charges and gains are included, and each uses the "
-        "latest value known on the as-of date."
+        "latest value known on the as-of date (a version whose sign is flipped against another "
+        "filing's version of the same period is skipped, and the line says so)."
     ),
 }
 
@@ -119,6 +155,29 @@ class Line:
     changed: bool  # latest differs from first reported (the engine knows that, not why)
     derived: bool  # computed by Warren from other periods, e.g. Q4 = FY − nine months
     mixed_vintage: bool  # derived from restated and first-reported inputs together
+    # backlog #290: a derived quarter put on one basis, as a run reads it (#264), carries the
+    # plain derivation it replaced and a coded reason (`one_basis`); otherwise False and None
+    one_basis: bool = False
+    plain: Version | None = None
+    basis_note: Coded | None = None
+    # backlog #282: one `sign_flip_skipped` note per version filed with its sign flipped that
+    # was skipped for this line (#280), its own period's or a derivation input's; usually empty
+    sign_notes: list[Coded] = field(default_factory=list)
+    # backlog #322: one `part_as_whole_skipped` note per figure a filing tagged as the whole that
+    # was skipped for this line, as the same filing gave the item more than twice as large under
+    # another tag (P&G's FY2012-FY2014 revenue in its 2014 10-K); usually empty
+    part_notes: list[Coded] = field(default_factory=list)
+    # backlog #297: a `tag_changed_meaning` note when the line's figure, its first-reported figure
+    # or its plain derivation do not all carry the same meaning of a tag that changed meaning
+    # (#295), e.g. Exxon's FY2018 revenue, first reported as sales and now total revenues and
+    # other income; otherwise None
+    meaning_note: Coded | None = None
+    # backlog #324: a quarter its filing gave only under a tag Warren ranks below the one tag of
+    # the year and the periods before it is derived on the year's tag; `tag_note` (code
+    # `quarter_on_year_tag`) gives the figure as filed. When that tag disagrees with the year
+    # (#329), the quarter is kept as filed and the code is `quarter_kept_on_own_tag` (#336).
+    # Otherwise None
+    tag_note: Coded | None = None
 
 
 @dataclass(frozen=True)
@@ -195,6 +254,9 @@ class _Views:
     latest: History
     first: dict[tuple, Fact]
     names: list[str]
+    plain: dict[tuple, Fact] = field(default_factory=dict)  # quarters before one basis (#290)
+    # a quarter derived on its year's tag (#324): the narrower figure its own filing gave
+    narrow: dict[tuple, Fact] = field(default_factory=dict)
 
 
 def _key(fact: Fact, quarterly: bool) -> tuple:
@@ -206,8 +268,12 @@ def _key(fact: Fact, quarterly: bool) -> tuple:
 def _views(conn: sqlite3.Connection, cik: str, as_of: date, quarterly: bool) -> _Views:
     names = [r[0] for r in conn.execute("SELECT DISTINCT canonical_name FROM concepts")]
     frequency = "quarterly" if quarterly else "annual"
-    latest = get_facts(conn, cik, names, as_of, frequency=frequency)
+    # quarters on one basis, as a run reads them (#290); the plain derivation is kept beside
+    latest = get_facts(conn, cik, names, as_of, frequency=frequency, one_basis=quarterly)
     first = get_facts(conn, cik, names, as_of, mode="first_reported", frequency=frequency)
+    plain = {}
+    if quarterly:
+        plain = {_key(f, True): f for f in get_facts(conn, cik, names, as_of, frequency=frequency)}
     instants: dict[str, list[Fact]] = defaultdict(list)
     for f in sorted(latest, key=lambda f: f.period_end):
         if f.period_start is None:
@@ -217,7 +283,19 @@ def _views(conn: sqlite3.Connection, cik: str, as_of: date, quarterly: bool) -> 
         annual={} if quarterly else {_key(f, False): f for f in latest},
         instants=dict(instants),
     )
-    return _Views(history, {_key(f, quarterly): f for f in first}, sorted(names))
+    narrow = {}
+    if any(f.narrower_tag for f in latest):
+        spans = {
+            (f.canonical_name, f.period_start, f.period_end, f.narrower_tag): _key(f, True)
+            for f in latest
+            if f.narrower_tag
+        }
+        for f in get_facts(conn, cik, sorted({k[0] for k in spans}), as_of):
+            key = spans.get((f.canonical_name, f.period_start, f.period_end, f.xbrl_concept))
+            if key is not None:
+                narrow[key] = f
+    first_by_key = {_key(f, quarterly): f for f in first}
+    return _Views(history, first_by_key, sorted(names), plain, narrow)
 
 
 def _getter(views: _Views, period: Period) -> Callable[[str], Fact | None]:
@@ -248,6 +326,7 @@ class _Filings:
                 (cik,),
             )
         }
+        self.filed_at = filing_dates(conn, cik)
 
     def get(self, accession_no: str) -> Filing:
         form, filed_at = self.rows.get(accession_no, (None, None))
@@ -265,9 +344,16 @@ class _Filings:
         return Version(fact.value, fact.xbrl_concept, fact.filed_at, self.get(fact.accession_no))
 
 
-def _line(fact: Fact, first: Fact | None, filings: _Filings) -> Line:
+def _line(
+    fact: Fact,
+    first: Fact | None,
+    filings: _Filings,
+    plain: Fact | None = None,
+    changes: list[MeaningChange] | None = None,
+) -> Line:
     first = first or fact
-    return Line(
+    replaced = fact.one_basis and plain is not None and plain.value != fact.value
+    line = Line(
         name=fact.canonical_name,
         unit=fact.unit,
         period_start=fact.period_start,
@@ -280,10 +366,158 @@ def _line(fact: Fact, first: Fact | None, filings: _Filings) -> Line:
         changed=fact.value != first.value,
         derived=fact.derived,
         mixed_vintage=fact.mixed_vintage,
+        one_basis=replaced,
+        plain=filings.version(plain) if replaced else None,
+        basis_note=_basis_note(fact, plain) if replaced else None,
+    )
+    if not changes:
+        return line
+    facts = {"latest": fact, "first_reported": first, "plain": plain if replaced else None}
+    return _with_meaning_note(line, facts, changes, filings)
+
+
+def _with_tag_note(line: Line, fact: Fact, narrow: Fact | None, filings: "_Filings") -> Line:
+    """A quarter derived on its year's tag says what its own filing gave (backlog #324).
+
+    When the reported lookup does not find the filing's own figure (it always has on real data),
+    the note still says the quarter was moved to the year's tag, naming the lower-ranked tag, with
+    `reported_value`, `form`, `filed_at` and `accession_no` None (backlog #329).
+
+    A quarter kept on its own lower-ranked tag because that tag disagrees with its year says so
+    too, with code `quarter_kept_on_own_tag` (backlog #336, `_kept_note`)."""
+    if fact.kept_on_own_tag is not None:
+        return replace(line, tag_note=_kept_note(fact, filings))
+    if not fact.narrower_tag:
+        return line
+    period = f"FY{fact.fiscal_year}{fact.fiscal_period}"
+    tag = fact.xbrl_concept
+    if narrow is None:
+        params = {
+            "item": fact.canonical_name,
+            "period": period,
+            "period_end": fact.period_end.isoformat(),
+            "value": fact.value,
+            "reported_value": None,
+            "reported_tag": fact.narrower_tag,
+            "tag": tag,
+            "form": None,
+            "filed_at": None,
+            "accession_no": None,
+        }
+        text = (
+            f"{fact.canonical_name} {period} (the quarter ending {fact.period_end}) is "
+            f"{fact.value:,.0f}, worked out from figures all under {tag}, the tag of the year "
+            f"and the other quarters; the company's filing gives the quarter only under "
+            f"{fact.narrower_tag}, a tag Warren ranks below it, so the four quarters would not "
+            "measure the same line or add up to the year"
+        )
+        return replace(line, tag_note=Coded("quarter_on_year_tag", params, text))
+    filing = filings.get(narrow.accession_no)
+    filed = filing.filed_at.isoformat() if filing.filed_at else None
+    note = Coded(
+        "quarter_on_year_tag",
+        {
+            "item": fact.canonical_name,
+            "period": period,
+            "period_end": fact.period_end.isoformat(),
+            "value": fact.value,
+            "reported_value": narrow.value,
+            "reported_tag": narrow.xbrl_concept,
+            "tag": tag,
+            "form": filing.form,
+            "filed_at": filed,
+            "accession_no": narrow.accession_no,
+        },
+        f"{fact.canonical_name} {period} (the quarter ending {fact.period_end}) is "
+        f"{fact.value:,.0f}, worked out from figures all under {tag}, the tag of the year and "
+        f"the other quarters; the {filing.form} filed {filed} gives the quarter as "
+        f"{narrow.value:,.0f}, but only under {narrow.xbrl_concept}, a tag Warren ranks below "
+        "it, so the four quarters would not measure the same line or add up to the year",
+    )
+    return replace(line, tag_note=note)
+
+
+def _kept_note(fact: Fact, filings: "_Filings") -> Coded:
+    """Backlog #336: a quarter its filing gave only under a tag ranked below its year's, kept as
+    filed because the same subtraction on its own tag does not give it (#329): the quarter or an
+    input was revised on that tag (the check cannot tell which), so the two tags no longer sit on
+    one basis. The four quarters then measure two lines, as before #324."""
+    kept = fact.kept_on_own_tag
+    period = f"FY{fact.fiscal_year}{fact.fiscal_period}"
+    filing = filings.get(fact.accession_no)
+    filed = filing.filed_at.isoformat() if filing.filed_at else None
+    params = {
+        "item": fact.canonical_name,
+        "period": period,
+        "period_end": fact.period_end.isoformat(),
+        "value": fact.value,
+        "own_tag": fact.xbrl_concept,
+        "year_tag": kept.year_tag,
+        "on_year_tag": kept.on_year_tag,
+        "on_own_tag": kept.on_own_tag,
+        "own_tag_inputs": list(kept.inputs),
+        "minuend": kept.minuend,
+        "on_own_filing": kept.on_own_filing,
+        "form": filing.form,
+        "filed_at": filed,
+        "accession_no": fact.accession_no,
+    }
+    # three sentences: what was filed, why it was not moved, what it means (professor, #336)
+    text = (
+        f"{fact.canonical_name} {period} (the quarter ending {fact.period_end}) is "
+        f"{fact.value:,.0f}, as the {filing.form} filed {filed} gives it under "
+        f"{fact.xbrl_concept}. The year and the other quarters use {kept.year_tag}, a tag Warren "
+        f"ranks above it, but on {fact.xbrl_concept} {_less_earlier(kept)} is "
+        f"{kept.on_own_tag:,.0f}{_own_filing_clause(kept)}, not {fact.value:,.0f}, so Warren "
+        f"keeps the quarter as filed. The four quarters therefore measure two lines and may not "
+        f"add up to the year; on {kept.year_tag} this quarter would be {kept.on_year_tag:,.0f}."
+    )
+    return Coded("quarter_kept_on_own_tag", params, text)
+
+
+def _less_earlier(kept) -> str:
+    """'the year less the earlier periods', or the six or nine months for a Q2 or Q3 (analyst)."""
+    return f"{MINUEND_WORDS.get(kept.minuend, 'the year')} less the earlier periods"
+
+
+def _own_filing_clause(kept) -> str:
+    if kept.on_own_filing is None:
+        return ""
+    return f" ({kept.on_own_filing:,.0f} with the figures in the quarter's own filing)"
+
+
+def _basis_note(fact: Fact, plain: Fact) -> Coded:
+    """Why a derived quarter's value is not the plain derivation (backlog #264, #290)."""
+    kind = basis_kind(fact)
+    period = f"FY{fact.fiscal_year}{fact.fiscal_period}"
+    if kind == "first_filed":
+        why = (
+            "a newer filing recast part of the year and no filing on the new basis gives the "
+            "whole year yet, so the quarter is worked out from the figures as first reported, "
+            "which share one basis"
+        )
+    else:
+        why = (
+            "a newer filing recast part of the year, so the quarter is worked out from the first "
+            "filing that gives the year on the same new basis"
+        )
+    return Coded(
+        "one_basis",
+        {
+            "item": fact.canonical_name,
+            "period": period,
+            "value": fact.value,
+            "plain_value": plain.value,
+            "basis": kind,
+        },
+        f"{fact.canonical_name} {period} is {fact.value:,.0f}, not {plain.value:,.0f} "
+        f"(the year less the other quarters, each its newest version): {why}",
     )
 
 
-def _lines(views: _Views, period: Period, filings: _Filings) -> list[Line]:
+def _lines(
+    views: _Views, period: Period, filings: _Filings, changes: list[MeaningChange]
+) -> list[Line]:
     """Every item the period reports: its flows, and the balances dated at its end."""
     get = _getter(views, period)
     revenue = get("revenue")
@@ -296,7 +530,9 @@ def _lines(views: _Views, period: Period, filings: _Filings) -> list[Line]:
             continue
         if fact.period_start is None and fact.period_end != revenue.period_end:
             continue  # a balance dated elsewhere is not this period's line
-        lines.append(_line(fact, views.first.get(_key(fact, period.quarterly)), filings))
+        key = _key(fact, period.quarterly)
+        line = _line(fact, views.first.get(key), filings, views.plain.get(key), changes)
+        lines.append(_with_tag_note(line, fact, views.narrow.get(key), filings))
     return lines
 
 
@@ -336,6 +572,207 @@ def _disagreements(conn, cik, lines, as_of, filings) -> list[Disagreement]:
     return out
 
 
+def _rests_on(line: Line, used: Fact) -> bool:
+    """The line's value was read from `used`: its own period's version, or for a derived quarter
+    an input of the derivation (same fiscal year, ending by the line's end, and its filing one of
+    the derivation's inputs)."""
+    if not _in_scope((used, used), line):
+        return False
+    if not line.derived:
+        return True
+    return used.accession_no in {i.accession_no for i in line.latest.inputs}
+
+
+def _with_sign_notes(line: Line, flips: list[tuple[Fact, Fact]], filings: _Filings) -> Line:
+    """The line with a `sign_flip_skipped` note for each skipped version it rests on (#282)."""
+    notes = [
+        _sign_note(line, used, skipped, filings) for used, skipped in flips if _rests_on(line, used)
+    ]
+    return replace(line, sign_notes=notes) if notes else line
+
+
+def _with_part_notes(line: Line, parts: list[tuple[Fact, Fact]], filings: _Filings) -> Line:
+    """The line with a `part_as_whole_skipped` note for each skipped part it rests on (#322)."""
+    notes = [
+        _part_note(line, used, skipped, filings)
+        for used, skipped in parts
+        if _rests_on(line, used) or _first_rests_on(line, skipped)
+    ]
+    return replace(line, part_notes=notes) if notes else line
+
+
+def _first_rests_on(line: Line, skipped: Fact) -> bool:
+    """The line's first-reported figure comes from the filing whose part was skipped."""
+    if not _in_scope((skipped, skipped), line):
+        return False
+    first = line.first_reported
+    first_filings = [first.filing] if first.filing else first.inputs
+    return skipped.accession_no in {f.accession_no for f in first_filings}
+
+
+def _part_note(line: Line, used: Fact, skipped: Fact, filings: _Filings) -> Coded:
+    """Why the line's figure is not the one a filing gave under a higher-ranked tag (#322)."""
+    period = f"FY{line.fiscal_year}{_q(line)}"
+    skip = {**_filing_params(skipped, filings), "xbrl_concept": skipped.xbrl_concept}
+    use = {**_filing_params(used, filings), "xbrl_concept": used.xbrl_concept}
+    text = (
+        f"{line.name} {period}: the {skip['form']} filed {skip['filed_at']} tagged "
+        f"{skipped.value:,.0f} as {skipped.xbrl_concept} for "
+        f"{used.period_start or ''}–{used.period_end}, less than half of what the same filing "
+        f"gives under another tag of the item; treated as a part tagged as the whole and "
+        f"skipped, so the figure is {used.value:,.0f} ({used.xbrl_concept}, {use['form']} filed "
+        f"{use['filed_at']})"
+    )
+    return Coded(
+        "part_as_whole_skipped",
+        {
+            "item": line.name,
+            "period": period,
+            "input_start": used.period_start.isoformat() if used.period_start else None,
+            "input_end": used.period_end.isoformat(),
+            "used": use,
+            "skipped": skip,
+            "first_reported_skipped": _first_rests_on(line, skipped),
+        },
+        text,
+    )
+
+
+def _filing_params(fact: Fact, filings: _Filings) -> dict:
+    filing = filings.get(fact.accession_no)
+    return {
+        "accession_no": fact.accession_no,
+        "form": filing.form,
+        "filed_at": fact.filed_at.isoformat(),
+        "value": fact.value,
+    }
+
+
+def _sign_note(line: Line, used: Fact, skipped: Fact, filings: _Filings) -> Coded:
+    """Why the line's figure is not the version a filing tagged with the opposite sign (#280)."""
+    period = f"FY{line.fiscal_year}{_q(line)}"
+    first = line.first_reported
+    first_filings = [first.filing] if first.filing else first.inputs
+    first_skipped = skipped.accession_no in {f.accession_no for f in first_filings}
+    skip, use = _filing_params(skipped, filings), _filing_params(used, filings)
+    text = (
+        f"{line.name} {period}: the {skip['form']} filed {skip['filed_at']} tagged "
+        f"{skipped.value:,.0f} for {used.period_start or ''}–{used.period_end}, the opposite sign "
+        f"of {used.value:,.0f} in the {use['form']} filed {use['filed_at']}; treated as a "
+        "sign-tagging error and skipped"
+    )
+    size_differs = abs(skipped.value) != abs(used.value)
+    if first_skipped and not size_differs:
+        text += " (the figure differs from the first reported because of this, not a restatement)"
+    elif first_skipped:
+        text += (
+            " (the figure differs from the first reported because of this; the size changed "
+            "too, so part of the change is a revision)"
+        )
+    return Coded(
+        "sign_flip_skipped",
+        {
+            "item": line.name,
+            "period": period,
+            "input_start": used.period_start.isoformat() if used.period_start else None,
+            "input_end": used.period_end.isoformat(),
+            "used": use,
+            "skipped": skip,
+            "first_reported_skipped": first_skipped,
+            "size_differs": size_differs,
+        },
+        text,
+    )
+
+
+def _with_meaning_note(
+    line: Line, facts: dict[str, Fact | None], changes: list[MeaningChange], filings: "_Filings"
+) -> Line:
+    """The line with a `tag_changed_meaning` note when its figures carry different meanings of
+    a changed tag (backlog #297). `facts` holds the line's latest, first-reported and plain
+    `Fact`s (the plain one only when it was replaced by a one-basis figure)."""
+    states = {
+        k: meaning_state(f, changes, filings.filed_at) for k, f in facts.items() if f is not None
+    }
+    change = next((c for _s, c in states.values() if c is not None), None)
+    meaning = {k: s for k, (s, _c) in states.items()}
+    if change is None or (len(set(meaning.values())) == 1 and "mixed" not in meaning.values()):
+        return line
+    return replace(line, meaning_note=_meaning_line_note(line, change, meaning))
+
+
+_MEANING_WORDS = {
+    "new": "the meaning the {form} filed {day} gave the tag",
+    "old": "the tag's earlier meaning",
+    "mixed": "both meanings: it is worked out from figures filed before and after the change",
+}
+
+
+def _meaning_line_note(line: Line, change: MeaningChange, meaning: dict[str, str]) -> Coded:
+    """Which meaning each of the line's figures carries, and what that does to `changed`."""
+    period = f"FY{line.fiscal_year}{_q(line)}"
+    day = change.filed_at.isoformat()
+
+    def words(state: str) -> str:
+        return _MEANING_WORDS[state].format(form=change.form, day=day)
+
+    first_differs = meaning["first_reported"] != meaning["latest"]
+    whole = _whole_change(line, change) if first_differs else None
+    text = f"{line.name} {period} is {change.xbrl_concept} with {words(meaning['latest'])}"
+    if first_differs:
+        text += (
+            f"; the first-reported {line.first_reported.value:,.0f} has "
+            f"{words(meaning['first_reported'])}, whose figures are still filed under "
+            f"{change.other_concept}. "
+        )
+        text += (
+            "The difference from the first reported comes from the move to a different line, "
+            "not a restatement"
+            if whole
+            else "At least part of the difference from the first reported comes from the move "
+            "to a different line, not a restatement; the rest may be a revision"
+        )
+    if "plain" in meaning and meaning["plain"] != meaning["latest"]:
+        text += (
+            f"; the year less the other quarters, each its newest version, would have "
+            f"{words(meaning['plain'])}"
+        )
+    return Coded(
+        "tag_changed_meaning",
+        {
+            "item": line.name,
+            "period": period,
+            "tag": change.xbrl_concept,
+            "other_tag": change.other_concept,
+            "changed_on": day,
+            "form": change.form,
+            "accession_no": change.accession_no,
+            "meaning": meaning["latest"],
+            "first_reported_meaning": meaning["first_reported"],
+            "plain_meaning": meaning.get("plain"),
+            "first_reported_differs": first_differs,
+            "whole_change": whole,
+        },
+        text,
+    )
+
+
+def _whole_change(line: Line, change: MeaningChange) -> bool | None:
+    """Whether the new meaning explains all of the change from the first reported: the line's
+    own period is one the change shows, its first-reported figure is the tag's value before the
+    change and its value the tag's value after (within `MEANING_CHANGE_MATCH`). False when the
+    period shows the change but either differs (part is a revision); None when the period is not
+    one the change shows, as for a derived quarter (not known, so the text hedges)."""
+    for start, end, old, new in change.periods:
+        if (start, end) == (line.period_start, line.period_end) and not line.derived:
+            return _close(line.first_reported.value, old) and _close(line.value, new)
+    return None
+
+
+def _close(value: float, target: float) -> bool:
+    return abs(value - target) <= MEANING_CHANGE_MATCH * abs(target)
+
+
 def reported_period(
     conn: sqlite3.Connection, ticker: str, period: str | Period, as_of: date
 ) -> ReportedPeriod:
@@ -356,15 +793,36 @@ def reported_period(
         views = _views(conn, cik, as_of, quarterly)
         resolved = resolved or latest_period(views, quarterly)
         filings = _Filings(conn, cik)
-        lines = _lines(views, resolved, filings)
+        changes = tag_meaning_changes(conn, cik, ["revenue"], as_of)
+        lines = _lines(views, resolved, filings, changes)
         disagreements = _disagreements(conn, cik, lines, as_of, filings)
+        flips = skipped_sign_flips(conn, cik, sorted({x.name for x in lines}), as_of)
+        parts = skipped_parts_as_whole(conn, cik, sorted({x.name for x in lines}), as_of)
     prior = resolved.year_earlier()
     prior_revenue = _getter(views, prior)("revenue")
+    prior_key = _key(prior_revenue, quarterly) if prior_revenue else None
     prior_lines = (
-        [_line(prior_revenue, views.first.get(_key(prior_revenue, quarterly)), filings)]
+        [
+            _with_tag_note(
+                _line(
+                    prior_revenue,
+                    views.first.get(prior_key),
+                    filings,
+                    views.plain.get(prior_key),
+                    changes,
+                ),
+                prior_revenue,
+                views.narrow.get(prior_key),
+                filings,
+            )
+        ]
         if prior_revenue
         else []
     )
+    lines = [_with_sign_notes(x, flips, filings) for x in lines]
+    prior_lines = [_with_sign_notes(x, flips, filings) for x in prior_lines]
+    lines = [_with_part_notes(x, parts, filings) for x in lines]
+    prior_lines = [_with_part_notes(x, parts, filings) for x in prior_lines]
     revenue = next(x for x in lines if x.name == "revenue")
     universe = next((c for c in PHASE1_UNIVERSE if c.cik == cik), None)
     return ReportedPeriod(
@@ -381,7 +839,7 @@ def reported_period(
         as_of=as_of,
         lines=lines,
         prior_lines=prior_lines,
-        ratios=_ratios(views, resolved, lines, prior_lines),
+        ratios=_ratios(views, resolved, lines, prior_lines, changes, filings.filed_at),
         disagreements=disagreements,
         as_reported_note=Coded(AS_REPORTED["code"], {}, AS_REPORTED["text"]),
         warnings=_coded_warnings(caught, universe),
@@ -390,7 +848,10 @@ def reported_period(
 
 def _coded_warnings(caught, universe) -> list[Coded]:
     """The caught warnings, coded as a run's are (backlog #172): `beyond_history` carries
-    `history_ends` and, since #172, `ticker`, `cik`, `as_of` and `note`."""
+    `history_ends` and, since #172, `ticker`, `cik`, `as_of` and `note`; since #196, `reason`,
+    `successor_cik` and `successor_name`. A warning that is not Warren's own goes back to the
+    log."""
+    pass_on(caught)
     return coded_warnings(caught)
 
 
@@ -418,14 +879,107 @@ def _uses(facts: list[Fact], period: Period) -> list[dict]:
 
 
 def _changed_note(facts: list[Fact], lines: list[Line]) -> list[Coded]:
-    changed = [x.name for x in lines if x.changed and x.name in {f.canonical_name for f in facts}]
-    if not changed:
+    names = {f.canonical_name for f in facts}
+    changed = [x.name for x in lines if x.changed and x.name in names]
+    out = []
+    if changed:
+        out.append(
+            Coded(
+                "uses_changed_line",
+                {"items": changed},
+                f"uses the latest value of {', '.join(changed)}, which differs from the first "
+                "reported",
+            )
+        )
+    used = [x for x in lines if x.name in names]
+    return (
+        out
+        + _year_tag_note(used)
+        + _one_basis_note(used)
+        + _sign_checked_note(used)
+        + _part_checked_note(used)
+    )
+
+
+def _year_tag_note(lines: list[Line]) -> list[Coded]:
+    """A ratio that uses a quarter derived on its year's tag says so (backlog #324), and one
+    that uses a quarter kept on its own lower-ranked tag (backlog #336)."""
+    out = []
+    texts = {
+        "quarter_on_year_tag": (
+            "uses_quarter_on_year_tag",
+            "worked out on the year's tag, not the figure its filing gave under a lower-ranked "
+            "tag (see the line)",
+        ),
+        "quarter_kept_on_own_tag": (
+            "uses_quarter_kept_on_own_tag",
+            "as filed under a tag ranked below the year's, because that tag disagrees with the "
+            "year (see the line)",
+        ),
+    }
+    for line_code, (code, words) in texts.items():
+        used = [x for x in lines if x.tag_note and x.tag_note.code == line_code]
+        if not used:
+            continue
+        items = list(dict.fromkeys(x.name for x in used))
+        periods = sorted({f"FY{x.fiscal_year}{_q(x)}" for x in used})
+        out.append(
+            Coded(
+                code,
+                {"items": items, "periods": periods},
+                f"uses {', '.join(items)} for {', '.join(periods)} {words}",
+            )
+        )
+    return out
+
+
+def _one_basis_note(lines: list[Line]) -> list[Coded]:
+    """A ratio that uses a quarter put on one basis says so (backlog #290)."""
+    used = [x for x in lines if x.one_basis]
+    if not used:
         return []
+    items = list(dict.fromkeys(x.name for x in used))
+    periods = sorted({f"FY{x.fiscal_year}{_q(x)}" for x in used})
     return [
         Coded(
-            "uses_changed_line",
-            {"items": changed},
-            f"uses the latest value of {', '.join(changed)}, which differs from the first reported",
+            "uses_one_basis_line",
+            {"items": items, "periods": periods},
+            f"uses {', '.join(items)} for {', '.join(periods)} on one basis, not the plain "
+            "derivation (see the line)",
+        )
+    ]
+
+
+def _sign_checked_note(lines: list[Line]) -> list[Coded]:
+    """A ratio that uses a line where a version filed with its sign flipped was skipped (#282)."""
+    used = [x for x in lines if x.sign_notes]
+    if not used:
+        return []
+    items = list(dict.fromkeys(x.name for x in used))
+    periods = sorted({f"FY{x.fiscal_year}{_q(x)}" for x in used})
+    return [
+        Coded(
+            "uses_sign_checked_line",
+            {"items": items, "periods": periods},
+            f"uses {', '.join(items)} for {', '.join(periods)}, where a version filed with its "
+            "sign flipped was skipped (see the line)",
+        )
+    ]
+
+
+def _part_checked_note(lines: list[Line]) -> list[Coded]:
+    """A ratio that uses a line where a part tagged as the whole was skipped (#322)."""
+    used = [x for x in lines if x.part_notes]
+    if not used:
+        return []
+    items = list(dict.fromkeys(x.name for x in used))
+    periods = sorted({f"FY{x.fiscal_year}{_q(x)}" for x in used})
+    return [
+        Coded(
+            "uses_part_checked_line",
+            {"items": items, "periods": periods},
+            f"uses {', '.join(items)} for {', '.join(periods)}, where a part a filing tagged as "
+            "the whole was skipped (see the line)",
         )
     ]
 
@@ -468,7 +1022,14 @@ QUARTERLY_TAX_NOTE = Coded(
 )
 
 
-def _ratios(views: _Views, period: Period, lines: list[Line], prior_lines: list[Line]):
+def _ratios(
+    views: _Views,
+    period: Period,
+    lines: list[Line],
+    prior_lines: list[Line],
+    changes: list[MeaningChange] = (),
+    filed_at: dict[str, date] | None = None,
+):
     get = _getter(views, period)
     revenue = get("revenue")
     out = []
@@ -515,7 +1076,7 @@ def _ratios(views: _Views, period: Period, lines: list[Line], prior_lines: list[
             )
         )
 
-    out.append(_growth(views, period, revenue, lines, prior_lines))
+    out.append(_growth(views, period, revenue, lines, prior_lines, changes, filed_at))
 
     for chain, name, words in (("capex", "capex_share", "capex"), ("d_and_a", "da_share", "D&A")):
         facts, i, missing = _chain(chain, get)
@@ -530,10 +1091,41 @@ def _ratios(views: _Views, period: Period, lines: list[Line], prior_lines: list[
 
     out.append(_tax(get, period, lines))
     out.append(_net_debt(views, revenue, period, lines))
+    out.append(_net_margin(get, revenue, period, lines))
     return out
 
 
-def _growth(views, period, revenue, lines, prior_lines) -> Ratio:
+NET_MARGIN_FORMULA = (
+    "net income attributable to the parent's shareholders ÷ revenue (after the non-controlling "
+    "interests' share; includes discontinued operations)"
+)
+
+
+def _net_margin(get, revenue: Fact, period: Period, lines: list[Line]) -> Ratio:
+    """Net income to the parent over revenue (backlog #157). Discontinued operations stay in, as
+    the filing reports them, and a coded note gives their amount and, when it is one, their share
+    of net income, so a one-off exit is not read as a better business."""
+    name, fid = "net_margin", "net_income_to_parent_over_revenue"
+    net_income = get("net_income")
+    if net_income is None:
+        return _gap(name, fid, NET_MARGIN_FORMULA, ["net_income"])
+    notes, used = [], [net_income]
+    discontinued = get("discontinued_operations")
+    if discontinued is not None and discontinued.value != 0:
+        used.append(discontinued)
+        params = {"amount": discontinued.value, "currency": discontinued.unit}
+        text = f"includes {discontinued.value:,.0f} from discontinued operations"
+        if net_income.value > 0 and 0 < discontinued.value <= net_income.value:
+            share = fm.ratio(discontinued.value, net_income.value)
+            params["share_of_net_income"] = share
+            text += f" ({share:.0%} of net income)"
+        notes.append(Coded("includes_discontinued_operations", params, text))
+    return _ratio(
+        name, fid, NET_MARGIN_FORMULA, [net_income], [revenue], lines, period, notes, used
+    )
+
+
+def _growth(views, period, revenue, lines, prior_lines, changes=(), filed_at=None) -> Ratio:
     prior_period = period.year_earlier()
     formula = f"revenue {period.label} ÷ revenue {prior_period.label} − 1"
     fid = "revenue_yoy"
@@ -587,8 +1179,62 @@ def _growth(views, period, revenue, lines, prior_lines) -> Ratio:
                 + ", ".join(periods),
             )
         )
+    notes += _year_tag_note([x for x in [*lines, *prior_lines] if x.name == "revenue"])
+    notes += _one_basis_note([x for x in [*lines, *prior_lines] if x.name == "revenue"])
+    notes += _sign_checked_note([x for x in [*lines, *prior_lines] if x.name == "revenue"])
+    notes += _part_checked_note([x for x in [*lines, *prior_lines] if x.name == "revenue"])
+    notes += _meaning_note(revenue, prior, period, prior_period, changes, filed_at)
     value = fm.growth(revenue.value, prior.value)
     return Ratio("revenue_growth_yoy", fid, formula, value, "fraction", uses, None, notes)
+
+
+def _meaning_note(revenue, prior, period, prior_period, changes, filed_at) -> list[Coded]:
+    """Growth across a tag that changed meaning (backlog #295): one period's revenue carries the
+    tag's new meaning, the other its old one, so the two are not like for like. Since #297 a
+    derived quarter worked out from figures filed on both sides of the change is "mixed", and
+    growth with a mixed period is noted too (`mixed` names it; `new_meaning` or `old_meaning`
+    is null when no period carries that meaning alone)."""
+    state, change = meaning_state(revenue, changes, filed_at)
+    prior_state, prior_change = meaning_state(prior, changes, filed_at)
+    change = change or prior_change
+    if change is None or (state == prior_state and state != "mixed"):
+        return []
+    labels = {period.label: state, prior_period.label: prior_state}
+    newer = next((k for k, v in labels.items() if v == "new"), None)
+    older = next((k for k, v in labels.items() if v == "old"), None)
+    mixed = [k for k, v in labels.items() if v == "mixed"]
+    day = change.filed_at.isoformat()
+    if not mixed:
+        text = (
+            f"revenue for {newer} is {change.xbrl_concept} with the meaning the {change.form} "
+            f"filed {day} gave it; {older} has its earlier meaning, whose figures are still "
+            f"filed under {change.other_concept}. The two measure different lines: not like "
+            "for like"
+        )
+    else:
+        text = (
+            f"revenue for {' and '.join(mixed)} is worked out from {change.xbrl_concept} figures "
+            f"filed before and after the {change.form} of {day} gave the tag a new meaning, so "
+            "it mixes two different lines (the earlier meaning is still filed under "
+            f"{change.other_concept}): not like for like"
+        )
+    return [
+        Coded(
+            "tag_changed_meaning",
+            {
+                "item": "revenue",
+                "tag": change.xbrl_concept,
+                "other_tag": change.other_concept,
+                "changed_on": day,
+                "form": change.form,
+                "accession_no": change.accession_no,
+                "new_meaning": newer,
+                "old_meaning": older,
+                "mixed": mixed,
+            },
+            text,
+        )
+    ]
 
 
 def _q(line: Line) -> str:
@@ -661,3 +1307,254 @@ def _net_debt(views: _Views, revenue: Fact, period: Period, lines: list[Line]) -
         notes.append(Coded("net_cash", {}, "negative: the company holds more cash than debt"))
     notes += _changed_note(facts, lines)
     return Ratio("net_debt", fid, formula, value, revenue.unit, uses, None, notes)
+
+
+# -- backlog #297 item 2: a series of periods across a tag that changed meaning ---------------
+
+SERIES_MAX_PERIODS = 20
+
+
+@dataclass(frozen=True)
+class ReportedSeries:
+    """Several fiscal periods asked together (brief Q2), each exactly as `reported_period` gives
+    it, in time order, with notes about the series as a whole."""
+
+    ticker: str
+    cik: str
+    company_name: str
+    as_of: date
+    periods: list[ReportedPeriod]
+    notes: list[Coded]
+
+    def to_dict(self) -> dict:
+        """Plain JSON types: dates as ISO text, numbers unrounded."""
+        return _plain(asdict(self))
+
+
+def reported_series(
+    conn: sqlite3.Connection, ticker: str, periods: list[str | Period], as_of: date
+) -> ReportedSeries:
+    """Several fiscal years, or several quarters, as known on `as_of`, and a
+    `series_mixes_meanings` note when their revenue figures do not all carry one meaning of a
+    tag that changed meaning (Exxon's FY2016 revenue is sales, its FY2017 total revenues and
+    other income, so a margin series across them is not like for like)."""
+    if not periods:
+        raise ReportedError("a series needs at least one period")
+    if len(periods) > SERIES_MAX_PERIODS:
+        raise ReportedError(f"a series takes at most {SERIES_MAX_PERIODS} periods")
+    answers = [reported_period(conn, ticker, p, as_of) for p in periods]
+    labels = [r.period for r in answers]
+    if len(set(labels)) != len(labels):
+        twice = sorted({x for x in labels if labels.count(x) > 1})
+        raise ReportedError(f"a period is asked twice: {', '.join(twice)}")
+    if len({r.fiscal_period == "FY" for r in answers}) > 1:
+        raise ReportedError("a series is all fiscal years or all quarters, not both")
+    answers.sort(key=lambda r: r.period_end)
+    first = answers[0]
+    return ReportedSeries(
+        ticker=first.ticker,
+        cik=first.cik,
+        company_name=first.company_name,
+        as_of=as_of,
+        periods=answers,
+        notes=_series_meaning_notes(conn, answers, as_of)
+        + _series_recast_notes(conn, answers, as_of),
+    )
+
+
+def _series_meaning_notes(
+    conn: sqlite3.Connection, answers: list[ReportedPeriod], as_of: date
+) -> list[Coded]:
+    """One `series_mixes_meanings` note per change of meaning whose periods in the series do not
+    all carry its new meaning, when at least one does (or any is a mix). A period's state is
+    `meaning_state` on the very fact its revenue line shows (one-basis for a quarter). A period
+    filed under the changed tag, or under the tag that keeps the earlier meaning, before the
+    change is "old"; one filed under any other tag is "other" (nothing is known of its meaning).
+    The note says where this break is; it says nothing about other changes on either side (a
+    recast that no other tag records is `series_mixes_vintages`, #297 item 13)."""
+    cik, quarterly = answers[0].cik, answers[0].fiscal_period != "FY"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # each period already carries its coded warnings
+        changes = tag_meaning_changes(conn, cik, ["revenue"], as_of)
+        if not changes:
+            return []
+        views = _views(conn, cik, as_of, quarterly)
+    filed_at = _Filings(conn, cik).filed_at
+    facts = {r.period: _getter(views, parse_period(r.period))("revenue") for r in answers}
+    ratios = _revenue_ratios(answers)
+    notes = []
+    for change in dating_changes(facts.values(), changes, filed_at):
+        of = {k: state_for_change(f, change, changes, filed_at) for k, f in facts.items()}
+        if mixes_meanings(of.values()):
+            notes.append(_series_note(change, of, ratios))
+    return notes
+
+
+def _series_note(change: MeaningChange, of: dict[str, str], ratios: list[str]) -> Coded:
+    kinds = ("old", "new", "mixed", "other")
+    groups = {s: [k for k, v in of.items() if v == s] for s in kinds}
+    day = change.filed_at.isoformat()
+    parts = []
+    if groups["old"]:
+        verb = "carries" if len(groups["old"]) == 1 else "carry"
+        parts.append(f"{_and(groups['old'])} {verb} the tag's earlier meaning")
+    if groups["new"]:
+        parts.append(f"{_and(groups['new'])} the meaning the {change.form} filed {day} gave it")
+    if groups["mixed"]:
+        parts.append(
+            f"{_and(groups['mixed'])} a mix of both (worked out from figures filed on both sides)"
+        )
+    if groups["other"]:
+        parts.append(f"{_and(groups['other'])} another tag, of unknown meaning")
+    on = f", and the ratios on it ({', '.join(ratios)})," if ratios else ""
+    text = (
+        f"revenue in this series is {change.xbrl_concept} with more than one meaning: "
+        f"{'; '.join(parts)}. Across that break revenue{on} are not like for like. Only the "
+        f"periods the change shows are also filed on the earlier meaning, under "
+        f"{change.other_concept}. This says nothing about other changes within either side."
+    )
+    return Coded(
+        "series_mixes_meanings",
+        {
+            "item": change.canonical_name,
+            "tag": change.xbrl_concept,
+            "other_tag": change.other_concept,
+            "changed_on": day,
+            "form": change.form,
+            "accession_no": change.accession_no,
+            "old_periods": groups["old"],
+            "new_periods": groups["new"],
+            "mixed_periods": groups["mixed"],
+            "other_tag_periods": groups["other"],
+            "ratios": ratios,
+        },
+        text,
+    )
+
+
+# -- backlog #297 item 13: a series across a recast that left some of its periods unchanged ----
+
+ANNUAL_MIN_DAYS = 300  # a recast counts for a series of years only when it moved a year
+QUARTER_SPAN = (80, 100)  # and for a series of quarters only when it moved a quarter (#325)
+
+
+def _series_recast_notes(
+    conn: sqlite3.Connection, answers: list[ReportedPeriod], as_of: date
+) -> list[Coded]:
+    """One `series_mixes_vintages` note per recast of revenue (`facts.item_recasts`: a filing
+    gave earlier periods new figures, and no tag still holds the old ones) that leaves the series
+    on both sides: at least one period every filing of which came before the recast, and at least
+    one reported in it or after it (or, for a derived quarter, worked out across it). A series of
+    years counts only recasts that moved a year. A series of quarters counts recasts that moved
+    a quarter or a year, and gives the largest quarter move, or the year's when no quarter moved
+    (`largest_move_on`, backlog #325): a restated year restates its quarters even when they are
+    not tagged (Apple's 10-K/A of 2010-01-25, analyst, design review), while a filing that moved
+    only half years or nine months moved nothing a quarter series shows. A recast whose split
+    repeats an earlier one's is left out (Johnson & Johnson's 10-Q of 2023-10-27, then its 10-K
+    of 2024-02-16)."""
+    cik, quarterly = answers[0].cik, answers[0].fiscal_period != "FY"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # each period already carries its coded warnings
+        recasts = [
+            r
+            for r in item_recasts(conn, cik, "revenue", as_of)
+            if r.largest_move(ANNUAL_MIN_DAYS) is not None
+            or (quarterly and r.largest_move(*QUARTER_SPAN) is not None)
+        ]
+        if not recasts:
+            return []
+        views = _views(conn, cik, as_of, quarterly)
+        versions = version_dates(conn, cik, "revenue", as_of)
+    filed_at = _Filings(conn, cik).filed_at
+    facts = {r.period: _getter(views, parse_period(r.period))("revenue") for r in answers}
+    ratios = _revenue_ratios(answers)
+    notes, seen = [], set()
+    for recast in recasts:
+        side = {k: side_of_recast(f, recast, versions, filed_at) for k, f in facts.items()}
+        split = tuple(sorted(side.items()))
+        if "before" not in side.values() or set(side.values()) == {"before"} or split in seen:
+            continue
+        move_on = "quarter"
+        move = recast.largest_move(*QUARTER_SPAN) if quarterly else None
+        if move is None:
+            move_on = "year"
+            move = recast.largest_move(ANNUAL_MIN_DAYS)
+        if move is None:  # guard only: the filter above keeps recasts with a move of this span
+            continue
+        seen.add(split)
+        moved = [k for k, f in facts.items() if _moved_by(f, recast)]
+        notes.append(_recast_note(recast, side, moved, ratios, move, move_on, quarterly))
+    return notes
+
+
+def _revenue_ratios(answers: list[ReportedPeriod]) -> list[str]:
+    return sorted(
+        {x.name for r in answers for x in r.ratios if any(u["line"] == "revenue" for u in x.uses)}
+    )
+
+
+def _moved_by(fact: Fact, recast: Recast) -> bool:
+    return not fact.derived and any(
+        (s, e) == (fact.period_start, fact.period_end) for s, e, _o, _n in recast.periods
+    )
+
+
+_YEAR_MOVE = " on a full year; it moved no tagged quarter"
+
+
+def _recast_note(
+    recast: Recast,
+    side: dict[str, str],
+    moved: list[str],
+    ratios: list[str],
+    move: float,
+    move_on: str = "year",
+    quarterly: bool = False,
+) -> Coded:
+    groups = {s: [k for k, v in side.items() if v == s] for s in ("before", "after", "mixed")}
+    day = recast.filed_at.isoformat()
+    verb = "keeps" if len(groups["before"]) == 1 else "keep"
+    parts = [
+        f"the {recast.form} filed {day} {'lowered' if move < 0 else 'raised'} revenue figures "
+        f"already reported (by up to {abs(move):.1%}"
+        f"{_YEAR_MOVE if quarterly and move_on == 'year' else ''})"
+        f"{', including ' + _and(moved) if moved else ''}",
+        f"{_and(groups['before'])} {verb} figures filed before it, with no later version in the "
+        "filings' tagged data",
+    ]
+    if groups["after"]:
+        parts.append(
+            f"{_and(groups['after'])} {'is' if len(groups['after']) == 1 else 'are'} "
+            "as filed in it or later"
+        )
+    if groups["mixed"]:
+        verb = "is" if len(groups["mixed"]) == 1 else "are"
+        parts.append(f"{_and(groups['mixed'])} {verb} worked out from figures on both sides")
+    on = f", and the ratios on it ({', '.join(ratios)})," if ratios else ""
+    text = (
+        f"revenue in this series is not all on one footing: {'; '.join(parts)}. Across that "
+        f"break revenue{on} may not be like for like. Warren does not know why the figures "
+        f"changed (for example a business separated, sold or brought back, a new accounting "
+        f"rule, a change in presentation, or a correction); the {recast.form} explains it."
+    )
+    return Coded(
+        "series_mixes_vintages",
+        {
+            "item": recast.canonical_name,
+            "recast_on": day,
+            "form": recast.form,
+            "accession_no": recast.accession_no,
+            "largest_move": move,
+            "largest_move_on": move_on,
+            "moved_periods": moved,
+            "before_periods": groups["before"],
+            "after_periods": groups["after"],
+            "mixed_periods": groups["mixed"],
+            "ratios": ratios,
+        },
+        text,
+    )
+
+
+def _and(labels: list[str]) -> str:
+    return labels[0] if len(labels) == 1 else ", ".join(labels[:-1]) + " and " + labels[-1]

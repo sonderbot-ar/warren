@@ -287,3 +287,55 @@ def test_property_the_runs_own_wacc_as_override_is_the_run(growth, beta, debt, g
     assert dcf.compute(inp.replace(wacc_override=dcf.base_wacc(inp))).outputs() == (
         dcf.compute(inp).outputs()
     )
+
+
+# -- WACC set directly as a stored row (a what-if child, backlog #171) ---------------------------
+
+
+@pytest.mark.parametrize("method", [dcf.GORDON, dcf.VALUE_DRIVER])
+def test_a_wacc_row_values_as_the_in_memory_override(method):
+    base = rows(growth=0.01, debt=500.0, roll_years=0.4)
+    inp = dcf.inputs(base).replace(terminal_method=method)
+    with_row = dcf.inputs(base + [row("wacc", 0.11)]).replace(terminal_method=method)
+    assert with_row.wacc_override == 0.11
+    assert dcf.compute(with_row).outputs() == dcf.compute(inp.replace(wacc_override=0.11)).outputs()
+
+
+def test_rows_without_a_wacc_row_are_valued_as_before():
+    base = rows(growth=0.01, debt=500.0, erp_std_error=0.02)
+    assert dcf.inputs(base).wacc_override is None
+    assert not dcf.wacc_is_set(base)
+    out, _gaps = dcf.outputs_and_gaps(base)
+    assert ("value_per_share_erp_minus_1se", SINGLE) in out
+    # bit for bit: the stored row set without `wacc` values as the plain computed WACC
+    assert dcf.compute(dcf.inputs(base)).outputs() == dcf.value(base).outputs()
+    inp = dcf.inputs(base)
+    one = inp.one
+    expected = fm.wacc(
+        one["equity_market_value"],
+        one["debt"],
+        fm.capm_cost_of_equity(one["risk_free"], one["beta"], one["erp"]),
+        one["cost_of_debt"],
+        one["debt_tax_rate"],
+    )
+    assert out[("wacc", SINGLE)] == expected
+
+
+def test_with_wacc_set_the_erp_bounds_are_not_computed():
+    base = rows(growth=0.01, debt=500.0, erp_std_error=0.02) + [row("wacc", 0.11)]
+    out, gaps = dcf.outputs_and_gaps(base)
+    assert gaps == {}
+    assert not any(name.startswith("value_per_share_erp") for name, _ in out)
+    assert out[("wacc", SINGLE)] == 0.11
+    assert out[("value_per_share", SINGLE)] == dcf.value(base).value_per_share
+
+
+def test_a_wacc_row_per_period_is_refused():
+    with pytest.raises(DCFInputError, match="single value"):
+        dcf.inputs(rows() + [row("wacc", 0.1, PERIODS[0])])
+
+
+def test_a_wacc_row_and_a_cost_of_equity_shift_are_refused_together():
+    inp = dcf.inputs(rows() + [row("wacc", 0.1)]).replace(cost_of_equity_shift=[0.01] * 11)
+    with pytest.raises(DCFInputError, match="different questions"):
+        dcf.compute(inp)

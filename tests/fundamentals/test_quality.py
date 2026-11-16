@@ -141,3 +141,99 @@ def test_newest_filing_disagreement_appears_in_the_report(ingested, two_years):
     markdown = report_for(conn).to_markdown()
     assert "selected Revenues, newest filing RevenueFromContractWithCustomer" in markdown
     assert "2024-12-31 0M vs 0M" in markdown  # fixture values are tiny; shown in millions
+
+
+def test_a_skipped_sign_flip_appears_in_the_report(ingested, two_years):
+    # backlog #280: a later 10-K tags FY2024 revenue with the wrong sign
+    conn, _ = ingested
+    conn.execute(
+        "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, fiscal_year, "
+        "fiscal_period, value, unit, form, accession_no, filed_at) VALUES (?, 'us-gaap:Revenues', "
+        "'2024-01-01', '2024-12-31', 2024, 'FY', -460, 'USD', '10-K', 'a-25-9', '2025-02-20')",
+        (TEST_CIK,),
+    )
+    report = report_for(conn)
+    assert [(s.value, k.value, k.accession_no) for s, k in report.sign_flips] == [
+        (460, -460, "a-25-9")
+    ]
+    markdown = report.to_markdown()
+    assert "- Versions skipped as sign-tagging errors: 1" in markdown
+    assert "skipped -0M (a-25-9)" in markdown
+    assert not report.disagreements
+
+
+def test_a_skipped_part_as_whole_appears_in_the_report(ingested, two_years):
+    # backlog #322: the 10-K also tags FY2024 revenue under SalesRevenueNet at more than twice
+    # its Revenues figure, as P&G's 2014 10-K did
+    from tests.fundamentals.test_quarterly import scale_revenues
+
+    conn, _ = ingested
+    scale_revenues(conn, 1e6)  # in millions, so the report shows real amounts
+    conn.execute(
+        "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, fiscal_year, "
+        "fiscal_period, value, unit, form, accession_no, filed_at) VALUES (?, "
+        "'us-gaap:SalesRevenueNet', '2024-01-01', '2024-12-31', 2024, 'FY', 1000000000, 'USD', "
+        "'10-K', '0000000123-25-000001', '2025-02-15')",
+        (TEST_CIK,),
+    )
+    report = report_for(conn)
+    assert [(k.value, k.xbrl_concept, k.accession_no) for _s, k in report.parts_as_whole] == [
+        (460e6, "us-gaap:Revenues", "0000000123-25-000001")
+    ]
+    markdown = report.to_markdown()
+    assert "- Parts skipped as tagged as the whole: 1" in markdown
+    assert "## Parts skipped as tagged as the whole" in markdown
+    assert (
+        "used 1,000M (us-gaap:SalesRevenueNet, 0000000123-25-000001), "
+        "skipped 460M (us-gaap:Revenues, " in markdown
+    )
+
+
+def test_a_sign_flip_outside_the_report_years_is_listed(ingested, two_years):
+    # the real flips (WMT tax, CAT cost of revenue) are from 2008-2011, before the report's years
+    conn, _ = ingested
+    for value, accession, filed in (
+        (7145, "t-22-1", "2022-02-15"),
+        (-7133, "t-24-2", "2024-02-20"),
+    ):
+        conn.execute(
+            "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, "
+            "fiscal_year, fiscal_period, value, unit, form, accession_no, filed_at) VALUES (?, "
+            "'us-gaap:Revenues', '2021-01-01', '2021-12-31', 2021, 'FY', ?, 'USD', '10-K', ?, ?)",
+            (TEST_CIK, value, accession, filed),
+        )
+    flips = report_for(conn).sign_flips
+    assert [(s.fiscal_year, k.accession_no) for s, k in flips] == [(2021, "t-24-2")]
+
+
+def test_amounts_in_the_flip_section_keep_their_unit():
+    from domains.fundamentals.quality import _amount
+    from domains.fundamentals.schemas import Fact
+
+    base = dict(canonical_name="x", xbrl_concept="us-gaap:X", period_start=None,
+                period_end="2024-12-31", fiscal_year=2024, fiscal_period="FY",
+                accession_no="a", filed_at="2025-01-01", restated=False)  # fmt: skip
+    assert _amount(Fact(**base, value=-7_133e6, unit="USD")) == "-7,133M"
+    assert _amount(Fact(**base, value=2.5, unit="USD/shares")) == "2.5 USD/shares"
+
+
+def test_a_quarter_kept_on_its_own_tag_is_listed(ingested, two_years):
+    """Backlog #336: the 10-K gives Q4 2024 only as net sales (125), and on net sales the year
+    less the nine months is 140, so the quarter is kept as filed and the report says so."""
+    from tests.fundamentals.test_quarterly import narrow_inputs, narrow_quarter, scale_revenues
+
+    conn, _ = ingested
+    assert "## Quarters kept on a lower-ranked tag\n\nA quarter" in report_for(conn).to_markdown()
+    assert report_for(conn).kept_on_own_tag == []
+    scale_revenues(conn, 1e6)  # the fixture's Revenues in millions too (backlog #322)
+    narrow_quarter(conn, value=125e6)
+    narrow_inputs(conn, year=450e6, nine_months=310e6)
+    report = report_for(conn)
+    [kept] = report.kept_on_own_tag
+    assert (kept.canonical_name, kept.fiscal_period, kept.value) == ("revenue", "Q4", 125e6)
+    markdown = report.to_markdown()
+    assert (
+        "- **revenue** FY2024 Q4: SalesRevenueNet 125M (0000000123-25-000001); on its own tag "
+        "the year less the earlier periods is 140M (0000000123-25-000001, 0000000123-24-000030); "
+        "on Revenues it would be 130M"
+    ) in markdown

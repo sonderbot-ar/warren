@@ -83,3 +83,105 @@ def test_the_last_ended_day_has_ended_and_the_next_has_not():
 def test_the_last_ended_day_needs_a_time_zone():
     with pytest.raises(ValueError):
         calendar.last_ended_day(datetime(2026, 7, 2, 12, 0))
+
+
+def test_case_today_turns_at_new_york_midnight():
+    # backlog #163: the date in New York, for labels and bounds; a cut-off is the day before
+    assert calendar.case_today(datetime(2026, 7, 2, 3, 59, tzinfo=UTC)) == date(2026, 7, 1)
+    assert calendar.case_today(datetime(2026, 7, 2, 4, 0, tzinfo=UTC)) == date(2026, 7, 2)
+    assert calendar.case_today(datetime(2026, 1, 16, 4, 59, tzinfo=UTC)) == date(2026, 1, 15)
+    assert calendar.case_today(datetime(2026, 1, 16, 5, 0, tzinfo=UTC)) == date(2026, 1, 16)
+    now = datetime(2026, 11, 2, 4, 59, tzinfo=UTC)
+    assert calendar.last_ended_day(now) == calendar.case_today(now) - timedelta(days=1)
+
+
+def test_case_today_needs_a_time_zone():
+    with pytest.raises(ValueError):
+        calendar.case_today(datetime(2026, 7, 2, 12, 0))
+
+
+CLOCK_FILES = [
+    "domains/analysis/__main__.py",
+    "domains/analysis/math_engine.py",
+    "domains/fundamentals/quality.py",
+    "domains/evaluation/harness.py",
+    "domains/evaluation/backtest_batch.py",
+    "domains/evaluation/ranges.py",
+    "domains/evaluation/__main__.py",
+]
+
+
+def _clock_files() -> list[Path]:
+    return _source_files() + sorted((ROOT / "webapp").rglob("*.py"))
+
+
+def _clock_names(tree: ast.Module) -> set[str]:
+    """Every name the module binds to the `datetime` module or its `date` and `datetime` types."""
+    names = {"date", "datetime"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names |= {a.asname or a.name for a in node.names if a.name == "datetime"}
+        if isinstance(node, ast.ImportFrom) and node.module == "datetime":
+            names |= {a.asname or a.name for a in node.names if a.name in {"date", "datetime"}}
+    return names
+
+
+def _is_clock(node: ast.expr, names: set[str]) -> bool:
+    if isinstance(node, ast.Name):
+        return node.id in names
+    return isinstance(node, ast.Attribute) and node.attr in {"date", "datetime"}
+
+
+def _naive(call: ast.Call) -> bool:
+    values = list(call.args) + [k.value for k in call.keywords]
+    return not values or any(isinstance(v, ast.Constant) and v.value is None for v in values)
+
+
+def _reads_the_machine(call: ast.Call, names: set[str]) -> bool:
+    """`today()`, `utcnow()`, `utcfromtimestamp()` or a naive `now()` on a clock type."""
+    func = call.func
+    if not (isinstance(func, ast.Attribute) and _is_clock(func.value, names)):
+        return False
+    return func.attr in {"today", "utcnow", "utcfromtimestamp"} or (
+        func.attr == "now" and _naive(call)
+    )
+
+
+def test_no_module_reads_the_machines_date():
+    # backlog #163: `today()`, `utcnow()` and a `now()` with no time zone on the clock types read
+    # the machine's clock in its own zone; defaults go through `calendar.case_today` or
+    # `calendar.last_ended_day`. Injected clocks (`deps.now()`) are not the machine's.
+    wrong = []
+    for path in _clock_files():
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        names = _clock_names(tree)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and _reads_the_machine(node, names):
+                wrong.append(f"{path.relative_to(ROOT)}:{node.lineno} .{node.func.attr}()")
+    assert wrong == []
+
+
+def test_the_clock_scan_catches_each_form():
+    def caught(source: str) -> bool:
+        tree = ast.parse(source)
+        call = next(n for n in ast.walk(tree) if isinstance(n, ast.Call))
+        return _reads_the_machine(call, _clock_names(tree))
+
+    assert caught("from datetime import date\ndate.today()")
+    assert caught("from datetime import date as d\nd.today()")
+    assert caught("import datetime as dt\ndt.date.today()")
+    assert caught("from datetime import datetime\ndatetime.now()")
+    assert caught("from datetime import datetime\ndatetime.now(None)")
+    assert caught("from datetime import datetime\ndatetime.now(tz=None)")
+    assert caught("from datetime import datetime\ndatetime.utcnow()")
+    assert caught("from datetime import datetime\ndatetime.utcfromtimestamp(0)")
+    assert not caught("from datetime import UTC, datetime\ndatetime.now(UTC)")
+    assert not caught("deps.now()")
+
+
+def test_the_clock_scan_sees_the_modules_it_fixed_and_the_app():
+    files = {p.relative_to(ROOT).as_posix() for p in _clock_files()}
+    assert set(CLOCK_FILES) | {"shared_kernel/calendar.py", "webapp/app.py"} <= files
+    for name in CLOCK_FILES:
+        text = (ROOT / name).read_text(encoding="utf-8")
+        assert "case_today" in text or "last_ended_day" in text, name

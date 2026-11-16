@@ -88,7 +88,11 @@ def risk_free_rate(
         (series, fetch["fetch_id"], as_of.isoformat()),
     ).fetchone()
     if row is None:
-        raise MarketDataError(f"No {series} observation before {as_of}")
+        raise MarketDataError(
+            f"No {series} observation before {as_of}",
+            code="no_risk_free_rate",
+            params={"series": series, "as_of": as_of.isoformat()},
+        )
     return YieldPoint(
         series, date.fromisoformat(row["date"]), row["value"] / 100, fetch["fetch_id"]
     )

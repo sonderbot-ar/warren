@@ -10,14 +10,23 @@ that uses one records it in its assumptions.
 import csv
 import sqlite3
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field
-from datetime import date
+from dataclasses import dataclass, field, replace
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from domains.fundamentals.concepts import concept_map_sha256, load_concept_map
-from domains.fundamentals.facts import DERIVABLE_UNITS, get_facts, newest_filing_disagreements
-from domains.fundamentals.schemas import Fact
+from domains.fundamentals.facts import (
+    DERIVABLE_UNITS,
+    MeaningChange,
+    get_facts,
+    newest_filing_disagreements,
+    skipped_parts_as_whole,
+    skipped_sign_flips,
+    tag_meaning_changes,
+)
+from domains.fundamentals.schemas import MINUEND_WORDS, Fact
 from domains.fundamentals.universe import FISCAL_YEARS
+from shared_kernel.calendar import last_ended_day
 
 KNOWN_GAPS_PATH = Path(__file__).parent / "known_gaps.csv"
 EDGAR_ARCHIVES = "https://www.sec.gov/Archives/edgar/data"
@@ -95,6 +104,14 @@ class QualityReport:
     gap_links: dict[tuple[str, int, str], str] = field(default_factory=dict)  # [inferred] gaps
     # (selected, newest filing's value) where they differ: the standing tag-change audit
     disagreements: list[tuple[Fact, Fact]] = field(default_factory=list)
+    # (selected, skipped) versions skipped as sign-tagging errors (backlog #280)
+    sign_flips: list[tuple[Fact, Fact]] = field(default_factory=list)
+    # (selected, skipped) parts a filing tagged as the whole (backlog #322)
+    parts_as_whole: list[tuple[Fact, Fact]] = field(default_factory=list)
+    # tags whose meaning changed in a later filing (backlog #295): flagged, values unchanged
+    meaning_changes: list[MeaningChange] = field(default_factory=list)
+    # quarters kept on a lower-ranked tag than their year's, as that tag disagrees (backlog #336)
+    kept_on_own_tag: list[Fact] = field(default_factory=list)
 
     @property
     def unexplained(self) -> list[Gap]:
@@ -139,6 +156,10 @@ class QualityReport:
             f"{len(self.inconsistencies)} (informational; see below)",
             f"- Periods where the newest filing disagrees with the selected value: "
             f"{len(self.disagreements)} (informational; see below)",
+            f"- Versions skipped as sign-tagging errors: {len(self.sign_flips)} (see below)",
+            f"- Parts skipped as tagged as the whole: {len(self.parts_as_whole)} (see below)",
+            f"- Tags that changed meaning in a later filing: {len(self.meaning_changes)} "
+            "(informational; see below)",
             "",
             "## Coverage",
             "",
@@ -204,6 +225,76 @@ class QualityReport:
             "",
         ]
         lines += self._disagreement_lines() or ["None."]
+        lines += [
+            "",
+            "## Versions skipped as sign-tagging errors",
+            "",
+            "A filing's version of a period whose sign is flipped against another version of "
+            "nearly the same size, on the side fewer versions take (or, on a tie, against the "
+            "item's usual sign for the company). The newest version with the right sign is used.",
+            "",
+        ]
+        lines += [
+            f"- **{s.canonical_name}** {s.period_start} to {s.period_end}: used "
+            f"{_amount(s)} ({s.accession_no}), skipped {_amount(k)} ({k.accession_no})"
+            for s, k in self.sign_flips
+        ] or ["None."]
+
+        lines += [
+            "",
+            "## Parts skipped as tagged as the whole",
+            "",
+            "A filing's figure under its best-ranked tag of an item, when the same filing gives "
+            "the same item and period under another tag at more than twice the size, both "
+            "positive: a part (a segment, a line) tagged as the whole. The next tag that filing "
+            "used is read instead.",
+            "",
+        ]
+        lines += [
+            f"- **{s.canonical_name}** {s.period_start} to {s.period_end}: used "
+            f"{_amount(s)} ({s.xbrl_concept}, {s.accession_no}), skipped {_amount(k)} "
+            f"({k.xbrl_concept}, {k.accession_no})"
+            for s, k in self.parts_as_whole
+        ] or ["None."]
+
+        lines += [
+            "",
+            "## Tags that changed meaning",
+            "",
+            "A filing gives a tag a new value for periods filed before, and repeats the old value "
+            "under another tag of the same item: the two values measure different lines, so the "
+            "change is not a restatement. Values are kept as the selection rule gives them; "
+            "growth across the change compares two meanings, and the reported view says so on "
+            "growth and on the line.",
+            "",
+        ]
+        for m in self.meaning_changes:
+            examples = ", ".join(
+                f"{end} {old / 1e6:,.0f}M to {new / 1e6:,.0f}M"
+                for _start, end, old, new in m.periods[:AUDIT_EXAMPLES]
+            )
+            more = len(m.periods) - AUDIT_EXAMPLES
+            lines.append(
+                f"- **{m.canonical_name}**: {m.xbrl_concept.split(':', 1)[1]} from the {m.form} "
+                f"filed {m.filed_at} ({m.accession_no}); old values under "
+                f"{m.other_concept.split(':', 1)[1]}; {len(m.periods)} periods: {examples}"
+                + (f", +{more} more" if more > 0 else "")
+            )
+        if not self.meaning_changes:
+            lines.append("None.")
+
+        lines += [
+            "",
+            "## Quarters kept on a lower-ranked tag",
+            "",
+            "A quarter its filing gives only under a tag ranked below the one tag of its year and "
+            "the periods before it is normally worked out on the year's tag. When the same "
+            "subtraction on the quarter's own tag does not give the quarter (the quarter or an "
+            "input was revised on that tag), it is kept as filed: the four quarters then measure "
+            "two lines.",
+            "",
+        ]
+        lines += [_kept_line(f) for f in self.kept_on_own_tag] or ["None."]
         return "\n".join(lines) + "\n"
 
     def _disagreement_lines(self) -> list[str]:
@@ -276,7 +367,7 @@ def build_report(
     company = conn.execute("SELECT * FROM companies WHERE ticker = ?", (ticker.upper(),)).fetchone()
     if company is None:
         raise ValueError(f"{ticker} has not been ingested")
-    as_of = as_of or date.today()
+    as_of = as_of or last_ended_day(datetime.now(UTC))
     known_gaps = load_known_gaps() if known_gaps is None else known_gaps
     concepts = [c for c in load_concept_map() if c.gate == "required"]
     names = list(dict.fromkeys(c.canonical_name for c in concepts))
@@ -302,6 +393,10 @@ def build_report(
                 fact.xbrl_concept
             )
 
+    report.kept_on_own_tag = sorted(
+        (f for f in report.cells.values() if f.kept_on_own_tag is not None),
+        key=lambda f: (f.canonical_name, f.period_end),
+    )
     for (name, _year, _period), fact in report.cells.items():
         if fact.derived:
             report.derived[name] += 1
@@ -347,6 +442,12 @@ def build_report(
         for selected, newest in newest_filing_disagreements(conn, company["cik"], names, as_of)
         if selected.fiscal_year in years
     ]
+    # every year, not only the report's: the flips seen so far are all from 2008-2011
+    report.sign_flips = skipped_sign_flips(conn, company["cik"], names, as_of)
+    report.parts_as_whole = skipped_parts_as_whole(conn, company["cik"], names, as_of)
+    report.meaning_changes = _within_years(
+        tag_meaning_changes(conn, company["cik"], names, as_of), report.cells
+    )
 
     run = conn.execute(
         "SELECT * FROM ingest_runs WHERE cik = ? ORDER BY run_id DESC LIMIT 1", (company["cik"],)
@@ -374,3 +475,48 @@ def _filing_link(conn: sqlite3.Connection, cik: str, fiscal_year: int, period: s
     if row is None:
         return None
     return f"{EDGAR_ARCHIVES}/{int(cik)}/{row[0].replace('-', '')}/"
+
+
+def _kept_line(fact: Fact) -> str:
+    """One quarter kept on its own lower-ranked tag (backlog #336)."""
+    kept = fact.kept_on_own_tag
+
+    def amount(value: float) -> str:
+        return _amount(fact.model_copy(update={"value": value}))
+
+    own_filing = (
+        f", {amount(kept.on_own_filing)} from the quarter's own filing"
+        if kept.on_own_filing is not None
+        else ""
+    )
+    return (
+        f"- **{fact.canonical_name}** FY{fact.fiscal_year} {fact.fiscal_period}: "
+        f"{fact.xbrl_concept.split(':', 1)[1]} {_amount(fact)} ({fact.accession_no}); on its own "
+        f"tag {MINUEND_WORDS.get(kept.minuend, kept.minuend)} less the earlier periods is "
+        f"{amount(kept.on_own_tag)} "
+        f"({', '.join(kept.inputs)}){own_filing}; on {kept.year_tag.split(':', 1)[1]} it would "
+        f"be {amount(kept.on_year_tag)}"
+    )
+
+
+def _amount(fact: Fact) -> str:
+    """A fact's value for the report: millions for money, as is for shares or per-share units."""
+    if fact.unit == "USD":
+        return f"{fact.value / 1e6:,.0f}M"
+    return f"{fact.value:,g} {fact.unit}"
+
+
+def _within_years(changes: list[MeaningChange], cells: dict) -> list[MeaningChange]:
+    """Each change cut to the periods that end within the report's fiscal years (backlog #297,
+    as `disagreements` are): from the earliest start to the latest end of the report's cells.
+    A change with no period left is dropped; its filing date stays the first filing's."""
+    if not cells:
+        return []
+    first = min(f.period_start or f.period_end for f in cells.values())
+    last = max(f.period_end for f in cells.values())
+    out = []
+    for change in changes:
+        periods = [p for p in change.periods if first <= p[1] <= last]
+        if periods:
+            out.append(replace(change, periods=periods))
+    return out

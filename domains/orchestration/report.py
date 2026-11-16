@@ -193,6 +193,8 @@ def render(conn: sqlite3.Connection, state: PipelineState) -> str:
     lines += ["#" + ln if ln.startswith("#") else ln for ln in baseline[1:]]
     if state.actuals_on is not None:  # pipelines written before backlog #128 have none
         lines += ["", *hindsight(conn, state)]
+    if state.range_errors_sha256 is not None:  # pipelines written before backlog #167 have none
+        lines += ["", *range_section(conn, state)]
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -240,12 +242,94 @@ def hindsight(conn: sqlite3.Connection, state: PipelineState) -> list[str]:
     return [*lines, *([""] if notes else []), *notes]
 
 
+def _band(values: dict | None, key: str) -> str:
+    return "–" if values is None else _m(values[key])
+
+
+def _range_table(r, label: str) -> list[str]:
+    lines = [
+        f"### {label}",
+        "",
+        "| Quarter | Revenue forecast | p10 | p50 | p90 | EBIT forecast | p10 | p50 | p90 |",
+        "|---|---|---|---|---|---|---|---|---|",
+    ]
+    for q in r.quarters:
+        b = q.bands[0]  # pooled: M9's headline band
+        if b.missing is not None and b.missing.code == "beyond_horizon":
+            continue
+        cells = [_band(b.revenue, k) for k in ("p10", "p50", "p90")]
+        ebit = [_band(b.ebit, k) for k in ("p10", "p50", "p90")]
+        if b.missing is not None:
+            cells, ebit = [b.missing.code, "", ""], [b.missing.code, "", ""]
+        lines.append(f"| {q.period} | {_m(q.revenue_center)} | {' | '.join(cells)} | "
+                     f"{_m(q.ebit_center)} | {' | '.join(ebit)} |")  # fmt: skip
+    return [*lines, ""]
+
+
+def _pct(x: float | None) -> str:
+    return "–" if x is None else f"{x * 100:.0f}%"
+
+
+def range_section(conn: sqlite3.Connection, state: PipelineState) -> list[str]:
+    """Section 7 (backlog #167): the baseline's range and each simulation's shocked range, from
+    the past misses filed by the as-of date, with the baseline range's track record."""
+    from domains.evaluation import run_ranges as RN
+
+    base = RN.run_ranges(conn, state.run_id, state.n_samples, check_basis=False)
+    number = 7 if state.actuals_on is not None else 6
+    lines = [
+        f"## {number}. {text.RANGE_HEADING}",
+        "",
+        text.RANGE_INTRO.format(
+            as_of=state.as_of.isoformat(), draws=state.n_samples, currency=base.currency
+        ),  # fmt: skip
+        "",
+        *_range_table(base, "Baseline"),
+        text.RANGE_TRACK.format(
+            origins_from=RN.R.ROLLING_FROM.isoformat(),
+            as_of=state.as_of.isoformat(),
+            target=RN.TARGET,
+        ),  # fmt: skip
+        "",
+    ]
+    for c in base.coverage:
+        if c.pool != "pooled":
+            continue
+        who = "all companies" if c.scope == "all" else state.ticker
+        iv = f", 90% interval {_pct(c.interval[0])}–{_pct(c.interval[1])}" if c.interval else ""
+        verdict = c.missing.code if c.missing else c.verdict
+        lines.append(f"- {c.item}, {who}: {_pct(c.share)} inside ({c.inside:,} of {c.n:,} past "
+                     f"forecasts, {c.n_quarters} quarters){iv}; {verdict}")  # fmt: skip
+    lines += ["", *[f"- Note: {n.text}" for n in base.notes], ""]
+    by_sim: dict[str, list[str]] = {}
+    for v in state.variants:
+        s = state.sim.get(v)
+        if s is not None:
+            by_sim.setdefault(s.sim_id, []).append(v)
+    notes: list[str] = []
+    for sim_id, variants in by_sim.items():
+        r = RN.run_ranges(conn, state.run_id, check_basis=False, sim_id=sim_id, coverage=False)
+        label = f"With shocks: {' and '.join(variants)} (simulation {sim_id})"
+        lines += _range_table(r, label)
+        lines += [f"{RN.COVERAGE_IS_BASELINE.text[0].upper()}{RN.COVERAGE_IS_BASELINE.text[1:]}.",
+                  ""]  # fmt: skip
+        notes += [n.text for n in r.notes if n.code not in ("coverage_skipped",
+                                                            "coverage_is_baseline")]  # fmt: skip
+    shown, seen = {n.text for n in base.notes}, []
+    for n in notes:
+        if n in shown:
+            continue
+        if n not in seen:
+            seen.append(n)
+    return [*lines, *[f"- Note: {n}" for n in seen]] if seen else lines[:-1]
+
+
 def trace(state: PipelineState, telemetry_path: Path) -> str:
     lines = [
         "",
         text.TRACE_MARKER,
         "",
-        f"## {7 if state.actuals_on is not None else 6}. Trace",
+        f"## {6 + (state.actuals_on is not None) + (state.range_errors_sha256 is not None)}. Trace",
         "",
         f"- checkpoints: table `checkpoints` in the database, thread `{state.pipeline_id}` "
         f"(`python main.py show --pipeline-id {state.pipeline_id}`)",

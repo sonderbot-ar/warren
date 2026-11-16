@@ -9,6 +9,7 @@
     python -m domains.analysis reproduce-sim --sim-id AAPL_2024-03-31_1_sim1
     python -m domains.analysis reported --ticker AAPL --period latest-quarter [--as-of 2026-11-02]
         [--period FY2024 ...] [--json]
+    python -m domains.analysis series --ticker XOM --period FY2015 --period FY2016 ... [--json]
 
 Without `--as-of`, `dcf` and `reported` use the last day that has ended in New York (backlog #128)
 and say so, with the date of the company's last EDGAR download and a warning when that download
@@ -23,11 +24,14 @@ fails. `reproduce` values stored runs again from their assumptions and exits 1 o
 data/reports/sim/<sim_id>.md; `reproduce-sim` runs it again from its seed and compares to the cent.
 `reported` prints a fiscal period's reported lines, with their filings, and the named ratios, as
 known on the as-of date (backlog #140); `--json` prints the same for the app. Nothing is stored.
+`series` prints several years or quarters together, with a note where their revenue carries
+different meanings of a tag that changed meaning (backlog #297).
 `notes` prints a stored run's warnings as codes with parameters (backlog #172); `--backfill` gives
 runs stored before them their codes, only where the rebuilt text matches the stored text exactly.
 """
 
 import argparse
+import dataclasses
 import json
 import sys
 from datetime import UTC, date, datetime
@@ -43,11 +47,19 @@ from domains.analysis.montecarlo import (
     reproduce_simulation,
     save_simulation,
 )
+from domains.analysis.reading_rules import READING_RULES_VERSION
 from domains.analysis.report import write_report
-from domains.analysis.reported import ReportedError, ReportedPeriod, reported_period
+from domains.analysis.reported import (
+    ReportedError,
+    ReportedPeriod,
+    ReportedSeries,
+    reported_period,
+    reported_series,
+)
 from domains.analysis.runs import (
     RunNotes,
     backfill_notes,
+    note_group,
     rebuild,
     reproduce,
     run_baseline,
@@ -55,12 +67,20 @@ from domains.analysis.runs import (
 )
 from domains.analysis.sensitivity import Block, Grid, GridError, grid
 from domains.analysis.sources import SourceError, backfill, run_sources
+from domains.analysis.text import WARNING_GROUPS
 from domains.analysis.whatif import Change, WhatIf, WhatIfError, revalue
 from domains.fundamentals.universe import PHASE1_UNIVERSE, get_universe_company
 from domains.market.store import MarketDataError
 from shared_kernel.calendar import known_by, last_ended_day
 from shared_kernel.config import PROJECT_ROOT
 from shared_kernel.database import apply_migrations, get_db_connection
+
+
+def _code(e: Exception) -> str:
+    """The refusal's code in brackets, or nothing (backlog #376): the CLI shows what the app keys
+    on."""
+    code = getattr(e, "code", None)
+    return f" [{code}]" if code else ""
 
 
 def now() -> datetime:
@@ -113,7 +133,7 @@ def cmd_dcf(args: argparse.Namespace) -> int:
                     run_id = run_baseline(conn, ticker, as_of)
                 except (EngineError, MarketDataError, ValueError) as e:
                     failed += 1
-                    print(f"{ticker:5} {as_of}  FAILED: {e}")
+                    print(f"{ticker:5} {as_of}  FAILED{_code(e)}: {e}")
                     continue
                 path = write_report(conn, run_id)
                 row = conn.execute(
@@ -162,7 +182,7 @@ def cmd_reproduce(args: argparse.Namespace) -> int:
                 try:
                     rebuilt = rebuild(conn, run_id)
                 except (EngineError, MarketDataError, ValueError) as e:
-                    print(f"         rebuild FAILED: {e}")
+                    print(f"         rebuild FAILED{_code(e)}: {e}")
                     unbuilt += 1
                     continue
                 if rebuilt.ok:
@@ -171,7 +191,15 @@ def cmd_reproduce(args: argparse.Namespace) -> int:
                     status = f"values OK, method text differs in {len(rebuilt.mismatches)} rows"
                 else:
                     status = "MISMATCH"
-                print(f"         rebuild {status}, {rebuilt.rows_checked} rows")
+                under = " under the run's own concept map" if rebuilt.archived_map else ""
+                if rebuilt.rules_version is None:
+                    under += "; reading rules not recorded"
+                elif rebuilt.older_rules:
+                    under += (
+                        f"; made under older reading rules (v{rebuilt.rules_version}, "
+                        f"today v{READING_RULES_VERSION})"
+                    )
+                print(f"         rebuild {status}, {rebuilt.rows_checked} rows{under}")
                 if not rebuilt.values_ok:
                     for name, period, what in rebuilt.mismatches:
                         print(f"         {name} {period}: {what} differs")
@@ -189,7 +217,7 @@ def cmd_reproduce(args: argparse.Namespace) -> int:
 
 
 def cmd_fallbacks(args: argparse.Namespace) -> int:
-    as_of = date.fromisoformat(args.as_of) if args.as_of else date.today()
+    as_of = date.fromisoformat(args.as_of) if args.as_of else last_ended_day(datetime.now(UTC))
     with get_db_connection() as conn:
         for check in fallback_backtest(conn, as_of):
             worst = check.worst
@@ -214,7 +242,8 @@ def cmd_simulate(args: argparse.Namespace) -> int:
                 conn, args.run_id, load_shocks(Path(args.shocks)), args.n, args.seed
             )
         except (SimulationError, ValueError) as e:
-            print(f"FAILED: {e}")
+            code = getattr(e, "code", None)
+            print(f"FAILED ({code}): {e}" if code else f"FAILED: {e}")
             return 1
         path = sim_report.write_report(conn, sim_id)
         vps = conn.execute(
@@ -265,7 +294,27 @@ def render_reported(r: ReportedPeriod) -> str:
         line = f"  {x.name:32} {_fmt(x.value, x.unit):>26}  {x.latest.xbrl_concept}  {where}"
         if x.changed:
             line += f"  (first reported {_fmt(x.first_reported.value, x.unit)})"
+        if x.one_basis:
+            line += f"  (on one basis; plain derivation {_fmt(x.plain.value, x.unit)})"
+        for note in x.sign_notes:
+            skipped = note.params["skipped"]
+            line += (
+                f"  (a version filed with the opposite sign, {_fmt(skipped['value'], x.unit)} in "
+                f"{skipped['form']} {skipped['accession_no']} filed {skipped['filed_at']}, "
+                "was skipped)"
+            )
+        for note in x.part_notes:
+            skipped = note.params["skipped"]
+            line += (
+                f"  (a part tagged as the whole, {_fmt(skipped['value'], x.unit)} as "
+                f"{skipped['xbrl_concept']} in {skipped['form']} {skipped['accession_no']} filed "
+                f"{skipped['filed_at']}, was skipped)"
+            )
         out.append(line)
+        if x.meaning_note:
+            out.append(f"  {'':32} {'':>26}  note: {x.meaning_note.text}")
+        if x.tag_note:
+            out.append(f"  {'':32} {'':>26}  note: {x.tag_note.text}")
     out.append("Ratios (" + r.as_reported_note.text + "):")
     for ratio in r.ratios:
         out.append(f"  {ratio.name:20} {_fmt(ratio.value, ratio.unit):>22}  {ratio.formula}")
@@ -304,6 +353,44 @@ def cmd_reported(args: argparse.Namespace) -> int:
     return 0
 
 
+def render_series(s: ReportedSeries) -> str:
+    """A series' revenue and margins per period, then its notes, as plain text."""
+    out = [f"{s.ticker} {s.company_name} · {len(s.periods)} periods · as of {s.as_of}"]
+    names = ("operating_margin", "gross_margin", "net_margin")
+    out.append(f"  {'period':10} {'revenue':>26}  " + "  ".join(f"{n:>16}" for n in names))
+    for r in s.periods:
+        line = r.line("revenue")
+        ratios = {x.name: x for x in r.ratios}
+        cells = "  ".join(
+            f"{_fmt(ratios[n].value, ratios[n].unit) if n in ratios else '':>16}" for n in names
+        )
+        value = _fmt(line.value, line.unit)
+        out.append(f"  {r.period:10} {value:>26}  {cells}  {line.latest.xbrl_concept}")
+    for note in s.notes:
+        out.append(f"NOTE: {note.text}")
+    for w in dict.fromkeys(w.text for r in s.periods for w in r.warnings):
+        out.append(f"WARNING: {w}")
+    return "\n".join(out)
+
+
+def cmd_series(args: argparse.Namespace) -> int:
+    as_of = date.fromisoformat(args.as_of) if args.as_of else last_ended_day(now())
+    with get_db_connection() as conn:
+        apply_migrations(conn)
+        if not args.as_of:  # to standard error, so --json output stays plain JSON
+            print("\n".join(chosen_day_notes(conn, [args.ticker], as_of)), file=sys.stderr)
+        try:
+            series = reported_series(conn, args.ticker, args.period, as_of)
+        except ReportedError as e:
+            print(f"FAILED: {e}")
+            return 1
+    if args.json:
+        print(json.dumps(series.to_dict(), indent=2, ensure_ascii=False))
+    else:
+        print(render_series(series))
+    return 0
+
+
 def parse_change(text: str, kind: str) -> Change:
     """NAME=NUMBER or NAME@PERIOD=NUMBER, for --set (kind value) or --add (kind delta)."""
     target, sep, number = text.partition("=")
@@ -315,6 +402,18 @@ def parse_change(text: str, kind: str) -> Change:
     except ValueError as e:
         raise argparse.ArgumentTypeError(f"{text!r}: {number!r} is not a number") from e
     return Change(name.strip(), period=period.strip() or None, **{kind: amount})
+
+
+def parse_switch(text: str) -> Change:
+    """NAME=METHOD, for --switch (the terminal formula on a what-if)."""
+    name, sep, method = text.partition("=")
+    if not sep or not method.strip():
+        raise argparse.ArgumentTypeError(f"{text!r}: expected NAME=METHOD")
+    return Change(name.strip(), method=method.strip())
+
+
+def _fmt_change(value) -> str:
+    return value if isinstance(value, str) else f"{value:.6g}"
 
 
 def _fmt_line(value: float | None, unit: str) -> str:
@@ -335,7 +434,10 @@ def render_whatif(w: WhatIf) -> str:
         "Changed inputs:",
     ]
     for c in w.changes:
-        out.append(f"  {c.name:22} {c.period:9} {c.before:>14.6g} → {c.after:<14.6g} ({c.how})")
+        out.append(
+            f"  {c.name:22} {c.period:9} {_fmt_change(c.before):>14} → "
+            f"{_fmt_change(c.after):<14} ({c.how})"
+        )
     out.append(f"Terminal value: {w.terminal_formula.text}")
     out.append(
         f"  {'line':24} {'period':9} {'before':>14} {'after':>14} {'change':>14}  because of"
@@ -357,6 +459,14 @@ def render_whatif(w: WhatIf) -> str:
 def cmd_whatif(args: argparse.Namespace) -> int:
     changes = [parse_change(t, "value") for t in args.set or []]
     changes += [parse_change(t, "delta") for t in args.add or []]
+    changes += [parse_switch(t) for t in args.switch or []]
+    if args.debt_use is not None:  # a debt change says what the money is for (backlog #170)
+        if not any(c.name == "debt" for c in changes):  # a usage mistake, not an engine refusal
+            print("usage error: --debt-use needs a --set or --add on debt", file=sys.stderr)
+            return 2
+        changes = [
+            dataclasses.replace(c, use=args.debt_use) if c.name == "debt" else c for c in changes
+        ]
     with get_db_connection() as conn:
         apply_migrations(conn)
         try:
@@ -521,7 +631,10 @@ def cmd_sources(args: argparse.Namespace) -> int:
 
 def render_notes(r: RunNotes) -> str:
     head = f"Notes of {r.run_id}" + ("" if r.recorded else " (stored as text only: no codes)")
-    lines = [f"- [{n.code}] {n.text}" for n in r.notes] or ["None."]
+    lines = [
+        f"- [{WARNING_GROUPS.get(note_group(n.code) or '', 'Not coded')}] [{n.code}] {n.text}"
+        for n in r.notes
+    ] or ["None."]
     return "\n".join([head, *lines])
 
 
@@ -611,6 +724,22 @@ def main(argv: list[str] | None = None) -> int:
     rp.add_argument("--json", action="store_true", help="print JSON for the app")
     rp.set_defaults(func=cmd_reported)
 
+    rs = commands.add_parser("series", help="several years or quarters together (backlog #297)")
+    rs.add_argument("--ticker", required=True)
+    rs.add_argument(
+        "--period",
+        action="append",
+        required=True,
+        help="FY2025 or FY2025Q4 (or latest-year, latest-quarter); repeat, all years or all "
+        "quarters",
+    )
+    rs.add_argument(
+        "--as-of",
+        help="YYYY-MM-DD: only filings public by then (default: the last day ended in New York)",
+    )
+    rs.add_argument("--json", action="store_true", help="print JSON for the app")
+    rs.set_defaults(func=cmd_series)
+
     wi = commands.add_parser("whatif", help="a stored run valued again with inputs changed")
     wi.add_argument("--run-id", required=True)
     wi.add_argument(
@@ -624,6 +753,18 @@ def main(argv: list[str] | None = None) -> int:
         action="append",
         metavar="NAME[@PERIOD]=DELTA",
         help="add to an input (0.01 = one point); repeatable",
+    )
+    wi.add_argument(
+        "--switch",
+        action="append",
+        metavar="terminal_method=METHOD",
+        help="value under the other terminal formula (gordon_fcff or value_driver_ronic_wacc)",
+    )
+    wi.add_argument(
+        "--debt-use",
+        metavar="USE",
+        help="what a debt change is for: buyback (more debt buys shares back at the as-of price, "
+        "less debt is repaid with new shares)",
     )
     wi.add_argument("--json", action="store_true", help="print JSON for the app")
     wi.set_defaults(func=cmd_whatif)

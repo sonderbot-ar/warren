@@ -219,3 +219,4 @@ __marimo__/
 
 # Warren local data: database, logs, raw downloads, reports
 data/
+/data

@@ -130,7 +130,9 @@ def test_the_cli_runs_the_backtest_and_reproduces_it(company, monkeypatch, tmp_p
             return False
 
     monkeypatch.setattr(cli, "get_db_connection", Same)
-    monkeypatch.setattr(cli, "run_backtest", lambda conn, cases, sha, guides, gsha: backtest(conn))
+    monkeypatch.setattr(
+        cli, "run_backtest", lambda conn, cases, sha, guides, gsha, actuals_as_of: backtest(conn)
+    )
     monkeypatch.setattr(cli, "write_report", lambda conn, b: tmp_path / f"{b}.md")
     write = backtest_report.write_report
     monkeypatch.setattr(backtest_report, "write_report", lambda conn, b: write(conn, b, tmp_path))
@@ -217,3 +219,27 @@ def test_a_quiet_case_uses_its_pipeline_run_and_an_unclassified_one_still_fails(
     )
     company.commit()
     assert current_sets(company, case()) == (run_id, {})
+
+
+def test_the_report_shows_changes_of_basis_apart(company):
+    """Backlog #162: the section is there, and says none when no quarter is recast."""
+    two_sets(company)
+    text = backtest_report.render(company, backtest(company))
+    assert "## Without changes of basis" in text
+    assert "basis than the run (none; cases none)" in text
+    assert "without changes of basis Revenue" in text
+
+
+def test_a_fixed_actuals_date_is_refused_until_it_has_ended():
+    """M10: the batch's pre-registered actuals date counts only once that New York day is over."""
+    from datetime import UTC, date, datetime
+
+    from domains.evaluation.__main__ import _actuals_as_of
+
+    assert _actuals_as_of(None) is None
+    night_of_16th_ny = datetime(2026, 11, 17, 4, 59, tzinfo=UTC)  # 23:59 on the 16th in New York
+    with pytest.raises(SystemExit, match="has not ended yet"):
+        _actuals_as_of("2026-11-16", night_of_16th_ny)
+    monday_over = datetime(2026, 11, 17, 5, 0, tzinfo=UTC)
+    assert _actuals_as_of("2026-11-16", monday_over) == date(2026, 11, 16)
+    assert _actuals_as_of("2026-11-15", monday_over) == date(2026, 11, 15)

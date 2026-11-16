@@ -3,7 +3,7 @@
     python -m domains.evaluation run [--case AAPL_2020-02-17 ...] [--cases-file PATH]
         [--guidance PATH]
     python -m domains.evaluation report --batch eval_2026-10-30_1
-    python -m domains.evaluation backtest [--guidance PATH] [--case ID ...]
+    python -m domains.evaluation backtest [--guidance PATH] [--case ID ...] [--actuals-as-of D]
     python -m domains.evaluation reproduce --batch BATCH [--guidance PATH]
 
 `run` scores every case in the case file (or the ones named) and writes
@@ -14,7 +14,9 @@ writes a stored batch's report again.
 
 `backtest` (M8) scores every case in five variants on the run the AI's shocks were sized on:
 baseline, naive, guidance shocks (with --guidance) and the AI's named and masked shocks, and
-writes the M3 report and data/reports/eval/<batch_id>_backtest.md. `reproduce` scores a stored
+writes the M3 report and data/reports/eval/<batch_id>_backtest.md. Actuals are those public by the
+last ended day, or by `--actuals-as-of` (M10's pre-registered date), which must have ended.
+`reproduce` scores a stored
 backtest batch again from stored data and checks every row to the cent; it exits 1 on any
 difference.
 
@@ -36,10 +38,18 @@ data/reports/eval/<build_id>_ranges.md; `reproduce` checks a stored build to the
 monthly forecast quarter beside its first-reported actual, the benchmark's miss and whether the
 range held, with summaries. Without --as-of it uses the last day ended in New York. It writes
 nothing.
+
+    python -m domains.evaluation past-events --ticker T --event-type E [--as-of D] [--json]
+
+`past-events` (backlog #146) answers a question about an event: the case library's past cases of
+that type, chosen by rule, each with the forecast made the day before, what was reported after
+and that miss beside the company's usual miss, plus n, the thin-evidence flag and the metrics to
+watch. Without --as-of it uses the last day ended in New York. It writes nothing.
 """
 
 import argparse
 import sys
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from domains.evaluation import backtest_report
@@ -48,6 +58,7 @@ from domains.evaluation.cases import CASES_PATH, cases_sha256, load_cases
 from domains.evaluation.guidance import guidance_sha256, load_guides
 from domains.evaluation.harness import run_batch
 from domains.evaluation.report import load_rows, summary, write_report
+from shared_kernel.calendar import last_ended_day
 from shared_kernel.config import PROJECT_ROOT
 from shared_kernel.database import apply_migrations, get_db_connection
 
@@ -112,12 +123,27 @@ def _guides(args: argparse.Namespace):
     return load_guides(Path(args.guidance)), guidance_sha256(Path(args.guidance))
 
 
+def _actuals_as_of(text: str | None, now: datetime | None = None) -> date | None:
+    """A fixed actuals date, refused until it has ended (nothing filed later can count)."""
+    if text is None:
+        return None
+    day = date.fromisoformat(text)
+    last = last_ended_day(now or datetime.now(UTC))
+    if day > last:
+        raise SystemExit(f"--actuals-as-of {day} has not ended yet (last ended day: {last})")
+    return day
+
+
 def cmd_backtest(args: argparse.Namespace) -> int:
     cases = _cases(args)
     guides, sha = _guides(args)
+    actuals_as_of = _actuals_as_of(args.actuals_as_of)
     with get_db_connection() as conn:
         apply_migrations(conn)
-        batch_id = run_backtest(conn, cases, cases_sha256(Path(args.cases_file)), guides, sha)
+        batch_id = run_backtest(
+            conn, cases, cases_sha256(Path(args.cases_file)), guides, sha,
+            actuals_as_of=actuals_as_of,
+        )  # fmt: skip
         m3 = write_report(conn, batch_id)
         m8 = backtest_report.write_report(conn, batch_id)
         failed = conn.execute(
@@ -164,14 +190,17 @@ def cmd_ranges_origins(args: argparse.Namespace) -> int:
 
 
 def cmd_ranges_test(args: argparse.Namespace) -> int:
-    from datetime import date
+    from datetime import UTC, datetime
 
     from domains.evaluation import ranges, ranges_report
+    from shared_kernel.calendar import last_ended_day
 
     guides, sha = _guides(args)
     with get_db_connection() as conn:
         apply_migrations(conn)
-        build_id = ranges.run_build(conn, date.today(), args.batch, guides, sha)
+        build_id = ranges.run_build(
+            conn, last_ended_day(datetime.now(UTC)), args.batch, guides, sha
+        )
         text = ranges_report.render(conn, build_id)
     path = PROJECT_ROOT / "data" / "reports" / "eval" / f"{build_id}_ranges.md"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -291,7 +320,7 @@ def cmd_ranges_run(args: argparse.Namespace) -> int:
     with get_db_connection() as conn:
         apply_migrations(conn)
         try:
-            result = run_ranges.run_ranges(conn, args.run_id)
+            result = run_ranges.run_ranges(conn, args.run_id, sim_id=args.sim_id)
         except EvaluationError as e:
             print(f"FAILED: {e}")
             return 1
@@ -324,6 +353,28 @@ def cmd_track_record(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_past_events(args: argparse.Namespace) -> int:
+    import json
+    from datetime import date
+
+    from domains.evaluation import past_events
+    from domains.evaluation.harness import EvaluationError
+
+    as_of = date.fromisoformat(args.as_of) if args.as_of else None
+    with get_db_connection() as conn:
+        apply_migrations(conn)
+        try:
+            result = past_events.past_events(conn, args.ticker, args.event_type, as_of)
+        except EvaluationError as e:
+            print(f"FAILED: {e}")
+            return 1
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2, ensure_ascii=False))
+    else:
+        print(past_events.render(result), end="")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m domains.evaluation")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -339,6 +390,7 @@ def main(argv: list[str] | None = None) -> int:
     bt.add_argument("--case", action="append", help="a case id (repeatable); default: all")
     bt.add_argument("--cases-file", default=str(CASES_PATH))
     bt.add_argument("--guidance", help="transcribed company guidance (M4); default: none")
+    bt.add_argument("--actuals-as-of", help="score actuals public by this ended day (M10)")
     bt.set_defaults(func=cmd_backtest)
     rp = commands.add_parser("reproduce", help="score a stored backtest batch again")
     rp.add_argument("--batch", required=True)
@@ -376,6 +428,7 @@ def main(argv: list[str] | None = None) -> int:
 
     rn = rcmd.add_parser("run", help="a stored run's range and the range's track record")
     rn.add_argument("--run-id", required=True)
+    rn.add_argument("--sim-id", help="a simulation of the run: the range on its shocked samples")
     rn.add_argument("--json", action="store_true", help="print JSON for the app")
     rn.set_defaults(func=cmd_ranges_run)
     tr = commands.add_parser("track-record", help="how well Warren has forecast one company")
@@ -383,6 +436,12 @@ def main(argv: list[str] | None = None) -> int:
     tr.add_argument("--as-of", help="YYYY-MM-DD; default: the last day ended in New York")
     tr.add_argument("--json", action="store_true", help="print JSON for the app")
     tr.set_defaults(func=cmd_track_record)
+    pe = commands.add_parser("past-events", help="past cases of an event type, chosen by rule")
+    pe.add_argument("--ticker", required=True, help="the company the question is about")
+    pe.add_argument("--event-type", required=True, help="e.g. guidance, m_and_a, policy")
+    pe.add_argument("--as-of", help="YYYY-MM-DD; default: the last day ended in New York")
+    pe.add_argument("--json", action="store_true", help="print JSON for the app")
+    pe.set_defaults(func=cmd_past_events)
     args = parser.parse_args(argv)
     return args.func(args)
 

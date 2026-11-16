@@ -1,20 +1,30 @@
 """The Phase 1 universe: large US non-financial companies with clean XBRL filings."""
 
 import csv
+import re
 import warnings
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+
+from shared_kernel.data_warnings import DataWarning
 
 # FY2016-FY2025: the ten fiscal years the M1 exit criterion requires.
 FISCAL_YEARS = range(2016, 2026)
 
 # universe.csv is the editable company list (Decision 11: companies are data, not code)
 UNIVERSE_PATH = Path(__file__).parent / "universe.csv"
-COLUMNS = ["ticker", "cik", "history_ends", "note"]
+COLUMNS = ["ticker", "cik", "history_ends", "reason", "successor_cik", "successor_name", "note"]
+
+# Why a CIK's history ends (backlog #196): a closed set, so the app's text catalogue covers it.
+COVERAGE_REASONS = frozenset({"holding_company_reorganisation"})
+# Reasons that always have a successor registrant (a holding-company reorganisation does by
+# definition: the new parent files a Form 8-K12B under Rule 12g-3). Another reason, a delisting
+# say, may leave `successor_cik` and `successor_name` empty, and the note then names none.
+REASONS_WITH_SUCCESSOR = frozenset({"holding_company_reorganisation"})
 
 
-class CoverageWarning(UserWarning):
+class CoverageWarning(DataWarning):
     """A query asks for a date after this CIK stopped filing (its history continues elsewhere).
 
     Carries its fields (backlog #172), so a caller can show it in another language."""
@@ -30,10 +40,60 @@ class UniverseCompany:
     cik: str | None = None  # pinned when the ticker's current CIK is not the one with the history
     note: str = ""
     history_ends: date | None = None  # from this date, newer filings are on another CIK
+    reason: str | None = None  # why the history ends, one of COVERAGE_REASONS (backlog #196)
+    successor_cik: str | None = None  # the CIK whose filings carry on, when known
+    successor_name: str | None = None  # that registrant's name, as EDGAR gives it
 
 
 class UniverseError(ValueError):
     """universe.csv is malformed."""
+
+
+_ISO_DATE = re.compile(r"(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)")
+_MONTHS = ("january february march april may june july august september october november "
+           "december").split()  # fmt: skip
+_MONTH_YEAR = re.compile(r"\b(" + "|".join(_MONTHS) + r")\s+(19\d{2}|20\d{2})\b", re.I)
+_QUARTER_YEAR = re.compile(r"\b(?:Q([1-4])|([1-4])Q)\s*'?(19\d{2}|20\d{2})\b", re.I)
+_FISCAL_YEAR = re.compile(r"(?:\bfiscal\s+(?:year\s+)?|\bFY\s*'?)(19\d{2}|20\d{2})\b", re.I)
+_DUE_YEAR = re.compile(r"\bdue\s+(?:in\s+)?(19\d{2}|20\d{2})\b", re.I)
+_YEAR = re.compile(r"(?<!\d)(19\d{2}|20\d{2})(?!\d)")
+
+
+def _later_dates(note: str, history_ends: date) -> list[str]:
+    """A backstop for the rule that a note states only what was public on `history_ends`: it is
+    shown on any date from the cut-off on (backlog #256). Refused: an ISO date after the cut-off;
+    a month or calendar quarter that begins after it (the one holding the cut-off passes); a
+    fiscal year more than one year past the cut-off's year (Walmart's fiscal 2027 began in
+    February 2026); any other year after the cut-off's, apart from a maturity ("due 2030").
+    Phrases such as "next year", "later" or "2026/11/04" are not checked: the author keeps to
+    the rule, and the loader catches the common slips."""
+    out = []
+    for m in _ISO_DATE.finditer(note):
+        try:
+            named = date(*map(int, m.groups()))
+        except ValueError:
+            out.append(f"note names {m.group(0)!r}, which is not a date")
+            continue
+        if named > history_ends:
+            out.append(f"note names {named.isoformat()}, after history_ends")
+    rest = _ISO_DATE.sub(" ", note)
+    for m in _MONTH_YEAR.finditer(rest):
+        if date(int(m.group(2)), _MONTHS.index(m.group(1).lower()) + 1, 1) > history_ends:
+            out.append(f"note names {m.group(0)!r}, which begins after history_ends")
+    rest = _MONTH_YEAR.sub(" ", rest)
+    for m in _QUARTER_YEAR.finditer(rest):
+        q = int(m.group(1) or m.group(2))
+        if date(int(m.group(3)), 3 * q - 2, 1) > history_ends:
+            out.append(f"note names {m.group(0)!r}, which begins after history_ends")
+    rest = _QUARTER_YEAR.sub(" ", rest)
+    for m in _FISCAL_YEAR.finditer(rest):
+        if int(m.group(1)) > history_ends.year + 1:
+            out.append(f"note names {m.group(0)!r}, more than a year after history_ends")
+    rest = _DUE_YEAR.sub(" ", _FISCAL_YEAR.sub(" ", rest))
+    for m in _YEAR.finditer(rest):
+        if int(m.group(1)) > history_ends.year:
+            out.append(f"note names the year {m.group(1)}, after history_ends")
+    return out
 
 
 def load_universe(path: Path = UNIVERSE_PATH) -> list[UniverseCompany]:
@@ -44,12 +104,14 @@ def load_universe(path: Path = UNIVERSE_PATH) -> list[UniverseCompany]:
             raise UniverseError(f"Expected columns {COLUMNS}, got {reader.fieldnames}")
         raw = list(reader)
 
-    errors, companies, seen = [], [], set()
+    errors, companies, seen, pinned = [], [], set(), set()
     for line, r in enumerate(raw, start=2):
         if None in r or None in r.values():
             errors.append(f"line {line}: wrong number of fields (quote any field with a comma)")
             continue
         ticker, cik, ends = r["ticker"].strip(), r["cik"].strip(), r["history_ends"].strip()
+        reason, successor = r["reason"].strip(), r["successor_cik"].strip()
+        successor_name = r["successor_name"].strip()
         if not ticker or ticker != ticker.upper():
             errors.append(f"line {line}: ticker must be non-empty and upper case, got {ticker!r}")
         elif ticker in seen:
@@ -65,7 +127,42 @@ def load_universe(path: Path = UNIVERSE_PATH) -> list[UniverseCompany]:
                 errors.append(f"line {line}: history_ends must be an ISO date, got {ends!r}")
             if not cik:
                 errors.append(f"line {line}: history_ends needs a pinned cik")
-        companies.append(UniverseCompany(ticker, cik or None, r["note"].strip(), history_ends))
+        if history_ends is not None:
+            errors += [f"line {line}: {e}" for e in _later_dates(r["note"], history_ends)]
+        if ends and not reason:
+            errors.append(f"line {line}: history_ends needs a reason")
+        if reason and reason not in COVERAGE_REASONS:
+            errors.append(
+                f"line {line}: reason must be one of {sorted(COVERAGE_REASONS)}, got {reason!r}"
+            )
+        if reason and not ends:
+            errors.append(f"line {line}: reason needs a history_ends")
+        if successor and not (len(successor) == 10 and successor.isdigit()):
+            errors.append(
+                f"line {line}: successor_cik must be empty or ten digits, got {successor!r}"
+            )
+        elif successor and successor == cik:
+            errors.append(f"line {line}: successor_cik must differ from cik")
+        if successor and not ends:
+            errors.append(f"line {line}: successor_cik needs a history_ends")
+        if reason in REASONS_WITH_SUCCESSOR and not (successor and successor_name):
+            errors.append(f"line {line}: reason {reason} needs successor_cik and successor_name")
+        if bool(successor) != bool(successor_name):
+            errors.append(f"line {line}: successor_cik and successor_name go together")
+        if cik and cik in pinned:
+            errors.append(f"line {line}: cik {cik} is pinned twice")
+        pinned.add(cik)
+        companies.append(
+            UniverseCompany(
+                ticker,
+                cik or None,
+                r["note"].strip(),
+                history_ends,
+                reason or None,
+                successor or None,
+                successor_name or None,
+            )
+        )
     if errors:
         raise UniverseError(f"{path.name}: " + "; ".join(errors))
     return companies
@@ -74,10 +171,16 @@ def load_universe(path: Path = UNIVERSE_PATH) -> list[UniverseCompany]:
 PHASE1_UNIVERSE = load_universe()
 
 
-def warn_if_beyond_history(cik: str, as_of: date) -> None:
-    """Warn when a query's as-of date is past the point where this CIK's filings stop."""
+def coverage_gap(cik: str | None, as_of: date) -> tuple[str, dict] | None:
+    """The coverage warning's text and fields when `as_of` is on or after the date this pinned
+    CIK's filings stop, else None (backlog #252: the past-events call states it as a note)."""
     for company in PHASE1_UNIVERSE:
-        if company.cik == cik and company.history_ends and as_of >= company.history_ends:
+        if (
+            cik is not None
+            and company.cik == cik
+            and company.history_ends
+            and as_of >= company.history_ends
+        ):
             text = (
                 f"{company.ticker} (CIK {cik}) as of {as_of.isoformat()}: filings from "
                 f"{company.history_ends.isoformat()} onward are on another CIK and are missing "
@@ -88,9 +191,44 @@ def warn_if_beyond_history(cik: str, as_of: date) -> None:
                 "cik": cik,
                 "as_of": as_of.isoformat(),
                 "history_ends": company.history_ends.isoformat(),
+                "reason": company.reason,
+                "successor_cik": company.successor_cik,
+                "successor_name": company.successor_name,
                 "note": company.note,
             }
-            warnings.warn(CoverageWarning(text, **fields), stacklevel=3)
+            return text, fields
+    return None
+
+
+def warn_if_beyond_history(cik: str, as_of: date) -> None:
+    """Warn when a query's as-of date is past the point where this CIK's filings stop."""
+    gap = coverage_gap(cik, as_of)
+    if gap is not None:
+        text, fields = gap
+        warnings.warn(CoverageWarning(text, **fields), stacklevel=3)
+
+
+COVERAGE_FIELDS = ("reason", "successor_cik", "successor_name")
+
+
+def coverage_fields(cik: str | None, history_ends: str | None) -> dict | None:
+    """`reason`, `successor_cik` and `successor_name` for a pinned CIK whose history ends on
+    `history_ends` (ISO), from today's universe file (backlog #196): what a `beyond_history` note
+    stored before #196 lacks. None when no row matches both, so a note whose cut-off was since
+    corrected is never paired with another row's reason."""
+    for company in PHASE1_UNIVERSE:
+        if (
+            cik is not None
+            and company.cik == cik
+            and company.history_ends is not None
+            and company.history_ends.isoformat() == history_ends
+        ):
+            return {
+                "reason": company.reason,
+                "successor_cik": company.successor_cik,
+                "successor_name": company.successor_name,
+            }
+    return None
 
 
 def get_universe_company(ticker: str) -> UniverseCompany:

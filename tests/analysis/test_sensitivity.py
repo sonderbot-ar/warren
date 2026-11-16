@@ -240,3 +240,19 @@ def test_a_what_if_child_can_be_the_grids_run(company, run):
     g = grid(company, child)
     stored = load_outputs(company, child)[("value_per_share", SINGLE)]
     assert _point(g, g.method).value_per_share == stored
+
+
+def test_the_wacc_note_says_when_the_runs_own_wacc_was_set(company, run):
+    # backlog #212: on a baseline the run's rate comes from CAPM; on a child with WACC set it
+    # does not, and the note's param and text say so
+    base = next(n for n in grid(company, run).notes if n.code == "wacc_set_directly")
+    assert base.params["run_wacc_set"] is False and "comes from CAPM" in base.text
+    child = revalue(company, run, [Change("wacc", delta=0.01)]).run_id
+    g = grid(company, child)
+    note = next(n for n in g.notes if n.code == "wacc_set_directly")
+    set_rate = dcf.inputs(load_assumptions(company, child)).wacc_override
+    assert note.params == {"run_wacc": set_rate, "run_wacc_set": True}
+    assert "own WACC was set directly too" in note.text
+    assert [n.code for n in g.notes].count("wacc_set_directly") == 1
+    centre = g.method.cells[g.run_point["row"]][g.run_point["column"]].value_per_share
+    assert centre == load_outputs(company, child)[("value_per_share", SINGLE)]

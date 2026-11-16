@@ -7,7 +7,9 @@ import pytest
 
 from domains.evaluation.cases import Case
 from domains.evaluation.harness import (
+    BASIS_TOLERANCE,
     EvaluationError,
+    basis_change,
     direction,
     evaluate_case,
     guard_control_date,
@@ -168,3 +170,56 @@ def test_ebit_error_is_in_margin_points_even_when_ebit_is_negative():
 )
 def test_direction(value, reference, expected):
     assert direction(value, reference) == expected
+
+
+# -- changes of basis (backlog #162) -------------------------------------------------------------
+
+
+def _row(comparative, prior=100.0, status="ok"):
+    return {"status": status, "comparative": comparative, "prior_year_known": prior}
+
+
+@pytest.mark.parametrize(
+    ("row", "expected"),
+    [
+        (_row(100 * (1 + BASIS_TOLERANCE) + 1e-6), True),
+        (_row(100 * (1 - BASIS_TOLERANCE) - 1e-6), True),
+        (_row(100 * (1 + BASIS_TOLERANCE)), False),  # at the tolerance: the same basis
+        (_row(100.2), False),
+        (_row(-50.0, prior=-40.0), True),  # a negative EBIT: relative to its size
+        (_row(None), None),  # mixed-vintage comparative: can't tell
+        (_row(1.0, prior=0.0), None),
+        (_row(1.0, prior=None), None),
+        (_row(200.0, status="missing"), None),
+    ],
+)
+def test_basis_change_on_a_stored_row(row, expected):
+    assert basis_change(row) is expected
+
+
+@pytest.mark.parametrize("factor", [None, 2.0, 1.05, 1.001])
+def test_the_row_flag_marks_the_quarters_hindsight_marks(make_company, factor):
+    """One rule: on every baseline row of a case, the flag is True exactly where
+    `against_actuals` on the same run calls the item `restated_basis`. Where the comparative is
+    mixed-vintage (a derived Q4 beside a recast year), the flag is None and hindsight scores
+    the quarter: both say "not shown to be a change"."""
+    from domains.evaluation.hindsight import against_actuals
+
+    def recast(tag, row):
+        # the Q3 2019 10-Q restates the year-earlier quarter's revenue
+        if tag == "Revenues" and row["end"] == "2018-09-30" and row["fy"] == 2019:
+            row = row | {"val": row["val"] * factor}
+        return row
+
+    conn = make_company(recast if factor else None)
+    run_id, rows = evaluate(conn)
+    h = against_actuals(conn, run_id, TODAY)
+    marked = {(i.name, q.period): i.missing is not None and i.missing.code == "restated_basis"
+              for q in h.quarters for i in q.items if i.actual is not None}  # fmt: skip
+    scored = [r for r in rows if r["variant"] == "baseline" and r["status"] == "ok"]
+    assert scored
+    for r in scored:
+        flag = basis_change(r)
+        assert (flag is True) is marked[(r["item"], r["period"])], (r["item"], r["period"])
+        assert (flag is None) is (r["comparative"] is None)
+    assert any(marked.values()) is (factor in (2.0, 1.05))

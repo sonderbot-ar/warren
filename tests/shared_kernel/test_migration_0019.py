@@ -39,18 +39,18 @@ def test_0019_adds_a_null_parent_to_stored_runs(db_path, tmp_path):
     with get_db_connection(db_path) as conn:
         apply_migrations(conn, _dir(tmp_path, "upto17", lambda v: v <= 17))
         _insert_run(conn)
-        assert apply_migrations(conn) == [18, 19, 20, 21]
+        assert apply_migrations(conn) == [18, 19, 20, 21, 22, 23]
         row = conn.execute("SELECT parent_run_id FROM runs").fetchone()
         assert row["parent_run_id"] is None
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
 def test_a_migration_that_arrives_after_a_higher_one_still_applies(db_path, tmp_path):
-    # main had 0017 then 0019-0021; M10's 0018 merged later (the real case on stored data)
+    # main had 0017 then 0019-0023; M10's 0018 merged later (the real case on stored data)
     main_dir = _dir(tmp_path, "main", lambda v: v != 18)
     with get_db_connection(db_path) as conn:
         assert 18 not in apply_migrations(conn, main_dir)
-        assert current_schema_version(conn) == 21  # the highest applied
+        assert current_schema_version(conn) == 23  # the highest applied
         assert apply_migrations(conn) == [18]  # the other track's 0018 merges later
         assert {18, 19} <= applied_versions(conn)
         cols = {r[1] for r in conn.execute("PRAGMA table_info(eval_results)")}

@@ -1,8 +1,10 @@
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
-from domains.market.erp import equity_risk_premium, last_complete_year
+from domains.market.erp import MIN_YEARS, equity_risk_premium, first_as_of, last_complete_year
 from domains.market.prices import MARKET_INDEX, annual_total_returns, load_prices
 from domains.market.store import MarketDataError
 from domains.market.yields import annual_bond_returns, load_yields
@@ -80,3 +82,23 @@ def test_equity_risk_premium_needs_data_fetched_after_the_last_year(conn):
     load(conn)  # fetched 2020-09-03, so the 2020 year-end isn't in it
     with pytest.raises(MarketDataError, match="refresh"):
         equity_risk_premium(conn, date(2021, 3, 1), first_year=2000)
+
+
+# -- the first as-of date with enough years (backlog #381) ----------------------------------------
+
+
+@given(st.integers(min_value=1950, max_value=2090))
+def test_first_as_of_is_the_first_day_with_enough_years(first_year):
+    day = first_as_of(first_year)
+    assert last_complete_year(day) - first_year + 1 == MIN_YEARS
+    assert last_complete_year(day - timedelta(days=1)) - first_year + 1 < MIN_YEARS
+
+
+@given(st.dates(min_value=date(1990, 1, 1), max_value=date(2100, 12, 31)), st.integers(1950, 2090))
+def test_a_date_has_enough_years_exactly_from_first_as_of(as_of, first_year):
+    enough = last_complete_year(as_of) - first_year + 1 >= MIN_YEARS
+    assert enough == (as_of >= first_as_of(first_year))
+
+
+def test_the_refusal_names_the_first_date_that_works():
+    assert first_as_of(2015) == date(2025, 1, 8)

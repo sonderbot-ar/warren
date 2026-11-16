@@ -16,7 +16,7 @@ import re
 import sqlite3
 import warnings
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from domains.analysis.dcf import YEARS
 from domains.analysis.math_engine import CHAINS, EngineError, UserChoice, step_quarter, trace
@@ -34,9 +34,11 @@ from domains.fundamentals.facts import get_facts
 from domains.fundamentals.schemas import Fact
 from domains.fundamentals.universe import get_universe_company
 from domains.market.store import MarketDataError
-from shared_kernel.calendar import CASE_TZ
+from shared_kernel.calendar import CASE_TZ, case_today, last_ended_day
 
 DIRECTION_BAND = 0.005  # a change within ±0.5% of the prior year counts as flat
+# a year-earlier figure in the actual's own filing this far from the run's is a change of basis
+BASIS_TOLERANCE = 0.005
 ACCESSION = re.compile(r"\b\d{10}-\d{2}-\d{6}\b")
 QUARTER_DAYS = 92
 FILING_LAG_DAYS = 45  # a quarter's 10-Q comes about this long after it ends
@@ -205,6 +207,26 @@ def first_reported(
     return Actual(revenue, sum(f.value for f in used), used, filed)
 
 
+def basis_change(row: dict) -> bool | None:
+    """Whether a stored scored row's actual is on another basis than the run (backlog #162).
+
+    The actual's own filing gives the year-earlier quarter (`comparative`); the run had it as a
+    history row (`prior_year_known`). More than BASIS_TOLERANCE apart, relative to the run's
+    value, and the two are not on one basis: either the company recast last year (a business
+    moved to discontinued operations, another revenue line), or the run's own figure was off (a
+    fourth quarter worked out from a year and nine months on different bases: JNJ, KO and XOM).
+    The flag says which rows; it does not say which cause. None when it can't be told: the row
+    isn't scored, the comparative is mixed-vintage, or the run's value is zero or missing.
+    Horizons 1-4 only: their year-earlier quarter is always a history row. Same rule as
+    `hindsight`'s `restated_basis`."""
+    if row.get("status") != "ok":
+        return None
+    filing, expected = row.get("comparative"), row.get("prior_year_known")
+    if filing is None or not expected:
+        return None
+    return abs(filing - expected) / abs(expected) > BASIS_TOLERANCE
+
+
 def comparative(
     facts: dict[tuple, Fact], fiscal_year: int, quarter: int, alternative: int
 ) -> tuple[float | None, float | None]:
@@ -364,7 +386,8 @@ def evaluate_case(
     }
     history = {(a.name, a.period): a for a in rows_used if a.name.startswith("history:")}
     quarters = sorted(p for (n, p) in outputs if n == "revenue" and p not in YEARS)
-    actuals = _quarterly(conn, cik, actuals_as_of or date.today(), "first_reported")
+    actuals_as_of = actuals_as_of or last_ended_day(datetime.now(UTC))
+    actuals = _quarterly(conn, cik, actuals_as_of, "first_reported")
     at_filing: dict[date, dict[tuple, Fact]] = {}
 
     rows = []
@@ -469,7 +492,7 @@ def new_batch(
 ) -> str:
     """Store the cases and a new batch row; its id, `eval_<date>_<n>`."""
     store_cases(conn, cases)
-    prefix = f"eval_{(today or date.today()).isoformat()}_"
+    prefix = f"eval_{(today or case_today(datetime.now(UTC))).isoformat()}_"
     count = conn.execute(
         "SELECT COUNT(*) FROM eval_batches WHERE batch_id LIKE ?", (prefix + "%",)
     ).fetchone()[0]

@@ -2,15 +2,35 @@
 
 concept_map.csv is the editable source; sync_concepts() copies it into the `concepts` table, which
 is the enforced vocabulary (financial_facts can only reference tags that exist there).
+
+The map is two files with the same columns (backlog #157). concept_map.csv holds every item a
+valuation can read, and its SHA-256 is the fingerprint each run stores: a different file can give
+a different answer for an old date, so a run built from another map can't be rebuilt.
+concept_map_reported.csv holds items only the reported-figures query reads (net income to the
+parent, discontinued operations), so adding one there leaves every stored run rebuildable.
+Ingest and the `concepts` table see both files as one map.
+
+Every valuation map a run may have been made with is kept in concept_maps/<sha256>.csv (backlog
+#357), so a stored run can be rebuilt through its own map after the map is edited:
+`concept_map_in_force` shadows the `concepts` table with the run's map for the length of a block.
+Facts are only ever added and a tag with facts can't leave the map (`sync_concepts`), so the old
+map still finds every fact it used.
 """
 
 import csv
 import hashlib
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+from domains.fundamentals.universe import load_universe
+
 CONCEPT_MAP_PATH = Path(__file__).parent / "concept_map.csv"
+CONCEPT_MAP_REPORTED_PATH = Path(__file__).parent / "concept_map_reported.csv"
+# A byte-for-byte copy of each concept_map.csv a run may have been made with, named by its SHA-256.
+CONCEPT_MAPS_DIR = Path(__file__).parent / "concept_maps"
 COLUMNS = [
     "canonical_name",
     "xbrl_concept",
@@ -21,6 +41,10 @@ COLUMNS = [
     "definition",
     "note",
 ]
+# The shipped maps add a last column (backlog #341): `companies`, empty for a tag every company's
+# facts are read under, else the `;`-separated tickers it applies to (companies as data, Decision
+# 11). Copies in concept_maps/ made before it have the eight columns above and read as unscoped.
+SCOPED_COLUMNS = [*COLUMNS, "companies"]
 UNITS = {"USD", "shares", "USD/shares"}
 PERIOD_TYPES = {"duration", "instant"}
 # required: every gap must be explained (the quality gate). optional: fallbacks and items a company
@@ -42,6 +66,11 @@ class ConceptRow:
     period_type: str
     definition: str
     gate: str = "required"
+    # Tickers whose facts are read under this tag; empty means every company (backlog #341).
+    companies: frozenset[str] = frozenset()
+
+    def applies_to(self, ticker: str) -> bool:
+        return not self.companies or ticker in self.companies
 
     @property
     def taxonomy(self) -> str:
@@ -52,21 +81,34 @@ class ConceptRow:
         return self.xbrl_concept.split(":", 1)[1]
 
 
-def load_concept_map(path: Path = CONCEPT_MAP_PATH) -> list[ConceptRow]:
-    """Read and validate the concept map. Every problem found is reported at once."""
-    with open(path, newline="") as f:
-        reader = csv.DictReader(f)
-        if reader.fieldnames != COLUMNS:
-            raise ConceptMapError(f"Expected columns {COLUMNS}, got {reader.fieldnames}")
-        raw = list(reader)
+def load_concept_map(
+    path: Path | None = None, reported_path: Path | None = None
+) -> list[ConceptRow]:
+    """Read and validate the concept map: both shipped files by default, or the files given
+    (`path` alone reads one file). Every problem found is reported at once."""
+    if path is None:
+        paths = [CONCEPT_MAP_PATH, reported_path or CONCEPT_MAP_REPORTED_PATH]
+    else:
+        paths = [path] + ([reported_path] if reported_path else [])
+    raw, files = [], {}
+    for source in paths:
+        with open(source, newline="") as f:
+            reader = csv.DictReader(f)
+            if reader.fieldnames not in (COLUMNS, SCOPED_COLUMNS):
+                raise ConceptMapError(
+                    f"{Path(source).name}: expected columns {SCOPED_COLUMNS} (or {COLUMNS} in a "
+                    f"copy made before backlog #341), got {reader.fieldnames}"
+                )
+            raw += [(f"{Path(source).name} line {n}", r) for n, r in enumerate(reader, start=2)]
 
+    known = {c.ticker for c in load_universe()}
     errors, rows = [], []
-    for line, r in enumerate(raw, start=2):
+    for line, r in raw:
         if None in r or None in r.values():
-            errors.append(f"line {line}: wrong number of fields (quote any field with a comma)")
+            errors.append(f"{line}: wrong number of fields (quote any field with a comma)")
             continue
         if not r["priority"].isdigit():
-            errors.append(f"line {line}: priority must be a positive integer")
+            errors.append(f"{line}: priority must be a positive integer")
             continue
         row = ConceptRow(
             canonical_name=r["canonical_name"].strip(),
@@ -76,22 +118,33 @@ def load_concept_map(path: Path = CONCEPT_MAP_PATH) -> list[ConceptRow]:
             period_type=r["period_type"].strip(),
             definition=r["definition"].strip(),
             gate=r["gate"].strip(),
+            companies=frozenset(t.strip() for t in r.get("companies", "").split(";") if t.strip()),
         )
         if not row.xbrl_concept.startswith(TAXONOMIES):
-            errors.append(f"line {line}: {row.xbrl_concept} must start with one of {TAXONOMIES}")
+            errors.append(f"{line}: {row.xbrl_concept} must start with one of {TAXONOMIES}")
         if row.unit not in UNITS:
-            errors.append(f"line {line}: unknown unit {row.unit!r}")
+            errors.append(f"{line}: unknown unit {row.unit!r}")
         if row.period_type not in PERIOD_TYPES:
-            errors.append(f"line {line}: unknown period_type {row.period_type!r}")
+            errors.append(f"{line}: unknown period_type {row.period_type!r}")
         if row.gate not in GATES:
-            errors.append(f"line {line}: gate must be one of {sorted(GATES)}")
+            errors.append(f"{line}: gate must be one of {sorted(GATES)}")
         if not row.definition:
-            errors.append(f"line {line}: definition is required")
+            errors.append(f"{line}: definition is required")
+        unknown = sorted(row.companies - known)
+        if unknown:
+            errors.append(f"{line}: companies {unknown} are not in universe.csv")
+        if row.companies and row.priority == 1:
+            # a company-only tag is a fallback: every other company keeps the item's first tag
+            errors.append(f"{line}: a tag limited to some companies can't be priority 1")
+        files.setdefault(row.canonical_name, set()).add(line.split(" line ")[0])
         rows.append(row)
 
     tags = [r.xbrl_concept for r in rows]
     for tag in sorted({t for t in tags if tags.count(t) > 1}):
         errors.append(f"{tag} is mapped more than once (one tag maps to one canonical name)")
+
+    for name in sorted(n for n, names in files.items() if len(names) > 1):
+        errors.append(f"{name}: an item's tags must all be in one file, not {sorted(files[name])}")
 
     for name in sorted({r.canonical_name for r in rows}):
         group = [r for r in rows if r.canonical_name == name]
@@ -106,13 +159,73 @@ def load_concept_map(path: Path = CONCEPT_MAP_PATH) -> list[ConceptRow]:
     return rows
 
 
-def concept_map_sha256(path: Path = CONCEPT_MAP_PATH) -> str:
-    """Fingerprint of the concept map: a different map can give different answers for old dates."""
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def concept_map_sha256(path: Path | None = None) -> str:
+    """Fingerprint of the valuation's concept map (concept_map.csv only): a different map can give
+    different answers for old dates. The reported-only file is left out by design (backlog #157):
+    no valuation reads its items, so editing it must not stop old runs from rebuilding."""
+    return hashlib.sha256((path or CONCEPT_MAP_PATH).read_bytes()).hexdigest()
+
+
+def archived_concept_map(sha256: str) -> list[ConceptRow]:
+    """The valuation map with this fingerprint, from its copy in concept_maps/, plus today's
+    reported-only file (outside the fingerprint by design). Refuses a missing or altered copy."""
+    path = CONCEPT_MAPS_DIR / f"{sha256}.csv"
+    if not path.is_file():
+        raise ConceptMapError(f"No copy of concept map {sha256[:12]} in {CONCEPT_MAPS_DIR.name}/")
+    if concept_map_sha256(path) != sha256:
+        raise ConceptMapError(
+            f"The copy of concept map {sha256[:12]} in {CONCEPT_MAPS_DIR.name}/ doesn't match "
+            "its name"
+        )
+    return load_concept_map(path, CONCEPT_MAP_REPORTED_PATH)
+
+
+@contextmanager
+def concept_map_in_force(
+    conn: sqlite3.Connection, sha256: str, ticker: str | None = None
+) -> Iterator[None]:
+    """Query facts through the map with this fingerprint for the length of the block.
+
+    Today's map: nothing changes. Another map: a temporary `concepts` table holding that map's
+    rows, which SQLite reads in place of the main one wherever a query names `concepts` without a
+    schema; it lives on this connection only, is never written to the database file, and is
+    dropped on exit, also when the block raises.
+
+    With `ticker`, an archived map's rows limited to other companies are left out (backlog #341):
+    the facts table may hold another company's facts under such a tag, stored under a later map
+    that widened the row, which the run's own map never read.
+    """
+    if sha256 == concept_map_sha256():
+        yield
+        return
+    rows = [r for r in archived_concept_map(sha256) if ticker is None or r.applies_to(ticker)]
+    if conn.execute("SELECT 1 FROM temp.sqlite_master WHERE name = 'concepts'").fetchone():
+        raise ConceptMapError("A concept map is already in force on this connection")
+    conn.execute("CREATE TEMP TABLE concepts AS SELECT * FROM main.concepts WHERE 0")
+    try:
+        conn.executemany(
+            "INSERT INTO temp.concepts (canonical_name, xbrl_concept, priority, unit, "
+            "period_type, definition) VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                (r.canonical_name, r.xbrl_concept, r.priority, r.unit, r.period_type, r.definition)
+                for r in rows
+            ],
+        )
+        yield
+    finally:
+        conn.execute("DROP TABLE IF EXISTS temp.concepts")
+
+
+def reported_only_names(path: Path = CONCEPT_MAP_REPORTED_PATH) -> set[str]:
+    """The items only the reported-figures query reads (concept_map_reported.csv)."""
+    return {r.canonical_name for r in load_concept_map(path)}
 
 
 def sync_concepts(conn: sqlite3.Connection, rows: list[ConceptRow]) -> dict[str, int]:
     """Make the concepts table match the CSV, in one transaction.
+
+    Pass the whole map (`load_concept_map()`, both files): rows read from one file alone would
+    delete the other file's tags (backlog #157).
 
     A tag removed from the CSV is deleted from the table; if stored facts still reference it the
     sync fails loudly, because silently keeping it would leave those facts in every query.

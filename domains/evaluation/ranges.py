@@ -13,7 +13,7 @@ Errors (financial_math): revenue as ln(actual / forecast); EBIT in margin points
 import hashlib
 import sqlite3
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 
 import numpy as np
 
@@ -28,6 +28,7 @@ from domains.evaluation.harness import (
     scoring_errors,
 )
 from domains.fundamentals.universe import PHASE1_UNIVERSE
+from shared_kernel.calendar import case_today, last_ended_day
 
 FIRST_ORIGIN = date(2019, 4, 1)  # the first full month the engine supports (SUPPORTED_FROM)
 LAST_ORIGIN = date(2026, 10, 1)
@@ -175,12 +176,13 @@ def build_origins(
     today: date | None = None,
 ) -> dict[str, int]:
     """Every origin of every company (the universe file's, unless named): counts by outcome."""
-    today = today or date.today()
+    now = datetime.now(UTC)
+    last = today or last_ended_day(now)
     tickers = tickers or [c.ticker for c in PHASE1_UNIVERSE]
     counts: dict[str, int] = {}
     for ticker in tickers:
-        for d in origin_dates(start, min(end, today)):
-            outcome = build_origin(conn, ticker, d, actuals_as_of or today, choices, today)
+        for d in origin_dates(start, min(end, last)):
+            outcome = build_origin(conn, ticker, d, actuals_as_of or last, choices, today)
             counts[outcome] = counts.get(outcome, 0) + 1
     return counts
 
@@ -495,7 +497,7 @@ def run_build(
 
     pairs = pairs_as_of(conn, actuals_as_of)
     rows = build_rows(conn, pairs, batch_id, guides, n)
-    prefix = f"ranges_{(today or date.today()).isoformat()}_"
+    prefix = f"ranges_{(today or case_today(datetime.now(UTC))).isoformat()}_"
     count = conn.execute(
         "SELECT COUNT(*) FROM range_builds WHERE build_id LIKE ?", (prefix + "%",)
     ).fetchone()[0]
