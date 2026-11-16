@@ -164,8 +164,11 @@ def test_a_grid_batch_gets_the_grid_sections_and_an_event_batch_does_not(company
     )
     assert all(h in text for h in headings)
     assert "1 grid cases in the batch" in text and "1 scored" in text
+    assert "1 grid cases on rule-chosen dates" in text
+    assert "events were chosen in hindsight" not in text
     plain = backtest_report.render(company, backtest(company))  # the event row replaces it
     assert "## Grid cases" not in plain
+    assert "events were chosen in hindsight as notable; 26 cases is few" in plain
 
 
 def _quiet(conn, variant, run="run_quiet"):

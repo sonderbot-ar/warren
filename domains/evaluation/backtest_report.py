@@ -208,7 +208,8 @@ def render(conn: sqlite3.Connection, batch_id: str) -> str:
             h = bt.by_horizon(ps)
             cells = [f"{_pts(h[k][0])} (n={h[k][1]})" if k in h else "n/a" for k in (1, 2, 3, 4)]
             out.append(f"| {NAMES[v]} | {ITEM_NAMES[item]} | {' | '.join(cells)} |")
-    if info and all(r["event_type"] == "grid" for r in info.values()):
+    is_grid = bool(info) and all(r["event_type"] == "grid" for r in info.values())
+    if is_grid:
         out += grid_sections(conn, rows, {f["case_id"]: f["reason"] for f in failures})
     out += _direction(rows)
     out += _band(rows)
@@ -217,7 +218,7 @@ def render(conn: sqlite3.Connection, batch_id: str) -> str:
     out += _per_case(rows, info, shocks)
     if failures:
         out += ["", "## Failed cases", ""] + [f"- {f['case_id']}: {f['reason']}" for f in failures]
-    out += _glossary()
+    out += _glossary(len(info) if is_grid else None)
     return "\n".join(out) + "\n"
 
 
@@ -501,8 +502,8 @@ def grid_sections(conn: sqlite3.Connection, rows: list[dict], failures: dict[str
     return out
 
 
-def _glossary() -> list[str]:
-    return [
+def _glossary(n_grid: int | None = None) -> list[str]:
+    out = [
         "",
         "## Glossary and limitations",
         "",
@@ -521,6 +522,15 @@ def _glossary() -> list[str]:
         "masked or not; the band covers shock size only; the shock sizes were set before any "
         "result and never tuned on these cases.",
     ]
+    if n_grid is not None:  # M10: a grid batch's dates come from a calendar rule, not hindsight
+        out[-1] = (
+            f"- **Limitations:** {n_grid} grid cases on rule-chosen dates, but the companies on "
+            "a date share a news week, so the dates (not the cases) are the independent draws "
+            "and few of them fall after the models' cutoff; the AI may remember what happened "
+            "next, masked or not; the band covers shock size only; the shock sizes were set "
+            "before any result and never tuned on these cases."
+        )
+    return out
 
 
 def write_report(conn: sqlite3.Connection, batch_id: str, directory: Path = REPORTS_DIR) -> Path:
