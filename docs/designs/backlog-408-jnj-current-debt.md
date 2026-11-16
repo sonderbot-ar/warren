@@ -1,6 +1,6 @@
 # Backlog #408: JNJ's current debt, counted twice
 
-Issue: https://github.com/sonderbot-ar/warren/issues/408 (from the #341 design review) · Branch `backlog-408-jnj-current-debt` · Version v0.9.78 (on merge).
+Issue: https://github.com/sonderbot-ar/warren/issues/408 (from the #341 design review) · Branch `backlog-408-jnj-current-debt` · Version v0.9.78, merged nov.16.2026 (PR #413, merge `6dfbe29`, after CI green and a gatekeeper GO).
 
 
 ## Problem
@@ -93,3 +93,7 @@ On the restored snapshot (`warren-20261115T202938Z`):
 | 2026 | 16 | 16 | 1.7bn to 2.0bn | 2.20% → 2.30% | 6.61% → 6.63% | −11.3% → −13.2% | +0.2% to +0.3% |
 
   For example, as of 2026-10-30: debt $46.65bn → $44.65bn, value per share $168.01 → $168.53; as of 2019-04-01: debt $33.08bn → $30.48bn, $148.46 → $148.72. Value per share barely moves: $2bn is about 0.5% of JNJ's market value, and the higher cost of debt and lower debt weight raise the WACC slightly, which takes back part of it. The error was in the debt itself, which a student reads line by line, not mainly in the value. Revenue and EBIT forecasts don't read debt or working capital, so the forecast-error scores (M3, M8, M9, and M10's batch) do not move.
+
+## Gatekeeper (nov.16.2026)
+
+GO, no blockers: 2,367 passed, ruff clean; the new reads are point-in-time; the map copy is byte-identical; `JNJ_2026-10-30_1` rebuilds to identical rows through its own map; the reading-rules row matches (v6). Ideas added to #412: `History.on` takes the first fact on a date; a check at a quarter-end short-term figure's own date when a total exists there; a fallback when the `concepts` table is missing.
