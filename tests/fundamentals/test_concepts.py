@@ -315,7 +315,7 @@ def test_the_shipped_maps_scope_only_caterpillars_maturity_note_total():
         (
             "debt_current",
             "LongTermDebtMaturitiesRepaymentsOfPrincipalInNextTwelveMonths",
-            3,
+            2,  # 3 until backlog #421 moved the lease-inclusive tag to its own item
             {"CAT"},
         )
     ]
