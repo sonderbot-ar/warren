@@ -48,6 +48,8 @@ from domains.analysis.math_engine import (
     debt_parts,
     paper_beside,
     paper_params,
+    total_in_place,
+    total_params,
 )
 from domains.fundamentals.facts import (
     MEANING_CHANGE_MATCH,
@@ -1268,15 +1270,17 @@ def _net_debt(views: _Views, revenue: Fact, period: Period, lines: list[Line]) -
     get = lambda item: views.latest.latest_before(item, day)  # noqa: E731
     formula = (
         "debt (current and non-current debt, short-term borrowings and commercial paper "
-        "(in their place, or beside them when the filing's total shows a separate line), finance "
-        "leases; operating leases excluded, their cost is in operating income) − (cash + "
+        "(in their place, or beside them when the filing's total shows a separate line), or the "
+        "filing's total debt due within one year in place of those parts when none of them is "
+        "filed for the date, finance leases; operating leases excluded, their cost is in "
+        "operating income) − (cash + "
         "marketable securities, current and non-current, + other short-term investments)"
     )
     fid = "debt_less_cash_and_securities"
     cash = get("cash")
     if cash is None:
         return Ratio("net_debt", fid, formula, None, "USD", [], _missing(["cash"]))
-    debt, used, zero, debt_notes = debt_parts(get, views.latest.on)
+    debt, used, zero, debt_notes = debt_parts(get, views.latest.on, day)
     cash_facts = [f for f in (get(i) for i in CASH_ITEMS) if f is not None]
     zero += [i for i in CASH_ITEMS if get(i) is None]
     value = fm.net_debt(debt, sum(f.value for f in cash_facts))
@@ -1308,7 +1312,16 @@ def _net_debt(views: _Views, revenue: Fact, period: Period, lines: list[Line]) -
         )
     if LEASES_SKIPPED in debt_notes:
         notes.append(Coded("finance_leases_in_debt_tag", {}, LEASES_SKIPPED))
-    inside = current_debt_inside(get("debt_current"), get("short_term_borrowings"), views.latest.on)
+    in_place = total_in_place(get, day)
+    if in_place:
+        notes.append(
+            Coded("debt_current_total_in_place", total_params(in_place, False), in_place.text)
+        )
+        inside = None  # the parts are not counted, so not judged
+    else:
+        inside = current_debt_inside(
+            get("debt_current"), get("short_term_borrowings"), views.latest.on
+        )
     if inside:
         notes.append(
             Coded(
@@ -1324,8 +1337,12 @@ def _net_debt(views: _Views, revenue: Fact, period: Period, lines: list[Line]) -
                 inside.text,
             )
         )
-    beside = paper_beside(
-        get("short_term_borrowings"), get("commercial_paper"), views.latest.on, inside
+    beside = (
+        None
+        if in_place
+        else paper_beside(
+            get("short_term_borrowings"), get("commercial_paper"), views.latest.on, inside
+        )
     )
     if beside:
         notes.append(
