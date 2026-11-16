@@ -1,6 +1,6 @@
 # Backlog #412: commercial paper left out beside short-term bank loans
 
-Issue: https://github.com/sonderbot-ar/warren/issues/412 (from the #408 design review) · Branch `backlog-412-pg-commercial-paper` · Version v0.9.79 (to be recorded on merge).
+Issue: https://github.com/sonderbot-ar/warren/issues/412 (from the #408 design review) · Branch `backlog-412-pg-commercial-paper` · Version v0.9.79, merged nov.16.2026 (PR #416, merge `8252533`, after CI green and a gatekeeper GO).
 
 
 ## Problem
@@ -101,3 +101,5 @@ Two effects pull against each other. More debt is subtracted from enterprise val
 ## Gatekeeper (nov.16.2026)
 
 First pass NO-GO, one blocker, fixed: the new reading-rules row said Exxon meets the check at every year end 2009 to 2025 and "at their shared date"; it now names 2010 to 2023 and 2025 and the paper's date (the row was not yet merged, so the append-only rule wasn't broken). Taken: working capital no longer lists a left-out older short-term figure in its sources or method. Checks: 2,386 passed, ruff clean, 903 of 903 reproduce and 692 rebuild identical, point-in-time reads only through `History.on` and the as-of query; an independent run of the check on every paper date agreed with Step 1. Follow-ups are in #415.
+
+Re-check on `5319a14`: GO, no blockers: 2,387 passed, 10 skipped, ruff clean; the row's fingerprint `ec6caca2994f` matches v7; `PG_2019-10-01_1` reproduces to the cent and rebuilds identical.
