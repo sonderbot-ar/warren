@@ -145,7 +145,10 @@ CASH_ITEMS = (
 REQUIRED_BALANCE = {"current_assets", "current_liabilities", "cash"}
 SHARE_ITEMS = ("shares_outstanding", "diluted_shares")
 ITEMS = sorted({n for chain in CHAINS.values() for alt in chain for n in alt})
-ITEMS += [*BALANCE_ITEMS, *SHARE_ITEMS]
+# Read only to check whether short-term borrowings already include the current portion of
+# long-term debt (backlog #408); never counted, so not a balance item.
+CHECK_ITEMS = ("debt_current_total",)
+ITEMS += [*BALANCE_ITEMS, *SHARE_ITEMS, *CHECK_ITEMS]
 
 
 class EngineError(ValueError):
@@ -341,6 +344,10 @@ class History:
     def year(self, fiscal_year: int) -> Callable[[str], Fact | None]:
         return lambda item: self.annual.get((item, fiscal_year))
 
+    def on(self, item: str, day: date) -> Fact | None:
+        """The balance of an item dated exactly `day`, if one was filed by the run's date."""
+        return next((f for f in self.instants.get(item, []) if f.period_end == day), None)
+
     def latest_before(self, item: str, day: date) -> Fact | None:
         """The newest balance of an item dated on or before `day` and within a year of it."""
         facts = [f for f in self.instants.get(item, []) if f.period_end <= day]
@@ -350,8 +357,12 @@ class History:
 
 
 def load_history(conn: sqlite3.Connection, cik: str, as_of: date) -> History:
-    quarterly = get_facts(conn, cik, ITEMS, as_of, frequency="quarterly", one_basis=True)
-    annual = get_facts(conn, cik, ITEMS, as_of, frequency="annual")
+    # a check item is read only when the map in force has it: a rebuild through a map made
+    # before the item existed reads what that map read (backlog #408)
+    mapped = {r[0] for r in conn.execute("SELECT DISTINCT canonical_name FROM concepts")}
+    items = [i for i in ITEMS if i not in CHECK_ITEMS or i in mapped]
+    quarterly = get_facts(conn, cik, items, as_of, frequency="quarterly", one_basis=True)
+    annual = get_facts(conn, cik, items, as_of, frequency="annual")
     instants: dict[str, list[Fact]] = defaultdict(list)
     for f in sorted(quarterly + annual, key=lambda f: f.period_end):
         if f.period_start is None and (
@@ -746,16 +757,86 @@ def _operating_nwc(
     short_term = (
         v["short_term_borrowings"] if parts["short_term_borrowings"] else v["commercial_paper"]
     )
+    inside = current_debt_inside(
+        parts["debt_current"], parts["short_term_borrowings"], _on_date(get)
+    )
+    current = 0.0 if inside else v["debt_current"]
     nwc = (
         v["current_assets"]
         - v["cash"]
         - v["marketable_securities_current"]
         - v["other_short_term_investments"]
-    ) - (v["current_liabilities"] - v["debt_current"] - short_term)
+    ) - (v["current_liabilities"] - current - short_term)
     method = "; ".join(trace(f) for f in parts.values() if f)
+    if inside:
+        method += f"; {inside.text}"
     if missing:
         method += f"; counted as zero: {', '.join(missing)}"
     return nwc, method, [f for f in parts.values() if f], missing
+
+
+@dataclass(frozen=True)
+class CurrentDebtInside:
+    """The current portion of long-term debt is already inside short-term borrowings (#408)."""
+
+    current: Fact  # the current portion left out
+    total: Fact  # the filing's total debt due within one year (DebtCurrent), same date
+    short_term: Fact  # short-term borrowings at the same date
+
+    @property
+    def text(self) -> str:
+        return (
+            f"current portion of long-term debt left out: already inside short-term borrowings "
+            f"(debt due within one year {self.total.value:,.0f} = short-term borrowings "
+            f"{self.short_term.value:,.0f}, not {self.short_term.value + self.current.value:,.0f}, "
+            f"at {self.current.period_end})"
+        )
+
+
+def _on_date(get: Callable[[str], Fact | None]) -> Callable[[str, date], Fact | None]:
+    """An item's fact dated exactly `day`, from a lookup that returns one fact per item."""
+
+    def on(item: str, day: date) -> Fact | None:
+        fact = get(item)
+        return fact if fact is not None and fact.period_end == day else None
+
+    return on
+
+
+def current_debt_inside(
+    current: Fact | None,
+    short_term: Fact | None,
+    on: Callable[[str, date], Fact | None],
+) -> CurrentDebtInside | None:
+    """Whether the short-term borrowings counted already include the current portion of
+    long-term debt (backlog #408), judged at the current portion's own date: there, the filing's
+    total debt due within one year (DebtCurrent) is nearer short-term borrowings alone than
+    short-term borrowings plus the current portion, and within half the current portion of
+    short-term borrowings alone. A company that presents its loans and notes
+    payable with the current portion inside them (JNJ) tags the parts in a note, and adding them
+    would count the current portion twice.
+
+    Needs all three figures on that date and the short-term borrowings counted to be no older:
+    when commercial paper stands in for short-term borrowings, nothing counted holds the current
+    portion. A later short-term figure (a quarter end beside a year-end current portion carried
+    forward) is taken to be presented the same way as at the year end."""
+    if current is None or short_term is None or current.value <= 0:
+        return None
+    if short_term.period_end < current.period_end:
+        return None
+    day = current.period_end
+    total, short_then = on("debt_current_total", day), on("short_term_borrowings", day)
+    if total is None or short_then is None:
+        return None
+    alone = abs(total.value - short_then.value)
+    together = abs(total.value - short_then.value - current.value)
+    # nearer the short-term line alone, and within half the current portion of it: a total far
+    # below short-term borrowings is a broken figure, not proof of either presentation
+    inside = alone < together and alone < current.value / 2
+    return CurrentDebtInside(current, total, short_then) if inside else None
+
+
+LEASES_SKIPPED = "finance leases skipped: the debt tag already includes them"
 
 
 def _lease_inclusive(*facts: Fact | None) -> bool:
@@ -764,27 +845,35 @@ def _lease_inclusive(*facts: Fact | None) -> bool:
     )
 
 
-def debt_parts(get: Callable[[str], Fact | None]) -> tuple[float, list[Fact], list[str], str]:
+def debt_parts(
+    get: Callable[[str], Fact | None],
+    on: Callable[[str, date], Fact | None] | None = None,
+) -> tuple[float, list[Fact], list[str], str]:
     """Debt (D3): long-term debt, current and non-current, short-term borrowings (or commercial
-    paper when there are none), and finance leases unless a debt tag already includes them.
+    paper when there are none), and finance leases unless a debt tag already includes them; the
+    current portion is left out when short-term borrowings already include it (backlog #408).
+    `on(item, day)` gives an item's fact dated exactly `day` (default: `get`'s fact if so dated).
     Returns (total, facts used, items counted as zero, notes)."""
     used, zero, notes = [], [], []
     current, noncurrent = get("debt_current"), get("debt_noncurrent")
     short_term = get("short_term_borrowings")
+    inside = current_debt_inside(current, short_term, on or _on_date(get))
+    if inside:
+        notes.append(inside.text)
     if short_term is None:
         short_term = get("commercial_paper")
         if short_term is None:
             zero.append("short_term_borrowings/commercial_paper")
     leases = get("finance_lease_liabilities")
     if leases is not None and _lease_inclusive(current, noncurrent):
-        notes.append("finance leases skipped: the debt tag already includes them")
+        notes.append(LEASES_SKIPPED)
         leases = None
     elif leases is None:
         zero.append("finance_lease_liabilities")
     for item, fact in (("debt_current", current), ("debt_noncurrent", noncurrent)):
         if fact is None:
             zero.append(item)
-    for fact in (current, noncurrent, short_term, leases):
+    for fact in (None if inside else current, noncurrent, short_term, leases):
         if fact is not None:
             used.append(fact)
     return sum(f.value for f in used), used, zero, "; ".join(notes)
@@ -826,6 +915,24 @@ def _balance(history: History, base_date: date, result: EngineResult) -> date:
                     "currency": fact.unit,
                 },
             )
+    inside = current_debt_inside(facts["debt_current"], facts["short_term_borrowings"], history.on)
+    if inside:
+        # never counted, so never carried forward (backlog #408)
+        facts["debt_current"] = None
+        result.warn(
+            "debt_current_inside_short_term",
+            {
+                "period_end": inside.current.period_end.isoformat(),
+                "debt_current": inside.current.value,
+                "short_term_borrowings": inside.short_term.value,
+                "debt_current_total": inside.total.value,
+                "currency": inside.current.unit,
+                "accession_no": inside.current.accession_no,
+                "assumptions": ["debt", "cost_of_debt", "nwc_pct"],
+            },
+            f"Current portion of long-term debt ({inside.current.value:,.0f} at "
+            f"{inside.current.period_end}) left out: short-term borrowings already include it",
+        )
     carried = [
         f"{i} ({f.period_end})" for i, f in facts.items() if f and f.period_end < balance_date
     ]
@@ -876,7 +983,7 @@ def _balance(history: History, base_date: date, result: EngineResult) -> date:
             },
         )
 
-    debt, used, zero, notes = debt_parts(get)
+    debt, used, zero, notes = debt_parts(get, history.on)
     for fact in used:
         result.add(
             f"balance:{fact.canonical_name}",
