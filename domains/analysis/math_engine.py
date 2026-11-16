@@ -761,6 +761,11 @@ def _operating_nwc(
         parts["debt_current"], parts["short_term_borrowings"], _on_date(get)
     )
     current = 0.0 if inside else v["debt_current"]
+    beside = paper_beside(
+        parts["short_term_borrowings"], parts["commercial_paper"], _on_date(get), inside
+    )
+    if beside:
+        short_term += beside.paper.value
     nwc = (
         v["current_assets"]
         - v["cash"]
@@ -770,6 +775,8 @@ def _operating_nwc(
     method = "; ".join(trace(f) for f in parts.values() if f)
     if inside:
         method += f"; {inside.text}"
+    if beside:
+        method += f"; {beside.text}"
     if missing:
         method += f"; counted as zero: {', '.join(missing)}"
     return nwc, method, [f for f in parts.values() if f], missing
@@ -836,6 +843,77 @@ def current_debt_inside(
     return CurrentDebtInside(current, total, short_then) if inside else None
 
 
+@dataclass(frozen=True)
+class PaperBeside:
+    """Commercial paper is a separate line beside short-term borrowings, not inside them (#412)."""
+
+    paper: Fact  # the commercial paper counted beside short-term borrowings
+    short_term: Fact  # short-term borrowings at the same date
+    total: Fact  # the filing's total debt due within one year (DebtCurrent), same date
+    current: float  # the current portion of long-term debt counted at that date (0 if none)
+
+    @property
+    def text(self) -> str:
+        parts = self.short_term.value + self.current
+        return (
+            f"commercial paper counted beside short-term borrowings: a separate line (debt due "
+            f"within one year {self.total.value:,.0f} is nearer {parts + self.paper.value:,.0f} "
+            f"with it than {parts:,.0f} without it, at {self.paper.period_end})"
+        )
+
+
+def paper_beside(
+    short_term: Fact | None,
+    paper: Fact | None,
+    on: Callable[[str, date], Fact | None],
+    inside: CurrentDebtInside | None = None,
+) -> PaperBeside | None:
+    """Whether commercial paper is a line of its own beside the short-term borrowings counted
+    (backlog #412), judged at their shared date: there, the filing's total debt due within one
+    year (DebtCurrent) is nearer short-term borrowings + the current portion + commercial paper
+    than the same without commercial paper, and within half the commercial paper of the sum with
+    it. Exxon's "Notes and loans payable" and P&G's "Debt due within one year" list commercial
+    paper apart from short-term bank loans; Microsoft, Coca-Cola and Walmart tag commercial paper
+    as a part of short-term borrowings, and none of them tags the total, so for them nothing
+    changes: without the total, commercial paper counts only in place of short-term borrowings.
+
+    Needs both lines dated the same day, commercial paper above zero and the total on that day.
+    The current portion is the one dated that day (zero when there is none, or when #408 found it
+    inside short-term borrowings)."""
+    if short_term is None or paper is None or paper.value <= 0:
+        return None
+    day = short_term.period_end
+    if paper.period_end != day:
+        return None
+    total = on("debt_current_total", day)
+    if total is None:
+        return None
+    current_fact = None if inside is not None else on("debt_current", day)
+    current = current_fact.value if current_fact is not None else 0.0
+    without = short_term.value + current
+    gap = abs(total.value - without - paper.value)
+    # nearer the sum with commercial paper, and close to it: a total that fits neither sum is not
+    # evidence of either presentation
+    beside = gap < abs(total.value - without) and gap < paper.value / 2
+    return PaperBeside(paper, short_term, total, current) if beside else None
+
+
+def paper_params(beside: PaperBeside, assumptions: bool = True) -> dict:
+    """The note's params (backlog #412); the reported view leaves out `assumptions`."""
+    params = {
+        "period_end": beside.paper.period_end.isoformat(),
+        "commercial_paper": beside.paper.value,
+        "short_term_borrowings": beside.short_term.value,
+        "debt_current": beside.current,
+        "debt_current_total": beside.total.value,
+        "currency": beside.paper.unit,
+        "accession_no": beside.paper.accession_no,
+    }
+    if assumptions:
+        params["assumptions"] = ["debt", "cost_of_debt", "nwc_pct"]
+    return params
+
+
 LEASES_SKIPPED = "finance leases skipped: the debt tag already includes them"
 
 
@@ -850,16 +928,21 @@ def debt_parts(
     on: Callable[[str, date], Fact | None] | None = None,
 ) -> tuple[float, list[Fact], list[str], str]:
     """Debt (D3): long-term debt, current and non-current, short-term borrowings (or commercial
-    paper when there are none), and finance leases unless a debt tag already includes them; the
+    paper when there are none, and beside them when the filing's total shows it is a separate
+    line, backlog #412), and finance leases unless a debt tag already includes them; the
     current portion is left out when short-term borrowings already include it (backlog #408).
     `on(item, day)` gives an item's fact dated exactly `day` (default: `get`'s fact if so dated).
     Returns (total, facts used, items counted as zero, notes)."""
     used, zero, notes = [], [], []
     current, noncurrent = get("debt_current"), get("debt_noncurrent")
     short_term = get("short_term_borrowings")
-    inside = current_debt_inside(current, short_term, on or _on_date(get))
+    on = on or _on_date(get)
+    inside = current_debt_inside(current, short_term, on)
     if inside:
         notes.append(inside.text)
+    beside = paper_beside(short_term, get("commercial_paper"), on, inside)
+    if beside:
+        notes.append(beside.text)
     if short_term is None:
         short_term = get("commercial_paper")
         if short_term is None:
@@ -873,7 +956,8 @@ def debt_parts(
     for item, fact in (("debt_current", current), ("debt_noncurrent", noncurrent)):
         if fact is None:
             zero.append(item)
-    for fact in (None if inside else current, noncurrent, short_term, leases):
+    paper = beside.paper if beside else None
+    for fact in (None if inside else current, noncurrent, short_term, paper, leases):
         if fact is not None:
             used.append(fact)
     return sum(f.value for f in used), used, zero, "; ".join(notes)
@@ -933,6 +1017,11 @@ def _balance(history: History, base_date: date, result: EngineResult) -> date:
             f"Current portion of long-term debt ({inside.current.value:,.0f} at "
             f"{inside.current.period_end}) left out: short-term borrowings already include it",
         )
+    beside = paper_beside(
+        facts["short_term_borrowings"], facts["commercial_paper"], history.on, inside
+    )
+    if beside:
+        result.warn("commercial_paper_beside_short_term", paper_params(beside), beside.text)
     carried = [
         f"{i} ({f.period_end})" for i, f in facts.items() if f and f.period_end < balance_date
     ]

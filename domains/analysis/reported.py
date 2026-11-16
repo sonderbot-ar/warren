@@ -46,6 +46,8 @@ from domains.analysis.math_engine import (
     basis_kind,
     current_debt_inside,
     debt_parts,
+    paper_beside,
+    paper_params,
 )
 from domains.fundamentals.facts import (
     MEANING_CHANGE_MATCH,
@@ -1265,7 +1267,8 @@ def _net_debt(views: _Views, revenue: Fact, period: Period, lines: list[Line]) -
     day = revenue.period_end
     get = lambda item: views.latest.latest_before(item, day)  # noqa: E731
     formula = (
-        "debt (current and non-current debt, short-term borrowings or commercial paper, finance "
+        "debt (current and non-current debt, short-term borrowings and commercial paper "
+        "(in their place, or beside them when the filing's total shows a separate line), finance "
         "leases; operating leases excluded, their cost is in operating income) − (cash + "
         "marketable securities, current and non-current, + other short-term investments)"
     )
@@ -1320,6 +1323,13 @@ def _net_debt(views: _Views, revenue: Fact, period: Period, lines: list[Line]) -
                 },
                 inside.text,
             )
+        )
+    beside = paper_beside(
+        get("short_term_borrowings"), get("commercial_paper"), views.latest.on, inside
+    )
+    if beside:
+        notes.append(
+            Coded("commercial_paper_beside_short_term", paper_params(beside, False), beside.text)
         )
     if value < 0:
         notes.append(Coded("net_cash", {}, "negative: the company holds more cash than debt"))
