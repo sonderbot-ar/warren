@@ -1,6 +1,6 @@
 # Backlog #427: the current portion merge (#421), three follow-ups
 
-Issue: https://github.com/sonderbot-ar/warren/issues/427 (from the #425 gatekeeper and analyst reviews of `docs/designs/backlog-421-current-lease-debt.md`) · Branch `backlog-427-current-merge-followups` · Version v0.9.82.
+Issue: https://github.com/sonderbot-ar/warren/issues/427 (from the #425 gatekeeper and analyst reviews of `docs/designs/backlog-421-current-lease-debt.md`) · Branch `backlog-427-current-merge-followups` · Version v0.9.82, merged nov.17.2026 (PR #429, merge `685a2e3`, after CI green and a gatekeeper GO).
 
 ## Background
 
@@ -41,6 +41,12 @@ On a copy of the restored snapshot (`warren-20261116T053654Z`, concepts synced t
 - **Fresh builds.** All 903 stored run dates that are not what-ifs, built in memory through today's map, pinned to each run's market downloads and choices, once before this branch's code and once after: **903 of 903 identical** in every assumption row (value, source, method) and every run-note code; none refused.
 - **Facts.** The survey's 672 queries (8 companies × 7 as-of dates × 2 modes × 3 frequencies × 2 name lists): the facts returned are identical, as sets, to `main`'s in all 672 (CAT's maturities tag included). Order: on `main` 358 queries came back in a different order from the unmerged read; now 604 of 604 queries that return the same facts as the unmerged read return them in the same sequence, and the other 68 (Coca-Cola and Exxon, where the lease-inclusive tag is read alone at some dates, so the merge adds facts the unmerged read lacks) are sorted by item and date like it.
 - **Stored runs.** `reproduce --all --rebuild`: 903 of 903 reproduced to the cent; 692 of 903 rebuilt to identical rows, the same count as on `main` (the other 211 were made by older code and differ as before).
+
+## PR review (nov.17.2026)
+
+- **Gatekeeper, GO, no blockers:** 2,454 passed, 10 skipped; ruff check and format clean; no migration; point-in-time holds (the merge only regroups or removes facts the as-of query already returned); the new sort matches the unmerged one; reading-rules rows v9 `b1a0c5dd1ab1` and v10 `9f8fa06deacf` match the code.
+- **Analyst, GO, no blockers:** `main`'s and the branch's `get_facts` return the same debt facts on 192 more queries; across every filing (not only the ones a read picks), no pair of the two current tags at one date has different fiscal labels or the lease-inclusive figure below the plain one.
+- Ideas filed as #430: an annual-mode test where the two items carry different fiscal periods (FY against Q3 or none) at one date, since the annual read keeps only FY facts before the merge pairs them; a `get_facts`-level one-per-label test; a run note when the rounding margin fires; watch the 10^7 floor (77 of 610 current-portion facts look rounded to 10^7 or coarser).
 
 ## Alternatives considered
 
