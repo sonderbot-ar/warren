@@ -1,6 +1,6 @@
 # Backlog #432: Coca-Cola's "Loans and notes payable", read as its short-term borrowings
 
-Issue: https://github.com/sonderbot-ar/warren/issues/432 (found by the #426 design review, `docs/designs/backlog-426-pg-short-term-gap.md`, Alternatives) · Branch `backlog-432-ko-loans-and-notes` · Status: in progress (nov.17.2026), PR next.
+Issue: https://github.com/sonderbot-ar/warren/issues/432 (found by the #426 design review, `docs/designs/backlog-426-pg-short-term-gap.md`, Alternatives) · Branch `backlog-432-ko-loans-and-notes` · Status: in review (nov.17.2026), PR #446.
 
 ## Problem
 
@@ -106,6 +106,10 @@ Serves the estimate questions of `docs/product/brief.md` (Q3, Q5, Q8 and value p
 - **Explainer.** Gaps taken: the stale note on the bank-loans row (it said the tag was "deliberately not mapped"), the before-map fingerprint (#426's, `86f87e48e967`, named in the tests), the 2017-12-31 point-in-time case, the reported view (it reads debt through the same `debt_parts`). Not taken: the working tree ran ahead of the doc while the review ran (Step 1 was being built); the doc is the plan.
 - **Product lead, four blockers, all taken** (Product impact): Q9 (Coca-Cola's sensitivity grid) and Q7 start from a run, so they move too; the two-runs case is "either NULL" for most stored KO runs (rules not recorded before v0.9.67), so the counts are given; `balance_carried_forward` changes on quarter-end runs; a *Fuente* sentence keyed on the source tag until #297 item 5 sets the label.
 
+## PR review (nov.17.2026)
+
+- **Gatekeeper, NO-GO, one blocker (taken):** the working-capital test passed over an empty list, because the line was put only at the balance date, never at a history year end. Now the line and the paper sit at a history year end and the test checks that year's working capital moves by exactly the line less the paper. Taken: the known-gaps KO row links #445; this doc's status. Ideas for backlog: pin the fresh-run counts in a small fixture-level regression; a guard against `all(...)` over an empty list in tests.
+
 ## Where the work stopped
 
-(Updated as the track moves.) Steps 1 and 2 done; PR and gatekeeper next.
+(Updated as the track moves.) Steps 1 and 2 done; PR #446 open, CI green; gatekeeper NO-GO taken (below), second look next.

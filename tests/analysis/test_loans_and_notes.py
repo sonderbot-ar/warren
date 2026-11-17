@@ -83,15 +83,17 @@ def test_a_line_filed_after_the_as_of_date_is_not_read(company):
 
 
 def test_history_working_capital_takes_the_line_out_once(company):
-    ko_quarter(company)
+    # a history year end with the line: paper 70 inside the line 75 (gatekeeper: put it at a
+    # year end the history reads, and check the row moves)
+    ko_quarter(company, FY2019)
     with concept_map_in_force(company, BEFORE_432, "TST"):
         before = by_key(build(company))
     after = by_key(build(company))
-    # the line is debt, so 5 more of current liabilities leave operating working capital
-    nwc = [k for k in after if k[0] == "history:nwc"]
-    assert nwc
-    moved = [k for k in nwc if after[k].value != before[k].value]
-    assert all(after[k].value == pytest.approx(before[k].value + 5) for k in moved)
+    key = ("history:nwc", "FY2019")
+    # the line (75) leaves current liabilities in place of the paper (70): 5 more of working capital
+    assert after[key].value == pytest.approx(before[key].value + 5)
+    assert "[NotesAndLoansPayable]" in after[key].method
+    assert "[NotesAndLoansPayable]" not in before[key].method
 
 
 def test_the_reported_view_reads_debt_the_same_way(company):

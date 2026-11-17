@@ -10,7 +10,7 @@ MSFT,commercial_paper,2020-2023,*,[inferred] No commercial paper presented from 
 WMT,operating_expenses,*,*,[not presented] Walmart presents operating SG&A only; no total operating-expense line excluding cost of revenue.
 WMT,commercial_paper,*,*,[bundled] Commercial paper is included in 'Short-term borrowings' and not tagged separately.
 KO,operating_expenses,*,*,[not presented] Coca-Cola presents SG&A and other operating charges; no total operating-expense line excluding cost of revenue.
-KO,short_term_borrowings,2009-2016,*,"[bundled] Before FY2017 Coca-Cola's 'Loans and notes payable' line has no XBRL tag in company facts and ShortTermBorrowings is not tagged; commercial paper is counted in its place (backlog #432)."
+KO,short_term_borrowings,2009-2016,*,"[bundled] Before FY2017 Coca-Cola's 'Loans and notes payable' line has no XBRL tag in company facts and ShortTermBorrowings is not tagged; commercial paper is counted in its place (backlog #432; the company tag ko:LoansAndNotesPayable is #445)."
 KO,short_term_borrowings,2017,Q1;Q2;Q3,"[not tagged] The 'Loans and notes payable' line is first tagged (NotesAndLoansPayableCurrent) for 2017-12-31, then from 2018-09-28 (backlog #432)."
 KO,short_term_borrowings,2018,Q1;Q2,"[not tagged] The 'Loans and notes payable' line is first tagged (NotesAndLoansPayableCurrent) for 2017-12-31, then from 2018-09-28 (backlog #432)."
 KO,commercial_paper,2016-2022,Q1;Q2;Q3,[annual only] Commercial paper is disclosed only in the 10-K debt note before FY2023.
