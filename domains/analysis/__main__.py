@@ -5,6 +5,7 @@
     python -m domains.analysis reproduce --run-id AAPL_2024-03-31_1
     python -m domains.analysis reproduce --all [--rebuild]
     python -m domains.analysis fallbacks [--as-of 2026-10-26]
+    python -m domains.analysis debt-checks [--ticker XOM] [--as-of 2026-11-15] [--near-misses]
     python -m domains.analysis simulate --run-id AAPL_2024-03-31_1 --shocks FILE [--n] [--seed]
     python -m domains.analysis reproduce-sim --sim-id AAPL_2024-03-31_1_sim1
     python -m domains.analysis reported --ticker AAPL --period latest-quarter [--as-of 2026-11-02]
@@ -231,6 +232,17 @@ def cmd_fallbacks(args: argparse.Namespace) -> int:
                 f"{check.chain:8} {check.fallback:45} vs {check.primary:26} "
                 f"{len(check.gaps):3} years, {detail}{flag}"
             )
+    return 0
+
+
+def cmd_debt_checks(args: argparse.Namespace) -> int:
+    from domains.analysis.debt_checks import all_debt_checks, line
+
+    as_of = date.fromisoformat(args.as_of) if args.as_of else last_ended_day(datetime.now(UTC))
+    with get_db_connection() as conn:
+        for check in all_debt_checks(conn, as_of, args.ticker):
+            if check.near_miss or not args.near_misses:
+                print(line(check))
     return 0
 
 
@@ -799,6 +811,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     so.add_argument("--all", action="store_true", help="with --backfill: every stored run")
     so.set_defaults(func=cmd_sources)
+
+    dc = commands.add_parser(
+        "debt-checks", help="where the debt-due-within-a-year rules fire or nearly do (#421)"
+    )
+    dc.add_argument("--ticker", help="one company (default: every company)")
+    dc.add_argument("--as-of", help="YYYY-MM-DD (default: the last ended New York day)")
+    dc.add_argument("--near-misses", action="store_true", help="only the near misses")
+    dc.set_defaults(func=cmd_debt_checks)
 
     no = commands.add_parser("notes", help="a stored run's warnings, as codes (backlog #172)")
     no.add_argument("--run-id", help="the run (with --backfill: only this run)")

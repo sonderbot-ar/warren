@@ -1,0 +1,94 @@
+# Backlog #415: the filing's own total when the parts of current debt are older or missing
+
+Issue: https://github.com/sonderbot-ar/warren/issues/415 (from the #412 design review), items 1 and 2 · Branch `backlog-415-current-debt-total` · Version v0.9.80, merged nov.16.2026 (PR #420, merge `c28578e`, after CI green and a gatekeeper GO).
+
+## Problem
+
+D3 counts debt due within one year as three parts: the current portion of long-term debt, short-term borrowings and commercial paper (with #408 and #412 deciding which of them a filing's total already holds). Exxon and P&G tag those parts only in the 10-K's debt note. At a quarter end their 10-Q tags only the total, "Notes and loans payable" (Exxon) or "Debt due within one year" (P&G), as `us-gaap:DebtCurrent` (map item `debt_current_total`, added by #408 and read only as a check). Two things go wrong:
+
+1. **A quarter-end run mixes two dates.** The balance sheet is the quarter's, but the three parts are carried forward from the last year end (the `balance_carried_forward` note names them). At Exxon's 2020-06-30 balance the parts carried add to 20,494M; that quarter's own total is 22,952M. The carried parts are up to 9 months old, and short-term debt (commercial paper above all) moves fast.
+2. **Exxon before February 2011 has no current debt at all.** Exxon's parts for 2009 were first filed on 2011-02-25 (the first 10-K with a detailed-tagged debt note); before that only the total is public (2,476M at 2009-12-31, 2,396M at 2010-03-31). A run dated 2010-06-01 counts only the non-current 7,054M.
+
+Items 3 to 6 of the issue (a joint #408 and #412 check, a note when commercial paper is left out because it sits inside short-term borrowings, Coca-Cola's newer paper beside an older short-term line, the calculation linkbase) are not in this track; they stay open in #415.
+
+## Plan
+
+- **Step 0.** This design doc; build plan D3 wording.
+
+- **Step 1. Count the total in place of its parts when none of them is dated at the balance date.**
+  - `math_engine.total_in_place(get, day)`: the filing's `debt_current_total` is dated at `day` (the balance date; the total's own date when `day` is None, as for a fiscal year's figures), is not below zero (zero is used: the filing says nothing is due), and none of `debt_current`, `short_term_borrowings` and `commercial_paper` is dated at that day or later (each is missing, or older and carried forward), apart from **a part dated with the total and more than 1.5 times it** (`TOO_BIG`), which can't be inside it and is a figure under the wrong tag (analyst, design review: Exxon's 10-Q for 2011-03-31, accession 0001193125-11-127973, tags its long-term debt, 12,316M, also as `LongTermDebtAndCapitalLeaseObligationsCurrent` beside a total of 3,560M, so debt read 25,164M). The margin is a working rule like #408's and #412's "within half": the largest same-date excess of a part over the total in the data is JNJ's 7,617M short-term borrowings beside a total rounded to 7,600M (1.002 times). Then the total stands for every part. "Dated at" is an exact date match; when `day` is None (a fiscal year's figures, read for that year's working capital and the cost of debt) the total's own date is the balance date, and a part dated after it keeps the parts.
+  - `debt_parts(get, on, day)` counts the total in place of the parts (row `balance:debt_current_total`; the debt row's method says why); the #408 and #412 checks are not made, because the parts are not counted. `_balance` passes the balance date, leaves the older parts out of the carried-forward list, and adds run note `debt_current_total_in_place`. `_operating_nwc` (each history year's working capital) takes the total out of current liabilities in place of the parts. The cost of debt reads `debt_parts` at each fiscal year end, so a year end with only the total (Exxon before 2011) follows. The reported view (`reported._net_debt`) passes the period's end and carries the same code with the same params except `assumptions`.
+  - Whenever any part is dated at the balance date, nothing changes: the parts are what a student reads, and #408 and #412 judge them as before.
+  - Run note `debt_current_total_in_place` (group `data`; params `period_end` (ISO), `debt_current_total` (unscaled, in `currency`), `currency`, `accession_no` (the total's filing), `parts_left_out` (a list of `{item, value, period_end, reason}` in the order current portion, short-term borrowings, commercial paper; `reason` is `older` or `larger_than_total`; empty when no part was ever filed), `assumptions` (`["debt", "cost_of_debt", "nwc_pct"]`)) and its lesson in `text.WARNING_LESSONS`.
+  - `READING_RULES_VERSION` 7 → 8, with its row in `domains/analysis/reading_rules.md`. A rebuild through a map made before `debt_current_total` existed doesn't read the total, so stored runs rebuild as before.
+  - One existing test changes its setup, not its claim: #412's `test_a_year_end_judgement_carries_to_a_quarter` tagged a quarter-end total beside year-end parts; under this rule that quarter now counts its total (the new tests cover it), so the test drops the quarter's total to keep testing what it names, a year-end judgement carried to a quarter without a total of its own.
+  - Tests (`tests/analysis/test_debt_current_total_in_place.py`): a mis-tagged part above 1.5 times the total gives way to it (run level, and Exxon's 2011-03-31 figures), a part within the margin keeps the parts, and JNJ's rounded 2011-01-02 total keeps its short-term borrowings; a quarter-end total replaces the year-end parts (debt, rows, method, note params, no #412 note, nothing carried); a total with no part ever filed (Exxon before 2011; nothing counted as zero); a part dated at the balance date keeps the parts; a total older than the balance date is not used; history working capital and the cost of debt read the total at a year end; Exxon's 2020-06-30 figures; three cases not in place (a part shares the date, the total not at the balance date, a negative total); a part newer than the total; code and lesson catalogued; the reported view agrees; a map without the total reads as before.
+  - Exit: full suite and ruff clean.
+
+- **Step 2. Real data.** On the restored snapshot (`warren-20261116T053654Z`): `reproduce --all --rebuild`: every stored run reproduces to the cent and rebuilds as before through its own map. Build every stored run date of all eight companies fresh (same pinned market data and choices) with and without the rule (the measuring script swaps `total_in_place` for a function returning None), none stored, and list what moves. Exit: only companies that tag `DebtCurrent` without parts on the same date move (expected: Exxon and P&G quarter ends, Exxon before 2011), and every moved debt carries the note.
+
+## Alternatives considered
+
+- **Always count `DebtCurrent` when it is tagged.** Simplest and always dated right, but it would replace three traced lines a student can read with one at every year end, and #408 and #412 exist to read those lines correctly. Using the total only when the parts are out of date keeps the parts wherever they exist.
+- **Count the total when it differs from the carried parts by more than some amount.** Needs a tolerance with no source; the date test needs none.
+- **Scale the year-end parts to the quarter's total.** Invents a split the filing doesn't give.
+- **Count the total in place of only the stale parts** (keep a part dated at the balance date, add the total less it). Subtracting a part from a total assumes how the total is built, which is what #408 and #412 test with care; apart from the mis-tag above (handled by the 1.5 times rule), no Phase 1 company tags some parts at a quarter end and not others, so this is left until one does.
+
+**Limits.** The total is a single line: a student sees "debt due within one year" without its split on those dates (the note lists the older parts left out, so the app can show them as context). The rule trusts the total's own date; a total filed for the balance date that leaves something out would be taken as filed. Items 3 to 6 of #415 stay open.
+
+## Design review (nov.16.2026)
+
+- **Analyst, changes requested, one blocker, taken.** Exxon at 2011-03-31: a mis-tagged same-date part (12,316M, the long-term debt again, against a total of 3,560M) blocked the rule and debt read 25,164M with no note. Fixed: a same-date part more than 1.5 times the total is not one of its parts, is left out with reason `larger_than_total`, and the total counts (Step 1, tests). Confirmed: only P&G (53 quarter ends) and Exxon (52) have a total with no same-date part; JNJ's totals are all year ends with parts beside; the other five never tag the total; no lease double count (Exxon's non-current tag is lease-inclusive, so the lease line is skipped). Ideas filed (follow-up issue): Exxon's 2009 to 2011 year-end parts fall 564M to 884M short of the total, and the current finance-lease portion (84M in 2019, 34M in 2025) is never counted in parts mode, so its short-term debt swings between quarter and year-end runs; a point-in-time test of P&G FY2009 (total filed before the parts); listing near-misses in Step 2.
+- **Professor, GO, no blockers.** Koller, Goedhart and Wessels and Penman need only the sum of short-term debt, so the total costs detail, not accuracy. Taken: the lesson says so and cites Penman. The lease double count it asked about is ruled out by the analyst's check (above). Filed: show the older split beside the total in the app.
+- **Explainer.** Gaps taken: exact date match, a part dated after the total, zero totals, `day` None for a fiscal year, the order and reason of `parts_left_out`. Not taken: glosses of D3, #408, #412 and the map (the design docs they link explain them); the measuring script is in Step 2 as before.
+- **Product lead, two blockers, both taken** (Product impact): the brief's quarter-end paragraph goes out of date for fresh runs; labels for the items `parts_left_out` names. Ideas taken: the line label in the brief's words, the lesson's source fields, the rules-version paragraph, never summing the parts on screen, the Q2 series. Results go into team-sync.
+
+## Files to change
+
+`domains/analysis/math_engine.py`, `domains/analysis/reported.py`, `domains/analysis/coded.py`, `domains/analysis/text.py`, `domains/analysis/reading_rules.py` and `.md`; `tests/analysis/test_debt_current_total_in_place.py`, `tests/analysis/test_paper_beside.py` (one setup, above); `docs/build-plan.md` (D3 wording and risk row); on merge `docs/versions.md`, `docs/team-sync.md`.
+
+## Product impact
+
+Serves the estimate questions of `docs/product/brief.md` (Q3, Q5, Q8, value per share), Q1 and Q2 through the reported view's `net_debt`, and Q4 (the cost of debt and the debt weight): fresh Exxon and P&G runs dated after a quarter end read that quarter's own short-term debt, and Exxon's runs before 2011 count short-term debt they had been missing. Stored runs keep their rows.
+
+- **Added:** run-note code `debt_current_total_in_place`, group `data` ("Los datos de partida"), params `period_end` (ISO), `debt_current_total` (unscaled, in `currency`, shown in millones de US$), `currency`, `accession_no` (the total's filing, for a link), `parts_left_out` (list of `{item, value, period_end}`; empty when no part was filed) and `assumptions`, and its lesson (no params).
+- **Reported view:** the `net_debt` ratio carries the same code with the same params except `assumptions`; group 2 of the reported-figure notes, before #408's and #412's (which it replaces on those dates); its `formula` text changes (names the total in place of the parts).
+- **Changed on a run that carries the note:** a `balance:debt_current_total` row in place of `balance:debt_current`, `balance:short_term_borrowings` and `balance:commercial_paper`; the `debt` row's method names the rule; `balance_carried_forward` no longer lists those parts; `history:nwc` rows of years with only the total name it too.
+- **Two runs of the same date.** Runs now record reading rules v8.
+- **The brief's paragraph on a quarter-end Exxon run** (the year-end parts carried, "the carried-forward line already says the parts are from the year end") now holds only for stored runs and for runs through a map made before #408; a fresh run carries `debt_current_total_in_place` instead, and its quarter-end debt matches that quarter's own total.
+- **A Q2 series of net debt** can mix year ends (three parts) and quarter ends (the total); both measure the same debt, so no series note is added.
+- Nothing renamed or removed. For the front-end team: the code and lesson in the Spanish catalogue (#344's list); a line label for `balance:debt_current_total` in the brief's own words ("Deuda que vence en el año (total del reporte)"); labels for the three items `parts_left_out` can name (`debt_current`, `short_term_borrowings`, `commercial_paper`; "Papel comercial" exists, the other two wait on #297 item 5), or the app shows the dated values without labels; the app lists `parts_left_out` one by one with their dates and never sums them against the total (the brief's rule that the app explains nothing with numbers of its own); a variant when `parts_left_out` is empty; the lesson sets both `reference` and `warren_rule`; the "Two runs of the same date" paragraph's rules-version history gains "8 since this version".
+
+## Results (Step 2, nov.16.2026)
+
+On the restored snapshot (`warren-20261116T053654Z`; no ingest needed, #408's ingest already holds every `DebtCurrent` fact):
+
+- **Stored runs.** `reproduce --all --rebuild`: 903 of 903 reproduced to the cent; 692 of 903 rebuilt to identical rows, the same count as on `main`; the other 211 were made by older code and differ as before. No stored run moves, by design: each rebuilds through its own map, which never read `DebtCurrent`.
+- **Fresh runs.** Every stored run date of all eight companies (903) built twice in memory, same pinned market data and choices, with and without the rule; none stored, none refused. Every moved debt carries the note. Apple, Microsoft, Coca-Cola, Johnson & Johnson, Caterpillar and Walmart: nothing moves on any date. History working capital and the cost of debt move on no run: every year end the stored runs read has its parts.
+
+| Runs dated | Runs | Debt moves | Change in debt | Value per share |
+|---|---|---|---|---|
+| Exxon 2019 | 12 | 10 | +3.9bn to +8.9bn | −0.4% to −0.2% |
+| Exxon 2020 | 16 | 12 | +1.4bn to +7.3bn | −0.2% to +0.7% |
+| Exxon 2021 | 14 | 11 | −7.5bn to +1.4bn | 0.0% to +10.9% |
+| Exxon 2022 | 14 | 11 | −7.5bn to +3.1bn | −1.1% to +15.0% |
+| Exxon 2023 | 15 | 12 | +1.7bn to +4.1bn | −0.5% to +0.2% |
+| Exxon 2024 | 14 | 12 | +1.5bn to +4.1bn | +0.1% to +0.3% |
+| Exxon 2025 | 14 | 11 | −0.2bn to +4.3bn | 0.0% to +0.1% |
+| Exxon 2026 | 1 | 1 | +5.3bn | −0.5% |
+| P&G 2019 | 13 | 11 | −1.4bn to +1.8bn | −0.3% to +0.3% |
+| P&G 2020 | 14 | 11 | −3.3bn to +3.1bn | −0.7% to +0.6% |
+| P&G 2021 | 14 | 12 | −3.3bn to +3.2bn | −0.5% to +0.7% |
+| P&G 2022 | 14 | 11 | +1.1bn to +4.5bn | −1.0% to −0.3% |
+| P&G 2023 | 14 | 12 | +1.6bn to +5.8bn | −0.9% to −0.3% |
+| P&G 2024 | 15 | 12 | −2.5bn to +3.2bn | −0.7% to +0.6% |
+| P&G 2025 | 14 | 12 | +2.1bn to +3.2bn | −0.7% to −0.4% |
+| P&G 2026 | 16 | 11 | +1.6bn to +5.7bn | −1.2% to −0.3% |
+
+The runs that don't move are the ones read right after a year end, whose balance date is the year end itself (parts tagged). For example, Exxon as of 2020-08-01: debt $52.4bn → $59.6bn, value per share $98.49 → $99.14 (the June quarter's own total, 22.95bn, in place of December's parts); as of 2021-11-15: $64.1bn → $56.6bn, $12.98 → $14.37 (Exxon paid down its commercial paper during 2021, which the December 2020 parts didn't show; where equity value is small, as in 2021, a few billion of debt is a large share of it); P&G as of 2023-08-01: $31.3bn → $36.6bn, $106.72 → $105.78. The cost of debt doesn't move: it reads year ends only, and their parts are tagged. Revenue and EBIT forecasts don't read debt, so the forecast-error scores don't move.
+
+**Exxon before 2011 can't be run today.** Every date tried (2010-06-01, 2010-11-15, 2011-05-15, 2011-06-01) is refused `as_of_too_early` with or without the rule: runs start at `SUPPORTED_FROM` (2019-03-01, three full fiscal years of FY2016+ history), and the fiscal years those runs read all have their parts. So item 2 changes no run today; it applies through the same code if the supported range is ever widened, and the tests pin it.
+
+## Gatekeeper (nov.16.2026)
+
+GO, no blockers: 2,405 passed, 10 skipped; ruff check and format clean; the reading-rules row's fingerprint `7f98bf236195` matches v8; point-in-time holds (the rule reads only through the as-of lookups); `XOM_2020-08-01_1` reproduces to the cent with the same rebuild list as on `main`; the changed #412 test keeps its assertions and the dropped case is tested with its new value. Ideas (tests for a fiscal year's total dated before its parts and for a zero total; a report of same-date parts between 1.0 and 1.5 times the total) added to #421.
