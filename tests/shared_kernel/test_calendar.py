@@ -23,34 +23,129 @@ def test_a_news_window_ends_when_the_case_day_ends():
 
 
 def _source_files() -> list[Path]:
+    # every first-party package; webapp joined after #133 (backlog #136)
     files = [ROOT / "main.py"]
-    for package in ("domains", "shared_kernel"):
+    for package in ("domains", "shared_kernel", "webapp"):
         files += sorted((ROOT / package).rglob("*.py"))
     return files
 
 
+KERNEL = "shared_kernel.calendar"
+
+
+def _kernel_names(tree: ast.Module) -> set[str]:
+    """Names the module binds to the kernel's calendar module, and only those (backlog #136)."""
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "shared_kernel":
+            names |= {a.asname or a.name for a in node.names if a.name == "calendar"}
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name == KERNEL and a.asname:
+                    names.add(a.asname)
+    return names
+
+
+def _dotted(node: ast.expr) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        head = _dotted(node.value)
+        return f"{head}.{node.attr}" if head else None
+    return None
+
+
+def _wrong_uses(tree: ast.Module, where: str) -> list[str]:
+    """Every place a module takes the day-end rule from anywhere but the kernel."""
+    kernel = _kernel_names(tree) | {KERNEL}
+    wrong = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module != KERNEL:
+            names = {alias.name for alias in node.names} & RULE_NAMES
+            if names:
+                wrong.append(f"{where}:{node.lineno} from {node.module}")
+        if (
+            isinstance(node, ast.Attribute)
+            and node.attr in RULE_NAMES
+            and _dotted(node.value) not in kernel
+        ):
+            wrong.append(f"{where}:{node.lineno} .{node.attr}")
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "getattr"
+            and len(node.args) >= 2
+            and isinstance(node.args[1], ast.Constant)
+            and node.args[1].value in RULE_NAMES
+            and _dotted(node.args[0]) not in kernel
+        ):
+            # a rule name by string; a name built at run time can't be read by a scan
+            wrong.append(f"{where}:{node.lineno} getattr")
+    return wrong
+
+
+def _kernel_imports(tree: ast.Module) -> int:
+    return sum(
+        1
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        and node.module == KERNEL
+        and {alias.name for alias in node.names} & RULE_NAMES
+    )
+
+
 def test_every_module_takes_the_day_end_rule_from_the_kernel():
     # backlog #119 removed the news adapter's re-export; #133 keeps it from coming back
-    wrong = []
+    wrong, kernel_imports = [], 0
     for path in _source_files():
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module != "shared_kernel.calendar":
-                names = {alias.name for alias in node.names} & RULE_NAMES
-                if names:
-                    wrong.append(f"{path.relative_to(ROOT)}:{node.lineno} from {node.module}")
-            if (
-                isinstance(node, ast.Attribute)
-                and node.attr in RULE_NAMES
-                and not (isinstance(node.value, ast.Name) and node.value.id == "calendar")
-            ):
-                wrong.append(f"{path.relative_to(ROOT)}:{node.lineno} .{node.attr}")
+        wrong += _wrong_uses(tree, str(path.relative_to(ROOT)))
+        kernel_imports += _kernel_imports(tree)
     assert wrong == []
+    # the scan must have seen the rule's real users, not just read files (backlog #136)
+    assert kernel_imports >= 1
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from domains.news import gdelt as calendar\ncalendar.known_by(d)",
+        "import domains.news.gdelt as calendar\ncalendar.CASE_TZ",
+        "from domains.news import gdelt\ngdelt.known_by(d)",
+        "from domains.news.gdelt import known_by",
+        "from domains.news import gdelt\ngetattr(gdelt, 'known_by')(d)",
+        "import calendar\ncalendar.known_by(d)",
+    ],
+)
+def test_the_scan_catches_a_borrowed_rule(source):
+    # mutation cases from the #135 gatekeeper review (backlog #136)
+    assert _wrong_uses(ast.parse(source), "x.py") != []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from shared_kernel.calendar import known_by, CASE_TZ",
+        "from shared_kernel import calendar\ncalendar.known_by(d)",
+        "from shared_kernel import calendar as cal\ncal.CASE_TZ",
+        "import shared_kernel.calendar\nshared_kernel.calendar.known_by(d)",
+        "import shared_kernel.calendar as cal\ncal.known_by(d)",
+        "from shared_kernel import calendar\ngetattr(calendar, 'known_by')(d)",
+        "getattr(obj, 'other')",
+    ],
+)
+def test_the_scan_passes_the_kernel(source):
+    assert _wrong_uses(ast.parse(source), "x.py") == []
 
 
 def test_the_scan_sees_the_kernel_and_its_users():
     files = {p.relative_to(ROOT).as_posix() for p in _source_files()}
-    expected = {"shared_kernel/calendar.py", "domains/market/store.py", "domains/news/gdelt.py"}
+    expected = {
+        "shared_kernel/calendar.py",
+        "domains/market/store.py",
+        "domains/news/gdelt.py",
+        "webapp/__main__.py",
+    }
     assert expected <= files
 
 
