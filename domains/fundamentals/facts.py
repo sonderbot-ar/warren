@@ -1082,7 +1082,7 @@ def current_on_noncurrent_basis(
     return plain
 
 
-def _merge_current(facts: list[Fact], asked: list[str]) -> list[Fact]:
+def _merge_current(facts: list[Fact], asked: list[str], frequency: Frequency) -> list[Fact]:
     """Read `debt_current_with_leases` into `debt_current` per period (backlog #421)."""
     by_period: dict[tuple, dict[str, Fact]] = defaultdict(dict)
     rest = []
@@ -1101,8 +1101,24 @@ def _merge_current(facts: list[Fact], asked: list[str]) -> list[Fact]:
         if current is not None:
             items["debt_current"] = current
         rest.extend(f for name, f in items.items() if name in asked)
-    order = {name: i for i, name in enumerate(asked)}
-    return sorted(rest, key=lambda f: (order.get(f.canonical_name, -1), f.period_end))
+    return _in_query_order(rest, frequency)
+
+
+def _in_query_order(facts: list[Fact], frequency: Frequency) -> list[Fact]:
+    """The order `_get_facts` returns: reported by item, start and end (an instant first, as
+    `_facts` sorts its keys), annual and quarterly by item and end (backlog #427), so a merged and
+    an unmerged read of the same names differ only in the figure chosen."""
+    if frequency == "reported":
+        return sorted(
+            facts,
+            key=lambda f: (
+                f.canonical_name,
+                f.period_start is not None,
+                f.period_start or f.period_end,
+                f.period_end,
+            ),
+        )
+    return sorted(facts, key=lambda f: (f.canonical_name, f.period_end))
 
 
 def get_facts(
@@ -1130,7 +1146,7 @@ def get_facts(
         return _get_facts(conn, cik, names, as_of, mode, frequency, one_basis)
     wide = names + [n for n in CURRENT_ITEMS if n not in names]
     facts = _get_facts(conn, cik, wide, as_of, mode, frequency, one_basis)
-    return _merge_current(facts, names)
+    return _merge_current(facts, names, frequency)
 
 
 def _get_facts(
@@ -1163,7 +1179,7 @@ def _get_facts(
         return facts
     if frequency == "annual":
         annual = _one_per_period([f for f in facts if f.fiscal_period == "FY"])
-        return sorted(annual, key=lambda f: (f.canonical_name, f.period_end))
+        return _in_query_order(annual, frequency)
     if frequency == "quarterly":
         ranks = _ranks(conn, canonical_names)
         tagged = _tagged(periods)
