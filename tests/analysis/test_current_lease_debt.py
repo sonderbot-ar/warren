@@ -8,7 +8,12 @@ import pytest
 
 from domains.analysis.math_engine import debt_parts
 from domains.fundamentals.concepts import concept_map_in_force
-from domains.fundamentals.facts import current_on_noncurrent_basis, get_facts
+from domains.fundamentals.facts import (
+    _merge_current,
+    current_on_noncurrent_basis,
+    get_facts,
+    rounding_unit,
+)
 from domains.fundamentals.schemas import Fact
 from tests.analysis.conftest import AS_OF
 from tests.analysis.test_debt_current_inside import build, by_key
@@ -139,3 +144,124 @@ def test_xom_2010_year_end_mistag_is_not_read():
 
 def test_none_without_either():
     assert current_on_noncurrent_basis(None, None, None) is None
+
+
+# Backlog #427: pairing on the date alone, one fact per fiscal label, a rounded plain figure.
+
+XOM_NONCURRENT = 26_342e6  # any lease-inclusive non-current debt
+
+
+def choose(plain_value, with_leases_value, noncurrent_value=XOM_NONCURRENT):
+    plain = fact("debt_current", plain_value, "LongTermDebtCurrent")
+    with_leases = fact("debt_current_with_leases", with_leases_value, WITH)
+    noncurrent = fact("debt_noncurrent", noncurrent_value, "LongTermDebtAndCapitalLeaseObligations")
+    return current_on_noncurrent_basis(plain, with_leases, noncurrent)
+
+
+@pytest.mark.parametrize(
+    ("value", "unit"),
+    [
+        (6.2e9, 10**8),  # Exxon's "$6.2 billion" (decimals -8)
+        (1.617e9, 10**6),
+        (1_000e6 + 617e6, 10**6),  # a float sum is read in whole dollars
+        (1.7e9, 10**8),  # precise, but looks rounded: the known limit
+        (0, 0),  # no unit, so no margin
+        (-5e6, 10**6),
+        (1e15, 10**12),  # capped
+    ],
+)
+def test_rounding_unit(value, unit):
+    assert rounding_unit(value) == unit
+
+
+def test_a_precise_lease_inclusive_figure_inside_a_rounded_plain_one_is_taken():
+    # "$6.2 billion" stands for 6,150M to 6,250M, so a precise 6,180M with leases agrees with it
+    current = choose(6_200e6, 6_180e6)
+    assert current.value == 6_180e6 and current.xbrl_concept == f"us-gaap:{WITH}"
+    assert current.canonical_name == "debt_current"
+
+
+@pytest.mark.parametrize(
+    ("plain", "with_leases"),
+    [
+        (6_200e6, 6_140e6),  # 60M below: outside half the 100M unit
+        (6_200e6, 6_100e6),  # no more precise than the plain figure (both look rounded to 10^8)
+        (1_617e6, 1_616e6),  # a plain figure precise to the million opens no margin
+        (20, 19),  # nor one that looks rounded only below ten million (the fixture's 20)
+        (0, -5e6),  # a plain zero (AAPL and MSFT file some) opens no margin
+    ],
+)
+def test_outside_the_rounding_keeps_the_plain_figure(plain, with_leases):
+    current = choose(plain, with_leases)
+    assert current.value == plain and current.xbrl_concept == "us-gaap:LongTermDebtCurrent"
+
+
+def test_a_precise_plain_figure_ending_in_zeros_looks_rounded():
+    # the known limit (design doc): 1,700M exactly looks rounded to 10^8, so 1,660M is taken
+    assert choose(1_700e6, 1_660e6).value == 1_660e6
+
+
+def test_the_mistag_guard_beats_the_rounding_margin():
+    # a lease-inclusive figure equal to the non-current debt is never taken, rounded plain or not
+    assert choose(6_200e6, 6_180e6, noncurrent_value=6_180e6).value == 6_200e6
+
+
+def test_a_rounded_plain_figure_alone_is_read_unchanged():
+    plain = fact("debt_current", 6_200e6, "LongTermDebtCurrent")
+    noncurrent = fact("debt_noncurrent", XOM_NONCURRENT, "LongTermDebtAndCapitalLeaseObligations")
+    assert current_on_noncurrent_basis(plain, None, noncurrent) is plain
+
+
+def relabel_with_leases(conn, years_back=1):
+    """File every lease-inclusive current figure under a fiscal year `years_back` earlier, as if
+    its filings had placed the same dates on another fiscal calendar."""
+    conn.execute(
+        "UPDATE financial_facts SET fiscal_year = fiscal_year - ? WHERE xbrl_concept = ?",
+        (years_back, f"us-gaap:{WITH}"),
+    )
+    conn.commit()
+
+
+@pytest.mark.parametrize("frequency", ["reported", "annual", "quarterly"])
+@pytest.mark.parametrize("mode", ["latest", "first_reported"])
+def test_two_fiscal_labels_at_one_date_give_one_current_portion(make_company, mode, frequency):
+    conn = make_company(lease_inclusive())
+    before = get_facts(conn, "0000000123", ["debt_current"], AS_OF, mode, frequency)
+    relabel_with_leases(conn)
+    facts = get_facts(conn, "0000000123", ["debt_current"], AS_OF, mode, frequency)
+    dates = [f.period_end for f in facts]
+    assert len(dates) == len(set(dates))  # one current portion per date
+    assert all(f.value == 24 for f in facts)  # the lease-inclusive figure, paired with the plain
+    # each date keeps the plain figure's fiscal labels, where it sat before the relabel
+    assert [(f.period_end, f.fiscal_year, f.fiscal_period) for f in facts] == [
+        (f.period_end, f.fiscal_year, f.fiscal_period) for f in before
+    ]
+
+
+def at(item, value, tag, end):
+    return Fact(
+        canonical_name=item,
+        xbrl_concept=f"us-gaap:{tag}",
+        period_end=end,
+        fiscal_year=2019,
+        fiscal_period="FY",
+        value=value,
+        unit="USD",
+        accession_no="0000034088-20-000016",
+        filed_at=date(2020, 2, 26),
+    )
+
+
+def test_two_dates_under_one_fiscal_label_give_one_current_portion_by_label():
+    # the plain figure at the year end, a lone lease-inclusive one three days earlier under the
+    # same label: annual and quarterly reads keep one per label (the later date), as any item
+    year_end, earlier = date(2019, 12, 31), date(2019, 12, 28)
+    facts = [
+        at("debt_current", 1_617e6, "LongTermDebtCurrent", year_end),
+        at("debt_current_with_leases", 1_650e6, WITH, earlier),
+        at("debt_noncurrent", XOM_NONCURRENT, "LongTermDebtAndCapitalLeaseObligations", year_end),
+    ]
+    annual = _merge_current(facts, ["debt_current"], "annual")
+    assert [(f.period_end, f.value) for f in annual] == [(year_end, 1_617e6)]
+    reported = _merge_current(facts, ["debt_current"], "reported")
+    assert [f.period_end for f in reported] == [earlier, year_end]  # one per date
