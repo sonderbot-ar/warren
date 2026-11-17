@@ -5,6 +5,8 @@ engine's own constants."""
 import re
 import string
 
+import pytest
+
 from domains.analysis import math_engine
 from domains.analysis.coded import RUN_NOTE_CODES
 from domains.analysis.text import WARNING_GROUPS, WARNING_LESSONS, Lesson
@@ -149,3 +151,70 @@ def test_the_stale_lesson_names_the_late_filing_notice():
     assert "late-filing notice" in lesson.why and "12b-25" in lesson.reference
     assert lesson.params["nt_10q"] == math_engine.NT_EXTENSION_10Q_DAYS == 5
     assert lesson.params["nt_10k"] == math_engine.NT_EXTENSION_10K_DAYS == 15
+
+
+DEBT_NOTES = (
+    "debt_current_inside_short_term",
+    "commercial_paper_beside_short_term",
+    "debt_current_total_in_place",
+)
+NWC_CLAUSE = (
+    "Warren's working capital holds only operating items, so it takes short-term debt, which "
+    "finances the company, out of the current liabilities: the more debt Warren counts, the "
+    "higher working capital is"
+)
+
+
+def test_the_debt_note_lessons_say_why_working_capital_moves_with_debt():
+    """Backlog #419 (student reviewer on #418): a student knows financial debt stays out of
+    operating working capital, so a lesson saying debt moves working capital says how."""
+    for code in DEBT_NOTES:
+        assert NWC_CLAUSE in WARNING_LESSONS[code].why, code
+
+
+def test_the_clause_is_what_the_engine_does():
+    """The clause's direction, on the engine's own working capital: counting commercial paper
+    beside the bank loans (#412) is more debt, and gives a higher working capital than the same
+    balance sheet with the paper read as part of the loans."""
+    from domains.analysis.math_engine import _operating_nwc
+    from tests.analysis.test_paper_beside import fact
+
+    day = "2019-06-30"
+    base = {
+        "current_assets": fact("current_assets", 300, day),
+        "cash": fact("cash", 60, day),
+        "current_liabilities": fact("current_liabilities", 150, day),
+        "debt_current": fact("debt_current", 20, day),
+        "short_term_borrowings": fact("short_term_borrowings", 10, day),
+        "commercial_paper": fact("commercial_paper", 70, day),
+    }
+    beside = dict(base, debt_current_total=fact("debt_current_total", 100, day))  # 10+20+70
+    nwc_inside, *_ = _operating_nwc(base.get, "FY2019")  # no total: paper inside the loans
+    nwc_beside, *_ = _operating_nwc(beside.get, "FY2019")
+    assert nwc_inside == pytest.approx((300 - 60) - (150 - 20 - 10))
+    assert nwc_beside == pytest.approx((300 - 60) - (150 - 20 - 10 - 70))
+    assert nwc_beside > nwc_inside
+
+
+def test_the_clause_holds_when_the_total_stands_in_for_the_pieces():
+    """Analyst on #419: with #415's total in place of the pieces, the total is the only debt taken
+    out, so a larger total gives a higher working capital, as the clause says."""
+    from domains.analysis.math_engine import _operating_nwc
+    from tests.analysis.test_paper_beside import fact
+
+    day, old = "2019-06-30", "2018-06-30"
+
+    def nwc_with_total(total):
+        facts = {
+            "current_assets": fact("current_assets", 300, day),
+            "cash": fact("cash", 60, day),
+            "current_liabilities": fact("current_liabilities", 150, day),
+            "debt_current": fact("debt_current", 20, old),  # the pieces: a year older
+            "commercial_paper": fact("commercial_paper", 70, old),
+            "debt_current_total": fact("debt_current_total", total, day),
+        }
+        nwc, *_ = _operating_nwc(facts.get, "FY2019")
+        return nwc
+
+    assert nwc_with_total(100) == pytest.approx((300 - 60) - (150 - 100))
+    assert nwc_with_total(120) - nwc_with_total(100) == pytest.approx(20)
