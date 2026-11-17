@@ -186,6 +186,27 @@ def test_track_record_json_is_plain_json(company, tmp_path, monkeypatch, capsys)
     assert len(data["summaries"]) == 10
 
 
+def test_track_record_prints_and_returns_the_grid_section(company, tmp_path, monkeypatch, capsys):
+    import json
+
+    from tests.evaluation.test_track_record_grid import batch, grid_quarter
+
+    wire(monkeypatch, company, tmp_path)
+    _track_record_origins(company, monkeypatch)
+    grid_quarter(company, batch(company), date(2021, 2, 15), news=(105.0, 10.0))
+    assert cli.main(["track-record", "--ticker", "TST", "--as-of", "2021-07-01"]) == 0
+    out = capsys.readouterr().out
+    assert (
+        "Grid dates (M10, batch eval_g_1)" in out and "| revenue | all | all | 1 | 1 (few) |" in out
+    )
+    assert "a gain was not shown" in out
+    args = ["track-record", "--ticker", "TST", "--as-of", "2021-07-01", "--json"]
+    assert cli.main(args) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["grid"]["batch_id"] == "eval_g_1"
+    assert data["grid"]["rows"][0]["items"]["revenue"]["closer"] == "news"
+
+
 def test_track_record_on_an_unknown_ticker_exits_1(company, tmp_path, monkeypatch, capsys):
     wire(monkeypatch, company, tmp_path)
     assert cli.main(["track-record", "--ticker", "ZZZ", "--as-of", "2021-07-01"]) == 1
