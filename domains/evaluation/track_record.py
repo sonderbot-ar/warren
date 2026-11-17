@@ -23,7 +23,7 @@ from domains.analysis.runs import load_assumptions
 from domains.evaluation import ranges as R
 from domains.evaluation import ranges_report as RR
 from domains.evaluation import run_ranges as RN
-from domains.evaluation.backtest import sign_test
+from domains.evaluation.backtest import CENT, sign_test
 from domains.evaluation.harness import (
     BASIS_TOLERANCE,
     EvaluationError,
@@ -182,6 +182,7 @@ class TrackRecord:
     summaries: list[Summary]
     notes: list[Coded]
     missing: Coded | None = None
+    grid: "GridSection | None" = None  # M10's rule-dated cases, apart from the monthly rows
 
     def to_dict(self) -> dict:
         return RN._plain(asdict(self))
@@ -211,7 +212,7 @@ HEADLINE = Coded(
 CASES_NOT_INCLUDED = Coded(
     "cases_not_included", {},
     "the event case library is not included: its dates were chosen around events, so they are "
-    "not a fair sample of the company",
+    "not a fair sample of the company; the grid dates are, in their own section",
 )  # fmt: skip
 
 
@@ -717,7 +718,267 @@ def track_record(
     return TrackRecord(
         ticker, as_of, default, _currency(conn), R.pairs_sha256(known), HEADLINE_CELL, rows,
         summaries(rows, ticker, scored, by_origin) if rows else [], notes, missing,
+        grid_section(conn, ticker, as_of, rows),
     )  # fmt: skip
+
+
+# -- the grid section (backlog #189) ------------------------------------------------------------
+
+GRID_EVENT_TYPE = "grid"
+NEWS_VARIANT = "llm_masked"  # M10's headline variant
+BASIS = RN.BASIS  # the baseline variant
+MIN_MOVED = 6  # moved forecasts, else `few_moved` (past events' `few_cases` minimum)
+NEWS_PARTS = ("all", "pre_cutoff", "post_cutoff")
+
+GRID_RULE = Coded(
+    "grid_rule", {},
+    "these dates were set by a calendar rule before any result was seen (M10): a mid-quarter 15th "
+    "every six months, and the 1st and 15th of each month after the AI models' training cutoff",
+)  # fmt: skip
+NEWS_NOT_TESTED = Coded(
+    "news_not_tested_per_company", {"pooled_answer": "not_shown", "version": "v0.10.0"},
+    "the forecast with news is shown for this company but not tested: the news step was tested "
+    "once, over all companies by date (v0.10.0), and a gain was not shown",
+)  # fmt: skip
+NEWS_MEANS = Coded(
+    "news_means", {},
+    "the mean misses with and without news are over every grid forecast (a date the news did not "
+    "move counts as a tie, M8's reading) and over the moved ones alone; wins and losses count the "
+    "moved ones",
+)  # fmt: skip
+
+
+@dataclass(frozen=True)
+class GridItem:
+    forecast: float  # the baseline's
+    actual: float  # first reported
+    filed_at: date
+    miss: float  # as the batch scored it (harness.score), in miss_unit
+    signed_miss: float  # positive: the baseline forecast too high
+    miss_unit: str
+    news_forecast: float  # the shocked median; the baseline's when news_from_baseline
+    news_miss: float
+    news_signed_miss: float
+    news_from_baseline: bool  # no shocked row: the case had no shocks (M8 fills the baseline)
+    moved: bool  # the news moved the forecast by more than half a cent (M8's rule)
+    closer: str  # news, baseline, tie
+
+
+@dataclass(frozen=True)
+class GridRow:
+    """One grid case's forecast of one quarter: the baseline beside the forecast with news."""
+
+    case_id: str
+    made_on: date  # the case date
+    post_cutoff: bool  # the case's news week starts after the models' training cutoff
+    run_id: str
+    period: str
+    period_end: str | None
+    horizon: int
+    same_as_monthly: bool | None  # both baseline forecasts equal the monthly row's; None: none
+    items: dict[str, GridItem]
+
+
+@dataclass(frozen=True)
+class NewsSummary:
+    """The forecast with news against the baseline over some rows: numbers, never a verdict and
+    never a p-value (one pooled test was run, v0.10.0)."""
+
+    n_rows: int  # forecasts (a case and a quarter), not distinct quarters
+    n_cases: int
+    n_quarters: int  # distinct target quarters
+    n_moved: int  # rows where the news moved the forecast
+    mean_miss_without: float | None  # on all n_rows
+    mean_miss_with: float | None
+    skill: float | None  # 1 − with / without, on all n_rows
+    mean_miss_without_moved: float | None  # on the n_moved rows only
+    mean_miss_with_moved: float | None
+    wins: int  # news closer, among the moved rows
+    losses: int
+    ties: int
+    missing: Coded | None = None  # few_moved
+
+
+@dataclass(frozen=True)
+class GridSummary:
+    item: str
+    horizon: int | None  # None: horizons 1–4 together
+    miss_unit: str
+    news: dict[str, NewsSummary]  # all, pre_cutoff, post_cutoff
+
+
+@dataclass(frozen=True)
+class GridSection:
+    batch_id: str
+    rows: list[GridRow]
+    summaries: list[GridSummary]
+    notes: list[Coded]
+    missing: Coded | None = None
+
+
+def grid_batch(conn: sqlite3.Connection) -> str | None:
+    """The newest stored batch whose cases are all grid cases and whose code was clean (a batch
+    re-scores every grid case, so the newest holds the latest actuals); None if none."""
+    rows = conn.execute(
+        "SELECT b.batch_id, b.code_version FROM eval_batches b WHERE EXISTS (SELECT 1 FROM "
+        "eval_results r WHERE r.batch_id = b.batch_id) AND NOT EXISTS (SELECT 1 FROM eval_results "
+        "r JOIN eval_cases c USING (case_id) WHERE r.batch_id = b.batch_id "
+        "AND c.event_type != ?) ORDER BY b.created_at DESC, b.batch_id DESC", (GRID_EVENT_TYPE,)
+    ).fetchall()  # fmt: skip
+    clean = [r["batch_id"] for r in rows if not r["code_version"].endswith("+dirty")]
+    return clean[0] if clean else None
+
+
+def _filed_by(r, on: date) -> bool:
+    return r["status"] == "ok" and r["actual_filed_at"] is not None and (
+        date.fromisoformat(r["actual_filed_at"]) <= on)  # fmt: skip
+
+
+def _grid_item(item: str, base, shocked) -> GridItem:
+    """`base`, `shocked`: the batch's baseline and masked rows of one quarter (masked None: the
+    case had no shocks, so the baseline stands in, as M8's `pairs`)."""
+    act = base["actual"]
+    scale = act if item == "revenue" else base["actual_revenue"]
+    _, signed, _ = score(item, base["forecast"], act, scale)
+    fc = base["forecast"] if shocked is None else shocked["forecast"]
+    _, n_signed, _ = score(item, fc, act, scale)
+    d = abs(n_signed) - abs(signed)
+    closer = "tie" if abs(d) <= TIE else "news" if d < 0 else "baseline"
+    return GridItem(
+        base["forecast"], act, date.fromisoformat(base["actual_filed_at"]), abs(signed), signed,
+        MISS_UNITS[item], fc, abs(n_signed), n_signed, shocked is None,
+        abs(fc - base["forecast"]) > CENT, closer,
+    )  # fmt: skip
+
+
+def grid_rows(
+    conn: sqlite3.Connection, batch_id: str, ticker: str, on: date, monthly: list[Row]
+) -> list[GridRow]:
+    """Every quarter of the company's grid cases dated before `on` whose baseline revenue and
+    EBIT actuals were both filed by `on`, case by case (each date read its own news)."""
+    from domains.evaluation.grid import is_post_cutoff
+
+    rows = conn.execute(
+        "SELECT r.*, c.event_date FROM eval_results r JOIN eval_cases c USING (case_id) "
+        "WHERE r.batch_id = ? AND c.ticker = ? AND c.event_date < ? "
+        "ORDER BY c.event_date, r.case_id, r.horizon", (batch_id, ticker, on.isoformat()),
+    ).fetchall()  # fmt: skip
+    by = {(r["case_id"], r["variant"], r["item"], r["horizon"]): r for r in rows}
+    month = {(r.period, r.horizon): r for r in monthly}
+    out = []
+    keys = sorted({(r["event_date"], r["case_id"], r["horizon"]) for r in rows
+                   if r["variant"] == BASIS})  # fmt: skip
+    for made, case_id, h in keys:
+        base = {i: by.get((case_id, BASIS, i, h)) for i in ITEMS}
+        if any(b is None or not _filed_by(b, on) for b in base.values()):
+            continue
+        items = {i: _grid_item(i, base[i], by.get((case_id, NEWS_VARIANT, i, h))) for i in ITEMS}
+        rev = base["revenue"]
+        m = month.get((rev["period"], h))
+        same = None if m is None else all(
+            abs(items[i].forecast - m.items[i].forecast) <= CENT for i in ITEMS)  # fmt: skip
+        out.append(GridRow(
+            case_id, date.fromisoformat(made), is_post_cutoff(date.fromisoformat(made)),
+            rev["run_id"], rev["period"], rev["period_end"], h, same, items,
+        ))  # fmt: skip
+    return out
+
+
+def news_summary(xs: list[tuple[GridRow, GridItem]]) -> NewsSummary:
+    """The forecast with news against the baseline on some rows."""
+    moved = [x for _, x in xs if x.moved]
+    wins = sum(x.closer == "news" for x in moved)
+    losses = sum(x.closer == "baseline" for x in moved)
+
+    def mean(v: list[float]) -> float | None:
+        return statistics.fmean(v) if v else None
+
+    without, with_ = mean([x.miss for _, x in xs]), mean([x.news_miss for _, x in xs])
+    skill = 1 - with_ / without if with_ is not None and without else None
+    missing = None
+    if len(moved) < MIN_MOVED:
+        missing = Coded(
+            "few_moved", {"n_moved": len(moved), "min_moved": MIN_MOVED},
+            f"the news moved only {len(moved)} of these forecasts, fewer than {MIN_MOVED}: "
+            f"the figures mean little",
+        )  # fmt: skip
+    return NewsSummary(
+        len(xs), len({r.case_id for r, _ in xs}), len({r.period for r, _ in xs}), len(moved),
+        without, with_, skill, mean([x.miss for x in moved]), mean([x.news_miss for x in moved]),
+        wins, losses, len(moved) - wins - losses, missing,
+    )  # fmt: skip
+
+
+def grid_summaries(rows: list[GridRow]) -> list[GridSummary]:
+    """Per item and horizon (None: all four), the news numbers on all rows and apart before and
+    after the models' training cutoff (before it, the model may remember what happened next)."""
+    out = []
+    for item in ITEMS:
+        for h in (None, *R.HORIZONS):
+            xs = [(r, r.items[item]) for r in rows if h is None or r.horizon == h]
+            parts = {
+                "all": xs,
+                "pre_cutoff": [(r, x) for r, x in xs if not r.post_cutoff],
+                "post_cutoff": [(r, x) for r, x in xs if r.post_cutoff],
+            }
+            out.append(GridSummary(item, h, MISS_UNITS[item],
+                                   {k: news_summary(v) for k, v in parts.items()}))  # fmt: skip
+    return out
+
+
+def grid_section(
+    conn: sqlite3.Connection, ticker: str, on: date, monthly: list[Row]
+) -> GridSection | None:
+    """The company's grid record as of `on`; None when no grid batch is stored."""
+    batch_id = grid_batch(conn)
+    if batch_id is None:
+        return None
+    rows = grid_rows(conn, batch_id, ticker, on, monthly)
+    same = sum(r.same_as_monthly is True for r in rows)
+    notes = [GRID_RULE, NEWS_NOT_TESTED, NEWS_MEANS, Coded(
+        "grid_repeats_monthly", {"n_rows": len(rows), "n_same": same},
+        f"{same} of {len(rows)} grid baseline forecasts are the same as the monthly forecast of "
+        f"the same quarter and horizon (the same filings were known), so the baseline's record is "
+        f"the monthly section's; what the grid adds is the news",
+    )]  # fmt: skip
+    cases = conn.execute(
+        "SELECT case_id, ticker, event_date FROM eval_cases WHERE event_type = ? "
+        "AND event_date < ? ORDER BY event_date, case_id", (GRID_EVENT_TYPE, on.isoformat()),
+    ).fetchall()  # fmt: skip
+    mine = [c for c in cases if c["ticker"] == ticker]
+    status: dict[str, list] = {}
+    for r in conn.execute(
+        "SELECT case_id, status, actual_filed_at FROM eval_results WHERE batch_id = ? "
+        "AND variant = ?", (batch_id, BASIS),
+    ):  # fmt: skip
+        status.setdefault(r["case_id"], []).append(r)
+    scored = {r.case_id for r in rows}
+    failed = [c["case_id"] for c in mine if c["case_id"] not in status]
+    waiting = [c["case_id"] for c in mine if c["case_id"] in status and c["case_id"] not in scored]
+    if waiting:
+        notes.append(Coded(
+            "not_yet_scorable", {"case_ids": waiting},
+            f"{len(waiting)} grid dates have no quarter reported by {on} yet",
+        ))  # fmt: skip
+    if failed:
+        notes.append(Coded(
+            "grid_cases_failed", {"case_ids": failed, "batch_id": batch_id},
+            f"{len(failed)} grid dates could not be scored (the batch holds no forecast for them)",
+        ))  # fmt: skip
+    left = sorted({c["event_date"] for c in cases} - {c["event_date"] for c in mine})
+    if left:
+        notes.append(Coded(
+            "left_out", {"dates": left},
+            f"{ticker} is not on {len(left)} grid dates: no forecast quarter fits the filings "
+            f"Warren holds for it (the coverage rule)",
+        ))  # fmt: skip
+    missing = None
+    if not rows:
+        missing = Coded(
+            "no_grid_record", {"ticker": ticker, "as_of": on.isoformat()},
+            f"no grid forecast of {ticker} has a reported actual by {on}",
+        )  # fmt: skip
+    return GridSection(batch_id, rows, grid_summaries(rows) if rows else [], notes, missing)
 
 
 # -- text --------------------------------------------------------------------------------------
@@ -733,7 +994,8 @@ def render(t: TrackRecord) -> str:
     out = [f"{t.ticker} track record as of {t.as_of}{when}: monthly baseline forecasts against "
            f"the actuals as first reported; {t.currency} millions"]  # fmt: skip
     if t.missing:
-        return "\n".join([*out, "", t.missing.text]) + "\n"
+        grid = ["", *render_grid(t.grid)] if t.grid is not None else []
+        return "\n".join([*out, "", t.missing.text, *grid]) + "\n"
     out += ["", "| Item | Horizon | Quarters | Warren's median miss | Benchmark's | Skill | "
             "Warren closer | Verdict | Pooled range held | Own range held |",
             "|---|---|---|---|---|---|---|---|---|---|"]  # fmt: skip
@@ -782,4 +1044,29 @@ def render(t: TrackRecord) -> str:
     if any(r.basis_change for r in t.rows):
         out += ["", "* the quarter's filing recast the year before (a change of reporting basis)"]
     out += ["", *[f"Note: {n.text}" for n in t.notes]]
+    if t.grid is not None:
+        out += ["", *render_grid(t.grid)]
     return "\n".join(out) + "\n"
+
+
+def render_grid(g: GridSection) -> list[str]:
+    """The grid section as text: the news numbers per item over all horizons (the JSON has each
+    horizon), then the notes."""
+    out = [f"Grid dates (M10, batch {g.batch_id}): the baseline beside the forecast with news"]
+    if g.missing:
+        return [*out, "", g.missing.text, "", *[f"Note: {n.text}" for n in g.notes]]
+    out += ["", "| Item | Horizon | Dates | Forecasts | Moved by news | Mean miss without | With "
+            "news | Moved: without | Moved: with | News closer | Baseline closer |",
+            "|---|---|---|---|---|---|---|---|---|---|---|"]  # fmt: skip
+    for s in (s for s in g.summaries if s.horizon is None):
+        for part in NEWS_PARTS:
+            n = s.news[part]
+            moved = f"{n.n_moved}" + (" (few)" if n.missing else "")
+            out.append(
+                f"| {s.item} | {s.horizon or 'all'} | {part.replace('_', ' ')} | {n.n_rows} | "
+                f"{moved} | {_pct(n.mean_miss_without)} | {_pct(n.mean_miss_with)} | "
+                f"{_pct(n.mean_miss_without_moved)} | {_pct(n.mean_miss_with_moved)} | {n.wins} | "
+                f"{n.losses} |"
+            )
+    out += ["", *[f"Note: {n.text}" for n in g.notes]]
+    return out
