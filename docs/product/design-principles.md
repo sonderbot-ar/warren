@@ -34,7 +34,13 @@ The exact type, colours and layout are chosen once, at the visual direction (F2)
 - **States.** Every screen has a designed loading, empty, error and thin-evidence state; none is a blank or a spinner alone.
 - **Focus.** Every control has a visible keyboard focus. Body text at least 16 px; touch targets at least 24 × 24 px (WCAG 2.2). At phone width the side panel opens full screen.
 - **Narrow screens.** A wide table (a sensitivity grid, two companies' series) scrolls sideways inside its own frame with the first column fixed, or becomes a list; the page itself never scrolls sideways.
-- **Still to set at the visual direction (F2):** measurable rules for hierarchy, density and white space, so "pristine" can be checked, not only felt.
+- **The look: B, *Hoja*** (owner's choice, nov.17.2026; `docs/product/mockups/f2-direction-b-hoja.html`; values in `webapp/static/tokens.css`). A spreadsheet made friendly: IBM Plex Sans for text, IBM Plex Mono for every figure, teal on cool grey, light and dark. The measurable rules, checked by the `design-critic` on every screen:
+  - *Hierarchy.* One title per screen (22 px, weight 600) that names its question. Section labels 13 px mono capitals in the muted colour. Figures in mono with tabular digits; the screen's answer is a table or a figure, never a paragraph. Nothing else is larger than the title, except the side panel's own figure (28 px).
+  - *Type scale.* Only 13, 14, 16, 22 and 28 px. Body and table text 16 px; 13 and 14 px only for captions, labels, chart axes and the panel's tabs.
+  - *Density.* Table rows at least 36 px tall (7 px above and below, a 1 px cell line), cells 10 px apart from their lines; at most two panes beside the side panel at 1440 px; one pane below 900 px.
+  - *White space.* A 4 px grid (4, 8, 12, 16, 24, 32, 48 px). Panes 16 px apart and 16 px inside; nothing touches a pane's edge.
+  - *Where figures open.* From 900 px up the side panel docks beside the panes (380 px wide) so the sheet stays visible; below 900 px it opens full screen. The formula bar (`fx`) above a table shows the selected figure's spreadsheet formula, and says what to do when none is selected.
+  - *Colour.* The accent marks only what can be acted on or is selected (a figure's underline, the selected cell, the active tab) and the forecast in a chart; reported values are in the text colour. Muted text clears 4.5:1 on every surface it sits on, in both themes.
 
 ## The bar a screen must clear
 
