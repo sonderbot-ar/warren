@@ -34,6 +34,14 @@ Since v0.9.81 (#421), the current portion of long-term debt is filed under two m
 
 - **Step 3. Real data.** On a copy of the restored snapshot (concepts synced to today's map): every stored run's date (the 903 runs that are not what-ifs) built fresh in memory through today's map, each pinned to the market downloads it stored (`runs.price_fetch_sha256`, `index_fetch_sha256`, `yield_fetch_sha256`, as `runs.rebuild` pins them) and its stored choices, once on `main` and once on this branch: expected identical rows and note codes on every date. The survey above repeated: the merged facts identical as sets to `main`'s for every company (CAT's maturities tag included), mode, frequency and as-of date, and every query now in the unmerged order. `reproduce --all --rebuild`: every stored run reproduces to the cent and rebuilds as before (each through its own map).
 
+## Results (Step 3, nov.17.2026)
+
+On a copy of the restored snapshot (`warren-20261116T053654Z`, concepts synced to today's map; no ingest).
+
+- **Fresh builds.** All 903 stored run dates that are not what-ifs, built in memory through today's map, pinned to each run's market downloads and choices, once before this branch's code and once after: **903 of 903 identical** in every assumption row (value, source, method) and every run-note code; none refused.
+- **Facts.** The survey's 672 queries (8 companies × 7 as-of dates × 2 modes × 3 frequencies × 2 name lists): the facts returned are identical, as sets, to `main`'s in all 672 (CAT's maturities tag included). Order: on `main` 358 queries came back in a different order from the unmerged read; now 604 of 604 queries that return the same facts as the unmerged read return them in the same sequence, and the other 68 (Coca-Cola and Exxon, where the lease-inclusive tag is read alone at some dates, so the merge adds facts the unmerged read lacks) are sorted by item and date like it.
+- **Stored runs.** `reproduce --all --rebuild`: 903 of 903 reproduced to the cent; 692 of 903 rebuilt to identical rows, the same count as on `main` (the other 211 were made by older code and differ as before).
+
 ## Alternatives considered
 
 - **Pair on the date, but refuse (raise) when the fiscal labels differ.** A refusal stops a run over a labelling difference that changes no figure; the labels come from one fiscal calendar per company (`ingest.place_period_end`), so a difference would be a calendar renumbering between two filings, which `_one_per_period` already settles for single items.
