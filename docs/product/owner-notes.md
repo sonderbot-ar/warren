@@ -8,6 +8,7 @@ The owner's comments on what students see, kept so the owner never says the same
 
 | Item | Sent | Answer | Date |
 |---|---|---|---|
+| Visual direction (F2 Step 2): three looks for the first screen, brief Q5 (A Cuaderno, B Hoja, C Aula; `docs/product/mockups/`, studio page); recommended C | nov.17.2026 | Waiting | — |
 | The reader's model after the free local models failed the bar: test Claude Haiku (about $0.06), a second free round, or menus (`docs/designs/f2-web-app.md`, Step 3 results, part 2) | nov.05.2026 | Test Haiku (card) | nov.06.2026 |
 | The reader's model after Haiku missed only the 2% line: test Sonnet (about $0.40), take Haiku with the card as the safety net (relaxes the bar), or no reader for now (`docs/designs/f2-web-app.md`, Step 3 results, part 2b) | nov.06.2026 | Test Sonnet (card) | nov.06.2026 |
 | The reader after Sonnet did no better than Haiku: a fresh exam of about 200 questions and clearer rules, judged once on Haiku (about 2 cents); take Haiku with the card as the safety net (relaxes the bar); or no reader for now (`docs/designs/f2-web-app.md`, Step 3 results, part 2c) | nov.06.2026 | Fresh 200-question exam (card) | nov.07.2026 |
