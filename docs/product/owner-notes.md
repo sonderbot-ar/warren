@@ -8,6 +8,7 @@ The owner's comments on what students see, kept so the owner never says the same
 
 | Item | Sent | Answer | Date |
 |---|---|---|---|
+| Visual direction (F2 Step 2): three looks for the first screen, brief Q5 (A Cuaderno, B Hoja, C Aula; `docs/product/mockups/`, studio page); recommended C | nov.17.2026 | B, Hoja (card), not the recommended C | nov.17.2026 |
 | The reader's model after the free local models failed the bar: test Claude Haiku (about $0.06), a second free round, or menus (`docs/designs/f2-web-app.md`, Step 3 results, part 2) | nov.05.2026 | Test Haiku (card) | nov.06.2026 |
 | The reader's model after Haiku missed only the 2% line: test Sonnet (about $0.40), take Haiku with the card as the safety net (relaxes the bar), or no reader for now (`docs/designs/f2-web-app.md`, Step 3 results, part 2b) | nov.06.2026 | Test Sonnet (card) | nov.06.2026 |
 | The reader after Sonnet did no better than Haiku: a fresh exam of about 200 questions and clearer rules, judged once on Haiku (about 2 cents); take Haiku with the card as the safety net (relaxes the bar); or no reader for now (`docs/designs/f2-web-app.md`, Step 3 results, part 2c) | nov.06.2026 | Fresh 200-question exam (card) | nov.07.2026 |
@@ -20,6 +21,7 @@ The owner's comments on what students see, kept so the owner never says the same
 
 ## Notes
 
+- **nov.17.2026 · The spreadsheet look.** On the visual-direction card, chose "B, Hoja (spreadsheet)" over the recommended C (guided steps) and A (editorial). No comment beyond the choice. *Changed:* B's measurable rules in the design principles ("How Warren looks"), its values in `webapp/static/tokens.css`; every screen from Step 4 on is built in it. Read with the oct.30 note ("Excel becomes the explanation"): the owner prefers the student to feel at home in a sheet, with the formula bar doing the teaching.
 - **nov.04.2026 · Compare stacks now.** On the card "Start comparing app stacks now, while M10 waits until 16 Nov?", chose "Start the stack comparison now". *Changed:* F2 starts with its stack card (`docs/designs/f2-web-app.md`); mockups and screens still wait for M10.
 - **nov.03.2026 · No tagging by students.** On the sorting card: "I am not too fond of users having to tag their type of question — maybe we get a decision model in this part of the process?" Then chose the AI reader and added: "I agree, no menus first." *Changed:* Decision 9 records the question reader, built with the first screens; menus are only a fallback when the reader is unsure or unavailable; the student only confirms the reading. Students should not have to classify their own question.
 - **nov.03.2026 · Pristine and intuitive.** "I want the aesthetics and functionality of Warren to be pristine and intuitive." "This front-end team will need a lot of coordination and reporting with me." *Changed:* the owner signs off the brief, the design principles, the visual direction and each screen (mockup and built); a design critic passes everything first; this file and the studio page exist.
