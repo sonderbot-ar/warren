@@ -1047,10 +1047,19 @@ def _quarterly(
 # holds leases: Exxon tags both current figures (1,617M and 1,701M at 2019-12-31, the 84M being
 # the finance leases due within a year that its lease note puts in notes and loans payable) beside
 # a lease-inclusive non-current, so the plain one lost them (backlog #421). The lease-inclusive
-# figure is never below the plain one, and one equal to the same date's non-current debt is the
-# long-term debt under the wrong tag (Exxon's 12,227M at 2010-12-31, 12,316M at 2011-03-31; the
-# analyst's design review), so neither is taken in place of the plain one.
+# figure is never below the plain one unless one of them is rounded (below), and one equal to the
+# same date's non-current debt is the long-term debt under the wrong tag (Exxon's 12,227M at
+# 2010-12-31, 12,316M at 2011-03-31; the analyst's design review), so neither of those is taken.
 CURRENT_ITEMS = ("debt_current", "debt_current_with_leases", "debt_noncurrent")
+# A lease-inclusive figure can only be below the plain one when one of the two is rounded. XBRL
+# reads a rounded figure as the range within half its rounding unit (XBRL 2.1, section 4.6,
+# `decimals`; Precision, Decimals and Units 1.0, 2017): Exxon's 2025 10-K tags "$6.2 billion"
+# (decimals -8) as 6,200M. Company facts carry no `decimals`, so the unit is read off the figure
+# itself (`rounding_unit`), up to this power of ten (backlog #427).
+LARGEST_ROUNDING_UNIT = 10**12
+# Filers state their statements in millions, so a figure is taken as rounded only when it looks
+# rounded coarser than that: to ten million or more ("$6.25 billion", "$6.2 billion").
+SMALLEST_ROUNDING_UNIT = 10**7
 
 
 def lease_inclusive(fact: Fact | None) -> bool:
@@ -1060,13 +1069,43 @@ def lease_inclusive(fact: Fact | None) -> bool:
     )
 
 
+def rounding_unit(value: float) -> int:
+    """The figure's apparent rounding: the largest power of ten, up to `LARGEST_ROUNDING_UNIT`,
+    that divides it in whole dollars (6,200,000,000 -> 10**8); 0 for a zero figure. A precise
+    figure that happens to end in zeros looks rounded too (1,700,000,000 -> 10**8)."""
+    whole = int(round(abs(value)))
+    if whole == 0:
+        return 0
+    unit = 1
+    while unit < LARGEST_ROUNDING_UNIT and whole % (unit * 10) == 0:
+        unit *= 10
+    return unit
+
+
+def _within_rounding(plain: float, with_leases: float) -> bool:
+    """A lease-inclusive figure below a plain figure that looks rounded (to ten million or more),
+    inside half its unit, and itself more precise: inside the plain figure's range, so the two
+    agree (backlog #427)."""
+    unit = rounding_unit(plain)
+    return (
+        plain > 0
+        and unit >= SMALLEST_ROUNDING_UNIT
+        and 0 <= with_leases < plain
+        and rounding_unit(with_leases) < unit
+        and plain - with_leases <= unit / 2
+    )
+
+
 def current_on_noncurrent_basis(
     plain: Fact | None, with_leases: Fact | None, noncurrent: Fact | None
 ) -> Fact | None:
     """The current portion for one balance date, on the non-current debt's basis (backlog #421):
     the only one filed; or, with both, the lease-inclusive one when the non-current debt is
-    lease-inclusive and it is above the plain one (equal figures keep the plain tag, which then
-    already holds any leases) and is not the non-current debt again (a mis-tag)."""
+    lease-inclusive, it is not the non-current debt again (a mis-tag), and it is above the plain
+    one (equal figures keep the plain tag, which then already holds any leases) or below a plain
+    figure that looks rounded by no more than half its unit (backlog #427, `_within_rounding`).
+    With both filed, the result keeps the plain figure's fiscal labels, where the single item
+    before #421 placed the date."""
     if with_leases is None:
         return plain
     with_leases = with_leases.model_copy(update={"canonical_name": "debt_current"})
@@ -1075,33 +1114,40 @@ def current_on_noncurrent_basis(
     if (
         lease_inclusive(noncurrent)
         and plain.value >= 0
-        and with_leases.value > plain.value
         and with_leases.value != noncurrent.value
+        and (with_leases.value > plain.value or _within_rounding(plain.value, with_leases.value))
     ):
-        return with_leases
+        return with_leases.model_copy(
+            update={"fiscal_year": plain.fiscal_year, "fiscal_period": plain.fiscal_period}
+        )
     return plain
 
 
 def _merge_current(facts: list[Fact], asked: list[str], frequency: Frequency) -> list[Fact]:
-    """Read `debt_current_with_leases` into `debt_current` per period (backlog #421)."""
-    by_period: dict[tuple, dict[str, Fact]] = defaultdict(dict)
-    rest = []
+    """Read `debt_current_with_leases` into `debt_current` per balance date (backlog #421).
+
+    The three items are paired on the date alone (backlog #427): each has at most one fact per
+    date, and two filings may label one date differently. In annual and quarterly mode the
+    merged item then keeps one fact per fiscal label (`_one_per_period`), as any single item."""
+    by_date: dict[tuple, dict[str, Fact]] = defaultdict(dict)
+    rest, current = [], []
     for f in facts:
         if f.canonical_name in CURRENT_ITEMS:
-            key = (f.period_start, f.period_end, f.fiscal_year, f.fiscal_period)
-            by_period[key][f.canonical_name] = f
+            by_date[(f.period_start, f.period_end)][f.canonical_name] = f
         else:
             rest.append(f)
-    for items in by_period.values():
-        current = current_on_noncurrent_basis(
+    for items in by_date.values():
+        chosen = current_on_noncurrent_basis(
             items.get("debt_current"),
             items.get("debt_current_with_leases"),
             items.get("debt_noncurrent"),
         )
-        if current is not None:
-            items["debt_current"] = current
-        rest.extend(f for name, f in items.items() if name in asked)
-    return _in_query_order(rest, frequency)
+        if chosen is not None:
+            current.append(chosen)
+        rest.extend(f for name, f in items.items() if name in asked and name != "debt_current")
+    if frequency != "reported":
+        current = _one_per_period(current)
+    return _in_query_order(rest + current, frequency)
 
 
 def _in_query_order(facts: list[Fact], frequency: Frequency) -> list[Fact]:
