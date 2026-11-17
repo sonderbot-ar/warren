@@ -1,6 +1,6 @@
 # Backlog #419: the debt-note lessons say why working capital moves with short-term debt
 
-Issue: https://github.com/sonderbot-ar/warren/issues/419 (front-end request, from the student reviewer on PR #418) · Branch `backlog-419-debt-lesson-clause` · Version v0.10.3 (patch, backlog item).
+Issue: https://github.com/sonderbot-ar/warren/issues/419 (front-end request, from the student reviewer on PR #418) · Branch `backlog-419-debt-lesson-clause` · Version v0.10.3, merged nov.17.2026 (PR #448, merge `9620c9c`, after CI green and a gatekeeper GO).
 
 ## Problem
 
@@ -42,4 +42,4 @@ Design review, nov.17.2026:
 - **Explainer.** The first wording ("takes short-term debt out of the current liabilities") never said *operating* working capital nor why debt is left out, so a student who reads working capital as current assets minus current liabilities sees the direction backwards. **Accepted:** the clause now says Warren's working capital holds only operating items and that short-term debt finances the company.
 - **Analyst: GO.** Checked every path of `_operating_nwc` (base, total in place, older short-term line left out, counted once, paper beside): the clause holds in each, and each lesson's overstate / understate / misstate agrees. Suggested a test on the total-in-place path: **accepted** (Step 1). Noted that the reported view shows these lessons without a working capital figure: **accepted as is** and written under *Product impact*; one lesson per code.
 - **Product-lead: GO.** Asked for the brief's lessons by line and a Spanish sample with a clear subject: **accepted**, both above. Asked the *Serves* bullet to say Q1 and Q2 show no working capital: **accepted**.
-- Gatekeeper at the PR.
+- **Gatekeeper: GO** on PR #448 (diff matches the design; the clause holds on every path of `_operating_nwc`; `tests/analysis` 916 passed; ruff clean; CI green).
