@@ -27,6 +27,7 @@ EVENT_TYPES = {
     "macro",
     "restructuring",
     "control",
+    "grid",  # a rule-dated test date with no event chosen (M10, grid.py); only from the grid file
 }
 COLUMNS = (
     "case_id",
@@ -60,6 +61,10 @@ class Case:
     @property
     def is_control(self) -> bool:
         return self.event_type == "control"
+
+    @property
+    def is_grid(self) -> bool:
+        return self.event_type == "grid"
 
 
 def cases_sha256(path: Path = CASES_PATH) -> str:
@@ -99,7 +104,9 @@ def _parse(row: dict[str, str], line: int, tickers: set[str]) -> Case:
         problems.append("description and selected_because are required")
     if case.is_control and not case.selected_because.startswith("control rule"):
         problems.append("a control must be admitted by the control rule")
-    if not case.is_control and not case.source_url.startswith("https://"):
+    if case.is_grid and not case.selected_because.startswith("grid rule"):
+        problems.append("a grid date must be admitted by the grid rule")
+    if not (case.is_control or case.is_grid) and not case.source_url.startswith("https://"):
         problems.append("an event needs a source URL")
     if problems:
         raise CaseError(f"{where} ({case.case_id}): " + "; ".join(problems))
@@ -152,7 +159,15 @@ def store_cases(conn: sqlite3.Connection, cases: list[Case]) -> None:
                 case.scope_change,
             )
         )
+    # a grid case never overwrites a hand-picked case with the same id (M10, grid.py)
+    grid_rows = [r for r, c in zip(rows, cases, strict=True) if c.is_grid]
+    rows = [r for r, c in zip(rows, cases, strict=True) if not c.is_grid]
     with conn:
+        conn.executemany(
+            "INSERT INTO eval_cases VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT (case_id) DO NOTHING",
+            grid_rows,
+        )
         conn.executemany(
             "INSERT INTO eval_cases VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT (case_id) DO UPDATE SET ticker = excluded.ticker, cik = excluded.cik, "

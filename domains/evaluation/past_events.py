@@ -35,7 +35,7 @@ METRIC_COLUMNS = ("event_type", "metric_id", "metric", "where_to_find", "source"
 # event types a question may name that have metrics to watch but no case in the library yet,
 # so the answer is n = 0 and the metrics (brief Q13: an election or a change of policy)
 UNCASED_TYPES = frozenset({"policy"})
-ASKABLE = frozenset(EVENT_TYPES - {"control"}) | UNCASED_TYPES
+ASKABLE = frozenset(EVENT_TYPES - {"control", "grid"}) | UNCASED_TYPES  # grid: no event (M10)
 # below this many cases with a reported quarter the evidence is thin: even if every case missed
 # by more than the company's usual median, an exact two-sided sign test (backtest.sign_test)
 # could not reach p < 0.05 (5 of 5 gives 0.0625; 6 of 6 gives 0.031). A working rule.

@@ -26,6 +26,12 @@ from shared_kernel.database import apply_migrations, get_db_connection
 
 
 def _cases(args) -> list[tuple[str, date]]:
+    if getattr(args, "grid", False):  # M10: one window per grid date serves every company
+        from domains.evaluation import grid
+
+        dates = sorted({c.event_date for c in grid.load_grid()}, reverse=True)
+        post = [d for d in dates if grid.is_post_cutoff(d)]  # the new evidence first
+        return [("grid", d) for d in post + [d for d in dates if d not in post]]
     cases = load_cases(CASES_PATH)
     if not args.all_cases:
         cases = [c for c in cases if c.case_id in (args.case or [])]
@@ -130,6 +136,7 @@ def main(argv: list[str] | None = None) -> int:
 
     ing = with_cases(commands.add_parser("ingest", help="read GDELT files for case windows"))
     ing.add_argument("--days", type=int, default=7)
+    ing.add_argument("--grid", action="store_true", help="every grid date's window (M10)")
     ing.set_defaults(func=cmd_ingest)
     commands.add_parser("rematch", help="re-read files matched under older aliases").set_defaults(
         func=cmd_rematch

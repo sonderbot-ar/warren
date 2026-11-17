@@ -305,7 +305,7 @@ def render(conn: sqlite3.Connection, build_id: str) -> str:
         m8 = m8_rows(conn, build["eval_batch_id"])
         lines += [
             "",
-            "## The 26 cases (pooled), against the M8 bands",
+            f"## The {len({r['subject_id'] for r in cases})} cases (pooled), against the M8 bands",
             "",
             "Too few to pass or fail on their own. M8's bands hold shock size only; the "
             "baseline's M8 band is its point forecast. Interval score: Gneiting & Raftery "

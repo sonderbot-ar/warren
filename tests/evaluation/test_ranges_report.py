@@ -155,6 +155,8 @@ def test_case_ranges_carry_the_m8_shocked_samples(company, monkeypatch):
         )
         assert r["forecast"] == pytest.approx(old["p50"], rel=1e-9)
     assert R.reproduce_build(company, build_id).ok
+    # the heading counts the batch's cases (M10: a grid batch is not M8's 26)
+    assert "## The 1 cases (pooled), against the M8 bands" in RR.render(company, build_id)
 
 
 def test_sample_lines_give_the_simulated_bands(company):

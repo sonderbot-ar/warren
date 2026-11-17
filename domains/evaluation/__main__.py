@@ -3,7 +3,7 @@
     python -m domains.evaluation run [--case AAPL_2020-02-17 ...] [--cases-file PATH]
         [--guidance PATH]
     python -m domains.evaluation report --batch eval_2026-10-30_1
-    python -m domains.evaluation backtest [--guidance PATH] [--case ID ...]
+    python -m domains.evaluation backtest [--guidance PATH] [--case ID ...] [--actuals-as-of D]
     python -m domains.evaluation reproduce --batch BATCH [--guidance PATH]
 
 `run` scores every case in the case file (or the ones named) and writes
@@ -14,7 +14,9 @@ writes a stored batch's report again.
 
 `backtest` (M8) scores every case in five variants on the run the AI's shocks were sized on:
 baseline, naive, guidance shocks (with --guidance) and the AI's named and masked shocks, and
-writes the M3 report and data/reports/eval/<batch_id>_backtest.md. `reproduce` scores a stored
+writes the M3 report and data/reports/eval/<batch_id>_backtest.md. Actuals are those public by the
+last ended day, or by `--actuals-as-of` (M10's pre-registered date), which must have ended.
+`reproduce` scores a stored
 backtest batch again from stored data and checks every row to the cent; it exits 1 on any
 difference.
 
@@ -47,6 +49,7 @@ watch. Without --as-of it uses the last day ended in New York. It writes nothing
 
 import argparse
 import sys
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from domains.evaluation import backtest_report
@@ -55,6 +58,7 @@ from domains.evaluation.cases import CASES_PATH, cases_sha256, load_cases
 from domains.evaluation.guidance import guidance_sha256, load_guides
 from domains.evaluation.harness import run_batch
 from domains.evaluation.report import load_rows, summary, write_report
+from shared_kernel.calendar import last_ended_day
 from shared_kernel.config import PROJECT_ROOT
 from shared_kernel.database import apply_migrations, get_db_connection
 
@@ -119,12 +123,27 @@ def _guides(args: argparse.Namespace):
     return load_guides(Path(args.guidance)), guidance_sha256(Path(args.guidance))
 
 
+def _actuals_as_of(text: str | None, now: datetime | None = None) -> date | None:
+    """A fixed actuals date, refused until it has ended (nothing filed later can count)."""
+    if text is None:
+        return None
+    day = date.fromisoformat(text)
+    last = last_ended_day(now or datetime.now(UTC))
+    if day > last:
+        raise SystemExit(f"--actuals-as-of {day} has not ended yet (last ended day: {last})")
+    return day
+
+
 def cmd_backtest(args: argparse.Namespace) -> int:
     cases = _cases(args)
     guides, sha = _guides(args)
+    actuals_as_of = _actuals_as_of(args.actuals_as_of)
     with get_db_connection() as conn:
         apply_migrations(conn)
-        batch_id = run_backtest(conn, cases, cases_sha256(Path(args.cases_file)), guides, sha)
+        batch_id = run_backtest(
+            conn, cases, cases_sha256(Path(args.cases_file)), guides, sha,
+            actuals_as_of=actuals_as_of,
+        )  # fmt: skip
         m3 = write_report(conn, batch_id)
         m8 = backtest_report.write_report(conn, batch_id)
         failed = conn.execute(
@@ -218,6 +237,80 @@ def cmd_ranges_reproduce(args: argparse.Namespace) -> int:
     return 0 if check.ok else 1
 
 
+def cmd_grid(args) -> int:
+    """Write or check the grid file (M10): every company on every rule-picked date."""
+    from datetime import date
+
+    from domains.evaluation import grid
+
+    end = date.fromisoformat(args.end) if args.end else grid.GRID_END
+    if args.write:
+        cases = grid.write_grid(end=end)
+        print(f"wrote {len(cases)} grid cases to {grid.GRID_PATH}")
+    else:
+        cases = grid.load_grid(end=end)
+        print(f"OK  {grid.GRID_PATH.name}: {len(cases)} grid cases match the rule")
+    _, left_out = grid.grid_cases(end=end)
+    post = sum(grid.is_post_cutoff(c.event_date) for c in cases)
+    dates = len({c.event_date for c in cases})
+    print(f"{dates} dates; {len(cases) - post} pre-cutoff, {post} post-cutoff cases; "
+          f"{len(left_out)} left out by rule")  # fmt: skip
+    for case_id, reason in left_out:
+        print(f"  left out {case_id}: {reason}")
+    shared = grid.shared_with_hand_picked(cases)
+    short = [c for c in cases if c.horizon_quarters < grid.HORIZON]
+    print(f"{len(short)} with a shorter horizon (coverage guard); {len(shared)} shared with "
+          f"hand-picked cases: {', '.join(shared) or 'none'}")  # fmt: skip
+    return 0
+
+
+def cmd_run_grid(args) -> int:
+    """Run the grid cases through the pipeline (M10), under one spending cap."""
+    from datetime import date
+
+    from domains.evaluation import grid, grid_run
+
+    cases = grid.load_grid()
+    if args.ticker:
+        cases = [c for c in cases if c.ticker in {t.upper() for t in args.ticker}]
+    if args.start:
+        cases = [c for c in cases if c.event_date >= date.fromisoformat(args.start)]
+    if args.end:
+        cases = [c for c in cases if c.event_date <= date.fromisoformat(args.end)]
+    with get_db_connection() as conn:
+        apply_migrations(conn)
+        todo, done = grid_run.pending(conn, cases)
+        if args.dry_run:
+            dates = len({c.event_date for c in todo})
+            print(f"{len(done)} grid cases done, {len(todo)} to run on {dates} dates; about "
+                  f"${grid_run.estimate_usd(conn, len(todo)):.2f} of AI calls "
+                  f"(${grid_run.ESTIMATE_USD:.2f} a case, the measured M7 date)")  # fmt: skip
+            for c in todo[:10]:
+                print(f"  next {c.case_id}")
+            return 0
+        from domains.orchestration import graph
+        from domains.orchestration.__main__ import FOLDERS, make_deps
+        from shared_kernel.config import anthropic_api_key
+
+        anthropic_api_key()  # before anything runs, so a missing key costs nothing
+        deps = make_deps(conn)
+
+        def start(ticker, as_of, seed, budget):
+            return graph.start(deps, FOLDERS, ticker, as_of, variants=["named", "masked"],
+                               review="auto", seed=seed, budget=budget)  # fmt: skip
+
+        def resume(pipeline_id, budget):
+            return graph.resume(deps, FOLDERS, pipeline_id, budget=budget)
+
+        summary = grid_run.run_grid(conn, cases, args.max_usd, start, resume, since=args.since)
+    print(f"{len(summary.done)} done now, {len(summary.done_before)} before, "
+          f"{len(summary.failed)} failed, {len(summary.not_run)} not run; "
+          f"${summary.spent_usd:.2f} spent")  # fmt: skip
+    if summary.stopped:
+        print(f"stopped: {summary.stopped}")
+    return 0 if not summary.failed else 1
+
+
 def cmd_ranges_run(args: argparse.Namespace) -> int:
     import json
 
@@ -297,6 +390,7 @@ def main(argv: list[str] | None = None) -> int:
     bt.add_argument("--case", action="append", help="a case id (repeatable); default: all")
     bt.add_argument("--cases-file", default=str(CASES_PATH))
     bt.add_argument("--guidance", help="transcribed company guidance (M4); default: none")
+    bt.add_argument("--actuals-as-of", help="score actuals public by this ended day (M10)")
     bt.set_defaults(func=cmd_backtest)
     rp = commands.add_parser("reproduce", help="score a stored backtest batch again")
     rp.add_argument("--batch", required=True)
@@ -318,6 +412,20 @@ def main(argv: list[str] | None = None) -> int:
     rr.add_argument("--build", required=True)
     rr.add_argument("--guidance", help="the guidance file the build ran with, if any")
     rr.set_defaults(func=cmd_ranges_reproduce)
+    gr = commands.add_parser("grid", help="write or check the rule-dated grid cases (M10)")
+    gr.add_argument("--write", action="store_true", help="regenerate the file from the rule")
+    gr.add_argument("--end", help="the last grid date, YYYY-MM-DD; default: grid.GRID_END")
+    gr.set_defaults(func=cmd_grid)
+    rgr = commands.add_parser("run-grid", help="run the grid cases through the pipeline (M10)")
+    rgr.add_argument("--max-usd", type=float, required=True, help="the spending cap for AI calls")
+    rgr.add_argument("--ticker", action="append", help="a ticker (repeatable); default: all")
+    rgr.add_argument("--from", dest="start", help="first grid date, YYYY-MM-DD")
+    rgr.add_argument("--to", dest="end", help="last grid date, YYYY-MM-DD")
+    rgr.add_argument("--dry-run", action="store_true", help="list what would run and its cost")
+    rgr.add_argument("--since", help="count AI spend from this UTC time (YYYY-MM-DDTHH:MM:SSZ), so "
+                     "a restarted run stays under the same cap; default: now")  # fmt: skip
+    rgr.set_defaults(func=cmd_run_grid)
+
     rn = rcmd.add_parser("run", help="a stored run's range and the range's track record")
     rn.add_argument("--run-id", required=True)
     rn.add_argument("--sim-id", help="a simulation of the run: the range on its shocked samples")

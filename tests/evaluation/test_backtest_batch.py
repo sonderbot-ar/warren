@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 from domains.evaluation import backtest_report
 from domains.evaluation.__main__ import main
 from domains.evaluation.backtest_batch import reproduce_batch, run_backtest
@@ -51,6 +53,24 @@ def test_a_stored_batch_reproduces_to_the_cent(company):
     assert check.rows_checked == 4 * 2 * 4  # 4 quarters, 2 items, 4 variants
     assert check.simulations_checked == 2
     assert company.execute("SELECT COUNT(*) FROM simulations").fetchone()[0] == sims  # no writes
+
+
+def test_the_filing_date_is_stored_and_checked_only_where_stored(company):
+    two_sets(company)
+    batch = backtest(company)
+    filed = company.execute(
+        "SELECT COUNT(*) FROM eval_results WHERE batch_id = ? AND status = 'ok' "
+        "AND actual_filed_at IS NULL",
+        (batch,),
+    ).fetchone()[0]
+    assert filed == 0  # every scored row carries its actual's filing date (M10, migration 0018)
+    company.execute("UPDATE eval_results SET actual_filed_at = '2000-01-01' WHERE status = 'ok'")
+    company.commit()
+    check = reproduce_batch(company, batch, [case()])
+    assert any("actual_filed_at: 2000-01-01, now" in m for m in check.mismatches)
+    company.execute("UPDATE eval_results SET actual_filed_at = NULL")  # a batch stored before 0018
+    company.commit()
+    assert reproduce_batch(company, batch, [case()]).ok
 
 
 def test_an_edited_shock_fails_the_reproduce_check(company):
@@ -110,7 +130,9 @@ def test_the_cli_runs_the_backtest_and_reproduces_it(company, monkeypatch, tmp_p
             return False
 
     monkeypatch.setattr(cli, "get_db_connection", Same)
-    monkeypatch.setattr(cli, "run_backtest", lambda conn, cases, sha, guides, gsha: backtest(conn))
+    monkeypatch.setattr(
+        cli, "run_backtest", lambda conn, cases, sha, guides, gsha, actuals_as_of: backtest(conn)
+    )
     monkeypatch.setattr(cli, "write_report", lambda conn, b: tmp_path / f"{b}.md")
     write = backtest_report.write_report
     monkeypatch.setattr(backtest_report, "write_report", lambda conn, b: write(conn, b, tmp_path))
@@ -125,6 +147,83 @@ def test_the_cli_runs_the_backtest_and_reproduces_it(company, monkeypatch, tmp_p
     assert "OK" in capsys.readouterr().out
 
 
+def test_a_grid_batch_gets_the_grid_sections_and_an_event_batch_does_not(company):
+    import dataclasses
+
+    two_sets(company)
+    gridded = dataclasses.replace(case(), event_type="grid", selected_because="grid rule: test",
+                                  source_url="")  # fmt: skip
+    batch = run_backtest(company, [gridded], "sha", actuals_as_of=TODAY, today=TODAY, n_samples=N)
+    text = backtest_report.render(company, batch)
+    headings = (
+        "## Grid cases: the test read for the answer",
+        "### Before and after",
+        "### The memory test (h1 only)",
+        "### First quarter",
+        "### Quiet weeks",
+    )
+    assert all(h in text for h in headings)
+    assert "1 grid cases in the batch" in text and "1 scored" in text
+    assert "1 grid cases on rule-chosen dates" in text
+    assert "events were chosen in hindsight" not in text
+    plain = backtest_report.render(company, backtest(company))  # the event row replaces it
+    assert "## Grid cases" not in plain
+    assert "events were chosen in hindsight as notable; 26 cases is few" in plain
+
+
+def _quiet(conn, variant, run="run_quiet"):
+    """The case classified in `variant` with no event left to propose from (an empty week)."""
+    from tests.evaluation.test_llm_variants import CASE_DATE, company_of
+
+    conn.execute(
+        "INSERT OR IGNORE INTO event_runs (event_run_id, cik, as_of, tz, params_json, "
+        "input_sha256, code_version) VALUES (?, ?, ?, 'America/New_York', '{}', 'x', 'test')",
+        (run, company_of(conn, "TST").cik, CASE_DATE.isoformat()),
+    )
+    conn.execute(
+        "INSERT INTO case_llm_status VALUES (?, ?, ?, 0, 0)", (case().case_id, run, variant)
+    )
+    conn.commit()
+
+
+def test_a_variant_with_nothing_to_propose_scores_as_no_shock(company):
+    from domains.evaluation.backtest_batch import current_sets
+
+    run_id, _ = stored_set(company, answer(proposal()))  # named has a set
+    _quiet(company, "masked")
+    run, sets = current_sets(company, case())
+    assert run == run_id and set(sets) == {"named"}
+    batch = backtest(company)
+    variants = {r[0] for r in company.execute(
+        "SELECT DISTINCT variant FROM eval_results WHERE batch_id = ?", (batch,))}  # fmt: skip
+    assert variants == {"baseline", "naive_srw", "llm_named"}  # masked: no rows, the baseline
+    assert reproduce_batch(company, batch, [case()]).ok
+
+
+def test_a_quiet_case_uses_its_pipeline_run_and_an_unclassified_one_still_fails(company):
+    from domains.analysis.runs import run_baseline
+    from domains.evaluation.backtest_batch import current_sets
+    from domains.evaluation.harness import EvaluationError
+    from tests.evaluation.test_harness import CHOICES
+    from tests.evaluation.test_llm_variants import CASE_DATE
+
+    _quiet(company, "named")
+    with pytest.raises(EvaluationError, match="no current masked proposal set"):
+        current_sets(company, case())  # masked was never classified: a gap, not an answer
+    _quiet(company, "masked")
+    with pytest.raises(EvaluationError, match="no finished pipeline run"):
+        current_sets(company, case())
+    run_id = run_baseline(company, "TST", CASE_DATE, choices=CHOICES, today=TODAY)
+    company.execute(
+        "INSERT INTO pipeline_runs (pipeline_id, ticker, as_of, variants, review, seed, "
+        "n_samples, status, run_id, telemetry_path, code_version) VALUES ('p', 'TST', ?, "
+        "'named,masked', 'auto', 1, 100, 'done', ?, 't', 'c')",
+        (CASE_DATE.isoformat(), run_id),
+    )
+    company.commit()
+    assert current_sets(company, case()) == (run_id, {})
+
+
 def test_the_report_shows_changes_of_basis_apart(company):
     """Backlog #162: the section is there, and says none when no quarter is recast."""
     two_sets(company)
@@ -132,3 +231,18 @@ def test_the_report_shows_changes_of_basis_apart(company):
     assert "## Without changes of basis" in text
     assert "basis than the run (none; cases none)" in text
     assert "without changes of basis Revenue" in text
+
+
+def test_a_fixed_actuals_date_is_refused_until_it_has_ended():
+    """M10: the batch's pre-registered actuals date counts only once that New York day is over."""
+    from datetime import UTC, date, datetime
+
+    from domains.evaluation.__main__ import _actuals_as_of
+
+    assert _actuals_as_of(None) is None
+    night_of_16th_ny = datetime(2026, 11, 17, 4, 59, tzinfo=UTC)  # 23:59 on the 16th in New York
+    with pytest.raises(SystemExit, match="has not ended yet"):
+        _actuals_as_of("2026-11-16", night_of_16th_ny)
+    monday_over = datetime(2026, 11, 17, 5, 0, tzinfo=UTC)
+    assert _actuals_as_of("2026-11-16", monday_over) == date(2026, 11, 16)
+    assert _actuals_as_of("2026-11-15", monday_over) == date(2026, 11, 15)
