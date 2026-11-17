@@ -182,8 +182,10 @@ WARNING_LESSONS = {
         "due within a year (its total debt due within a year is closer to short-term borrowings "
         "alone than to the two added), so Warren counted that part once instead of adding it "
         "again from the debt note. Counted twice, it would overstate debt and working capital "
-        "and understate the cost of debt, effects that partly offset each other, so the value "
-        "per share moves much less than the debt.",
+        "(Warren's working capital holds only operating items, so it takes short-term debt, "
+        "which finances the company, out of the current liabilities: the more debt Warren "
+        "counts, the higher working capital is) and understate the cost of debt, effects that "
+        "partly offset each other, so the value per share moves much less than the debt.",
         {},
         "Koller, Goedhart and Wessels, Valuation (7th ed.), Moving from Enterprise Value to "
         "Value per Share (each debt claim counted once); US GAAP Taxonomy, ShortTermBorrowings "
@@ -197,8 +199,10 @@ WARNING_LESSONS = {
         "weeks or months) as a line of its own beside its short-term bank loans, as its total "
         "debt due within a year shows, so Warren counted both; when a filing gives no such "
         "total, Warren assumes the paper is part of the loans. Left out, the paper would "
-        "understate debt and working capital and, because Warren's cost of debt is interest "
-        "divided by average debt, overstate the cost of debt.",
+        "understate debt and working capital (Warren's working capital holds only operating "
+        "items, so it takes short-term debt, which finances the company, out of the current "
+        "liabilities: the more debt Warren counts, the higher working capital is) and, because "
+        "Warren's cost of debt is interest divided by average debt, overstate the cost of debt.",
         {},
         "Koller, Goedhart and Wessels, Valuation (7th ed.), Moving from Enterprise Value to "
         "Value per Share (every debt claim counted) and Reorganizing the Financial Statements "
@@ -214,8 +218,10 @@ WARNING_LESSONS = {
         "once a year in the annual report or were not yet filed in a form Warren reads, so "
         "Warren counted that total instead of older pieces from another date or none at all. "
         "A valuation needs only the sum of short-term debt, so the total costs detail, not "
-        "accuracy, while old or missing pieces would misstate debt, working capital and the "
-        "cost of debt.",
+        "accuracy, while old or missing pieces would misstate debt, working capital (Warren's "
+        "working capital holds only operating items, so it takes short-term debt, which "
+        "finances the company, out of the current liabilities: the more debt Warren counts, the "
+        "higher working capital is) and the cost of debt.",
         {},
         "Koller, Goedhart and Wessels, Valuation (7th ed.), Moving from Enterprise Value to "
         "Value per Share (every debt claim counted, at the valuation date); Penman, Financial "
