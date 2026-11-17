@@ -1,6 +1,6 @@
 # M10 design: more test dates, chosen by rule, some after the models' cutoff
 
-Status: In progress (nov.02.2026) · Elephant: agent team · Branch `m10-more-dates`
+Status: Done at merge (results nov.17.2026; started nov.02.2026) · Elephant: agent team · Branch `m10-more-dates`
 Implements the second item of the Phase 2 direction (Build Plan §4b, owner decision nov.02.2026) and the post-cutoff test that Build Plan §7 lists against "LLM knows the outcome of historical events".
 
 ## Problem
@@ -116,6 +116,40 @@ Not the result: the pre-registered headline is on all grid cases with actuals as
 
 The run also found a scoring gap: a variant with no event left to propose from has no proposal set, and the batch failed such cases (8 in the first try, `eval_2026-11-03_1`). They are now scored as "no shock" (`backtest_batch.current_sets`, tests), which is the M4/M8 rule; a variant never classified still fails.
 
+## Results (the pre-registered batch, nov.17.2026)
+
+Batch `eval_2026-11-17_1`, actuals as first reported up to 2026-11-16 (`backtest --cases-file domains/evaluation/grid_cases.csv --actuals-as-of 2026-11-16`, run at 05:0xZ on nov.17, after that New York day ended). Filings refreshed first (`fundamentals ingest --all --refresh`): Apple's FY2026 10-K (filed 2026-11-03) and Caterpillar's Q3 10-Q (2026-11-04) are in; nothing newer for any company. Code `9b24026` (main through v0.9.83 merged in). `reproduce --batch`: 3,248 rows and 74 simulations OK. Ranges build `ranges_2026-11-17_1`, `ranges reproduce`: 5,410 errors and 15,256 ranges OK. `analysis reproduce --all` before the run: 903 of 903 to the cent.
+
+**Counts.** 168 grid cases: 163 scored (515 quarters), 4 not yet scorable (Walmart 2026-09-01, 09-15, 10-01, 10-15: its October-quarter 10-Q comes in December), 1 failed (XOM_2023-11-15, the impossible-capex sample, as before). Exxon's 8 later dates are left out by the coverage rule, as designed. Masked: shocks on 42 cases, events but no shock on 120, no events on 5 (named: 32 / 130 / 5).
+
+**The headline (pre-registered rule: date sign test p < 0.05 and the date interval excludes zero).**
+
+| Variant | Item | Skill vs baseline | Mean d | Dates better / worse / tied | p (dates) | 90% date bootstrap | Gain |
+|---|---|---|---|---|---|---|---|
+| masked | revenue | +0.4% | −0.11 | 8 / 6 / 8 | 0.79 | −0.27 to +0.04 | **not shown** |
+| masked | EBIT | +0.6% | −0.08 | 10 / 7 / 5 | 0.63 | −0.18 to +0.00 | **not shown** |
+| named | revenue | +0.6% | −0.09 | 6 / 4 / 12 | 0.75 | −0.23 to +0.05 | **not shown** |
+| named | EBIT | +0.2% | −0.02 | 7 / 6 / 9 | 1.00 | −0.06 to +0.02 | **not shown** |
+
+M8's case-level test, shown beside for comparison: masked EBIT 22 better / 9 worse cases, p 0.029, case interval −0.15 to −0.02. Read at the case level it would pass; read by dates, as fixed before the result because the cases on one date share a news week, it does not. The moving-block interval (blocks of 4 dates) just excludes zero for masked EBIT (−0.22 to −0.00); it is a sensitivity, not the rule. **Answer: a gain from the news shocks is still not shown.** The point estimates lean the right way on every line (all four mean d below zero), and the size is small: under 1% less error.
+
+**Before and after the models' cutoff.** Before (118 cases, 15 dates): masked d −0.03 revenue, −0.01 EBIT, nothing near shown. After (45 cases, 7 dates): masked d −0.31 revenue and −0.25 EBIT, about ten times larger, date intervals −0.72 to +0.08 and −0.56 to +0.02; 7 dates can't show it (the best possible sign test on 7 dates is p 0.016, and the split was 4 / 2 / 1 and 4 / 3). The after-cutoff gain comes from a handful of cases: Caterpillar 2026-08-15 (revenue −8.9 points), Apple 2026-08-01, 09-01 and 09-15 (−5.1, −2.5, −2.5), against Johnson & Johnson 2026-07-15 (+3.8) and Apple 2026-10-15 (+2.6).
+
+**The memory test (h1).**
+
+| Item | A: before / before | C: after / after | C − A |
+|---|---|---|---|
+| revenue | −0.08 (−0.17 to −0.01; 118 cases, 15 dates) | +0.15 (+0.00 to +0.32; 45 cases, 7 dates) | +0.24 |
+| EBIT | +0.02 (−0.04 to +0.09) | +0.22 (+0.02 to +0.45) | +0.20 |
+
+Group B is empty in the halved grid, as designed. Before the cutoff, naming the company helped revenue slightly more than hiding it; after the cutoff, naming it hurt both items, and the C intervals sit at or above zero. That is the pattern memory would leave (a named edge where the model could know the outcome, none where it couldn't), and the opposite sign in C is consistent with the name distracting once memory can't help (Glasserman & Lin 2023). With 7 dates in C, this is a signal worth re-testing as the post-cutoff grid grows, not a finding. It supports keeping masked as the headline variant (M8's choice).
+
+**First quarter ended or running (masked, h1).** Ended (49 cases): revenue d +0.04, EBIT +0.14 (shocks slightly worse). Running (114): −0.19 and −0.13. This reverses the early read, where the gain sat on ended quarters; with the post-cutoff dates in, the shocks help on quarters still running and not on closed ones. #115 (no shock on a quarter that ended before the news) stays open with this evidence.
+
+**Ranges on the grid cases (M9).** The baseline's honest range holds 83.2% of revenue and 84.7% of EBIT actuals on the 459 grid quarters with a range (target about 80%), against 0% for M8's zero-width band; interval score 0.67 against 0.96 (revenue). The masked variant with its range: 86.1% revenue, 80.2% EBIT. The rolling test's pass rule is unchanged from M9 (revenue met on average, EBIT too wide).
+
+**What this changes.** Nothing in the engine: no rule is tuned on these results. Masked stays the headline variant; the news step stays "not shown to help" in the app's wording (brief, Decision 7). Later grid runs extend the post-cutoff dates under the same rule (the generator's end date moves; `actuals_as_of` is fixed per batch before it runs).
+
 ## Where the work stopped
 
 - nov.03.2026: AI run done: 167 of 168 grid cases, 1 failed (XOM_2023-11-15, the impossible-capex sample); $5.70 of the $10 cap. Two container restarts on the way; `run-grid --since 2026-11-03T00:00:00Z` kept the cap counting across them. Early read above. Next: on or after 2026-11-16, `fundamentals ingest --all`, the full batch (`backtest --cases-file domains/evaluation/grid_cases.csv`), `reproduce --batch`, `ranges test --batch`, `ranges reproduce`, results here, gatekeeper, merge.
@@ -126,3 +160,4 @@ The run also found a scoring gap: a variant with no event left to propose from h
 - nov.16.2026 00:40Z: **branch brought up to date with main again** (v0.9.16 to v0.9.77): migration lists now 18 to 23; the past-events rule (v0.9.34) leaves `grid` out of the event types a student may ask about, as it does `control`. The backtest command gains `--actuals-as-of`, refused until that New York day has ended, so the pre-registered 2026-11-16 can be passed exactly. Data: the nov.15 snapshot (it holds the grid run's AI answers), filings refreshed (Apple's FY2026 10-K filed 2026-11-03 and Caterpillar's Q3 10-Q filed 2026-11-04 are in; nothing newer for any company), 903 of 903 stored runs reproduce to the cent. Full suite green.
 - **Preview batch, not the result** (actuals as of 2026-11-14, the last ended day when this ran; nov.16 had not started in New York): `eval_2026-11-15_1`, 167 of 168 scored (XOM_2023-11-15 fails as before), 4 not yet scorable (Walmart's four latest post-cutoff dates, as the design expected), `reproduce --batch` OK (3,248 rows, 74 simulations), `ranges test --batch` built (`ranges_2026-11-15_1`). The run found that both reports still said "26 cases" and "chosen in hindsight" on a grid batch (Step 3b fixes the wording; M8's report is unchanged).
 - Next: once 2026-11-16 has ended in New York (05:00Z on nov.17), refresh filings, run the batch with `--actuals-as-of 2026-11-16`, `reproduce --batch`, `ranges test --batch`, `ranges reproduce`, write the results above this list, gatekeeper, merge.
+- nov.17.2026 05:10Z: **the pre-registered batch ran** (results above): main through v0.9.83 merged in, filings refreshed, `eval_2026-11-17_1` and `ranges_2026-11-17_1` stored and reproduced, snapshot saved. Next: gatekeeper, merge, record v0.10.0.
