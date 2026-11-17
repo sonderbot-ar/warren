@@ -16,7 +16,7 @@ PG,operating_expenses,*,*,[not presented] P&G presents SG&A only; no total opera
 PG,pretax_income,*,Q1;Q2;Q3;Q4,[extension tag] Quarterly pretax income is not tagged with a us-gaap concept in P&G's 10-Qs.
 PG,pretax_income,2016-2021,FY,[extension tag] Before FY2022 the income-statement pretax line used a company-specific tag (only the domestic/foreign split is us-gaap).
 PG,debt_current,*,Q1;Q2;Q3,"[annual only] The current portion of long-term debt is disclosed only in the 10-K debt note; 10-Qs show 'Debt due within one year' (DebtCurrent, not mapped because it bundles commercial paper)."
-PG,short_term_borrowings,*,*,"[bundled] Short-term debt is presented only within 'Debt due within one year' (DebtCurrent), which is not mapped."
+PG,short_term_borrowings,*,Q1;Q2;Q3,"[annual only] Short-term borrowings other than commercial paper (OtherShortTermBorrowings, or bank loans at 2017 and 2018) are tagged only in the 10-K debt note; 10-Qs show only 'Debt due within one year' (DebtCurrent)."
 PG,commercial_paper,*,Q1;Q2;Q3,[annual only] Commercial paper is disclosed only in the 10-K debt note.
 JNJ,operating_expenses,*,*,[not presented] J&J presents SG&A and R&D separately; no total operating-expense line excluding cost of revenue.
 JNJ,operating_income,*,*,[not presented] J&J's income statement has no operating income subtotal (it goes from expenses to earnings before taxes).

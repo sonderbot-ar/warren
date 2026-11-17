@@ -573,3 +573,25 @@ def test_a_tag_scoped_to_other_companies_is_skipped_and_counted():
     other = IngestResult(ticker="AAPL", cik=TEST_CIK)
     assert extract_facts(TEST_CIK, facts, [_revenue_row(frozenset({"CAT"}))], other) == []
     assert other.skipped["company_scope"] == other.facts_seen == everyone.facts_seen
+
+
+@pytest.mark.parametrize("ticker", ["KO", "AAPL", "XOM"])
+def test_other_short_term_borrowings_are_stored_for_pg_only(ticker):
+    """Backlog #426: the shipped row reads P&G's 'Other' short-term borrowings; Coca-Cola's sit
+    inside its ShortTermBorrowings or beside commercial paper with no total to check, Apple's
+    are its commercial paper, so theirs are never stored."""
+    from domains.fundamentals.concepts import load_concept_map
+    from domains.fundamentals.ingest import IngestResult, extract_facts
+
+    [row] = [r for r in load_concept_map() if r.xbrl_concept == "us-gaap:OtherShortTermBorrowings"]
+    assert (row.canonical_name, row.priority, row.companies) == ("short_term_borrowings", 3, {"PG"})
+    facts = FakeEdgar().facts
+    cash = facts["facts"]["us-gaap"]["CashAndCashEquivalentsAtCarryingValue"]["units"]["USD"][0]
+    facts["facts"]["us-gaap"]["OtherShortTermBorrowings"] = {"units": {"USD": [dict(cash, val=98)]}}
+
+    pg = IngestResult(ticker="PG", cik=TEST_CIK)
+    [kept] = extract_facts(TEST_CIK, facts, [row], pg)
+    assert "us-gaap:OtherShortTermBorrowings" in kept and 98 in kept
+    other = IngestResult(ticker=ticker, cik=TEST_CIK)
+    assert extract_facts(TEST_CIK, facts, [row], other) == []
+    assert other.skipped["company_scope"] == 1
