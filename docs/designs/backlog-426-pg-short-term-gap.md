@@ -1,6 +1,6 @@
 # Backlog #426: P&G's "other" short-term borrowings, the missing part of its debt due within a year
 
-Issue: https://github.com/sonderbot-ar/warren/issues/426 (found by #421's near-miss listing, `docs/designs/backlog-421-current-lease-debt.md`, Step 4) · Branch `backlog-426-pg-short-term-gap` · Version v0.9.83 on merge.
+Issue: https://github.com/sonderbot-ar/warren/issues/426 (found by #421's near-miss listing, `docs/designs/backlog-421-current-lease-debt.md`, Step 4) · Branch `backlog-426-pg-short-term-gap` · Version v0.9.83, merged nov.17.2026 (PR #433, merge `05a7aad`, after CI green and a gatekeeper GO).
 
 ## Problem
 
