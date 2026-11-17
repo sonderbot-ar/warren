@@ -1,6 +1,6 @@
 # Backlog #432: Coca-Cola's "Loans and notes payable", read as its short-term borrowings
 
-Issue: https://github.com/sonderbot-ar/warren/issues/432 (found by the #426 design review, `docs/designs/backlog-426-pg-short-term-gap.md`, Alternatives) · Branch `backlog-432-ko-loans-and-notes` · Status: in review (nov.17.2026), PR #446.
+Issue: https://github.com/sonderbot-ar/warren/issues/432 (found by the #426 design review, `docs/designs/backlog-426-pg-short-term-gap.md`, Alternatives) · Branch `backlog-432-ko-loans-and-notes` · Version v0.10.2, merged nov.17.2026 (PR #446, merge `0570ee8`, after CI green and a gatekeeper GO).
 
 ## Problem
 
@@ -112,4 +112,4 @@ Serves the estimate questions of `docs/product/brief.md` (Q3, Q5, Q8 and value p
 
 ## Where the work stopped
 
-(Updated as the track moves.) Steps 1 and 2 done; PR #446 open, CI green; gatekeeper NO-GO taken (below), second look next.
+Done: merged as v0.10.2. The gatekeeper's second look gave GO (2c51908).
