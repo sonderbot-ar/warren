@@ -227,7 +227,7 @@ Fonts are all SIL Open Font License, free, and can be self-hosted in `webapp/sta
 
 **Owner's choice (nov.17.2026): B, *Hoja*.** Its measurable rules are in `docs/product/design-principles.md` ("How Warren looks") and its values in `webapp/static/tokens.css` (the IBM Plex faces are vendored with the first screen, Step 4). Step 2 is done.
 
-**Recommendation sent on the owner's card:** C, *Aula*. The student reviewer understood it fastest and it is the only one that says in words that a figure opens its source; its step structure also matches principle 6 (the reading comes first). A's restraint and B's formula bar are each worth keeping as a part of C if the owner mixes them. Exit of this step: the owner's choice, then its measurable rules (type scale, spacing, density, hierarchy) written into `docs/product/design-principles.md` and its values into `webapp/static/tokens.css`, in a follow-up commit on this branch before the PR merges.
+**Recommendation sent on the owner's card:** C, *Aula*. The student reviewer understood it fastest and it is the only one that says in words that a figure opens its source; its step structure also matches principle 6 (the reading comes first). A's restraint and B's formula bar are each worth keeping as a part of C if the owner mixes them. The step's exit (the choice, its rules in the principles, its values in the tokens) was met in the same PR, after the card.
 
 ## Alternatives considered
 

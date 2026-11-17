@@ -15,7 +15,6 @@
   --text-md: 1rem; /* body text, at least 16 px (principles, "Focus") */
   --text-lg: 1.375rem; /* 22 px: the screen's one title */
   --text-xl: 1.75rem; /* 28 px: the panel's figure */
-  --text-2xl: 2.25rem;
   --leading-tight: 1.3;
   --leading-body: 1.5;
   /* spacing */
@@ -36,7 +35,7 @@
   --border-width: 1px;
   --focus-width: 3px;
   --target-min: 2.75rem; /* above WCAG 2.2's 24 px minimum */
-  /* colour (provisional greys and one accent; contrast at least WCAG AA in both themes) */
+  /* colour (direction B: cool greys and one teal accent; contrast at least WCAG AA in both themes) */
   --color-bg: #eef1f4;
   --color-surface: #ffffff;
   --color-head: #f5f7f9;
