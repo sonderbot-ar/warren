@@ -743,8 +743,8 @@ NEWS_NOT_TESTED = Coded(
 NEWS_MEANS = Coded(
     "news_means", {},
     "the mean misses with and without news are over every grid forecast (a date the news did not "
-    "move counts as a tie, M8's reading) and over the moved ones alone; wins and losses count the "
-    "moved ones",
+    "move counts as a tie, as in M10's headline) and over the moved ones alone; wins and losses "
+    "count the moved ones",
 )  # fmt: skip
 
 
@@ -872,7 +872,10 @@ def grid_rows(
         base = {i: by.get((case_id, BASIS, i, h)) for i in ITEMS}
         if any(b is None or not _filed_by(b, on) for b in base.values()):
             continue
-        items = {i: _grid_item(i, base[i], by.get((case_id, NEWS_VARIANT, i, h))) for i in ITEMS}
+        # a masked row that is not ok stands aside, as backtest.pairs fills the baseline
+        news = {i: by.get((case_id, NEWS_VARIANT, i, h)) for i in ITEMS}
+        news = {i: r if r is not None and r["status"] == "ok" else None for i, r in news.items()}
+        items = {i: _grid_item(i, base[i], news[i]) for i in ITEMS}
         rev = base["revenue"]
         m = month.get((rev["period"], h))
         same = None if m is None else all(

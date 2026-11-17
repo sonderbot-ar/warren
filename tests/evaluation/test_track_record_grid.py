@@ -187,6 +187,24 @@ def test_a_case_without_shocks_takes_the_baseline(company):
     assert x.news_forecast == x.forecast and x.news_miss == x.miss
 
 
+def test_a_masked_row_that_is_not_ok_stands_aside(company):
+    b = batch(company)
+    cid = grid_quarter(company, b, date(2021, 2, 15), news=(105.0, 9.0))
+    company.execute(
+        "UPDATE eval_results SET status = 'missing' WHERE variant = 'llm_masked' AND item = 'ebit'"
+    )
+    company.commit()
+    x = grid(company).rows[0].items
+    assert x["ebit"].news_from_baseline and x["ebit"].news_forecast == 10.0
+    assert not x["revenue"].news_from_baseline and cid == "TST_2021-02-15"
+
+
+def test_a_batch_created_after_d_is_still_read_with_actuals_cut_at_d(company):
+    b = batch(company, created="2026-11-17T00:00:00Z")
+    grid_quarter(company, b, date(2021, 2, 15))
+    assert grid(company, date(2021, 7, 1)).batch_id == b and len(grid(company).rows) == 1
+
+
 def test_moved_needs_more_than_half_a_cent(company):
     b = batch(company)
     grid_quarter(company, b, date(2021, 2, 15), news=(100.0 + CENT * 0.9, 10.0 + CENT * 2))
