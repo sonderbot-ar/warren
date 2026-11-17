@@ -595,3 +595,27 @@ def test_other_short_term_borrowings_are_stored_for_pg_only(ticker):
     other = IngestResult(ticker=ticker, cik=TEST_CIK)
     assert extract_facts(TEST_CIK, facts, [row], other) == []
     assert other.skipped["company_scope"] == 1
+
+
+@pytest.mark.parametrize("tag", ["NotesAndLoansPayableCurrent", "NotesAndLoansPayable"])
+@pytest.mark.parametrize("ticker", ["XOM", "JNJ", "PG"])
+def test_loans_and_notes_payable_are_stored_for_ko_only(tag, ticker):
+    """Backlog #432: the shipped rows read Coca-Cola's "Loans and notes payable" line (commercial
+    paper and other short-term borrowings); the tags are unchecked for other companies (Exxon's
+    line of that name is tagged DebtCurrent and holds its current portion), so theirs are never
+    stored."""
+    from domains.fundamentals.concepts import load_concept_map
+    from domains.fundamentals.ingest import IngestResult, extract_facts
+
+    [row] = [r for r in load_concept_map() if r.xbrl_concept == f"us-gaap:{tag}"]
+    assert (row.canonical_name, row.companies) == ("short_term_borrowings", {"KO"})
+    facts = FakeEdgar().facts
+    cash = facts["facts"]["us-gaap"]["CashAndCashEquivalentsAtCarryingValue"]["units"]["USD"][0]
+    facts["facts"]["us-gaap"][tag] = {"units": {"USD": [dict(cash, val=4557)]}}
+
+    ko = IngestResult(ticker="KO", cik=TEST_CIK)
+    [kept] = extract_facts(TEST_CIK, facts, [row], ko)
+    assert f"us-gaap:{tag}" in kept and 4557 in kept
+    other = IngestResult(ticker=ticker, cik=TEST_CIK)
+    assert extract_facts(TEST_CIK, facts, [row], other) == []
+    assert other.skipped["company_scope"] == 1

@@ -309,7 +309,7 @@ def test_a_copy_without_the_companies_column_reads_as_unscoped(tmp_path):
     assert rows[0].companies == frozenset()
 
 
-def test_the_shipped_maps_scope_only_caterpillars_and_pgs_fallbacks():
+def test_the_shipped_maps_scope_only_caterpillars_pgs_and_coca_colas_fallbacks():
     scoped = [r for r in load_concept_map() if r.companies]
     assert [(r.canonical_name, r.tag, r.priority, r.companies) for r in scoped] == [
         (
@@ -320,6 +320,9 @@ def test_the_shipped_maps_scope_only_caterpillars_and_pgs_fallbacks():
         ),
         # backlog #426: P&G's "Other" short-term borrowings, after its bank loans
         ("short_term_borrowings", "OtherShortTermBorrowings", 3, {"PG"}),
+        # backlog #432: Coca-Cola's "Loans and notes payable" line, under its two tags
+        ("short_term_borrowings", "NotesAndLoansPayableCurrent", 4, {"KO"}),
+        ("short_term_borrowings", "NotesAndLoansPayable", 5, {"KO"}),
     ]
 
 
