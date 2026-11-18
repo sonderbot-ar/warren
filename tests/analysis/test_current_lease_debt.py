@@ -11,6 +11,8 @@ from domains.fundamentals.concepts import concept_map_in_force
 from domains.fundamentals.facts import (
     _get_facts,
     _merge_current,
+    _placed,
+    _quarterly,
     current_on_noncurrent_basis,
     get_facts,
     rounding_unit,
@@ -591,3 +593,51 @@ def test_the_placed_read_ranks_two_current_tags_as_the_single_item_read(
     assert {t for d, t in tags.items() if d != date(2019, 12, 31)} == {
         "us-gaap:LongTermDebtCurrent"
     }  # the plain tag ranks first wherever both are filed
+
+
+# Backlog #451 item 7 (PR #452 gatekeeper): a balance labelled FY and one labelled Q4 of the same
+# fiscal year at two dates both came back as Q4 in quarterly mode, for every balance item.
+
+
+def balance(item, value, end, period):
+    return Fact(
+        canonical_name=item,
+        xbrl_concept="us-gaap:Cash",
+        period_end=end,
+        fiscal_year=2019,
+        fiscal_period=period,
+        value=value,
+        unit="USD",
+        accession_no="0000000123-20-000099",
+        filed_at=date(2020, 2, 15),
+    )
+
+
+@pytest.mark.parametrize("later", ["FY", "Q4"])
+def test_fy_and_q4_of_one_year_at_two_dates_are_one_quarter(later):
+    earlier = "Q4" if later == "FY" else "FY"
+    facts = [
+        balance("cash", 60, date(2019, 12, 28), earlier),
+        balance("cash", 61, date(2019, 12, 31), later),
+    ]
+    quarters = _quarterly(facts)
+    assert [(f.period_end, f.fiscal_period, f.value) for f in quarters] == [
+        (date(2019, 12, 31), "Q4", 61)  # the later date, as for two dates under one label
+    ]
+    assert placed(_placed(facts, "quarterly")) == [(date(2019, 12, 31), 2019, "Q4", 61)]
+    # the annual read keeps only the FY-labelled one, as before
+    [annual] = _placed(facts, "annual")
+    assert annual.fiscal_period == "FY" and annual.period_end == date(
+        2019, 12, 31 if later == "FY" else 28
+    )
+
+
+def test_fy_and_q4_at_one_date_stay_one_fact_and_other_years_are_untouched():
+    facts = [
+        balance("cash", 60, date(2019, 12, 31), "FY"),
+        balance("cash", 50, date(2019, 9, 30), "Q3"),
+    ]
+    assert placed(_quarterly(facts)) == [
+        (date(2019, 9, 30), 2019, "Q3", 50),
+        (date(2019, 12, 31), 2019, "Q4", 60),
+    ]

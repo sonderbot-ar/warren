@@ -904,15 +904,26 @@ def _one_per_period(facts: list[Fact]) -> list[Fact]:
     return list(best.values())
 
 
+def _as_q4(facts: list[Fact]) -> list[Fact]:
+    """Balance-sheet facts with a fiscal year end (FY) relabelled Q4, the quarterly read's label
+    for it; durations unchanged."""
+    return [
+        f.model_copy(update={"fiscal_period": "Q4"})
+        if f.period_start is None and f.fiscal_period == "FY"
+        else f
+        for f in facts
+    ]
+
+
 def _flow_years(facts: list[Fact]) -> tuple[list[Fact], dict[tuple, dict[str, Fact]]]:
     """Balance-sheet facts (the Q4 balance is the year-end one), and duration facts by
-    (item, fiscal year) and fiscal period."""
+    (item, fiscal year) and fiscal period. A balance labelled FY and one labelled Q4 of the same
+    fiscal year at two dates are one quarter: relabelled before `_one_per_period`, the later date
+    wins, as for any two dates under one label (backlog #451 item 7)."""
     years: dict[tuple, dict[str, Fact]] = defaultdict(dict)
     instants = []
-    for fact in _one_per_period(facts):
+    for fact in _one_per_period(_as_q4(facts)):
         if fact.period_start is None:
-            if fact.fiscal_period == "FY":
-                fact = fact.model_copy(update={"fiscal_period": "Q4"})
             instants.append(fact)
         else:
             years[(fact.canonical_name, fact.fiscal_year)][fact.fiscal_period] = fact
@@ -1232,15 +1243,11 @@ def get_facts(
 
 def _placed(instants: list[Fact], frequency: Frequency) -> list[Fact]:
     """Balance-sheet facts placed as `_get_facts` places a single item's: annual, the FY-labelled
-    ones; quarterly, the year-end one as Q4 (`_flow_years`); one per fiscal label, the later date
-    winning (`_one_per_period`)."""
+    ones; quarterly, the year-end one as Q4 (`_flow_years`, relabelled before it is placed, backlog
+    #451 item 7); one per fiscal label, the later date winning (`_one_per_period`)."""
     if frequency == "annual":
         return _one_per_period([f for f in instants if f.fiscal_period == "FY"])
-    placed = _one_per_period(instants)
-    return [
-        f.model_copy(update={"fiscal_period": "Q4"}) if f.fiscal_period == "FY" else f
-        for f in placed
-    ]
+    return _one_per_period(_as_q4(instants))
 
 
 def _get_facts(
