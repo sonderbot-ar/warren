@@ -265,3 +265,119 @@ def test_two_dates_under_one_fiscal_label_give_one_current_portion_by_label():
     assert [(f.period_end, f.value) for f in annual] == [(year_end, 1_617e6)]
     reported = _merge_current(facts, ["debt_current"], "reported")
     assert [f.period_end for f in reported] == [earlier, year_end]  # one per date
+
+
+# Backlog #430: the two tags are paired on every filed date before the annual and quarterly reads
+# place them, so a figure placed under another fiscal period (or none) is not dropped first.
+
+
+def relabel_period(conn, tag, period, year_ends_only=True):
+    """File every `tag` figure at a year end (or every one) under fiscal period `period`, or
+    unplaced (`period=None`), as if its filings had placed the date differently."""
+    where = " AND period_end LIKE '%-12-31'" if year_ends_only else ""
+    if period is None:
+        conn.execute(
+            "UPDATE financial_facts SET fiscal_year = NULL, fiscal_period = NULL "
+            f"WHERE xbrl_concept = ?{where}",
+            (f"us-gaap:{tag}",),
+        )
+    else:
+        conn.execute(
+            f"UPDATE financial_facts SET fiscal_period = ? WHERE xbrl_concept = ?{where}",
+            (period, f"us-gaap:{tag}"),
+        )
+    conn.commit()
+
+
+def placed(facts):
+    return [(f.period_end, f.fiscal_year, f.fiscal_period, f.value) for f in facts]
+
+
+@pytest.mark.parametrize("period", ["Q3", None])
+@pytest.mark.parametrize("frequency", ["annual", "quarterly"])
+@pytest.mark.parametrize("mode", ["latest", "first_reported"])
+def test_a_year_end_lease_figure_under_another_period_is_still_paired(
+    make_company, mode, frequency, period
+):
+    # the lease-inclusive year-end figures filed as Q3 (or unplaced): before #430 the annual read
+    # dropped them before the merge (the plain 20 stood alone), and the quarterly read let a
+    # mislabelled year end displace the real Q3 figure
+    conn = make_company(lease_inclusive())
+    before = get_facts(conn, "0000000123", ["debt_current"], AS_OF, mode, frequency)
+    relabel_period(conn, WITH, period)
+    facts = get_facts(conn, "0000000123", ["debt_current"], AS_OF, mode, frequency)
+    assert placed(facts) == placed(before)
+    assert facts and all(f.value == 24 for f in facts)
+
+
+@pytest.mark.parametrize("period", ["Q3", None])
+@pytest.mark.parametrize("frequency", ["annual", "quarterly"])
+@pytest.mark.parametrize("mode", ["latest", "first_reported"])
+def test_a_plain_year_end_under_another_period_takes_the_year_end_label(
+    make_company, mode, frequency, period
+):
+    # the plain figure's labels win as a rule (the single item before #421), but a date the
+    # lease-inclusive figure places as a year end, and the plain one under a quarter or nowhere,
+    # stays a year end: the annual read would drop it otherwise (main read it from the lease tag)
+    conn = make_company(lease_inclusive())
+    before = get_facts(conn, "0000000123", ["debt_current"], AS_OF, mode, frequency)
+    relabel_period(conn, "LongTermDebtCurrent", period)
+    facts = get_facts(conn, "0000000123", ["debt_current"], AS_OF, mode, frequency)
+    assert placed(facts) == placed(before)
+    assert facts and all(f.value == 24 for f in facts)
+
+
+def test_the_plain_labels_win_otherwise():
+    # both placed, neither as a year end only: the plain figure's labels, as #427 set
+    plain = at("debt_current", 1_617e6, "LongTermDebtCurrent", date(2019, 12, 31))
+    plain = plain.model_copy(update={"fiscal_period": "Q4"})
+    with_leases = at("debt_current_with_leases", 1_701e6, WITH, date(2019, 12, 31))
+    with_leases = with_leases.model_copy(update={"fiscal_year": 2020, "fiscal_period": "Q1"})
+    noncurrent = at(
+        "debt_noncurrent",
+        XOM_NONCURRENT,
+        "LongTermDebtAndCapitalLeaseObligations",
+        date(2019, 12, 31),
+    )
+    current = current_on_noncurrent_basis(plain, with_leases, noncurrent)
+    assert (current.value, current.fiscal_year, current.fiscal_period) == (1_701e6, 2019, "Q4")
+    # and the plain figure chosen keeps its own labels
+    lower = with_leases.model_copy(update={"value": 1_600e6})
+    current = current_on_noncurrent_basis(plain, lower, noncurrent)
+    assert current is plain
+
+
+@pytest.mark.parametrize("frequency", ["reported", "annual", "quarterly"])
+def test_an_unplaced_plain_figure_alone_reads_as_before(make_company, frequency):
+    # Coca-Cola's plain presentation: no lease-inclusive tag, so nothing is paired
+    conn = make_company(lease_inclusive(with_leases=None))
+    before = get_facts(conn, "0000000123", ["debt_current"], AS_OF, frequency=frequency)
+    assert before and all(f.value == 20 for f in before)
+
+
+def lone_lease_figure(conn, end, value):
+    """A lease-inclusive figure filed at `end` with no plain figure there, under FY 2019."""
+    conn.execute(
+        "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, fiscal_year, "
+        "fiscal_period, value, unit, form, accession_no, filed_at) "
+        "VALUES ('0000000123', ?, NULL, ?, 2019, 'FY', ?, 'USD', '10-K', "
+        "'0000000123-20-000099', '2020-02-20')",
+        (f"us-gaap:{WITH}", end, value),
+    )
+    conn.commit()
+
+
+@pytest.mark.parametrize("mode", ["latest", "first_reported"])
+@pytest.mark.parametrize("frequency", ["annual", "quarterly"])
+def test_get_facts_keeps_one_current_portion_per_fiscal_label(make_company, mode, frequency):
+    # #427's one-per-label rule pinned through get_facts: a lone lease-inclusive figure three days
+    # before the year end, under the same label, gives way to the later date
+    conn = make_company(lease_inclusive())
+    lone_lease_figure(conn, "2019-12-28", 30)
+    facts = get_facts(conn, "0000000123", ["debt_current"], AS_OF, mode, frequency)
+    labels = [(f.fiscal_year, f.fiscal_period) for f in facts]
+    assert len(labels) == len(set(labels))
+    fy2019 = [f for f in facts if f.fiscal_year == 2019 and f.fiscal_period in ("FY", "Q4")]
+    assert [(f.period_end, f.value) for f in fy2019] == [(date(2019, 12, 31), 24)]
+    reported = get_facts(conn, "0000000123", ["debt_current"], AS_OF, mode, "reported")
+    assert date(2019, 12, 28) in {f.period_end for f in reported}  # one per date there

@@ -1104,8 +1104,7 @@ def current_on_noncurrent_basis(
     lease-inclusive, it is not the non-current debt again (a mis-tag), and it is above the plain
     one (equal figures keep the plain tag, which then already holds any leases) or below a plain
     figure that looks rounded by no more than half its unit (backlog #427, `_within_rounding`).
-    With both filed, the result keeps the plain figure's fiscal labels, where the single item
-    before #421 placed the date."""
+    With both filed, the result sits under the two figures' shared fiscal labels (`_labels`)."""
     if with_leases is None:
         return plain
     with_leases = with_leases.model_copy(update={"canonical_name": "debt_current"})
@@ -1117,10 +1116,27 @@ def current_on_noncurrent_basis(
         and with_leases.value != noncurrent.value
         and (with_leases.value > plain.value or _within_rounding(plain.value, with_leases.value))
     ):
-        return with_leases.model_copy(
-            update={"fiscal_year": plain.fiscal_year, "fiscal_period": plain.fiscal_period}
-        )
-    return plain
+        chosen = with_leases
+    else:
+        chosen = plain
+    fiscal_year, fiscal_period = _labels(plain, with_leases)
+    if (chosen.fiscal_year, chosen.fiscal_period) == (fiscal_year, fiscal_period):
+        return chosen
+    return chosen.model_copy(update={"fiscal_year": fiscal_year, "fiscal_period": fiscal_period})
+
+
+def _labels(plain: Fact, with_leases: Fact) -> tuple[int | None, str | None]:
+    """The fiscal labels of one balance date filed under both current tags: the plain figure's,
+    where the single item before #421 placed the date (backlog #427), unless the lease-inclusive
+    figure places it and the plain one doesn't, or places it as a fiscal year end (FY) and the
+    plain one as a quarter. A year end the annual read would drop under a quarter's label, or any
+    date the reads would drop unplaced, is kept (backlog #430)."""
+    if with_leases.fiscal_year is not None and (
+        plain.fiscal_year is None
+        or (with_leases.fiscal_period == "FY" and plain.fiscal_period != "FY")
+    ):
+        return with_leases.fiscal_year, with_leases.fiscal_period
+    return plain.fiscal_year, plain.fiscal_period
 
 
 def _merge_current(facts: list[Fact], asked: list[str], frequency: Frequency) -> list[Fact]:
@@ -1192,7 +1208,35 @@ def get_facts(
         return _get_facts(conn, cik, names, as_of, mode, frequency, one_basis)
     wide = names + [n for n in CURRENT_ITEMS if n not in names]
     facts = _get_facts(conn, cik, wide, as_of, mode, frequency, one_basis)
-    return _merge_current(facts, names, frequency)
+    if frequency == "reported":
+        return _merge_current(facts, names, frequency)
+    # Pair every filed balance date before placing it (backlog #430): the annual read keeps only
+    # FY-labelled facts, and the quarterly read one fact per label, so a figure one filing placed
+    # under another label would be dropped before it met its pair at the same date.
+    filed = _get_facts(conn, cik, list(CURRENT_ITEMS), as_of, mode, "reported")
+    current = [
+        f for f in _merge_current(filed, [], "reported") if f.canonical_name == "debt_current"
+    ]
+    rest = [
+        f
+        for f in facts
+        if f.canonical_name not in CURRENT_ITEMS
+        or (f.canonical_name in names and f.canonical_name != "debt_current")
+    ]
+    return _in_query_order(rest + _placed(current, frequency), frequency)
+
+
+def _placed(instants: list[Fact], frequency: Frequency) -> list[Fact]:
+    """Balance-sheet facts placed as `_get_facts` places a single item's: annual, the FY-labelled
+    ones; quarterly, the year-end one as Q4 (`_flow_years`); one per fiscal label, the later date
+    winning (`_one_per_period`)."""
+    if frequency == "annual":
+        return _one_per_period([f for f in instants if f.fiscal_period == "FY"])
+    placed = _one_per_period(instants)
+    return [
+        f.model_copy(update={"fiscal_period": "Q4"}) if f.fiscal_period == "FY" else f
+        for f in placed
+    ]
 
 
 def _get_facts(
