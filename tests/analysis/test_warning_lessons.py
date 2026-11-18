@@ -218,3 +218,27 @@ def test_the_clause_holds_when_the_total_stands_in_for_the_pieces():
 
     assert nwc_with_total(100) == pytest.approx((300 - 60) - (150 - 100))
     assert nwc_with_total(120) - nwc_with_total(100) == pytest.approx(20)
+
+
+def test_the_rounding_lesson_says_the_long_term_debt_also_has_leases():
+    """Backlog #455 (gatekeeper on #454): the brief's Spanish says the long-term debt is stated
+    "también con arrendamientos"; the English says it first, and it is what the engine does."""
+    assert (
+        "matches how the company states its long-term debt (also with leases)."
+        in WARNING_LESSONS["debt_current_within_rounding"].why
+    )
+
+
+def test_the_rounding_margin_takes_the_lease_figure_only_beside_lease_inclusive_long_term_debt():
+    """The clause is true: a lease-inclusive figure below a rounded plain one is read only when the
+    non-current debt's own tag includes leases; beside a plain long-term debt tag the plain figure
+    stays (`facts.current_on_noncurrent_basis`)."""
+    from domains.fundamentals.facts import current_on_noncurrent_basis
+    from tests.analysis.test_current_lease_debt import WITH, fact
+
+    plain = fact("debt_current", 6_200e6, "LongTermDebtCurrent")
+    with_leases = fact("debt_current_with_leases", 6_180e6, WITH)
+    leases = fact("debt_noncurrent", 40_000e6, "LongTermDebtAndCapitalLeaseObligations")
+    no_leases = fact("debt_noncurrent", 40_000e6, "LongTermDebtNoncurrent")
+    assert current_on_noncurrent_basis(plain, with_leases, leases).value == 6_180e6
+    assert current_on_noncurrent_basis(plain, with_leases, no_leases).value == 6_200e6
