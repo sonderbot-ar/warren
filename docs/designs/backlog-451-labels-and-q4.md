@@ -1,6 +1,6 @@
 # Backlog #451, part 2: the label tie, CAT's maturities tag, the placed read, FY and Q4 at two dates
 
-Issue: https://github.com/sonderbot-ar/warren/issues/451 (items 2, 3, 6 and 7; part 1 was v0.10.7, `docs/designs/backlog-451-rounding-note-reach.md`) · Branch `backlog-451-labels-and-q4` · Version v0.10.8 (a backlog patch). Reading rules stay v11: no read changes (Step 3), so the new fingerprint gets a row under v11 in `domains/analysis/reading_rules.md` (the fingerprint is the hash of the reading modules' code, `python -m domains.analysis.reading_rules`).
+Issue: https://github.com/sonderbot-ar/warren/issues/451 (items 2, 3, 6 and 7; part 1 was v0.10.7, `docs/designs/backlog-451-rounding-note-reach.md`) · Branch `backlog-451-labels-and-q4` · Version v0.10.8 (a backlog patch). Reading rules stay v11: no read changes (Step 3), so each step's new fingerprint (Steps 2 and 3) gets a row under v11 in `domains/analysis/reading_rules.md` (the fingerprint is the hash of the reading modules' code, `python -m domains.analysis.reading_rules`).
 
 ## Problem
 
