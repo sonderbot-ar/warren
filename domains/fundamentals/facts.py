@@ -1071,6 +1071,11 @@ LARGEST_ROUNDING_UNIT = 10**12
 # Filers state their statements in millions, so a figure is taken as rounded only when it looks
 # rounded coarser than that: to ten million or more ("$6.25 billion", "$6.2 billion").
 SMALLEST_ROUNDING_UNIT = 10**7
+# A plain current portion read from the debt note, not the balance sheet: Caterpillar's principal
+# due within a year (backlog #341), a different measure from a balance-sheet carrying amount, so
+# a precise lease-inclusive figure below it is not the same line rounded differently and the
+# rounding margin never takes it (backlog #451 item 3; CAT files no lease-inclusive current tag).
+NOTE_TAGS = frozenset({"us-gaap:LongTermDebtMaturitiesRepaymentsOfPrincipalInNextTwelveMonths"})
 
 
 def lease_inclusive(fact: Fact | None) -> bool:
@@ -1114,7 +1119,8 @@ def current_on_noncurrent_basis(
     the only one filed; or, with both, the lease-inclusive one when the non-current debt is
     lease-inclusive, it is not the non-current debt again (a mis-tag), and it is above the plain
     one (equal figures keep the plain tag, which then already holds any leases) or below a plain
-    figure that looks rounded by no more than half its unit (backlog #427, `_within_rounding`).
+    figure that looks rounded by no more than half its unit (backlog #427, `_within_rounding`),
+    unless the plain figure is the debt note's (`NOTE_TAGS`, backlog #451 item 3).
     With both filed, the result sits under the two figures' shared fiscal labels (`_labels`); a
     lease-inclusive figure taken below the plain one carries the plain one as `rounded_plain`, for
     the run note (backlog #430)."""
@@ -1127,7 +1133,13 @@ def current_on_noncurrent_basis(
         lease_inclusive(noncurrent)
         and plain.value >= 0
         and with_leases.value != noncurrent.value
-        and (with_leases.value > plain.value or _within_rounding(plain.value, with_leases.value))
+        and (
+            with_leases.value > plain.value
+            or (
+                plain.xbrl_concept not in NOTE_TAGS
+                and _within_rounding(plain.value, with_leases.value)
+            )
+        )
     ):
         chosen = with_leases
         if with_leases.value < plain.value:  # only the rounding margin takes a lower figure

@@ -641,3 +641,23 @@ def test_fy_and_q4_at_one_date_stay_one_fact_and_other_years_are_untouched():
         (date(2019, 9, 30), 2019, "Q3", 50),
         (date(2019, 12, 31), 2019, "Q4", 60),
     ]
+
+
+# Backlog #451 item 3: Caterpillar's current portion is the debt note's principal due within a
+# year (`MATURITIES`), not a balance-sheet line, so the rounding margin never compares it with a
+# lease-inclusive balance-sheet figure.
+
+
+@pytest.mark.parametrize(
+    ("with_leases", "taken"), [(6_195e6, False), (6_250e6, True), (6_200e6, False)]
+)
+def test_a_note_figure_is_never_a_rounded_twin(with_leases, taken):
+    plain = fact("debt_current", 6_200e6, MATURITIES)  # looks rounded to 10^8
+    lease = fact("debt_current_with_leases", with_leases, WITH)
+    noncurrent = fact("debt_noncurrent", XOM_NONCURRENT, "LongTermDebtAndCapitalLeaseObligations")
+    current = current_on_noncurrent_basis(plain, lease, noncurrent)
+    assert (current.xbrl_concept == f"us-gaap:{WITH}") is taken  # only a figure above it
+    assert current.rounded_plain is None
+    # the same figures under the balance-sheet tag: the margin takes the precise one below
+    if with_leases == 6_195e6:
+        assert choose(6_200e6, 6_195e6).rounded_plain == 6_200e6
