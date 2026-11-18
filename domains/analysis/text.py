@@ -237,9 +237,10 @@ WARNING_LESSONS = {
         "which only makes sense if the other was rounded (a figure written to one decimal place "
         "of a billion stands for anything within half of that last digit), so Warren read the "
         "precise figure with leases, "
-        "which fits inside that range and matches how the company states its long-term debt "
-        "(also with leases). "
-        "The filing does not say how much a figure was rounded, so Warren guessed it from the "
+        "which fits inside that range and matches how the company stated its long-term debt "
+        "on the same balance sheet date (also with leases). "
+        "The data Warren reads does not say how much a figure was rounded, so Warren guessed it "
+        "from the "
         "figure's trailing zeros; if the guess is wrong, debt is understated by at most the gap "
         "between the two figures, so debt, working capital and the cost of debt move by little.",
         {},

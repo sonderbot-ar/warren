@@ -406,16 +406,23 @@ def test_a_note_when_the_rounding_margin_chooses_the_figure(make_company):
     result = build(conn)
     rows = by_key(result)
     assert rows[("balance:debt_current", "-")].value == 195e6
-    notes = [n for n in result.notes if n.code == "debt_current_within_rounding"]
+    notes = [
+        n
+        for n in result.notes
+        if n.code == "debt_current_within_rounding" and n.params["used_for"] == "balance_sheet"
+    ]
     assert len(notes) == 1
     params = notes[0].params
     assert params["debt_current"] == 195e6 and params["debt_current_plain"] == 200e6
     assert params["rounding_unit"] == 10**8 and params["currency"] == "USD"
     assert params["rounding_margin"] == 5e7 and params["gap"] == 5e6
     assert params["period_end"] == "2020-03-31"  # the balance sheet the run reads
-    assert params["assumptions"] == ["debt", "cost_of_debt", "nwc_pct"]
+    assert params["balance_date"] == "2020-03-31"
+    # a quarter end: the cost of debt reads fiscal year ends, not this figure (backlog #451)
+    assert params["assumptions"] == ["debt", "nwc_pct"]
     assert params["accession_no"]
     assert "195,000,000" in notes[0].text and "200,000,000" in notes[0].text
+    assert "carried forward" not in notes[0].text
 
 
 @pytest.mark.parametrize(
@@ -436,3 +443,100 @@ def test_the_rounded_plain_figure_is_carried_only_when_the_margin_decides():
     assert choose(6_200e6, 6_180e6).rounded_plain == 6_200e6
     assert choose(6_200e6, 6_234e6).rounded_plain is None  # above: the plain one is not needed
     assert choose(6_200e6, 6_140e6).rounded_plain is None  # the plain figure itself is read
+
+
+# Backlog #451: the note wherever the rounding-chosen figure is counted.
+
+
+def rounding_notes(notes, used_for=None):
+    return [
+        n
+        for n in notes
+        if n.code == "debt_current_within_rounding"
+        and (used_for is None or n.params["used_for"] == used_for)
+    ]
+
+
+def test_a_note_for_each_year_end_of_the_cost_of_debt(make_company):
+    conn = make_company(rounded_presentation(200e6, 195e6))
+    result = build(conn)
+    [kd] = [a for a in result.assumptions if a.name == "cost_of_debt"]
+    notes = rounding_notes(result.notes, "cost_of_debt_average")
+    assert len(notes) == 2  # the two year ends of the average, neither the balance sheet's
+    years = sorted(n.params["fiscal_year"] for n in notes)
+    assert years[1] == years[0] + 1 and f"FY{years[1]} interest" in kd.method
+    for n in notes:
+        p = n.params
+        assert p["assumptions"] == ["cost_of_debt"]
+        assert p["balance_date"] == p["period_end"]  # its own year end, never carried
+        assert p["debt_current"] == 195e6 and p["gap"] == 5e6
+        assert f"FY{p['fiscal_year']} cost of debt" in n.text
+        assert "carried forward" not in n.text
+    assert len(rounding_notes(result.notes)) == 3
+
+
+@pytest.mark.parametrize(("plain", "with_leases"), [(200e6, 210e6), (200e6, 140e6)])
+def test_no_year_end_or_reported_note_when_the_margin_does_not_decide(
+    make_company, plain, with_leases
+):
+    from domains.analysis.reported import reported_period
+
+    conn = make_company(rounded_presentation(plain, with_leases))
+    assert not rounding_notes(build(conn).notes)
+    net_debt = reported_period(conn, "TST", "FY2020Q1", AS_OF).ratio("net_debt")
+    assert not rounding_notes(net_debt.notes)
+
+
+def test_a_year_end_that_is_the_balance_sheet_adds_cost_of_debt_to_its_note():
+    from domains.analysis.math_engine import _year_end_rounding_notes, rounding_note
+
+    year_end = choose(200e6, 195e6).model_copy(
+        update={"canonical_name": "debt_current", "fiscal_year": 2019}
+    )
+    other = year_end.model_copy(update={"period_end": date(2018, 12, 31), "fiscal_year": 2018})
+    balance = rounding_note(year_end, year_end.period_end, "balance_sheet", ["debt", "nwc_pct"])
+
+    class Result:
+        notes = [balance]
+
+    _year_end_rounding_notes([other], [year_end], result=Result)
+    assert balance.params["assumptions"] == ["debt", "cost_of_debt", "nwc_pct"]
+    [added] = [n for n in Result.notes if n is not balance]
+    assert added.params["fiscal_year"] == 2018 and added.params["period_end"] == "2018-12-31"
+    _year_end_rounding_notes([year_end], result=Result)  # once only
+    assert balance.params["assumptions"] == ["debt", "cost_of_debt", "nwc_pct"]
+    assert len(Result.notes) == 2
+
+
+def test_a_carried_forward_figure_names_the_balance_date(make_company):
+    edit = rounded_presentation(200e6, 195e6)
+
+    def no_current_at_the_quarter(tag, row):
+        if tag == "LongTermDebtCurrent" and row["end"] == "2020-03-31":
+            return None
+        return edit(tag, row)
+
+    result = build(make_company(no_current_at_the_quarter))
+    [note] = rounding_notes(result.notes, "balance_sheet")
+    assert note.params["period_end"] == "2019-12-31"
+    assert note.params["balance_date"] == "2020-03-31"
+    assert "(carried forward to the 2020-03-31 balance sheet)" in note.text
+
+
+def test_the_reported_net_debt_carries_the_note(make_company):
+    from domains.analysis.reported import reported_period
+
+    conn = make_company(rounded_presentation(200e6, 195e6))
+    net_debt = reported_period(conn, "TST", "FY2020Q1", AS_OF).ratio("net_debt")
+    [note] = rounding_notes(net_debt.notes)
+    p = note.params
+    assert p["used_for"] == "net_debt" and "assumptions" not in p
+    assert p["period_end"] == p["balance_date"] == "2020-03-31"
+    assert p["debt_current"] == 195e6 and p["debt_current_plain"] == 200e6
+
+
+def test_an_unknown_use_is_refused():
+    from domains.analysis.math_engine import rounding_note
+
+    with pytest.raises(ValueError):
+        rounding_note(choose(200e6, 195e6), date(2020, 3, 31), "somewhere")

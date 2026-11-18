@@ -222,11 +222,20 @@ def test_the_clause_holds_when_the_total_stands_in_for_the_pieces():
 
 def test_the_rounding_lesson_says_the_long_term_debt_also_has_leases():
     """Backlog #455 (gatekeeper on #454): the brief's Spanish says the long-term debt is stated
-    "también con arrendamientos"; the English says it first, and it is what the engine does."""
+    "también con arrendamientos"; the English says it first, and it is what the engine does.
+    Backlog #451: on the same balance sheet date, since a figure can be carried forward."""
     assert (
-        "matches how the company states its long-term debt (also with leases)."
-        in WARNING_LESSONS["debt_current_within_rounding"].why
+        "matches how the company stated its long-term debt on the same balance sheet date "
+        "(also with leases)." in WARNING_LESSONS["debt_current_within_rounding"].why
     )
+
+
+def test_the_rounding_lesson_says_the_data_drops_the_rounding():
+    """Backlog #451 (professor): the filing itself states its rounding (XBRL `decimals`); the
+    company-facts data Warren reads drops it."""
+    why = WARNING_LESSONS["debt_current_within_rounding"].why
+    assert "The data Warren reads does not say how much a figure was rounded" in why
+    assert "The filing does not say" not in why
 
 
 def test_the_rounding_margin_takes_the_lease_figure_only_beside_lease_inclusive_long_term_debt():
