@@ -1104,7 +1104,9 @@ def current_on_noncurrent_basis(
     lease-inclusive, it is not the non-current debt again (a mis-tag), and it is above the plain
     one (equal figures keep the plain tag, which then already holds any leases) or below a plain
     figure that looks rounded by no more than half its unit (backlog #427, `_within_rounding`).
-    With both filed, the result sits under the two figures' shared fiscal labels (`_labels`)."""
+    With both filed, the result sits under the two figures' shared fiscal labels (`_labels`); a
+    lease-inclusive figure taken below the plain one carries the plain one as `rounded_plain`, for
+    the run note (backlog #430)."""
     if with_leases is None:
         return plain
     with_leases = with_leases.model_copy(update={"canonical_name": "debt_current"})
@@ -1117,6 +1119,8 @@ def current_on_noncurrent_basis(
         and (with_leases.value > plain.value or _within_rounding(plain.value, with_leases.value))
     ):
         chosen = with_leases
+        if with_leases.value < plain.value:  # only the rounding margin takes a lower figure
+            chosen = with_leases.model_copy(update={"rounded_plain": plain.value})
     else:
         chosen = plain
     fiscal_year, fiscal_period = _labels(plain, with_leases)

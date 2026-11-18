@@ -46,6 +46,7 @@ from domains.fundamentals.facts import (
     filing_dates,
     get_facts,
     mixes_meanings,
+    rounding_unit,
     same_filing_annual_comparisons,
     state_for_change,
     tag_meaning_changes,
@@ -1160,6 +1161,27 @@ def _balance(history: History, base_date: date, result: EngineResult) -> date:
             },
             f"Current portion of long-term debt ({inside.current.value:,.0f} at "
             f"{inside.current.period_end}) left out: short-term borrowings already include it",
+        )
+    rounded = facts["debt_current"]  # counted: not left out above
+    if rounded is not None and rounded.rounded_plain is not None:
+        unit = rounding_unit(rounded.rounded_plain)
+        result.warn(
+            "debt_current_within_rounding",
+            {
+                "period_end": rounded.period_end.isoformat(),
+                "debt_current": rounded.value,
+                "debt_current_plain": rounded.rounded_plain,
+                "rounding_unit": unit,
+                "rounding_margin": unit / 2,
+                "gap": rounded.rounded_plain - rounded.value,
+                "currency": rounded.unit,
+                "accession_no": rounded.accession_no,
+                "assumptions": ["debt", "cost_of_debt", "nwc_pct"],
+            },
+            f"Current portion of long-term debt read as {rounded.value:,.0f} with finance leases "
+            f"at {rounded.period_end}, below the {rounded.rounded_plain:,.0f} filed without them: "
+            f"that figure looks rounded to {unit:,.0f} (inferred from its trailing zeros), so the "
+            f"precise one, {rounded.rounded_plain - rounded.value:,.0f} below, lies inside it",
         )
     beside = paper_beside(
         facts["short_term_borrowings"], facts["commercial_paper"], history.on, inside

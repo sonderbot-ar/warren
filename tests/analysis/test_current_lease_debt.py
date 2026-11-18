@@ -381,3 +381,58 @@ def test_get_facts_keeps_one_current_portion_per_fiscal_label(make_company, mode
     assert [(f.period_end, f.value) for f in fy2019] == [(date(2019, 12, 31), 24)]
     reported = get_facts(conn, "0000000123", ["debt_current"], AS_OF, mode, "reported")
     assert date(2019, 12, 28) in {f.period_end for f in reported}  # one per date there
+
+
+# Backlog #430 item 3: a run note when the rounding margin chooses the figure.
+
+
+def rounded_presentation(plain, with_leases):
+    """Exxon's presentation with every current portion scaled: a plain figure that looks rounded
+    and a lease-inclusive one beside it."""
+
+    def edit(tag, row):
+        if tag == "LongTermDebtNoncurrent":
+            return [("LongTermDebtAndCapitalLeaseObligations", row)]
+        if tag == "LongTermDebtCurrent":
+            return [(tag, {**row, "val": plain}), (WITH, {**row, "val": with_leases})]
+        return row
+
+    return edit
+
+
+def test_a_note_when_the_rounding_margin_chooses_the_figure(make_company):
+    # "$200 million" stands for 150M to 250M; a precise 195M with leases lies inside it
+    conn = make_company(rounded_presentation(200e6, 195e6))
+    result = build(conn)
+    rows = by_key(result)
+    assert rows[("balance:debt_current", "-")].value == 195e6
+    notes = [n for n in result.notes if n.code == "debt_current_within_rounding"]
+    assert len(notes) == 1
+    params = notes[0].params
+    assert params["debt_current"] == 195e6 and params["debt_current_plain"] == 200e6
+    assert params["rounding_unit"] == 10**8 and params["currency"] == "USD"
+    assert params["rounding_margin"] == 5e7 and params["gap"] == 5e6
+    assert params["period_end"] == "2020-03-31"  # the balance sheet the run reads
+    assert params["assumptions"] == ["debt", "cost_of_debt", "nwc_pct"]
+    assert params["accession_no"]
+    assert "195,000,000" in notes[0].text and "200,000,000" in notes[0].text
+
+
+@pytest.mark.parametrize(
+    ("plain", "with_leases"),
+    [
+        (200e6, 210e6),  # above: #421's rule, no judgement on rounding
+        (200e6, 200e6),  # equal: the plain tag is read
+        (200e6, 140e6),  # outside the margin: the plain figure is read
+    ],
+)
+def test_no_rounding_note_otherwise(make_company, plain, with_leases):
+    conn = make_company(rounded_presentation(plain, with_leases))
+    result = build(conn)
+    assert not [n for n in result.notes if n.code == "debt_current_within_rounding"]
+
+
+def test_the_rounded_plain_figure_is_carried_only_when_the_margin_decides():
+    assert choose(6_200e6, 6_180e6).rounded_plain == 6_200e6
+    assert choose(6_200e6, 6_234e6).rounded_plain is None  # above: the plain one is not needed
+    assert choose(6_200e6, 6_140e6).rounded_plain is None  # the plain figure itself is read

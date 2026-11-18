@@ -230,6 +230,24 @@ WARNING_LESSONS = {
         "rule D3, balance sheet (docs/build-plan.md); the rule is Warren's own "
         "(math_engine.total_in_place, backlog #415)",
     ),
+    "debt_current_within_rounding": Lesson(
+        "data",
+        "This company filed its debt due within a year twice, once without the lease payments due "
+        "in that year and once with them, and the figure with leases came out slightly lower, "
+        "which only makes sense if the other was rounded (a figure written as 6.2 billion stands "
+        "for anything from 6.15 to 6.25 billion), so Warren read the precise figure with leases, "
+        "which fits inside that range and matches how the company states its long-term debt. "
+        "The filing does not say how much a figure was rounded, so Warren guessed it from the "
+        "figure's trailing zeros; if the guess is wrong, debt is understated by at most the gap "
+        "between the two figures, so debt, working capital and the cost of debt move by little.",
+        {},
+        "XBRL 2.1 Specification, section 4.6, and Precision, Decimals and Units 1.0 (2017): a "
+        "rounded figure stands for the range within half its rounding unit; US GAAP Taxonomy, "
+        "LongTermDebtCurrent and LongTermDebtAndCapitalLeaseObligationsCurrent",
+        "rule D3, balance sheet (docs/build-plan.md); the rounding unit inferred from trailing "
+        "zeros and the margin are Warren's own (facts.current_on_noncurrent_basis, backlog #427 "
+        "and #430)",
+    ),
     "balance_date_differs": Lesson(
         "data",
         "The balance sheet Warren takes net debt from is dated differently from the last "

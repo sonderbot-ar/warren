@@ -68,6 +68,14 @@ class Fact(BaseModel):
             "(backlog #324)"
         ),
     )
+    rounded_plain: float | None = Field(
+        default=None,
+        description=(
+            "A lease-inclusive current portion of long-term debt taken below this plain figure, "
+            "which looks rounded and holds it within half its rounding unit (backlog #427, #430); "
+            "otherwise None"
+        ),
+    )
     kept_on_own_tag: OwnTagCheck | None = Field(
         default=None,
         description=(
