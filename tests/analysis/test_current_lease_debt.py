@@ -9,7 +9,10 @@ import pytest
 from domains.analysis.math_engine import debt_parts
 from domains.fundamentals.concepts import concept_map_in_force
 from domains.fundamentals.facts import (
+    _get_facts,
     _merge_current,
+    _placed,
+    _quarterly,
     current_on_noncurrent_basis,
     get_facts,
     rounding_unit,
@@ -540,3 +543,121 @@ def test_an_unknown_use_is_refused():
 
     with pytest.raises(ValueError):
         rounding_note(choose(200e6, 195e6), date(2020, 3, 31), "somewhere")
+
+
+# Backlog #451 item 6 (PR #452 gatekeeper): annual and quarterly reads of the current portion come
+# from the placed read (`facts._placed`) over a reported read, not from `_get_facts`'s own path.
+# With two tags mapped to `debt_current` itself (CAT's maturities tag, priority 2), the placed read
+# must rank them as the single-item read does: the plain tag where both are filed, the other where
+# only it is.
+MATURITIES = "LongTermDebtMaturitiesRepaymentsOfPrincipalInNextTwelveMonths"
+
+
+def second_current_tag(conn, value=25, drop_plain_at="2019-12-31"):
+    """File the maturities tag beside every plain current figure (a different value), and drop
+    the plain figure at one date so that date has the second-ranked tag only."""
+    conn.execute(
+        "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, fiscal_year, "
+        "fiscal_period, value, unit, form, accession_no, filed_at) "
+        "SELECT cik, ?, period_start, period_end, fiscal_year, fiscal_period, ?, unit, form, "
+        "accession_no, filed_at FROM financial_facts WHERE xbrl_concept = ?",
+        (f"us-gaap:{MATURITIES}", value, "us-gaap:LongTermDebtCurrent"),
+    )
+    conn.execute(
+        "DELETE FROM financial_facts WHERE xbrl_concept = ? AND period_end = ?",
+        ("us-gaap:LongTermDebtCurrent", drop_plain_at),
+    )
+    conn.commit()
+
+
+def read(facts):
+    return [(f.period_end, f.fiscal_year, f.fiscal_period, f.value, f.xbrl_concept) for f in facts]
+
+
+@pytest.mark.parametrize(
+    "noncurrent_tag", ["LongTermDebtNoncurrent", "LongTermDebtAndCapitalLeaseObligations"]
+)
+@pytest.mark.parametrize("frequency", ["annual", "quarterly"])
+@pytest.mark.parametrize("mode", ["latest", "first_reported"])
+def test_the_placed_read_ranks_two_current_tags_as_the_single_item_read(
+    make_company, mode, frequency, noncurrent_tag
+):
+    # no lease-inclusive current figure: the merge must give what the item alone gives
+    conn = make_company(lease_inclusive(with_leases=None, noncurrent_tag=noncurrent_tag))
+    second_current_tag(conn)
+    merged = get_facts(conn, "0000000123", ["debt_current"], AS_OF, mode, frequency)
+    alone = _get_facts(conn, "0000000123", ["debt_current"], AS_OF, mode, frequency)
+    assert read(merged) == read(alone)
+    tags = {f.period_end: f.xbrl_concept for f in merged}
+    assert tags[date(2019, 12, 31)] == f"us-gaap:{MATURITIES}"  # the only one filed there
+    assert {t for d, t in tags.items() if d != date(2019, 12, 31)} == {
+        "us-gaap:LongTermDebtCurrent"
+    }  # the plain tag ranks first wherever both are filed
+
+
+# Backlog #451 item 7 (PR #452 gatekeeper): a balance labelled FY and one labelled Q4 of the same
+# fiscal year at two dates both came back as Q4 in quarterly mode, for every balance item.
+
+
+def balance(item, value, end, period):
+    return Fact(
+        canonical_name=item,
+        xbrl_concept="us-gaap:Cash",
+        period_end=end,
+        fiscal_year=2019,
+        fiscal_period=period,
+        value=value,
+        unit="USD",
+        accession_no="0000000123-20-000099",
+        filed_at=date(2020, 2, 15),
+    )
+
+
+@pytest.mark.parametrize("later", ["FY", "Q4"])
+def test_fy_and_q4_of_one_year_at_two_dates_are_one_quarter(later):
+    earlier = "Q4" if later == "FY" else "FY"
+    facts = [
+        balance("cash", 60, date(2019, 12, 28), earlier),
+        balance("cash", 61, date(2019, 12, 31), later),
+    ]
+    quarters = _quarterly(facts)
+    assert [(f.period_end, f.fiscal_period, f.value) for f in quarters] == [
+        (date(2019, 12, 31), "Q4", 61)  # the later date, as for two dates under one label
+    ]
+    assert placed(_placed(facts, "quarterly")) == [(date(2019, 12, 31), 2019, "Q4", 61)]
+    # the annual read keeps only the FY-labelled one, as before
+    [annual] = _placed(facts, "annual")
+    assert annual.fiscal_period == "FY" and annual.period_end == date(
+        2019, 12, 31 if later == "FY" else 28
+    )
+
+
+def test_fy_and_q4_at_one_date_stay_one_fact_and_other_years_are_untouched():
+    facts = [
+        balance("cash", 60, date(2019, 12, 31), "FY"),
+        balance("cash", 50, date(2019, 9, 30), "Q3"),
+    ]
+    assert placed(_quarterly(facts)) == [
+        (date(2019, 9, 30), 2019, "Q3", 50),
+        (date(2019, 12, 31), 2019, "Q4", 60),
+    ]
+
+
+# Backlog #451 item 3: Caterpillar's current portion is the debt note's principal due within a
+# year (`MATURITIES`), not a balance-sheet line, so the rounding margin never compares it with a
+# lease-inclusive balance-sheet figure.
+
+
+@pytest.mark.parametrize(
+    ("with_leases", "taken"), [(6_195e6, False), (6_250e6, True), (6_200e6, False)]
+)
+def test_a_note_figure_is_never_a_rounded_twin(with_leases, taken):
+    plain = fact("debt_current", 6_200e6, MATURITIES)  # looks rounded to 10^8
+    lease = fact("debt_current_with_leases", with_leases, WITH)
+    noncurrent = fact("debt_noncurrent", XOM_NONCURRENT, "LongTermDebtAndCapitalLeaseObligations")
+    current = current_on_noncurrent_basis(plain, lease, noncurrent)
+    assert (current.xbrl_concept == f"us-gaap:{WITH}") is taken  # only a figure above it
+    assert current.rounded_plain is None
+    # the same figures under the balance-sheet tag: the margin takes the precise one below
+    if with_leases == 6_195e6:
+        assert choose(6_200e6, 6_195e6).rounded_plain == 6_200e6
