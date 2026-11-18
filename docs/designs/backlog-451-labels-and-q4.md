@@ -1,6 +1,6 @@
 # Backlog #451, part 2: the label tie, CAT's maturities tag, the placed read, FY and Q4 at two dates
 
-Issue: https://github.com/sonderbot-ar/warren/issues/451 (items 2, 3, 6 and 7; part 1 was v0.10.7, `docs/designs/backlog-451-rounding-note-reach.md`) · Branch `backlog-451-labels-and-q4` · Version v0.10.8 (a backlog patch). Reading rules stay v11: no read changes (Step 3), so each step's new fingerprint (Steps 2 and 3) gets a row under v11 in `domains/analysis/reading_rules.md` (the fingerprint is the hash of the reading modules' code, `python -m domains.analysis.reading_rules`).
+Issue: https://github.com/sonderbot-ar/warren/issues/451 (items 2, 3, 6 and 7; part 1 was v0.10.7, `docs/designs/backlog-451-rounding-note-reach.md`) · Branch `backlog-451-labels-and-q4` · Version v0.10.8, merged nov.18.2026 (PR #464, merge `e177063`, after CI green and a gatekeeper GO). Reading rules stay v11: no read changes (Step 3), so each step's new fingerprint (Steps 2 and 3) gets a row under v11 in `domains/analysis/reading_rules.md` (the fingerprint is the hash of the reading modules' code, `python -m domains.analysis.reading_rules`).
 
 ## Problem
 
@@ -56,7 +56,9 @@ On the restored snapshot `warren-20261117T154255Z` (schema 23; no ingest), read-
 - Item 7: **0 of 2,697** quarterly reads differ (8 companies × each distinct date of the 903 stored runs × `latest`, `first_reported` and `latest` one-basis; every instant item of the map). No balance date moves; reading rules stay v11.
 - Item 3: CAT files only the maturities tag for its current portion (16 year ends) and a plain non-current tag (18 dates); no lease-inclusive current or non-current tag, and none in its raw company facts. The guard changes no read.
 - `python -m domains.analysis reproduce --all`: **903 of 903** stored runs reproduced to the cent.
-- The new tests: item 7's two cases fail on `main` (`_flow_years` returns two Q4 balances) and pass here.
+- The new tests: item 7's two cases fail on `main` (`_flow_years` returns two Q4 balances), and so does item 3's 6,195M case (gatekeeper); all pass here.
+- The whole database holds 0 balance-sheet rows labelled Q4 (6,161 labelled FY; gatekeeper), so no read on any date can change, not only on stored-run dates.
+- Gatekeeper (PR #464): GO, no blockers. Its idea to tie `NOTE_TAGS` to the concept map with a test is #465.
 
 The item 7 survey, as run (`python survey.py data/warren.db` from the repo root):
 
