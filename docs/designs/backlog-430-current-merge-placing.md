@@ -34,6 +34,14 @@ Since v0.9.81 (#421) the current portion of long-term debt is filed under two ma
 
 - **Step 3. Real data.** On the restored snapshot: every stored run's date (runs that are not what-if children of another run) built fresh in memory through today's map, pinned to its stored market downloads and choices, once on `main` and once on this branch: identical rows and note codes expected on every date. #427's fact survey (8 companies × 7 as-of dates, 2012-06-01 to 2026-11-15, × 2 modes × 3 frequencies × 2 name lists, `["debt_current"]` and `["debt_noncurrent", "debt_current", "cash"]`: 672 `get_facts` queries) repeated: identical facts, in the same order. `reproduce --all --rebuild`: every stored run reproduces to the cent and rebuilds as on `main`.
 
+## Results (Step 3, nov.18.2026)
+
+On the restored snapshot `warren-20261117T154255Z` (schema 23; no ingest), read-only.
+
+- **Fresh builds.** All 903 stored run dates that are not what-ifs, built in memory, each pinned to its stored market downloads and choices, once on `main` and once on this branch: **903 of 903 identical** in every assumption row (name, period, value, source, method) and every run-note code; none refused. The new note fires on none.
+- **Facts.** #427's survey, 672 `get_facts` queries: **672 of 672 identical** to `main`'s, field by field and in the same order.
+- **Stored runs.** `reproduce --all --rebuild`: 903 of 903 reproduced to the cent; 692 of 903 rebuilt to identical rows, the same count as on `main` at #427 (the other 211 were made by older code and differ as before).
+
 ## Alternatives considered
 
 - **Keep the plain figure's labels always (#427's rule).** Pairing before placing would then drop a year end from the annual read whenever only the plain figure is mislabelled, where `main` read the lease-inclusive figure there. Preferring a placed label, and a year end's over a quarter's, never drops a date either figure placed.
