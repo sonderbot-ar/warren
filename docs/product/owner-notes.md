@@ -8,6 +8,7 @@ The owner's comments on what students see, kept so the owner never says the same
 
 | Item | Sent | Answer | Date |
 |---|---|---|---|
+| The first screen's mockup (F2 Step 4a): seven states of brief Q5 on Apple in *Hoja* (`docs/product/mockups/f2-screen1-q5.html`, studio page); recommended Approve; a third option renames "fecha de corte" | nov.18.2026 | Waiting | |
 | Visual direction (F2 Step 2): three looks for the first screen, brief Q5 (A Cuaderno, B Hoja, C Aula; `docs/product/mockups/`, studio page); recommended C | nov.17.2026 | B, Hoja (card), not the recommended C | nov.17.2026 |
 | The reader's model after the free local models failed the bar: test Claude Haiku (about $0.06), a second free round, or menus (`docs/designs/f2-web-app.md`, Step 3 results, part 2) | nov.05.2026 | Test Haiku (card) | nov.06.2026 |
 | The reader's model after Haiku missed only the 2% line: test Sonnet (about $0.40), take Haiku with the card as the safety net (relaxes the bar), or no reader for now (`docs/designs/f2-web-app.md`, Step 3 results, part 2b) | nov.06.2026 | Test Sonnet (card) | nov.06.2026 |
