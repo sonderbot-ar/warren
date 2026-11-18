@@ -1,6 +1,6 @@
 # Backlog #465: tie the debt-note tags to the concept map with a test
 
-Issue: https://github.com/sonderbot-ar/warren/issues/465 (from the gatekeeper on PR #464) · Branch `backlog-465-note-tags-map` · Version v0.10.9 (a backlog patch). Test only: no reading module changes, so the reading rules and their fingerprint stay as they are (v11).
+Issue: https://github.com/sonderbot-ar/warren/issues/465 (from the gatekeeper on PR #464) · Branch `backlog-465-note-tags-map` · Version v0.10.9, merged nov.18.2026 (PR #467, merge `80aa9aa`, after CI green and a gatekeeper GO). Test only: no reading module changes, so the reading rules and their fingerprint stay as they are (v11).
 
 ## Problem
 
@@ -39,3 +39,4 @@ None. No value, run, note, param, lesson or output changes; nothing added, renam
 Design review, nov.18.2026: test-only, one assertion set on a constant and a CSV, no method or number for the analyst or professor to judge, and no product impact for the product lead; the explainer and the gatekeeper review it.
 
 - **Explainer.** Restated the change correctly. Gaps taken into the doc: which map is loaded (the shipped files, not an archived one), that company-scoped rows count, how a second balance-sheet tag is added, what a new row does to the fingerprints, and what a guard that stops matching would do. Left as is: the archived-map claim (an older map reads fewer tags, and `NOTE_TAGS` acts on a fact's own tag, so it cannot mislabel one) and the hand checks (the commands are the two edits named under Results, run with `pytest -k note_tags`).
+- **Gatekeeper: GO** on PR #467 (the diff matches the plan; the test file only adds lines; in a scratch worktree the test fails on a misspelt `NOTE_TAGS` tag, on another tag at `concept_map.csv` line 24, and on a new `debt_current` row in neither set; 86 passed in the file; ruff clean; CI green). Non-blocking: renaming the tag the same way in both places still passes, as intended, since the test ties the two together; `BALANCE_SHEET_CURRENT` could move into `facts.py` beside `NOTE_TAGS` (left in the test: no production code reads it).
