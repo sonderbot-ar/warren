@@ -9,6 +9,7 @@ import pytest
 from domains.analysis.math_engine import debt_parts
 from domains.fundamentals.concepts import concept_map_in_force
 from domains.fundamentals.facts import (
+    _get_facts,
     _merge_current,
     current_on_noncurrent_basis,
     get_facts,
@@ -540,3 +541,53 @@ def test_an_unknown_use_is_refused():
 
     with pytest.raises(ValueError):
         rounding_note(choose(200e6, 195e6), date(2020, 3, 31), "somewhere")
+
+
+# Backlog #451 item 6 (PR #452 gatekeeper): annual and quarterly reads of the current portion come
+# from the placed read (`facts._placed`) over a reported read, not from `_get_facts`'s own path.
+# With two tags mapped to `debt_current` itself (CAT's maturities tag, priority 2), the placed read
+# must rank them as the single-item read does: the plain tag where both are filed, the other where
+# only it is.
+MATURITIES = "LongTermDebtMaturitiesRepaymentsOfPrincipalInNextTwelveMonths"
+
+
+def second_current_tag(conn, value=25, drop_plain_at="2019-12-31"):
+    """File the maturities tag beside every plain current figure (a different value), and drop
+    the plain figure at one date so that date has the second-ranked tag only."""
+    conn.execute(
+        "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, fiscal_year, "
+        "fiscal_period, value, unit, form, accession_no, filed_at) "
+        "SELECT cik, ?, period_start, period_end, fiscal_year, fiscal_period, ?, unit, form, "
+        "accession_no, filed_at FROM financial_facts WHERE xbrl_concept = ?",
+        (f"us-gaap:{MATURITIES}", value, "us-gaap:LongTermDebtCurrent"),
+    )
+    conn.execute(
+        "DELETE FROM financial_facts WHERE xbrl_concept = ? AND period_end = ?",
+        ("us-gaap:LongTermDebtCurrent", drop_plain_at),
+    )
+    conn.commit()
+
+
+def read(facts):
+    return [(f.period_end, f.fiscal_year, f.fiscal_period, f.value, f.xbrl_concept) for f in facts]
+
+
+@pytest.mark.parametrize(
+    "noncurrent_tag", ["LongTermDebtNoncurrent", "LongTermDebtAndCapitalLeaseObligations"]
+)
+@pytest.mark.parametrize("frequency", ["annual", "quarterly"])
+@pytest.mark.parametrize("mode", ["latest", "first_reported"])
+def test_the_placed_read_ranks_two_current_tags_as_the_single_item_read(
+    make_company, mode, frequency, noncurrent_tag
+):
+    # no lease-inclusive current figure: the merge must give what the item alone gives
+    conn = make_company(lease_inclusive(with_leases=None, noncurrent_tag=noncurrent_tag))
+    second_current_tag(conn)
+    merged = get_facts(conn, "0000000123", ["debt_current"], AS_OF, mode, frequency)
+    alone = _get_facts(conn, "0000000123", ["debt_current"], AS_OF, mode, frequency)
+    assert read(merged) == read(alone)
+    tags = {f.period_end: f.xbrl_concept for f in merged}
+    assert tags[date(2019, 12, 31)] == f"us-gaap:{MATURITIES}"  # the only one filed there
+    assert {t for d, t in tags.items() if d != date(2019, 12, 31)} == {
+        "us-gaap:LongTermDebtCurrent"
+    }  # the plain tag ranks first wherever both are filed
