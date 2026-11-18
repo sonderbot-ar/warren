@@ -1,6 +1,6 @@
 # Backlog #451: the rounding note wherever a rounding-chosen figure is counted
 
-Issue: https://github.com/sonderbot-ar/warren/issues/451 (items 1 and 5 of the body and first comment, and the analyst's item on #455's PR #457) · Branch `backlog-451-rounding-note-reach`.
+Issue: https://github.com/sonderbot-ar/warren/issues/451 (items 1 and 5 of the body and first comment, and the analyst's item on #455's PR #457) · Branch `backlog-451-rounding-note-reach` · Version v0.10.7, merged nov.18.2026 (PR #459, merge `ea2b958`, after CI green and a gatekeeper GO).
 
 ## Problem
 
