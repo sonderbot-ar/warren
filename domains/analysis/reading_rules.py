@@ -18,7 +18,7 @@ import hashlib
 import re
 from pathlib import Path
 
-READING_RULES_VERSION = 10
+READING_RULES_VERSION = 11
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ROOT_MODULES = (
