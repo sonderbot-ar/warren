@@ -234,8 +234,9 @@ WARNING_LESSONS = {
         "data",
         "This company filed its debt due within a year twice, once without the lease payments due "
         "in that year and once with them, and the figure with leases came out slightly lower, "
-        "which only makes sense if the other was rounded (a figure written as 6.2 billion stands "
-        "for anything from 6.15 to 6.25 billion), so Warren read the precise figure with leases, "
+        "which only makes sense if the other was rounded (a figure written to one decimal place "
+        "of a billion stands for anything within half of that last digit), so Warren read the "
+        "precise figure with leases, "
         "which fits inside that range and matches how the company states its long-term debt. "
         "The filing does not say how much a figure was rounded, so Warren guessed it from the "
         "figure's trailing zeros; if the guess is wrong, debt is understated by at most the gap "
