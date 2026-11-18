@@ -7,8 +7,9 @@ from datetime import date
 import pytest
 
 from domains.analysis.math_engine import debt_parts
-from domains.fundamentals.concepts import concept_map_in_force
+from domains.fundamentals.concepts import concept_map_in_force, load_concept_map
 from domains.fundamentals.facts import (
+    NOTE_TAGS,
     _get_facts,
     _merge_current,
     _placed,
@@ -661,3 +662,22 @@ def test_a_note_figure_is_never_a_rounded_twin(with_leases, taken):
     # the same figures under the balance-sheet tag: the margin takes the precise one below
     if with_leases == 6_195e6:
         assert choose(6_200e6, 6_195e6).rounded_plain == 6_200e6
+
+
+# Backlog #465: `NOTE_TAGS` names its tag by hand, and the concept map reads the same tag into
+# `debt_current`. Tie the two, so renaming or replacing the map's tag cannot quietly turn the
+# guard off, and a new `debt_current` tag must be placed on one side or the other on purpose.
+BALANCE_SHEET_CURRENT = {"us-gaap:LongTermDebtCurrent"}  # balance-sheet carrying amounts
+
+
+def test_note_tags_are_the_maps_debt_note_tags():
+    current = {
+        row.xbrl_concept for row in load_concept_map() if row.canonical_name == "debt_current"
+    }
+    assert NOTE_TAGS, "the guard names no tag"
+    assert NOTE_TAGS <= current, f"not read into debt_current: {sorted(NOTE_TAGS - current)}"
+    assert current - BALANCE_SHEET_CURRENT == NOTE_TAGS, (
+        "every debt_current tag is either a balance-sheet line or a debt-note figure: "
+        f"{sorted(current - BALANCE_SHEET_CURRENT - NOTE_TAGS)}"
+    )
+    assert not NOTE_TAGS & BALANCE_SHEET_CURRENT
