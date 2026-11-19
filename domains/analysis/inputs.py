@@ -54,6 +54,7 @@ METHOD_CODES = (
 GAPS = {
     "owner_choice": "An owner's choice (user_assumptions.csv): its history is the choice itself.",
     "history_not_built": "History for this single value is not built yet (backlog #476).",
+    "computed_from_other_cells": "Computed from other cells of the run: see their cards.",
 }
 
 RATIO_CELLS = {  # cell -> (the reported ratio, its series measure)
@@ -93,8 +94,10 @@ class Part:
 @dataclass(frozen=True)
 class Point:
     period: str  # FY2024 or FY2024Q3
-    fiscal_year: int
-    fiscal_period: str  # FY or Q1-Q4
+    # None on a calendar series (market data, balance dates): its `period` is then an ISO date
+    # (2026-09-01) or a calendar year (2025)
+    fiscal_year: int | None
+    fiscal_period: str | None  # FY or Q1-Q4
     period_end: date | None
     value: float | None
     used: bool  # the cell's rows were computed from this point
@@ -106,7 +109,7 @@ class Point:
 @dataclass(frozen=True)
 class Series:
     measure: str  # e.g. revenue_growth_yoy, operating_margin, da_share
-    frequency: str  # year or quarter
+    frequency: str  # year, quarter, month (market data) or date (cover-page share counts)
     basis: str  # same_filing (both years from one 10-K) or latest (latest known on as_of)
     primary: bool  # the measure the assumption is computed on; the others are context
     fiscal_quarter: int | None  # a series of one fiscal quarter across years, else None
@@ -706,7 +709,8 @@ def inputs_behind(
     """For the outputs an answer shows, every row of the run they reach, grouped by name in the
     formula's order, each with its history over `years` fiscal years as known on the run's date.
 
-    Single values and owner choices come back with their rows and a `gap` code (Part 2, #476).
+    Single values get their own history (backlog #476, `single_values.py`); owner choices come
+    back with their rows and the gap `owner_choice`.
     """
     from domains.analysis.runs import load_assumptions, load_outputs
 
@@ -747,6 +751,9 @@ def inputs_behind(
     run_values = {(a.name, a.period): a.value for a in rows}
     growth_pairs = _growth_filings(stored)
 
+    from domains.analysis.single_values import Singles
+
+    singles = Singles(conn, run, as_of, years, stored, reader, filings)
     names: dict[str, list[Assumption]] = {}
     for key in reached_rows(trace, asked):
         names.setdefault(key[0], []).append(by_key[key])
@@ -759,8 +766,8 @@ def inputs_behind(
             k = kept if name in ("tax_rate", "debt_tax_rate") else None
             code = _method_code(name, a, sources, k)
             cell_rows.append(CellRow(a.period, a.value, code, _used(name, a, sources, code, k)))
-        cell = _cell(name, cell_rows, reader, run, years, filings)
-        if cell.gap is None:
+        cell = _cell(name, cell_rows, reader, run, years, filings, singles)
+        if cell.gap is None and name in DRIVER_CELLS:  # single values check their own
             cell = _with_run_reads(cell, run_values, growth_pairs, run["reading_rules_version"])
         if name in ("tax_rate", "debt_tax_rate") and tax_notes:
             cell = Cell(cell.name, cell.rows, cell.history, cell.gap, [*tax_notes, *cell.notes])
@@ -781,9 +788,17 @@ def _period_order(period: str):
     return (1, period)
 
 
-def _cell(name: str, cell_rows: list[CellRow], reader: _Reader, run, years: int, filings) -> Cell:
+def _cell(
+    name: str, cell_rows: list[CellRow], reader: _Reader, run, years: int, filings, singles=None
+) -> Cell:
     codes = {r.method_code for r in cell_rows}
     if name not in DRIVER_CELLS:
+        if codes != {"owner_choice"} and singles is not None:
+            from domains.analysis.single_values import single_cell
+
+            cell = single_cell(singles, name, cell_rows)
+            if cell is not None:
+                return cell
         gap = "owner_choice" if codes == {"owner_choice"} else "history_not_built"
         return Cell(name, cell_rows, [], Coded(gap, {"cell": name}, GAPS[gap]))
     used = {u for r in cell_rows for u in r.used}

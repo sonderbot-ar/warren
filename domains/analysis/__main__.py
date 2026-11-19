@@ -707,7 +707,11 @@ def render_inputs(r) -> str:
             )
             pts = "; ".join(
                 f"{p.period}{'*' if p.used else ''} "
-                + (num(p.value) if p.missing is None else p.missing.code)
+                + (
+                    num(p.value)
+                    if p.missing is None
+                    else p.missing.params.get("reason", p.missing.code)
+                )
                 for p in s.points
             )
             out.append(f"{head}: {pts}")
