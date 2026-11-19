@@ -197,6 +197,10 @@ class Ratio:
     uses: list[dict]  # {line, period}: entries of `lines`, or of `prior_lines` for growth
     missing: Coded | None = None
     notes: list[Coded] = field(default_factory=list)
+    # what a fraction divides, in the filing's currency (backlog #477): the summed numerator
+    # facts (or the number given) and the summed base; None on a gap and on growth
+    numerator: float | None = None
+    base: float | None = None
 
 
 @dataclass(frozen=True)
@@ -1038,7 +1042,8 @@ def _ratio(name, formula_id, formula, numerator, base, lines, period, notes=(), 
     top = numerator if not num_facts else sum(f.value for f in num_facts)
     value = fm.ratio(top, base_value)
     notes = [*notes, *_changed_note(used, lines)]
-    return Ratio(name, formula_id, formula, value, "fraction", _uses(used, period), None, notes)
+    uses = _uses(used, period)
+    return Ratio(name, formula_id, formula, value, "fraction", uses, None, notes, top, base_value)
 
 
 def _gap(name, formula_id, formula, items) -> Ratio:

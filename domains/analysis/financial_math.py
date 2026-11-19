@@ -213,6 +213,30 @@ def growth(current: Number, prior: Number) -> Number:
     return current / prior - 1
 
 
+def pooled_ratio(numerators: Sequence[float], bases: Sequence[float]) -> float:
+    """Σ numerators ÷ Σ bases over several periods (backlog #477): a ratio weighted by each
+    period's base, as a multi-year margin or tax rate is computed (Σ EBIT ÷ Σ revenue), so a
+    larger year counts for more than in the plain mean of the yearly ratios."""
+    if len(numerators) != len(bases) or not bases:
+        raise FinancialMathError("a pooled ratio needs one base per numerator, at least one")
+    return ratio(sum(numerators), sum(bases))
+
+
+def base_shares(bases: Sequence[float]) -> list[float]:
+    """Each period's share of the summed base: its weight in a pooled ratio (backlog #477)."""
+    if not bases or sum(bases) <= 0:
+        raise FinancialMathError("base shares need bases that sum to a positive figure")
+    total = sum(bases)
+    return [b / total for b in bases]
+
+
+def mean(values: Sequence[float]) -> float:
+    """The plain average of the values: each period counts the same (backlog #477)."""
+    if not values:
+        raise FinancialMathError("a mean needs at least one value")
+    return sum(values) / len(values)
+
+
 # -- sensitivity grid (backlog #142) --------------------------------------------------------------
 
 

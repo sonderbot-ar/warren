@@ -344,3 +344,32 @@ def test_relevering_works_on_arrays():
     betas = np.array([0.8, 1.0, 1.2])
     out = fm.relevered_beta(fm.unlevered_beta(betas, 50.0, 100.0, 0.2), 50.0, 100.0, 0.2)
     assert np.allclose(out, betas)
+
+
+def test_pooled_ratio_weights_by_the_base():
+    # 10% on 100 and 30% on 300: pooled 25%, the plain mean 20%
+    assert fm.pooled_ratio([10.0, 90.0], [100.0, 300.0]) == pytest.approx(0.25)
+    assert fm.mean([0.10, 0.30]) == pytest.approx(0.20)
+
+
+@pytest.mark.parametrize(
+    "numerators, bases",
+    [([], []), ([1.0], [1.0, 2.0]), ([1.0, 1.0], [5.0, -5.0]), ([1.0], [0.0])],
+)
+def test_pooled_ratio_refuses_no_periods_mismatched_lists_and_a_non_positive_base(
+    numerators, bases
+):
+    with pytest.raises(FinancialMathError):
+        fm.pooled_ratio(numerators, bases)
+
+
+def test_mean_refuses_no_values():
+    with pytest.raises(FinancialMathError):
+        fm.mean([])
+
+
+def test_base_shares_are_each_periods_weight_in_the_pooled_ratio():
+    assert fm.base_shares([100.0, 300.0]) == pytest.approx([0.25, 0.75])
+    for bases in ([], [0.0], [5.0, -5.0]):
+        with pytest.raises(FinancialMathError):
+            fm.base_shares(bases)
