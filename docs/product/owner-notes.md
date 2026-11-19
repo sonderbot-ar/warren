@@ -9,7 +9,7 @@ The owner's comments on what students see, kept so the owner never says the same
 | Item | Sent | Answer | Date |
 |---|---|---|---|
 | The first screen's mockup (F2 Step 4a): seven states of brief Q5 on Apple in *Hoja* (`docs/product/mockups/f2-screen1-q5.html`, studio page); recommended Approve; a third option renames "fecha de corte" | nov.18.2026 | Changes needed (in words): "make it dark mode" and "use 'fecha de corte' instead"; resent after the changes | nov.18.2026 |
-| Charts for every input behind an answer (Q5 mockup, cards B and C; `docs/designs/f2-input-charts.md`; 5 years of history by default) | nov.19.2026 | Waiting | |
+| Charts for every input behind an answer (Q5 mockup, cards B and C; `docs/designs/f2-input-charts.md`; 5 years of history by default) | nov.19.2026 | Approved (card), 5 years by default | nov.19.2026 |
 | The first screen's mockup, resent with the owner's changes (dark by default, "Fecha de corte" in full) | nov.18.2026 | Approved (card) | nov.18.2026 |
 | Visual direction (F2 Step 2): three looks for the first screen, brief Q5 (A Cuaderno, B Hoja, C Aula; `docs/product/mockups/`, studio page); recommended C | nov.17.2026 | B, Hoja (card), not the recommended C | nov.17.2026 |
 | The reader's model after the free local models failed the bar: test Claude Haiku (about $0.06), a second free round, or menus (`docs/designs/f2-web-app.md`, Step 3 results, part 2) | nov.05.2026 | Test Haiku (card) | nov.06.2026 |
