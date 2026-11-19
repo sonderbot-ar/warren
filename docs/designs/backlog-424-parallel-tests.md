@@ -1,6 +1,6 @@
 # Backlog #424: run the test suite in parallel (pytest-xdist)
 
-Issue: https://github.com/sonderbot-ar/warren/issues/424 (scout, nov.16.2026) · Branch `backlog-424-parallel-tests` · Version v0.10.10 (patch, backlog item). Tooling only: no engine module, reading rule, value, run or output changes.
+Issue: https://github.com/sonderbot-ar/warren/issues/424 (scout, nov.16.2026) · Branch `backlog-424-parallel-tests` · Version v0.10.10, merged nov.19.2026 (PR #469, merge `7895a7d`, after CI green and a gatekeeper GO). Tooling only: no engine module, reading rule, value, run or output changes.
 
 ## Problem
 
@@ -55,8 +55,13 @@ None. No engine output, value, run, note or name changes; brief questions served
 
 ## Results
 
-(Filled in at the PR.)
+- **CI** (`ubuntu-latest`, Python 3.11): the pytest step took **61 s** on PR #469 (run 44428547070) against **147 s** on the last `main` run (run 44391121415, merge of #468), 2.4 times faster. The runner evidently has more than the 2 CPUs guessed above. The same PR run's Chromium install took 6 min 17 s against 29 s on `main`; that step is unchanged by this PR, so the whole job was not faster this once.
+- **Locally** (4 CPUs, Python 3.13): 2,630 passed in 58–62 s over five runs with the new defaults, 2,630 passed in 198.6 s with one at a time.
+- **Licences** checked in the installed metadata: pytest-xdist `License-Expression: MIT`, execnet `License-Expression: MIT`.
 
 ## Review notes
 
-(Filled in after review.)
+Design review, nov.19.2026: tooling only, with no method or number for the analyst or professor to judge and no product impact for the product lead; the explainer and the gatekeeper review it.
+
+- **Explainer.** Restated the change correctly. Gaps taken into the doc: the scan command and the `create_app` fallback (none without `db_path`), evidence for the port claim, a source for Hypothesis's shared database, per-file times, the cold first run, the Python version difference, the runner CPU count as a guess, how `-n 0` and `-p no:xdist` behave, and which machine's count the exit uses.
+- **Gatekeeper: GO** on PR #469, on CI green (it was, run 44428547070). In a separate worktree: 2,630 passed in 63.6 s with the new defaults and 2,630 in 194.5 s with `-n 0`, no skips; ruff clean; no `data/` written; the only module-scoped fixtures are in `tests/webapp/test_browser.py`. Non-blocking: check the licences in the metadata (done, above); fill the Results (done); `-p no:xdist` rejects the `addopts` options (said in the Plan).
