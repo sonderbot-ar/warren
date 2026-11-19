@@ -42,7 +42,7 @@
     <span class="chip">{{ t("answer.reading.company") }} <b>{{ view.company }}</b></span>
     <span class="chip">{{ t("answer.reading.line") }} <b>{{ t("answer.reading.revenue") }}</b></span>
     <span class="chip">{{ t("answer.reading.period") }} <b>{{ t("answer.reading.next_four") }}</b></span>
-    <span class="chip">{{ t("header.corte") }} <b>{{ fmt_date(view.as_of) }}</b></span>
+    <span class="chip">{{ t("header.corte") }}: <b>{{ fmt_date(view.as_of) }}</b></span>
   </div>
   <div class="answer">
     <section class="pane">
@@ -77,21 +77,17 @@
         </table>
       </div>
       <p class="src">{{ t("answer.table.units", company=view.company) }}</p>
+      <p class="note">{{ t("answer.table.season") }}</p>
       <h2>{{ t("answer.sure.title") }}</h2>
       <div class="kpis">
         {% if view.coverage_all %}
-        <div class="kpi"><b>{{ fig(view.coverage_all) }}</b><span>{{ t("answer.coverage.all", company=view.company) }}</span></div>
+        <div class="kpi"><b>{{ fig(view.coverage_all) }}</b><span>{{ t("answer.kpi.all", inside=view.coverage_counts.all.inside, n=view.coverage_counts.all.n) }}</span></div>
         {% endif %}
         {% if view.coverage_company %}
-        <div class="kpi"><b>{{ fig(view.coverage_company) }}</b><span>{{ t("answer.coverage.company", company=view.company) }}</span></div>
+        <div class="kpi"><b>{{ fig(view.coverage_company) }}</b><span>{{ t("answer.kpi.company", company=view.company, inside=view.coverage_counts.company.inside, n=view.coverage_counts.company.n) }}</span></div>
         {% endif %}
       </div>
-      {% if view.coverage_counts.all and view.coverage_counts.company %}
-      <p class="p">{{ t("answer.sure.body", company=view.company,
-                        inside=view.coverage_counts.all.inside, n=view.coverage_counts.all.n,
-                        inside_company=view.coverage_counts.company.inside,
-                        n_company=view.coverage_counts.company.n) }}</p>
-      {% endif %}
+      <p class="p">{{ t("answer.sure.body") }}</p>
     </section>
     <section class="pane">
       <h2>{{ t("answer.chart.title") }}</h2>

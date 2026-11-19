@@ -54,15 +54,24 @@ def find_run(conn: sqlite3.Connection, ticker: str, corte: date) -> str | None:
 
 def load_bundle(conn: sqlite3.Connection, ticker: str, corte: date) -> dict:
     """Everything the answer shows, from the engine. Raises NoRun when nothing is stored."""
+    run_id = find_run(conn, ticker, corte)
+    if run_id is None:
+        raise NoRun(f"{ticker} {corte}")
+    return bundle_for_run(conn, run_id)
+
+
+def bundle_for_run(conn: sqlite3.Connection, run_id: str) -> dict:
+    """The answer's bundle for one stored run. A stored run never changes (its rows, outputs
+    and sources are written once), so the app may keep this per run_id: the engine's calls take
+    about ten seconds, and every figure the student opens would otherwise repeat them."""
     from domains.analysis.inputs import inputs_behind
     from domains.analysis.sources import run_sources
     from domains.evaluation.run_ranges import run_ranges
 
-    run_id = find_run(conn, ticker, corte)
-    if run_id is None:
-        raise NoRun(f"{ticker} {corte}")
     company = conn.execute(
-        "SELECT ticker, name, fiscal_year_end FROM companies WHERE ticker = ?", (ticker.upper(),)
+        "SELECT c.ticker, c.name, c.fiscal_year_end FROM runs r "
+        "JOIN companies c ON c.cik = r.cik WHERE r.run_id = ?",
+        (run_id,),
     ).fetchone()
     ranges = run_ranges(conn, run_id).to_dict()
     quarters = ranges["quarters"][:QUARTERS_SHOWN]
@@ -253,9 +262,14 @@ def answer_view(bundle: dict, region: formatting.Region, t) -> AnswerView:
                 ),  # fmt: skip
                 "items": [_seed_item(seed, qlabel, millions, region, t)]
                 + _growth_items(growth, growth_years, millions, percent, region, t),
-                "foot": t("answer.fuente.same_filing"),
+                "foot": t("answer.fuente.same_filing") + " " + t("answer.fuente.rounding"),
             },
-            t("answer.fx.forecast", seed=millions(seed["value"]), growth=percent(growth["value"])),
+            t(
+                "answer.fx.forecast",
+                formula=formatting.spreadsheet_product(seed["value"], growth["value"], region),
+                seed=millions(seed["value"]),
+                growth=percent(growth["value"]),
+            ),
         )
         p10 = p90 = None
         band = q["band"]

@@ -88,7 +88,8 @@ def capture(out: Path, db_path: Path | None = None, only: str | None = None) -> 
                     page.goto(base + address)
                     page.wait_for_load_state("networkidle")
                     path = out / f"{name}-{width_name}-{theme}.png"
-                    page.screenshot(path=path, full_page=True)
+                    # an open panel scrolls on its own over the page: shoot what is seen
+                    page.screenshot(path=path, full_page="panel=" not in address)
                     saved.append(path)
                 context.close()
         browser.close()

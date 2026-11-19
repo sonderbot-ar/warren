@@ -241,6 +241,21 @@ Fonts are all SIL Open Font License, free, and can be self-hosted in `webapp/sta
 - **Step 4b groundwork (nov.19.2026, started while the card waited):** the one piece the card could not change was started on branch `f2-first-screen-build`: the IBM Plex faces of the chosen look (Sans 400/500/600, Mono 400/500, npm 1.1.0, SIL OFL 1.1) vendored under `webapp/static/vendor/fonts/` with their `@font-face` rules in `tokens.css` and tests pinning each file. Routes and templates follow the approved mockup.
 - **Catalogue text changed by the mockup**, for Step 4b to carry into `webapp/text/es.json`: `card.note.corte_default` now "Fecha de corte: {date}. Warren usa solo lo que se publicó hasta ese día, el último que ya cerró en Nueva York (hoy es {today}). Puedes elegir una fecha anterior para ver qué se sabía entonces." (a new `today` param).
 
+### Step 4b plan: the built screen in three parts (nov.19.2026)
+
+The built screen is one owner sign-off, but too large for one step, so it is built in three parts on branch `f2-first-screen-build`, each with its tests, screenshots and a design-critic pass, and one PR once all three are in:
+
+1. **The answer** (`/respuesta?corte=…&empresa=…`): the forecast table with its p10–p90 range, "¿Qué tan seguro?", the reported-and-forecast chart and the *Fuente* tab of every figure, from the stored baseline dated the *fecha de corte*. `webapp/answer.py` makes the engine's three calls (`run_ranges`, `run_sources`, `inputs_behind`) and keeps only what the screen shows; the view formats and places the engine's numbers and computes none.
+2. **The cells behind the answer** (input-charts Step 1, `docs/designs/f2-input-charts.md`): the B and C cards from `inputs_behind`, the 3 / 5 / 10 years switch, the data tables, and the formula bar's spreadsheet form (`=B5*(1+PROMEDIO(C2:C4))`) once the cells have addresses.
+3. **The question in front**: *Inicio* with the question box, the reading card (Haiku behind the card, Decision 9) with its asks, *Calculando*, a run on demand when no baseline is stored for the date, and *No se pudo*; the `card.note.corte_default` text above.
+
+### Step 4b results, part 1: the answer (nov.19.2026)
+
+- **Built:** `webapp/answer.py` (`find_run`, `load_bundle`, `answer_view`), `respuesta.html`, `_fuente.html`, routes `/respuesta` and its two fragments, the theme switch (`/tema`, a cookie; dark unless the student picks light, so `tokens.css` keeps its light `:root` and the page carries `data-theme`), 60 catalogue keys in both languages. The stored baseline is the newest run of that company dated the *fecha de corte* with no parent (not a what-if), no seed (not a simulation) and no LLM-proposed row; a date with none gets a plain "no saved estimate yet" page until part 3 runs one.
+- **Numbers:** every figure is the engine's for `AAPL_2026-10-30_1`, the same as the approved mockup (104,395, 88,100–122,413, 83.1%, 82.0%; 1,690 of 2,033 and 205 of 250). The range is the pooled one (every company's past misses), as the mockup and M9's headline show. The chart's eight reported quarters come from `inputs_behind`'s seed history, so the app reads no series of its own.
+- **Tests:** `tests/webapp/test_answer.py` on the engine's own bundle for that run, saved as a fixture (public data and Warren's outputs only): each row equals the engine's forecast and pooled band, the track record, the *Fuente* items (the seed quarter with both filings it is derived from, the three averaged years with their 10-K), the formula bar, fiscal-quarter months for all four kinds of fiscal year, the theme, refusals; `tests/webapp/test_answer_browser.py` at 1440 and 390 px: a figure opens its source and Escape returns to it, nothing scrolls sideways, every door at least 24 px.
+- **Not yet, by plan:** parts 2 and 3; the panel's other four tabs keep their placeholder text; the panel is the skeleton's modal layer at the right, not a docked third column (a layout change, left for the design critic's view on the built screen).
+
 ## Alternatives considered
 
 - **Wait for M10 before choosing a stack.** The Build Plan's first order. The owner chose (nov.04.2026) to compare stacks now, since the stack does not depend on the engine's outputs; screens still wait.

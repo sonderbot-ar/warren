@@ -639,3 +639,22 @@ main.wide {
     font-size: var(--text-md); /* the phone's drawing is scaled to about 90%: about 14 px */
   }
 }
+
+.note {
+  margin: 0;
+  font-size: var(--text-sm);
+  border-left: 3px solid var(--color-line);
+  padding: var(--space-1) 0 var(--space-1) var(--space-3);
+  max-width: var(--measure);
+}
+
+/* a figure whose panel is on its way (htmx marks the request): say so at once */
+.fig.htmx-request {
+  cursor: progress;
+  background: var(--color-accent-soft);
+  outline: 2px dashed var(--color-accent);
+}
+
+.src-list li .src-meta {
+  overflow-wrap: normal; /* a filing number breaks only at its spaces, never mid-string */
+}

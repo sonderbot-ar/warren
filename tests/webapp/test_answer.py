@@ -104,8 +104,18 @@ def test_the_forecast_source_lists_the_seed_quarter_and_the_three_averaged_years
                for _, url in i["links"])  # fmt: skip
 
 
-def test_the_formula_bar_shows_the_seed_and_the_growth_of_the_open_figure():
-    assert view().figures["pronostico-FY2026Q4"].formula == ("= B × (1 + C) = 102,466 × (1 + 1.9%)")
+def test_the_formula_bar_shows_the_spreadsheet_formula_of_the_open_figure():
+    assert view().figures["pronostico-FY2026Q4"].formula == (
+        "=102466*(1+0.018823) · B = 102,466 · C = 1.9%"
+    )
+    # in Argentina's spreadsheet the decimal mark is a comma
+    ar = view(formatting.REGIONS["es-AR"]).figures["pronostico-FY2026Q4"].formula
+    assert ar.startswith("=102466*(1+0,018823)")
+
+
+def test_the_spreadsheet_formula_gives_the_figure_on_screen():
+    # 102466 × 1.018823 = 104,394.7, shown as 104,395: the student's sheet agrees with the screen
+    assert round(102466 * (1 + 0.018823)) == 104395
 
 
 def test_the_chart_draws_eight_reported_quarters_four_forecasts_and_their_band():
@@ -133,7 +143,9 @@ def test_the_answer_page_shows_every_figure_as_a_door_to_its_panel(client):
     doors = re.findall(r'<a class="fig[^"]*"[^>]*data-figura="([^"]+)"', html)
     assert set(doors) == set(view().figures)  # each figure the view knows is shown and opens
     assert "Ingresos de Apple: próximos cuatro trimestres" in html
-    assert "Ya cerró; Apple aún no lo reporta" in html  # the quarter ended, not yet reported
+    assert (
+        "Ya cerró, pero Apple aún no publica la cifra" in html
+    )  # the quarter ended, not yet reported
     assert "<dialog" not in html
 
 
@@ -147,7 +159,7 @@ def test_the_panel_opens_on_the_source_with_the_filings_and_the_formula(client):
     html = client.get(PAGE + "&panel=pronostico-FY2026Q4").text
     assert "<dialog" in html and "Pronóstico, T4 2026" in html
     assert "0000320193-25-000079" in html and "https://www.sec.gov/Archives/" in html
-    assert "102,466 × (1 + 1.9%)" in html
+    assert "=102466*(1+0.018823)" in html
     assert 'class="fig on"' in html  # the open figure is marked in the sheet
 
 
@@ -245,3 +257,17 @@ def test_find_run_takes_the_stored_baseline_never_a_what_if_or_an_llm_run(db_pat
         _insert_run(conn, "AAPL_2026-10-30_4", "2026-10-30", seed=7)
         assert find_run(conn, "aapl", date(2026, 10, 30)) == "AAPL_2026-10-30_1"
         assert find_run(conn, "AAPL", date(2026, 10, 29)) is None
+
+
+def test_the_engines_answer_is_built_once_per_stored_run(monkeypatch, tmp_path):
+    # opening each figure must not repeat the engine's ten-second calls (design critic)
+    calls = []
+    monkeypatch.setattr("webapp.app.find_run", lambda conn, ticker, corte: "AAPL_2026-10-30_1")
+    monkeypatch.setattr(
+        "webapp.app.bundle_for_run", lambda conn, run_id: calls.append(run_id) or BUNDLE
+    )
+    app_client = TestClient(create_app(db_path=tmp_path / "w.db", clock=lambda: NOW))
+    app_client.get(PAGE)
+    app_client.get(PAGE + "&panel=pronostico-FY2026Q4")
+    app_client.get("/respuesta/fragmentos/panel?corte=2026-10-30&empresa=AAPL&figura=p10-FY2027Q1")
+    assert calls == ["AAPL_2026-10-30_1"]

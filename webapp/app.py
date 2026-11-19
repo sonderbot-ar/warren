@@ -30,7 +30,7 @@ from shared_kernel.calendar import last_ended_day
 from shared_kernel.config import DB_PATH
 from shared_kernel.database import get_db_connection
 from webapp import formatting
-from webapp.answer import NoRun, answer_view, load_bundle
+from webapp.answer import NoRun, answer_view, bundle_for_run, find_run
 from webapp.database import schema_status
 from webapp.text import translate
 
@@ -72,9 +72,16 @@ def create_app(
     and so is `bundle_loader(ticker, corte)`, the engine's answer for brief Q5 (`answer.py`)."""
     db = Path(db_path) if db_path is not None else DB_PATH
 
+    bundles: dict[str, dict] = {}  # by run_id: a stored run never changes (answer.py)
+
     def engine_bundle(ticker: str, corte: date) -> dict:
         with get_db_connection(db) as conn:
-            return load_bundle(conn, ticker, corte)
+            run_id = find_run(conn, ticker, corte)
+            if run_id is None:
+                raise NoRun(f"{ticker} {corte}")
+            if run_id not in bundles:
+                bundles[run_id] = bundle_for_run(conn, run_id)
+            return bundles[run_id]
 
     bundle_for = bundle_loader or engine_bundle
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
