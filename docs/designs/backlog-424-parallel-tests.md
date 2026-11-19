@@ -15,14 +15,14 @@ pytest-xdist (MIT, 3.8.0, pytest-dev) runs tests in several worker processes. It
   - `requirements.txt`: pin `pytest-xdist==3.8.0` and its one hard dependency `execnet==2.1.2`, under "Development".
   - `pyproject.toml` `[tool.pytest.ini_options]`: `addopts = "-ra -n auto --dist loadfile"`. Putting it in `addopts` means every existing command (CLAUDE.md, the run-track and goldfish skills, the gatekeeper and test-writer agents, CI) gets the parallel run without a wording change.
   - `--dist loadfile` keeps each test file on one worker, so a module-scoped fixture (the browser tests' server and Chromium, `tests/webapp/test_browser.py` lines 27–44) starts once, as it does today, and tests inside a file keep their order. The slowest file takes 22 s of a 60 s run, so grouping by file costs little balance.
-  - `-n auto` uses one worker per CPU. To debug a single test one at a time: `python -m pytest -n 0 …` (or `-p no:xdist`).
-  - Tests: none added; the suite itself is the test. Exit: the full suite passes with the new defaults several times in a row, with the same count as one-at-a-time (`-n 0`); `ruff check .` and `ruff format --check .` clean; CI green, and CI's pytest step faster than on `main`.
+  - `-n auto` uses one worker per CPU. To debug a single test one at a time: `python -m pytest -n 0 …`, which ignores `--dist` (or `-p no:xdist`, which also drops both options' meaning; pytest then rejects them, so use `-n 0`).
+  - Tests: none added; the suite itself is the test. Exit: the full suite passes with the new defaults several times in a row, with the same count as one-at-a-time (`-n 0`) on the same machine (the count includes the ten browser tests only where a Chromium is found, as in CI); `ruff check .` and `ruff format --check .` clean; CI green, and CI's pytest step faster than on `main`.
 
 ## Shared-state check (the scout's fit concern)
 
-- **SQLite and files.** Every test database comes from the `db_path` fixture (`tests/conftest.py`), a fresh file under `tmp_path`; a scan of `tests/` for writes found only `tmp_path` paths. xdist gives each worker its own temporary root, so no two workers share a file. The repository's `data/` is never written by a test.
-- **Ports.** The browser tests' server takes a free port from the OS (`webapp/screenshots.py`, `_free_port`, bind to port 0). Two workers asking at once get different ports; the gap between closing the probe socket and uvicorn binding is the same as today and has never collided.
-- **Hypothesis.** Its example database (`.hypothesis/`) is a directory of files that Hypothesis documents as safe to share between processes.
+- **SQLite and files.** Every test database comes from the `db_path` fixture (`tests/conftest.py`), a fresh file under `tmp_path`; a scan of `tests/` for writes (`grep -rn -E "open\(|write_text|to_csv|mkdir" tests`) found only `tmp_path` paths, and no test calls `create_app(` without a `db_path` (the app falls back to the real database only then, `webapp/app.py`). xdist gives each worker its own temporary root, so no two workers share a file. The repository's `data/` is never written by a test.
+- **Ports.** The browser tests' server takes a free port from the OS (`webapp/screenshots.py`, `_free_port`, bind to port 0). Two workers asking at once get different ports; the gap between closing the probe socket and uvicorn binding is the same as today and has not collided in the suite's history (the browser tests have run on every CI run since F2 Step 1) or in the five parallel runs below.
+- **Hypothesis.** Its example database (`.hypothesis/`) is a directory of files that Hypothesis documents as safe to share between processes (hypothesis.readthedocs.io, "The Hypothesis example database": `DirectoryBasedExampleDatabase`).
 - **Environment.** `monkeypatch` changes are per test and per process.
 
 ## Measurements (this cloud machine, 4 CPUs, Python 3.13, nov.19.2026)
@@ -34,7 +34,9 @@ pytest-xdist (MIT, 3.8.0, pytest-dev) runs tests in several worker processes. It
 | `-n auto` (default `load` distribution) | 2,630 passed | 62.4 s |
 | `-n 8 --dist loadfile` | 2,630 passed | 57.2 s |
 
-About **3.2 times faster**. GitHub's standard Linux runner for a private repository has 2 CPUs, so CI should gain less, roughly halving the pytest step; the PR records the real CI times.
+The first parallel run (69 s) included a cold start (fresh `__pycache__` for the workers). Per-file times from `--durations=0`: `tests/analysis/test_whatif.py` 22.2 s, `test_reported.py` 12.3 s, `tests/orchestration/test_graph.py` 8.9 s; every other file under 8 s. These runs are on Python 3.13; CI runs 3.11, so CI's own times are recorded at the PR.
+
+About **3.2 times faster**. GitHub documents 2 CPUs for its standard Linux runner on a private repository (docs.github.com, "GitHub-hosted runners", standard runners table), so CI should gain less; this is a guess until the PR records CI's real pytest time against the last `main` run's.
 
 ## Alternatives considered
 
