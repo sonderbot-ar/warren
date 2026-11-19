@@ -7,9 +7,13 @@ from datetime import date
 import pytest
 
 from domains.analysis.math_engine import debt_parts
-from domains.fundamentals.concepts import concept_map_in_force
+from domains.fundamentals.concepts import concept_map_in_force, load_concept_map
 from domains.fundamentals.facts import (
+    NOTE_TAGS,
+    _get_facts,
     _merge_current,
+    _placed,
+    _quarterly,
     current_on_noncurrent_basis,
     get_facts,
     rounding_unit,
@@ -406,16 +410,23 @@ def test_a_note_when_the_rounding_margin_chooses_the_figure(make_company):
     result = build(conn)
     rows = by_key(result)
     assert rows[("balance:debt_current", "-")].value == 195e6
-    notes = [n for n in result.notes if n.code == "debt_current_within_rounding"]
+    notes = [
+        n
+        for n in result.notes
+        if n.code == "debt_current_within_rounding" and n.params["used_for"] == "balance_sheet"
+    ]
     assert len(notes) == 1
     params = notes[0].params
     assert params["debt_current"] == 195e6 and params["debt_current_plain"] == 200e6
     assert params["rounding_unit"] == 10**8 and params["currency"] == "USD"
     assert params["rounding_margin"] == 5e7 and params["gap"] == 5e6
     assert params["period_end"] == "2020-03-31"  # the balance sheet the run reads
-    assert params["assumptions"] == ["debt", "cost_of_debt", "nwc_pct"]
+    assert params["balance_date"] == "2020-03-31"
+    # a quarter end: the cost of debt reads fiscal year ends, not this figure (backlog #451)
+    assert params["assumptions"] == ["debt", "nwc_pct"]
     assert params["accession_no"]
     assert "195,000,000" in notes[0].text and "200,000,000" in notes[0].text
+    assert "carried forward" not in notes[0].text
 
 
 @pytest.mark.parametrize(
@@ -436,3 +447,237 @@ def test_the_rounded_plain_figure_is_carried_only_when_the_margin_decides():
     assert choose(6_200e6, 6_180e6).rounded_plain == 6_200e6
     assert choose(6_200e6, 6_234e6).rounded_plain is None  # above: the plain one is not needed
     assert choose(6_200e6, 6_140e6).rounded_plain is None  # the plain figure itself is read
+
+
+# Backlog #451: the note wherever the rounding-chosen figure is counted.
+
+
+def rounding_notes(notes, used_for=None):
+    return [
+        n
+        for n in notes
+        if n.code == "debt_current_within_rounding"
+        and (used_for is None or n.params["used_for"] == used_for)
+    ]
+
+
+def test_a_note_for_each_year_end_of_the_cost_of_debt(make_company):
+    conn = make_company(rounded_presentation(200e6, 195e6))
+    result = build(conn)
+    [kd] = [a for a in result.assumptions if a.name == "cost_of_debt"]
+    notes = rounding_notes(result.notes, "cost_of_debt_average")
+    assert len(notes) == 2  # the two year ends of the average, neither the balance sheet's
+    years = sorted(n.params["fiscal_year"] for n in notes)
+    assert years[1] == years[0] + 1 and f"FY{years[1]} interest" in kd.method
+    for n in notes:
+        p = n.params
+        assert p["assumptions"] == ["cost_of_debt"]
+        assert p["balance_date"] == p["period_end"]  # its own year end, never carried
+        assert p["debt_current"] == 195e6 and p["gap"] == 5e6
+        assert f"FY{p['fiscal_year']} cost of debt" in n.text
+        assert "carried forward" not in n.text
+    assert len(rounding_notes(result.notes)) == 3
+
+
+@pytest.mark.parametrize(("plain", "with_leases"), [(200e6, 210e6), (200e6, 140e6)])
+def test_no_year_end_or_reported_note_when_the_margin_does_not_decide(
+    make_company, plain, with_leases
+):
+    from domains.analysis.reported import reported_period
+
+    conn = make_company(rounded_presentation(plain, with_leases))
+    assert not rounding_notes(build(conn).notes)
+    net_debt = reported_period(conn, "TST", "FY2020Q1", AS_OF).ratio("net_debt")
+    assert not rounding_notes(net_debt.notes)
+
+
+def test_a_year_end_that_is_the_balance_sheet_adds_cost_of_debt_to_its_note():
+    from domains.analysis.math_engine import _year_end_rounding_notes, rounding_note
+
+    year_end = choose(200e6, 195e6).model_copy(
+        update={"canonical_name": "debt_current", "fiscal_year": 2019}
+    )
+    other = year_end.model_copy(update={"period_end": date(2018, 12, 31), "fiscal_year": 2018})
+    balance = rounding_note(year_end, year_end.period_end, "balance_sheet", ["debt", "nwc_pct"])
+
+    class Result:
+        notes = [balance]
+
+    _year_end_rounding_notes([other], [year_end], result=Result)
+    assert balance.params["assumptions"] == ["debt", "cost_of_debt", "nwc_pct"]
+    [added] = [n for n in Result.notes if n is not balance]
+    assert added.params["fiscal_year"] == 2018 and added.params["period_end"] == "2018-12-31"
+    _year_end_rounding_notes([year_end], result=Result)  # once only
+    assert balance.params["assumptions"] == ["debt", "cost_of_debt", "nwc_pct"]
+    assert len(Result.notes) == 2
+
+
+def test_a_carried_forward_figure_names_the_balance_date(make_company):
+    edit = rounded_presentation(200e6, 195e6)
+
+    def no_current_at_the_quarter(tag, row):
+        if tag == "LongTermDebtCurrent" and row["end"] == "2020-03-31":
+            return None
+        return edit(tag, row)
+
+    result = build(make_company(no_current_at_the_quarter))
+    [note] = rounding_notes(result.notes, "balance_sheet")
+    assert note.params["period_end"] == "2019-12-31"
+    assert note.params["balance_date"] == "2020-03-31"
+    assert "(carried forward to the 2020-03-31 balance sheet)" in note.text
+
+
+def test_the_reported_net_debt_carries_the_note(make_company):
+    from domains.analysis.reported import reported_period
+
+    conn = make_company(rounded_presentation(200e6, 195e6))
+    net_debt = reported_period(conn, "TST", "FY2020Q1", AS_OF).ratio("net_debt")
+    [note] = rounding_notes(net_debt.notes)
+    p = note.params
+    assert p["used_for"] == "net_debt" and "assumptions" not in p
+    assert p["period_end"] == p["balance_date"] == "2020-03-31"
+    assert p["debt_current"] == 195e6 and p["debt_current_plain"] == 200e6
+
+
+def test_an_unknown_use_is_refused():
+    from domains.analysis.math_engine import rounding_note
+
+    with pytest.raises(ValueError):
+        rounding_note(choose(200e6, 195e6), date(2020, 3, 31), "somewhere")
+
+
+# Backlog #451 item 6 (PR #452 gatekeeper): annual and quarterly reads of the current portion come
+# from the placed read (`facts._placed`) over a reported read, not from `_get_facts`'s own path.
+# With two tags mapped to `debt_current` itself (CAT's maturities tag, priority 2), the placed read
+# must rank them as the single-item read does: the plain tag where both are filed, the other where
+# only it is.
+MATURITIES = "LongTermDebtMaturitiesRepaymentsOfPrincipalInNextTwelveMonths"
+
+
+def second_current_tag(conn, value=25, drop_plain_at="2019-12-31"):
+    """File the maturities tag beside every plain current figure (a different value), and drop
+    the plain figure at one date so that date has the second-ranked tag only."""
+    conn.execute(
+        "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, fiscal_year, "
+        "fiscal_period, value, unit, form, accession_no, filed_at) "
+        "SELECT cik, ?, period_start, period_end, fiscal_year, fiscal_period, ?, unit, form, "
+        "accession_no, filed_at FROM financial_facts WHERE xbrl_concept = ?",
+        (f"us-gaap:{MATURITIES}", value, "us-gaap:LongTermDebtCurrent"),
+    )
+    conn.execute(
+        "DELETE FROM financial_facts WHERE xbrl_concept = ? AND period_end = ?",
+        ("us-gaap:LongTermDebtCurrent", drop_plain_at),
+    )
+    conn.commit()
+
+
+def read(facts):
+    return [(f.period_end, f.fiscal_year, f.fiscal_period, f.value, f.xbrl_concept) for f in facts]
+
+
+@pytest.mark.parametrize(
+    "noncurrent_tag", ["LongTermDebtNoncurrent", "LongTermDebtAndCapitalLeaseObligations"]
+)
+@pytest.mark.parametrize("frequency", ["annual", "quarterly"])
+@pytest.mark.parametrize("mode", ["latest", "first_reported"])
+def test_the_placed_read_ranks_two_current_tags_as_the_single_item_read(
+    make_company, mode, frequency, noncurrent_tag
+):
+    # no lease-inclusive current figure: the merge must give what the item alone gives
+    conn = make_company(lease_inclusive(with_leases=None, noncurrent_tag=noncurrent_tag))
+    second_current_tag(conn)
+    merged = get_facts(conn, "0000000123", ["debt_current"], AS_OF, mode, frequency)
+    alone = _get_facts(conn, "0000000123", ["debt_current"], AS_OF, mode, frequency)
+    assert read(merged) == read(alone)
+    tags = {f.period_end: f.xbrl_concept for f in merged}
+    assert tags[date(2019, 12, 31)] == f"us-gaap:{MATURITIES}"  # the only one filed there
+    assert {t for d, t in tags.items() if d != date(2019, 12, 31)} == {
+        "us-gaap:LongTermDebtCurrent"
+    }  # the plain tag ranks first wherever both are filed
+
+
+# Backlog #451 item 7 (PR #452 gatekeeper): a balance labelled FY and one labelled Q4 of the same
+# fiscal year at two dates both came back as Q4 in quarterly mode, for every balance item.
+
+
+def balance(item, value, end, period):
+    return Fact(
+        canonical_name=item,
+        xbrl_concept="us-gaap:Cash",
+        period_end=end,
+        fiscal_year=2019,
+        fiscal_period=period,
+        value=value,
+        unit="USD",
+        accession_no="0000000123-20-000099",
+        filed_at=date(2020, 2, 15),
+    )
+
+
+@pytest.mark.parametrize("later", ["FY", "Q4"])
+def test_fy_and_q4_of_one_year_at_two_dates_are_one_quarter(later):
+    earlier = "Q4" if later == "FY" else "FY"
+    facts = [
+        balance("cash", 60, date(2019, 12, 28), earlier),
+        balance("cash", 61, date(2019, 12, 31), later),
+    ]
+    quarters = _quarterly(facts)
+    assert [(f.period_end, f.fiscal_period, f.value) for f in quarters] == [
+        (date(2019, 12, 31), "Q4", 61)  # the later date, as for two dates under one label
+    ]
+    assert placed(_placed(facts, "quarterly")) == [(date(2019, 12, 31), 2019, "Q4", 61)]
+    # the annual read keeps only the FY-labelled one, as before
+    [annual] = _placed(facts, "annual")
+    assert annual.fiscal_period == "FY" and annual.period_end == date(
+        2019, 12, 31 if later == "FY" else 28
+    )
+
+
+def test_fy_and_q4_at_one_date_stay_one_fact_and_other_years_are_untouched():
+    facts = [
+        balance("cash", 60, date(2019, 12, 31), "FY"),
+        balance("cash", 50, date(2019, 9, 30), "Q3"),
+    ]
+    assert placed(_quarterly(facts)) == [
+        (date(2019, 9, 30), 2019, "Q3", 50),
+        (date(2019, 12, 31), 2019, "Q4", 60),
+    ]
+
+
+# Backlog #451 item 3: Caterpillar's current portion is the debt note's principal due within a
+# year (`MATURITIES`), not a balance-sheet line, so the rounding margin never compares it with a
+# lease-inclusive balance-sheet figure.
+
+
+@pytest.mark.parametrize(
+    ("with_leases", "taken"), [(6_195e6, False), (6_250e6, True), (6_200e6, False)]
+)
+def test_a_note_figure_is_never_a_rounded_twin(with_leases, taken):
+    plain = fact("debt_current", 6_200e6, MATURITIES)  # looks rounded to 10^8
+    lease = fact("debt_current_with_leases", with_leases, WITH)
+    noncurrent = fact("debt_noncurrent", XOM_NONCURRENT, "LongTermDebtAndCapitalLeaseObligations")
+    current = current_on_noncurrent_basis(plain, lease, noncurrent)
+    assert (current.xbrl_concept == f"us-gaap:{WITH}") is taken  # only a figure above it
+    assert current.rounded_plain is None
+    # the same figures under the balance-sheet tag: the margin takes the precise one below
+    if with_leases == 6_195e6:
+        assert choose(6_200e6, 6_195e6).rounded_plain == 6_200e6
+
+
+# Backlog #465: `NOTE_TAGS` names its tag by hand, and the concept map reads the same tag into
+# `debt_current`. Tie the two, so renaming or replacing the map's tag cannot quietly turn the
+# guard off, and a new `debt_current` tag must be placed on one side or the other on purpose.
+BALANCE_SHEET_CURRENT = {"us-gaap:LongTermDebtCurrent"}  # balance-sheet carrying amounts
+
+
+def test_note_tags_are_the_maps_debt_note_tags():
+    current = {
+        row.xbrl_concept for row in load_concept_map() if row.canonical_name == "debt_current"
+    }
+    assert NOTE_TAGS, "the guard names no tag"
+    assert NOTE_TAGS <= current, f"not read into debt_current: {sorted(NOTE_TAGS - current)}"
+    assert current - BALANCE_SHEET_CURRENT == NOTE_TAGS, (
+        "every debt_current tag is either a balance-sheet line or a debt-note figure: "
+        f"{sorted(current - BALANCE_SHEET_CURRENT - NOTE_TAGS)}"
+    )
+    assert not NOTE_TAGS & BALANCE_SHEET_CURRENT

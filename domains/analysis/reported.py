@@ -48,6 +48,7 @@ from domains.analysis.math_engine import (
     debt_parts,
     paper_beside,
     paper_params,
+    rounding_note,
     total_in_place,
     total_params,
 )
@@ -1348,6 +1349,9 @@ def _net_debt(views: _Views, revenue: Fact, period: Period, lines: list[Line]) -
         notes.append(
             Coded("commercial_paper_beside_short_term", paper_params(beside, False), beside.text)
         )
+    rounded = next((n for f in used if (n := rounding_note(f, day, "net_debt"))), None)
+    if rounded:  # the figure counted, not one left out above (backlog #451)
+        notes.append(rounded)
     if value < 0:
         notes.append(Coded("net_cash", {}, "negative: the company holds more cash than debt"))
     notes += _changed_note(facts, lines)

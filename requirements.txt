@@ -40,6 +40,9 @@ babel==2.18.0
 # Development: tests, lint and format
 pytest==9.1.1
 hypothesis==6.169.4
+# runs the tests in parallel, one test file per worker (pytest-xdist MIT, execnet MIT; backlog #424)
+pytest-xdist==3.8.0
+execnet==2.1.2
 ruff==0.17.0
 # the web app's tests: FastAPI's test client needs httpx (BSD-3); Playwright (Apache-2.0) drives
 # Chromium for keyboard tests and screenshots (CI installs the browser)
