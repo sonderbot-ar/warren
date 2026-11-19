@@ -50,8 +50,8 @@ def test_the_cells_are_the_rows_sources_reaches_gives(run):
     answer = inputs_behind(conn, run_id, [key])
     assert {c.name for c in answer.cells} == {n for n, _p in src.reaches(trace, key)}
     gaps = {c.name: c.gap.code for c in answer.cells if c.gap}
-    assert gaps["risk_free"] == "history_not_built"
-    assert gaps["shares"] == "history_not_built"
+    assert "history_not_built" not in gaps.values()  # every single value has its own (#476)
+    assert gaps["equity_market_value"] == "computed_from_other_cells"
     assert gaps["terminal_method"] == "owner_choice"
     for name in dcf.DRIVERS:
         assert _cell(answer, name).gap is None and _cell(answer, name).history
@@ -220,7 +220,8 @@ def test_the_command_prints_json_and_text(run, capsys, monkeypatch):
     assert [c["name"] for c in data["cells"]] == [dcf.SEED, "revenue_growth"]
     assert cli.main(["inputs", "--run-id", run_id, "--output", "value_per_share"]) == 0
     text = capsys.readouterr().out
-    assert "nwc_pct [year_end_average_ratio]" in text and "history_not_built" in text
+    assert "nwc_pct [year_end_average_ratio]" in text and "owner_choice" in text
+    assert "risk_free_yield by month (latest, primary)" in text
     assert cli.main(["inputs", "--run-id", run_id, "--output", "nope:X"]) == 1
     assert "output_not_in_run" in capsys.readouterr().out
 
