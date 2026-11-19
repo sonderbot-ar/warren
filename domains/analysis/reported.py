@@ -781,9 +781,25 @@ def _close(value: float, target: float) -> bool:
 
 
 def reported_period(
-    conn: sqlite3.Connection, ticker: str, period: str | Period, as_of: date
+    conn: sqlite3.Connection,
+    ticker: str,
+    period: str | Period,
+    as_of: date,
+    _shared: dict | None = None,
 ) -> ReportedPeriod:
-    """One fiscal period's reported lines and named ratios, as known on `as_of` (inclusive)."""
+    """One fiscal period's reported lines and named ratios, as known on `as_of` (inclusive).
+
+    `_shared` is for a caller reading many periods of one company on one date (backlog #471):
+    a dict it keeps between calls, where the reads that depend only on the company, the date and
+    the frequency are kept, so each is made once. The answers are the same with or without it,
+    except `warnings`: a warning raised by a kept read is caught only by the call that made it."""
+    shared = {} if _shared is None else _shared
+
+    def once(key, make):
+        if key not in shared:
+            shared[key] = make()
+        return shared[key]
+
     company = conn.execute("SELECT * FROM companies WHERE ticker = ?", (ticker.upper(),)).fetchone()
     if company is None:
         raise ReportedError(f"{ticker} has not been ingested")
@@ -797,14 +813,22 @@ def reported_period(
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        views = _views(conn, cik, as_of, quarterly)
+        key = (cik, as_of)
+        views = once(("views", *key, quarterly), lambda: _views(conn, cik, as_of, quarterly))
         resolved = resolved or latest_period(views, quarterly)
-        filings = _Filings(conn, cik)
-        changes = tag_meaning_changes(conn, cik, ["revenue"], as_of)
+        filings = once(("filings", *key), lambda: _Filings(conn, cik))
+        changes = once(
+            ("changes", *key), lambda: tag_meaning_changes(conn, cik, ["revenue"], as_of)
+        )
         lines = _lines(views, resolved, filings, changes)
         disagreements = _disagreements(conn, cik, lines, as_of, filings)
-        flips = skipped_sign_flips(conn, cik, sorted({x.name for x in lines}), as_of)
-        parts = skipped_parts_as_whole(conn, cik, sorted({x.name for x in lines}), as_of)
+        names = tuple(sorted({x.name for x in lines}))
+        flips = once(
+            ("flips", *key, names), lambda: skipped_sign_flips(conn, cik, list(names), as_of)
+        )
+        parts = once(
+            ("parts", *key, names), lambda: skipped_parts_as_whole(conn, cik, list(names), as_of)
+        )
     prior = resolved.year_earlier()
     prior_revenue = _getter(views, prior)("revenue")
     prior_key = _key(prior_revenue, quarterly) if prior_revenue else None
