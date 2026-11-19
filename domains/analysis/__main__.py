@@ -39,6 +39,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 from domains.analysis import sim_report
+from domains.analysis.inputs import DEFAULT_YEARS, InputsError, inputs_behind
 from domains.analysis.math_engine import EngineError, fallback_backtest
 from domains.analysis.montecarlo import (
     DEFAULT_SAMPLES,
@@ -682,6 +683,58 @@ def cmd_notes(args: argparse.Namespace) -> int:
     return 0
 
 
+def render_inputs(r) -> str:
+    """The cells behind an answer, one block each, as plain text (the app reads --json)."""
+
+    def num(v):
+        return "—" if v is None else f"{v:,.6g}"
+
+    out = [f"Inputs behind {', '.join(o['name'] + ' ' + o['period'] for o in r.outputs)}"]
+    out.append(f"Run {r.run_id} ({r.ticker}), as known on {r.as_of}; {r.years} years of history")
+    for cell in r.cells:
+        rows = ", ".join(f"{x.period} {num(x.value)}" for x in cell.rows[:4])
+        more = f" (+{len(cell.rows) - 4} more)" if len(cell.rows) > 4 else ""
+        codes = sorted({x.method_code for x in cell.rows})
+        out.append(f"\n{cell.name} [{', '.join(codes)}]: {rows}{more}")
+        if cell.gap:
+            out.append(f"  no history: {cell.gap.code}")
+        for note in cell.notes:
+            out.append(f"  note: [{note.code}] {note.text}")
+        for s in cell.history:
+            q = f" Q{s.fiscal_quarter}" if s.fiscal_quarter else ""
+            head = (
+                f"  {s.measure} by {s.frequency}{q} ({s.basis}{', primary' if s.primary else ''})"
+            )
+            pts = "; ".join(
+                f"{p.period}{'*' if p.used else ''} "
+                + (
+                    num(p.value)
+                    if p.missing is None
+                    else p.missing.params.get("reason", p.missing.code)
+                )
+                for p in s.points
+            )
+            out.append(f"{head}: {pts}")
+    out.append("\n* used by the assumption")
+    return "\n".join(out)
+
+
+def cmd_inputs(args: argparse.Namespace) -> int:
+    outputs = []
+    for item in args.output:
+        name, _, period = item.partition(":")
+        outputs.append((name, period or "-"))
+    with get_db_connection() as conn:
+        apply_migrations(conn)
+        try:
+            result = inputs_behind(conn, args.run_id, outputs, years=args.years)
+        except InputsError as e:
+            print(f"REFUSED [{e.code}]: {e}")
+            return 1
+    print(json.dumps(result.to_dict(), indent=2) if args.json else render_inputs(result))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m domains.analysis")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -830,6 +883,20 @@ def main(argv: list[str] | None = None) -> int:
     )
     no.add_argument("--all", action="store_true", help="with --backfill: every stored run")
     no.set_defaults(func=cmd_notes)
+
+    ib = commands.add_parser(
+        "inputs", help="each input behind an answer, with its history (backlog #471)"
+    )
+    ib.add_argument("--run-id", required=True)
+    ib.add_argument(
+        "--output",
+        action="append",
+        required=True,
+        help="an output the answer shows, NAME:PERIOD (e.g. revenue:FY2026Q4, value_per_share)",
+    )
+    ib.add_argument("--years", type=int, default=DEFAULT_YEARS, help="fiscal years, 3 to 10")
+    ib.add_argument("--json", action="store_true", help="print JSON for the app")
+    ib.set_defaults(func=cmd_inputs)
 
     args = parser.parse_args(argv)
     return args.func(args)

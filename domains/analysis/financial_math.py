@@ -45,7 +45,7 @@ def _any(condition: Number) -> bool:
     return bool(condition.any()) if hasattr(condition, "any") else bool(condition)
 
 
-# -- projection -------------------------------------------------------------------------------
+# -- projection -----------------------------------------------------------------------------------
 
 
 def compound(seed: Sequence[Number], growth: Sequence[Number], lag: int = 1) -> list[Number]:
@@ -69,7 +69,7 @@ def fcff(
     return ebit * (1 - tax_rate) + d_and_a - capex - delta_nwc
 
 
-# -- discounting ------------------------------------------------------------------------------
+# -- discounting ----------------------------------------------------------------------------------
 
 
 def discount_factors(rates: Sequence[Number], year_fractions: Sequence[float]) -> list[Number]:
@@ -172,7 +172,7 @@ def enterprise_value(
     return DCFValue(pv_explicit, terminal, pv_terminal, pv_explicit + pv_terminal)
 
 
-# -- enterprise value to value per share ------------------------------------------------------
+# -- enterprise value to value per share ----------------------------------------------------------
 
 
 def roll_forward(value: Number, rate: Number, years: float) -> Number:
@@ -193,7 +193,7 @@ def value_per_share(equity: Number, shares: Number) -> Number:
     return equity / shares
 
 
-# -- reported ratios (backlog #140) -------------------------------------------------------------
+# -- reported ratios (backlog #140) ---------------------------------------------------------------
 
 
 def ratio(numerator: Number, denominator: Number) -> Number:
@@ -213,7 +213,7 @@ def growth(current: Number, prior: Number) -> Number:
     return current / prior - 1
 
 
-# -- sensitivity grid (backlog #142) -----------------------------------------------------------
+# -- sensitivity grid (backlog #142) --------------------------------------------------------------
 
 
 def reinvestment_rate(fcff_value: Number, nopat: Number) -> Number:
@@ -252,7 +252,7 @@ def net_debt(debt: Number, cash_and_investments: Number) -> Number:
     return debt - cash_and_investments
 
 
-# -- cost of capital --------------------------------------------------------------------------
+# -- cost of capital ------------------------------------------------------------------------------
 
 
 def capm_cost_of_equity(risk_free: Number, beta: Number, equity_risk_premium: Number) -> Number:
@@ -334,7 +334,7 @@ def blume_adjusted_beta(raw_beta: Number) -> Number:
     return BLUME_WEIGHT * raw_beta + (1 - BLUME_WEIGHT)
 
 
-# -- equity risk premium ----------------------------------------------------------------------
+# -- equity risk premium --------------------------------------------------------------------------
 
 
 def bond_total_return(start_yield: float, end_yield: float, maturity: int = 10) -> float:
@@ -384,7 +384,7 @@ def historical_premium(
     )
 
 
-# -- shocks (M4, Decision 6) ------------------------------------------------------------------
+# -- shocks (M4, Decision 6) ----------------------------------------------------------------------
 
 # z of the 90th percentile of a standard normal: low and high sit this many σ from the median
 Z90 = 1.2815515655446004
@@ -425,7 +425,7 @@ def split_normal(low: float, base: float, high: float, z: Number) -> Number:
     return base + z * (sigma_low if z < 0 else sigma_high)
 
 
-# -- forecast errors and ranges (M9) -------------------------------------------------------------
+# -- forecast errors and ranges (M9) --------------------------------------------------------------
 
 
 def log_ratio(actual: float, forecast: float) -> float:
@@ -457,3 +457,15 @@ def apply_margin_error(forecast_ebit: Number, error: Number, revenue: Number) ->
     `revenue` is the revenue drawn with the same error, so an origin's own error applied to its
     own forecast gives back its actual."""
     return forecast_ebit + error * abs(revenue)
+
+
+# -- the inputs behind an answer (backlog #471) ---------------------------------------------------
+
+
+def growth_contribution(current: Number, prior: Number, prior_total: Number) -> Number:
+    """One part's contribution to the growth of a total: (part now − the same part a year
+    earlier) ÷ the year-earlier total, over a positive total. The parts' contributions add up to
+    the total's growth exactly when the parts add up to the total in both years."""
+    if _any(prior_total <= 0):
+        raise FinancialMathError(f"a contribution needs a positive prior total, got {prior_total}")
+    return (current - prior) / prior_total
