@@ -904,15 +904,26 @@ def _one_per_period(facts: list[Fact]) -> list[Fact]:
     return list(best.values())
 
 
+def _as_q4(facts: list[Fact]) -> list[Fact]:
+    """Balance-sheet facts with a fiscal year end (FY) relabelled Q4, the quarterly read's label
+    for it; durations unchanged."""
+    return [
+        f.model_copy(update={"fiscal_period": "Q4"})
+        if f.period_start is None and f.fiscal_period == "FY"
+        else f
+        for f in facts
+    ]
+
+
 def _flow_years(facts: list[Fact]) -> tuple[list[Fact], dict[tuple, dict[str, Fact]]]:
     """Balance-sheet facts (the Q4 balance is the year-end one), and duration facts by
-    (item, fiscal year) and fiscal period."""
+    (item, fiscal year) and fiscal period. A balance labelled FY and one labelled Q4 of the same
+    fiscal year at two dates are one quarter: relabelled before `_one_per_period`, the later date
+    wins, as for any two dates under one label (backlog #451 item 7)."""
     years: dict[tuple, dict[str, Fact]] = defaultdict(dict)
     instants = []
-    for fact in _one_per_period(facts):
+    for fact in _one_per_period(_as_q4(facts)):
         if fact.period_start is None:
-            if fact.fiscal_period == "FY":
-                fact = fact.model_copy(update={"fiscal_period": "Q4"})
             instants.append(fact)
         else:
             years[(fact.canonical_name, fact.fiscal_year)][fact.fiscal_period] = fact
@@ -1060,6 +1071,11 @@ LARGEST_ROUNDING_UNIT = 10**12
 # Filers state their statements in millions, so a figure is taken as rounded only when it looks
 # rounded coarser than that: to ten million or more ("$6.25 billion", "$6.2 billion").
 SMALLEST_ROUNDING_UNIT = 10**7
+# A plain current portion read from the debt note, not the balance sheet: Caterpillar's principal
+# due within a year (backlog #341), a different measure from a balance-sheet carrying amount, so
+# a precise lease-inclusive figure below it is not the same line rounded differently and the
+# rounding margin never takes it (backlog #451 item 3; CAT files no lease-inclusive current tag).
+NOTE_TAGS = frozenset({"us-gaap:LongTermDebtMaturitiesRepaymentsOfPrincipalInNextTwelveMonths"})
 
 
 def lease_inclusive(fact: Fact | None) -> bool:
@@ -1103,7 +1119,8 @@ def current_on_noncurrent_basis(
     the only one filed; or, with both, the lease-inclusive one when the non-current debt is
     lease-inclusive, it is not the non-current debt again (a mis-tag), and it is above the plain
     one (equal figures keep the plain tag, which then already holds any leases) or below a plain
-    figure that looks rounded by no more than half its unit (backlog #427, `_within_rounding`).
+    figure that looks rounded by no more than half its unit (backlog #427, `_within_rounding`),
+    unless the plain figure is the debt note's (`NOTE_TAGS`, backlog #451 item 3).
     With both filed, the result sits under the two figures' shared fiscal labels (`_labels`); a
     lease-inclusive figure taken below the plain one carries the plain one as `rounded_plain`, for
     the run note (backlog #430)."""
@@ -1116,7 +1133,13 @@ def current_on_noncurrent_basis(
         lease_inclusive(noncurrent)
         and plain.value >= 0
         and with_leases.value != noncurrent.value
-        and (with_leases.value > plain.value or _within_rounding(plain.value, with_leases.value))
+        and (
+            with_leases.value > plain.value
+            or (
+                plain.xbrl_concept not in NOTE_TAGS
+                and _within_rounding(plain.value, with_leases.value)
+            )
+        )
     ):
         chosen = with_leases
         if with_leases.value < plain.value:  # only the rounding margin takes a lower figure
@@ -1232,15 +1255,11 @@ def get_facts(
 
 def _placed(instants: list[Fact], frequency: Frequency) -> list[Fact]:
     """Balance-sheet facts placed as `_get_facts` places a single item's: annual, the FY-labelled
-    ones; quarterly, the year-end one as Q4 (`_flow_years`); one per fiscal label, the later date
-    winning (`_one_per_period`)."""
+    ones; quarterly, the year-end one as Q4 (`_flow_years`, relabelled before it is placed, backlog
+    #451 item 7); one per fiscal label, the later date winning (`_one_per_period`)."""
     if frequency == "annual":
         return _one_per_period([f for f in instants if f.fiscal_period == "FY"])
-    placed = _one_per_period(instants)
-    return [
-        f.model_copy(update={"fiscal_period": "Q4"}) if f.fiscal_period == "FY" else f
-        for f in placed
-    ]
+    return _one_per_period(_as_q4(instants))
 
 
 def _get_facts(

@@ -1051,6 +1051,69 @@ def _lease_inclusive(*facts: Fact | None) -> bool:
     )
 
 
+# the balance sheet's figure feeds debt and working capital; the cost of debt reads fiscal year
+# ends, so it is added only when one of them is the same figure (backlog #451)
+BALANCE_NOTE_ASSUMPTIONS = ["debt", "nwc_pct"]
+
+
+ROUNDING_USES = ("balance_sheet", "cost_of_debt_average", "net_debt")
+
+
+def rounding_note(
+    fact: Fact | None,
+    balance_date: date,
+    used_for: str,
+    assumptions: list[str] | None = None,
+) -> Coded | None:
+    """Note `debt_current_within_rounding` for a counted current portion of long-term debt that
+    the rounding margin chose (`Fact.rounded_plain`, backlog #430), or None. `balance_date` is
+    the date whose debt counts the figure: later than the figure's own date when it is carried
+    forward (backlog #451). `used_for` (one of `ROUNDING_USES`) says where it is counted: the
+    balance sheet a run values from, a fiscal year end of the cost of debt's average debt
+    (with that year in `fiscal_year`), or the reported view's net debt. Without `assumptions`
+    (the reported view) the param is left out."""
+    if used_for not in ROUNDING_USES:
+        raise ValueError(f"unknown use {used_for!r}")
+    if fact is None or fact.canonical_name != "debt_current" or fact.rounded_plain is None:
+        return None
+    unit = rounding_unit(fact.rounded_plain)
+    gap = fact.rounded_plain - fact.value
+    params = {
+        "period_end": fact.period_end.isoformat(),
+        "balance_date": balance_date.isoformat(),
+        "debt_current": fact.value,
+        "debt_current_plain": fact.rounded_plain,
+        "rounding_unit": unit,
+        "rounding_margin": unit / 2,
+        "gap": gap,
+        "currency": fact.unit,
+        "accession_no": fact.accession_no,
+        "used_for": used_for,
+    }
+    if used_for == "cost_of_debt_average":
+        params["fiscal_year"] = fact.fiscal_year
+    if assumptions is not None:
+        params["assumptions"] = list(assumptions)
+    where = (
+        f" (a year end of the average debt behind the FY{fact.fiscal_year} cost of debt)"
+        if used_for == "cost_of_debt_average"
+        else ""
+    )
+    carried = (
+        f" (carried forward to the {balance_date} balance sheet)"
+        if fact.period_end < balance_date
+        else ""
+    )
+    text = (
+        f"Current portion of long-term debt read as {fact.value:,.0f} with finance leases "
+        f"at {fact.period_end}{carried}{where}, below the {fact.rounded_plain:,.0f} filed "
+        "without them: "
+        f"that figure looks rounded to {unit:,.0f} (inferred from its trailing zeros), so the "
+        f"precise one, {gap:,.0f} below, lies inside it"
+    )
+    return Coded("debt_current_within_rounding", params, text)
+
+
 def debt_parts(
     get: Callable[[str], Fact | None],
     on: Callable[[str, date], Fact | None] | None = None,
@@ -1162,27 +1225,11 @@ def _balance(history: History, base_date: date, result: EngineResult) -> date:
             f"Current portion of long-term debt ({inside.current.value:,.0f} at "
             f"{inside.current.period_end}) left out: short-term borrowings already include it",
         )
-    rounded = facts["debt_current"]  # counted: not left out above
-    if rounded is not None and rounded.rounded_plain is not None:
-        unit = rounding_unit(rounded.rounded_plain)
-        result.warn(
-            "debt_current_within_rounding",
-            {
-                "period_end": rounded.period_end.isoformat(),
-                "debt_current": rounded.value,
-                "debt_current_plain": rounded.rounded_plain,
-                "rounding_unit": unit,
-                "rounding_margin": unit / 2,
-                "gap": rounded.rounded_plain - rounded.value,
-                "currency": rounded.unit,
-                "accession_no": rounded.accession_no,
-                "assumptions": ["debt", "cost_of_debt", "nwc_pct"],
-            },
-            f"Current portion of long-term debt read as {rounded.value:,.0f} with finance leases "
-            f"at {rounded.period_end}, below the {rounded.rounded_plain:,.0f} filed without them: "
-            f"that figure looks rounded to {unit:,.0f} (inferred from its trailing zeros), so the "
-            f"precise one, {rounded.rounded_plain - rounded.value:,.0f} below, lies inside it",
-        )
+    rounded = rounding_note(
+        facts["debt_current"], balance_date, "balance_sheet", BALANCE_NOTE_ASSUMPTIONS
+    )
+    if rounded:  # counted: not left out above
+        result.notes.append(rounded)
     beside = paper_beside(
         facts["short_term_borrowings"], facts["commercial_paper"], history.on, inside
     )
@@ -1597,6 +1644,7 @@ def _cost_of_debt(history: History, fiscal_years: list[int], result: EngineResul
             f"FY{year} interest / average debt ({opening}, FY{year} {end:,.0f}); {interest.method}",
             sources=[src.filing(f) for f in (*interest.facts, *start_used, *end_used)],
         )
+        _year_end_rounding_notes(start_used, end_used, result=result)
         if not COST_OF_DEBT_BOUNDS[0] <= kd <= COST_OF_DEBT_BOUNDS[1]:
             low, high = COST_OF_DEBT_BOUNDS
             result.warn(
@@ -1612,6 +1660,29 @@ def _cost_of_debt(history: History, fiscal_years: list[int], result: EngineResul
             code="no_interest_with_debt",
             params={"ticker": result.ticker, "fiscal_years": list(fiscal_years)},
         )
+
+
+def _year_end_rounding_notes(*used: list[Fact], result: EngineResult) -> None:
+    """A rounding note for each counted current portion at a fiscal year end the cost of debt
+    averages over (backlog #451). When the balance sheet's note names the same figure (same
+    date and filing), that note gains `cost_of_debt` in its assumptions instead of a second
+    note. A year's facts are its own fiscal-year facts, so each is dated at its year end."""
+    named = {
+        (n.params["period_end"], n.params["accession_no"]): n
+        for n in result.notes
+        if n.code == "debt_current_within_rounding"
+    }
+    for facts in used:
+        for fact in facts:
+            note = rounding_note(fact, fact.period_end, "cost_of_debt_average", ["cost_of_debt"])
+            if note is None:
+                continue
+            key = (note.params["period_end"], note.params["accession_no"])
+            if key not in named:
+                named[key] = note
+                result.notes.append(note)
+            elif "cost_of_debt" not in named[key].params["assumptions"]:
+                named[key].params["assumptions"].insert(1, "cost_of_debt")
 
 
 def _sum(result: EngineResult, item: str, years: list[int]) -> float:

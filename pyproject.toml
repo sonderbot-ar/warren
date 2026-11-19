@@ -7,7 +7,9 @@ requires-python = ">=3.11.4"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra"
+# -n auto: one worker per CPU; --dist loadfile: each test file on one worker, in its order
+# (backlog #424). Debug a test one at a time with -n 0.
+addopts = "-ra -n auto --dist loadfile"
 
 [tool.ruff]
 line-length = 100
