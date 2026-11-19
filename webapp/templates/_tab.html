@@ -1,3 +1,7 @@
 <div class="tab-body" data-pestana="{{ panel.pestana }}">
-  <p>{{ t("panel.body." ~ panel.pestana) }}</p>
+  {% if panel.figure and panel.pestana == "fuente" %}
+    {% include "_fuente.html" %}
+  {% else %}
+    <p>{{ t("panel.body." ~ panel.pestana) }}</p>
+  {% endif %}
 </div>

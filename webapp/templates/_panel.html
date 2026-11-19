@@ -7,7 +7,7 @@
         data-tab-error="{{ t('panel.tab_error') }}"
         aria-labelledby="panel-titulo"{% if panel.full_page %} open{% endif %}>
   <div class="panel-head">
-    <h2 id="panel-titulo">{{ t("panel.label") }}</h2>
+    <h2 id="panel-titulo">{{ panel.title or t("panel.label") }}</h2>
     {# a link, so it closes without JavaScript too; panel.js closes it in place #}
     <a class="panel-close" href="{{ panel.close_url }}" data-panel-close>{{ t("panel.close") }}</a>
   </div>

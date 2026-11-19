@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{# The first screen's answer (F2 Step 4b, part 1): brief Q5 for one company and fecha de corte,
+   as the approved mockup draws it (docs/product/mockups/f2-screen1-q5.html, state "respuesta").
+   Every figure is a door to the side panel (design principle 2): a link that works without
+   JavaScript, swapped in place by htmx when it runs. #}
+{% block title %}{{ t("answer.title", company=view.company) }} · {{ t("app.name") }}{% endblock %}
+{% block main_class %}{{ "wide" }}{% endblock %}
+{% macro fig(f, extra="") -%}
+  <a class="fig{{ extra }}{% if open_figure == f.id %} on{% endif %}" href="{{ figure_url(f.id) }}"
+     data-figura="{{ f.id }}" hx-get="{{ figure_fragment_url(f.id) }}" hx-target="#panel-host"
+     hx-push-url="{{ figure_url(f.id) }}" aria-haspopup="dialog">{{ f.text }}</a>
+{%- endmacro %}
+{% macro chart_svg(d, size, aria) -%}
+  <svg class="chart {{ size }}" viewBox="{{ d.box }}" role="img" aria-label="{{ aria }}">
+    {% for tick in d.ticks %}
+    <line class="grid" x1="{{ d.left }}" x2="{{ d.right }}" y1="{{ tick.y }}" y2="{{ tick.y }}"/>
+    <text class="ylab" x="{{ d.left - 8 }}" y="{{ tick.y + 4 }}" text-anchor="end">{{ tick.label }}</text>
+    {% endfor %}
+    {% for lab in d.xlabels %}
+    <text class="xlab" x="{{ lab.x }}" y="{{ d.xlab_y }}" text-anchor="middle">{{ lab.label }}</text>
+    {% endfor %}
+    <text class="ylab" x="4" y="12">{{ t("answer.unit_millions") }}</text>
+    <line class="split" x1="{{ d.split_x }}" x2="{{ d.split_x }}" y1="{{ d.top }}" y2="{{ d.bottom }}"/>
+    <text class="splitlab" x="{{ d.split_x - 6 }}" y="{{ d.top + 12 }}" text-anchor="end">{{ t("answer.chart.reported") }}</text>
+    <text class="splitlab" x="{{ d.split_x + 6 }}" y="{{ d.top + 12 }}">{{ t("answer.chart.forecast") }}</text>
+    {% if d.band %}
+    <polygon class="band" points="{% for px, py in d.band %}{{ px }},{{ py }} {% endfor %}"/>
+    {% endif %}
+    {% for wx, wlow, whigh in d.whiskers %}
+    <line class="whisker" x1="{{ wx }}" x2="{{ wx }}" y1="{{ wlow }}" y2="{{ whigh }}"/>
+    {% endfor %}
+    <polyline class="actual" points="{% for px, py in d.actual %}{{ px }},{{ py }} {% endfor %}"/>
+    <polyline class="fcline" points="{% for px, py in d.forecast %}{{ px }},{{ py }} {% endfor %}"/>
+    {% for px, py in d.actual %}<circle class="actdot" cx="{{ px }}" cy="{{ py }}" r="3.5"/>{% endfor %}
+    {% for px, py in d.forecast_dots %}<circle class="fcdot" cx="{{ px }}" cy="{{ py }}" r="4.5"/>{% endfor %}
+  </svg>
+{%- endmacro %}
+{% block content %}
+  <div class="chips" aria-label="{{ t('answer.reading.label') }}">
+    <span class="chips-lead">{{ t("answer.reading.lead") }}</span>
+    <span class="chip"><b>{{ t("answer.reading.kind") }}</b></span>
+    <span class="chip">{{ t("answer.reading.company") }} <b>{{ view.company }}</b></span>
+    <span class="chip">{{ t("answer.reading.line") }} <b>{{ t("answer.reading.revenue") }}</b></span>
+    <span class="chip">{{ t("answer.reading.period") }} <b>{{ t("answer.reading.next_four") }}</b></span>
+    <span class="chip">{{ t("header.corte") }} <b>{{ fmt_date(view.as_of) }}</b></span>
+  </div>
+  <div class="answer">
+    <section class="pane">
+      <h1>{{ t("answer.title", company=view.company) }}</h1>
+      <div class="fx" aria-live="polite">
+        <span class="fx-tag" aria-hidden="true">{{ t("answer.fx.tag") }}</span>
+        <code>{{ formula or t("answer.fx.empty") }}</code>
+      </div>
+      <div class="sheet">
+        <table class="t">
+          <caption class="visually-hidden">{{ t("answer.table.caption") }}</caption>
+          <thead>
+            <tr>
+              <th scope="col">{{ t("answer.table.quarter") }}<span class="sub">{{ t("answer.table.fiscal_year", company=view.company) }}</span></th>
+              <th scope="col" class="num">{{ t("answer.table.forecast") }}</th>
+              <th scope="col" class="num rng">{{ t("answer.table.range") }}<span class="sub">{{ t("answer.table.range_sub") }}</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in view.rows %}
+            <tr>
+              <th scope="row">{{ row.quarter }}<span class="sub">{{ row.months }}{% if row.closed %} · {{ t("answer.table.closed", company=view.company) }}{% endif %}</span></th>
+              <td class="num">{{ fig(row.forecast) }}
+                {% if row.p10 %}<span class="rng-stack">{{ fig(row.p10, " r") }}{{ " – " }}{{ fig(row.p90, " r") }}</span>{% endif %}
+              </td>
+              <td class="num rng">
+                {% if row.p10 %}{{ fig(row.p10, " r") }}{{ " – " }}{{ fig(row.p90, " r") }}{% else %}{{ t("answer.table.no_range") }}{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="src">{{ t("answer.table.units", company=view.company) }}</p>
+      <h2>{{ t("answer.sure.title") }}</h2>
+      <div class="kpis">
+        {% if view.coverage_all %}
+        <div class="kpi"><b>{{ fig(view.coverage_all) }}</b><span>{{ t("answer.coverage.all", company=view.company) }}</span></div>
+        {% endif %}
+        {% if view.coverage_company %}
+        <div class="kpi"><b>{{ fig(view.coverage_company) }}</b><span>{{ t("answer.coverage.company", company=view.company) }}</span></div>
+        {% endif %}
+      </div>
+      {% if view.coverage_counts.all and view.coverage_counts.company %}
+      <p class="p">{{ t("answer.sure.body", company=view.company,
+                        inside=view.coverage_counts.all.inside, n=view.coverage_counts.all.n,
+                        inside_company=view.coverage_counts.company.inside,
+                        n_company=view.coverage_counts.company.n) }}</p>
+      {% endif %}
+    </section>
+    <section class="pane">
+      <h2>{{ t("answer.chart.title") }}</h2>
+      {% set c = view.chart %}
+      <figure class="chart-figure">
+        {% for size in ("l", "s") %}{{ chart_svg(c[size], size, c.aria) }}{% endfor %}
+        <figcaption class="legend">
+          <span><i class="key-actual"></i>{{ t("answer.chart.reported") }}</span>
+          <span><i class="key-forecast"></i>{{ t("answer.chart.forecast") }}</span>
+          <span><i class="key-band"></i>{{ t("answer.table.range") }}</span>
+        </figcaption>
+      </figure>
+      <p class="src">{{ t("answer.chart.source", date=fmt_date(view.as_of), company=view.company) }}
+        <span class="run-id">{{ view.run_id }}</span></p>
+    </section>
+  </div>
+{% endblock %}
+{% block panel %}{% if panel %}{% include "_panel.html" %}{% endif %}{% endblock %}

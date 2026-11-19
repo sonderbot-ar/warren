@@ -30,11 +30,17 @@ from shared_kernel.calendar import last_ended_day
 from shared_kernel.config import DB_PATH
 from shared_kernel.database import get_db_connection
 from webapp import formatting
+from webapp.answer import NoRun, answer_view, load_bundle
 from webapp.database import schema_status
 from webapp.text import translate
 
 HERE = Path(__file__).parent
 REGION_COOKIE = "warren_region"
+THEME_COOKIE = "warren_theme"
+THEMES = {"oscuro": "dark", "claro": "light"}  # the address's word -> the page's data-theme
+DEFAULT_THEME = "dark"  # the owner's choice on the first screen's mockup (nov.18.2026)
+# the companies the answer covers (Phase 1's eight)
+COMPANIES = ("AAPL", "MSFT", "WMT", "KO", "PG", "JNJ", "CAT", "XOM")
 # the side panel's five tabs, in order (design principle 2); their names live in the catalogues
 PANEL_TABS = ("fuente", "formula", "concepto", "ysi", "leer")
 # figures the component bench can open; the first screen replaces this with engine figures
@@ -45,6 +51,10 @@ class BadCorte(ValueError):
     """The address's fecha de corte is not a date."""
 
 
+class UnknownCompany(LookupError):
+    """The address names a company Warren does not cover."""
+
+
 class UnknownPanel(LookupError):
     """The address names a figure or a tab the page does not have."""
 
@@ -53,9 +63,20 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-def create_app(db_path: Path | None = None, clock: Callable[[], datetime] = _utc_now) -> FastAPI:
-    """The app. `db_path` defaults to the engine's database; `clock` is injectable for tests."""
+def create_app(
+    db_path: Path | None = None,
+    clock: Callable[[], datetime] = _utc_now,
+    bundle_loader: Callable[[str, date], dict] | None = None,
+) -> FastAPI:
+    """The app. `db_path` defaults to the engine's database; `clock` is injectable for tests,
+    and so is `bundle_loader(ticker, corte)`, the engine's answer for brief Q5 (`answer.py`)."""
     db = Path(db_path) if db_path is not None else DB_PATH
+
+    def engine_bundle(ticker: str, corte: date) -> dict:
+        with get_db_connection(db) as conn:
+            return load_bundle(conn, ticker, corte)
+
+    bundle_for = bundle_loader or engine_bundle
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
@@ -83,7 +104,9 @@ def create_app(db_path: Path | None = None, clock: Callable[[], datetime] = _utc
 
     def render(request: Request, name: str, context: dict, status_code: int = 200) -> HTMLResponse:
         region = region_of(request)
+        theme = request.cookies.get(THEME_COOKIE, DEFAULT_THEME)
         base = {
+            "theme": theme if theme in THEMES.values() else DEFAULT_THEME,
             "t": partial(translate, region.language),
             "region": region,
             "fmt_date": partial(formatting.format_date, region=region),
@@ -145,7 +168,7 @@ def create_app(db_path: Path | None = None, clock: Callable[[], datetime] = _utc
 
     @app.exception_handler(UnknownPanel)
     def _unknown_panel(request: Request, exc: UnknownPanel) -> Response:
-        if request.url.path.startswith("/fragmentos/"):
+        if "/fragmentos/" in request.url.path:
             return Response(status_code=404)
         return render(
             request,
@@ -154,6 +177,34 @@ def create_app(db_path: Path | None = None, clock: Callable[[], datetime] = _utc
                 "title_key": "error.not_found.title",
                 "body_key": "error.not_found.body",
                 "retry_url": _url_without(request, "panel", "figura", "pestana"),
+            },
+            status_code=404,
+        )
+
+    @app.exception_handler(UnknownCompany)
+    def _unknown_company(request: Request, exc: UnknownCompany) -> HTMLResponse:
+        return render(
+            request,
+            "error.html",
+            {
+                "title_key": "error.company.title",
+                "body_key": "error.company.body",
+                "retry_url": _url_without(request, "empresa", "panel", "figura", "pestana"),
+            },
+            status_code=404,
+        )
+
+    @app.exception_handler(NoRun)
+    def _no_run(request: Request, exc: NoRun) -> HTMLResponse:
+        # Part 3 of Step 4b builds the refusal state ("No se pudo") and runs on demand; until
+        # then a date with no stored estimate says so plainly.
+        return render(
+            request,
+            "error.html",
+            {
+                "title_key": "error.no_run.title",
+                "body_key": "error.no_run.body",
+                "retry_url": "/?" + urlencode({"corte": request.query_params.get("corte", "")}),
             },
             status_code=404,
         )
@@ -216,6 +267,99 @@ def create_app(db_path: Path | None = None, clock: Callable[[], datetime] = _utc
             return corte
         params = required_panel_params(request)
         return render(request, "_tab.html", {"panel": panel_context(corte, *params)})
+
+    # -- the answer (brief Q5) -----------------------------------------------------------------
+
+    def answer_params(request: Request) -> tuple[date, str] | RedirectResponse:
+        corte = corte_or_redirect(request)
+        if isinstance(corte, RedirectResponse):
+            return corte
+        ticker = request.query_params.get("empresa", "").upper()
+        if ticker not in COMPANIES:
+            raise UnknownCompany(ticker)
+        return corte, ticker
+
+    def answer_panel(view, corte: date, ticker: str, figura: str, pestana: str, full: bool):
+        if figura not in view.figures or pestana not in PANEL_TABS:
+            raise UnknownPanel(f"{figura}/{pestana}")
+        base = {"corte": corte.isoformat(), "empresa": ticker}
+        return {
+            "full_page": full,
+            "corte": corte,
+            "figura": figura,
+            "figure": view.figures[figura],
+            "title": view.figures[figura].title,
+            "pestana": pestana,
+            "close_url": page_url("/respuesta", **base),
+            "tab_page_url": lambda tab: page_url("/respuesta", **base, panel=figura, pestana=tab),
+            "tab_fragment_url": lambda tab: page_url(
+                "/respuesta/fragmentos/pestana", **base, figura=figura, pestana=tab
+            ),
+        }
+
+    @app.get("/respuesta", response_class=HTMLResponse)
+    def respuesta(request: Request) -> Response:
+        """Brief Q5: the company's revenue for the next four quarters, its p10–p90 range and
+        how often that range held, from the stored baseline dated the fecha de corte."""
+        params = answer_params(request)
+        if isinstance(params, RedirectResponse):
+            return params
+        corte, ticker = params
+        region = region_of(request)
+        view = answer_view(bundle_for(ticker, corte), region, partial(translate, region.language))
+        base = {"corte": corte.isoformat(), "empresa": ticker}
+        context = {
+            "corte": corte,
+            "view": view,
+            "panel": None,
+            "open_figure": None,
+            "formula": None,
+            "figure_url": lambda f: page_url("/respuesta", **base, panel=f),
+            "figure_fragment_url": lambda f: page_url(
+                "/respuesta/fragmentos/panel", **base, figura=f
+            ),
+        }
+        figura = request.query_params.get("panel")
+        if figura is not None:
+            pestana = request.query_params.get("pestana", PANEL_TABS[0])
+            context["panel"] = answer_panel(view, corte, ticker, figura, pestana, True)
+            context["open_figure"] = figura
+            context["formula"] = view.figures[figura].formula
+        return render(request, "respuesta.html", context)
+
+    def answer_fragment(request: Request, template: str) -> Response:
+        params = answer_params(request)
+        if isinstance(params, RedirectResponse):
+            return params
+        corte, ticker = params
+        figura = request.query_params.get("figura")
+        if figura is None:
+            raise UnknownPanel("")
+        region = region_of(request)
+        view = answer_view(bundle_for(ticker, corte), region, partial(translate, region.language))
+        pestana = request.query_params.get("pestana", PANEL_TABS[0])
+        panel = answer_panel(view, corte, ticker, figura, pestana, False)
+        return render(request, template, {"panel": panel, "corte": corte})
+
+    @app.get("/respuesta/fragmentos/panel", response_class=HTMLResponse)
+    def respuesta_panel(request: Request) -> Response:
+        return answer_fragment(request, "_panel.html")
+
+    @app.get("/respuesta/fragmentos/pestana", response_class=HTMLResponse)
+    def respuesta_pestana(request: Request) -> Response:
+        return answer_fragment(request, "_tab.html")
+
+    @app.get("/tema")
+    def tema(request: Request, modo: str = "", volver: str = "/") -> RedirectResponse:
+        """Switch between dark (the default) and light, then go back to the same page."""
+        if not volver.startswith("/") or volver.startswith("//") or "\\" in volver:
+            volver = "/"  # only paths on this site: never an open redirect
+        response = RedirectResponse(volver, status_code=303)
+        if modo in THEMES:
+            response.set_cookie(
+                THEME_COOKIE, THEMES[modo], max_age=365 * 24 * 3600, samesite="lax", httponly=True
+            )
+        return response
 
     @app.get("/idioma")
     def idioma(request: Request, region: str = "", volver: str = "/") -> RedirectResponse:

@@ -171,3 +171,13 @@ def spreadsheet_formula(
         else:
             parts.append(format(_decimal(arg), "f").replace(".", mark))
     return f"={name}({separator.join(parts)})"
+
+
+def count(value: int, region: Region = DEFAULT_REGION) -> str:
+    """A whole count with the region's grouping: 2,033 in Mexico, 2.033 in Argentina."""
+    return format_decimal(int(value), "#,##0", locale=region.babel)
+
+
+def format_month(d: date, region: Region = DEFAULT_REGION) -> str:
+    """A month's short name as the principles write it: "jul" in Spanish, "Jul" in English."""
+    return _babel_date(d, "MMM", locale=region.babel).replace(".", "")

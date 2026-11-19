@@ -24,6 +24,9 @@ PAGES = (
     ("inicio", f"/?corte={FIXED_CORTE}"),
     ("componentes", f"/componentes?corte={FIXED_CORTE}"),
     ("panel", f"/componentes?corte={FIXED_CORTE}&panel=ejemplo&pestana=fuente"),
+    # the first screen's answer (F2 Step 4b): brief Q5 on the stored run the mockup used
+    ("respuesta", "/respuesta?corte=2026-10-30&empresa=AAPL"),
+    ("respuesta-fuente", "/respuesta?corte=2026-10-30&empresa=AAPL&panel=pronostico-FY2026Q4"),
 )
 
 
@@ -61,10 +64,10 @@ def launch_chromium(playwright):
     )
 
 
-def capture(out: Path, db_path: Path | None = None) -> list[Path]:
+def capture(out: Path, db_path: Path | None = None, only: str | None = None) -> list[Path]:
     from playwright.sync_api import sync_playwright
 
-    from webapp.app import create_app
+    from webapp.app import THEME_COOKIE, create_app
 
     out.mkdir(parents=True, exist_ok=True)
     clock = lambda: datetime(2026, 11, 4, 18, 0, tzinfo=UTC)  # noqa: E731 (fixed day for stable shots)
@@ -76,8 +79,12 @@ def capture(out: Path, db_path: Path | None = None) -> list[Path]:
                 context = browser.new_context(
                     viewport={"width": width, "height": height}, color_scheme=theme
                 )
+                # the page's own switch (dark by default, the owner's choice), set as its cookie
+                context.add_cookies([{"name": THEME_COOKIE, "value": theme, "url": base}])
                 page = context.new_page()
                 for name, address in PAGES:
+                    if only and not name.startswith(only):
+                        continue
                     page.goto(base + address)
                     page.wait_for_load_state("networkidle")
                     path = out / f"{name}-{width_name}-{theme}.png"
@@ -91,8 +98,9 @@ def capture(out: Path, db_path: Path | None = None) -> list[Path]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m webapp.screenshots", description=__doc__)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--only", help="capture only the pages whose name starts with this")
     args = parser.parse_args(argv)
-    for path in capture(args.out):
+    for path in capture(args.out, only=args.only):
         print(path)
     return 0
 
