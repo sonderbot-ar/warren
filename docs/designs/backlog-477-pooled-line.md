@@ -25,13 +25,15 @@ All additive; nothing renamed or removed; no stored number changes.
 
 ## Plan
 
+Tolerances: the tests compare a reference with its rows to 1e-12 on the synthetic company; the real check and the note use 1e-9 relative, as `run_read_differently` does.
+
 **Step 0. This doc and its review.** Explainer, analyst, professor, and the front-end lead on *Product impact*. Exit: objections answered.
 
 **Step 1. `fm.pooled_ratio` and `fm.mean`.** Tests in `tests/analysis/test_financial_math.py`, Hypothesis: one point gives that point's ratio; equal bases give the mean; the pooled value lies between the smallest and largest point ratio; scaling every base and numerator by the same factor leaves it unchanged; a non-positive base sum and an empty list are refused. Exit: tests green.
 
 **Step 2. Numerator and base on the ratio and the point; the reference on each primary series.** `reported.py`, `inputs.py`. Tests in `tests/analysis/test_inputs.py` (synthetic company): on a fresh run every primary driver series' `reference.value` equals each of its `rows`' stored values to 1e-12 and carries no note; margin Y3–Y5, D&A, capex and tax are `pooled`, quarterly margins, working capital and growth `mean`; `numerator ÷ base` equals each ratio point's value; a pooled reference differs from the simple mean when the years' revenues differ (a company whose margin and revenue both grow); a run whose stored history was changed gets `reference_differs_from_run`; a used point removed gets `reference_point_missing`; context series and the seed have no reference; a statutory tax rate has none; a kept-years tax rate pools only the kept years. Exit: tests green.
 
-**Step 3. Real check.** Restored snapshot of nov.19. On the eight fresh runs `<T>_2026-10-30_2` (today's rules), a `value_per_share` answer: every primary reference matches its rows to 1e-9 with no note; on the older `<T>_2026-10-30_1` runs, references differ only where points carry `run_read_differently` or the tax rate was clipped. Record pooled against simple mean per company in Results. Exit: all eight pass.
+**Step 3. Real check.** Restored snapshot of nov.19 (after `reproduce`-style checks the step relies on: the inputs call reads stored runs only). Fresh runs on today's rules for every company on 2026-10-30 (`AAPL`, `MSFT`, `WMT` `_2` built for the check; `CAT_3`, `JNJ_2`, `KO_2`, `PG_2`, `XOM_2` already stored under v11) and, for the tax paths the analyst named, `CAT_2019-10-23`, `XOM_2019-08-19`, `KO_2019-07-23` (own rates of 138%, −5%, 82% in some years). A `value_per_share` answer: every primary reference matches its rows to 1e-9 with no note; on older runs, notes only where points carry `run_read_differently`. Record pooled against simple mean in Results. Exit: all pass.
 
 ## Alternatives considered
 
@@ -43,6 +45,33 @@ All additive; nothing renamed or removed; no stored number changes.
 
 `domains/analysis/financial_math.py`, `domains/analysis/reported.py`, `domains/analysis/inputs.py`, `tests/analysis/test_financial_math.py`, `tests/analysis/test_inputs.py`, `docs/team-sync.md`, `docs/versions.md`.
 
-## Product impact
+## Product impact (after the front-end lead's review)
 
-Serves brief Q5 (the growth card) and Q3, Q8 and every *Estimación* card that shows a margin, D&A, capex, tax or working-capital chart: the assumption line can be labelled with how it was computed and checked against the bars. Adds `Ratio.numerator`, `Ratio.base`, `Point.numerator`, `Point.base`, `Series.reference`; new codes for the app to word: `reference_point_missing`, `reference_differs_from_run`, and `how` values `pooled` and `mean`. Nothing renamed or removed.
+Serves brief Q5 (the growth card) and Q3, Q8 and every *Estimación* card that shows a margin, D&A, capex, tax or working-capital chart: the assumption line can be labelled with how it was computed and checked against the bars. Adds `Ratio.numerator`, `Ratio.base`, `Point.numerator`, `Point.base`, `Point.formula_id`, `Series.reference` (`Reference`); new codes for the app to word: the four `REFERENCE_NOTES`, the `how` values `pooled` and `mean`, and the line codes of `FORMULA_LINES` (`operating_income`, `pretax_income_plus_interest`, `capex`, `d_and_a`, `income_tax`, `pretax_income`, `pretax_income_by_region`, `net_income_plus_tax`, `revenue`). The professor's wording advice for the app: say "ponderado por ingresos" or "ponderado por utilidad antes de impuestos" (from `base_code`), not "pooled". Nothing renamed or removed.
+
+## Reviews
+
+- **Explainer**: 20 gaps; the ones that changed the doc: tolerances stated once; `simple_mean` is `None` with `value` when a point is missing; `rows` defined by the rows' own `used` (quarterly margins, growth's held rows); the method-to-`how` table is `POOLED_METHODS` and `MEAN_METHODS`; tax's base named; kept years named. The rest (brief references, which reference the card reads: the primary series the card already draws) need no change.
+- **Analyst**: GO after two blockers, both taken: Step 3 names its runs and builds fresh ones; the 2019 tax cases are checked. Suggestions taken: clipping has its own code (`reference_clipped`), growth's `rows` are all the held rows (four on Exxon), a note when the used points mix formulas, sums in fiscal order (the points are in order). Not taken here, filed as a backlog issue: a note when an older run pooled years today's rules would leave out (Exxon 2019-08-19 run 1 pools FY2016–FY2018 to 13.8%; today it keeps FY2018 only, 30.8%), which is about the run, not the line.
+- **Professor**: PASS (ratio of means, Cochran 1977 ch. 6; long-run effective tax rate, Dyreng, Hanlon and Maydew 2008). Taken: the weighting identity as a Hypothesis property; `base_code`; per-point `weights`. The wording idea is in *Product impact*.
+- **Front-end lead**: GO after two blockers, both taken: `numerator_sum` and `base_sum` on the reference; a what-if's or owner's own value gets no reference row and no "older rules" note. Also taken: line codes, units, growth's rows, `simple_mean` for `mean`.
+
+## Results
+
+Real data, restored snapshot of nov.19 (schema 23). A `value_per_share` answer on 11 fresh runs: every primary reference equals its rows to 1e-9 with no note, including Exxon 2019 (tax kept to FY2018 alone, 30.80%) and Caterpillar 2019. Pooled against the bars' plain average, year series:
+
+| Run | Operating margin | Tax rate | Capex |
+|---|---|---|---|
+| AAPL 2026-10-30 | 31.13% vs 31.10% | 18.17% vs 18.14% | 2.78% vs 2.78% |
+| MSFT 2026-10-30 | 45.79% vs 45.68% | 18.53% vs 18.42% | 26.20% vs 25.33% |
+| WMT 2026-10-30 | 4.22% vs 4.22% | 24.38% vs 24.45% | 3.48% vs 3.47% |
+| CAT 2026-10-30 | 18.65% vs 18.67% | 21.54% vs 21.65% | 3.21% vs 3.21% |
+| JNJ 2026-10-30 | 24.92% vs 24.62% | 15.75% vs 14.99% | 5.15% vs 5.15% |
+| KO 2026-10-30 | 24.91% vs 24.89% | 17.95% vs 17.96% | 4.28% vs 4.28% |
+| PG 2026-10-30 | 23.00% vs 23.01% | 20.44% vs 20.43% | 4.51% vs 4.50% |
+| XOM 2026-10-30 | 14.16% vs 14.14% | 28.51% vs 28.45% | 7.27% vs 7.28% |
+| CAT 2019-10-23 | 10.03% vs 9.33% | 21.71% vs 21.71% | 2.37% vs 2.39% |
+| XOM 2019-08-19 | 8.29% vs 7.89% | 30.80% (one year) | 7.13% vs 7.19% |
+| KO 2019-07-23 | 22.87% vs 23.15% | 19.47% vs 19.47% | 4.84% vs 4.79% |
+
+Older runs: `CAT_2026-10-30_1`, `KO_2026-10-30_1`, `XOM_2019-08-19_1` get `reference_differs_from_run` on working capital only, and `CAT_2019-10-23_1` also on its fourth-quarter margin, each where the points already carry `run_read_differently` (CAT's working capital: 16.2% in the run, 27.5% today, since #341). Time per answer: 3.0–9.9 s, as before (#477 item 2). Tests: 9 new in `tests/analysis/test_inputs.py`, 3 in `test_financial_math.py`, 6 Hypothesis properties.

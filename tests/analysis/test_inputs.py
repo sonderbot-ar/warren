@@ -279,3 +279,179 @@ def test_a_longer_year_carries_the_length_note(make_company):
         p.period for p in same.points if any(n.code == "period_length_differs" for n in p.notes)
     }
     assert noted == {"FY2018", "FY2019"}
+
+
+# -- the reference line (backlog #477) ------------------------------------------------------------
+
+
+def _primary(answer):
+    return [(c, s) for c in answer.cells for s in c.history if s.primary]
+
+
+def test_every_reference_on_a_fresh_run_equals_its_rows(run):
+    conn, run_id = run
+    answer = inputs_behind(conn, run_id, [("value_per_share", SINGLE)])
+    checked = set()
+    for cell, series in _primary(answer):
+        ref = series.reference
+        if cell.name not in DRIVER_NAMES:
+            assert ref is None
+            continue
+        if cell.name == dcf.SEED or ref is None:
+            assert cell.name == dcf.SEED or not any(p.used for p in series.points)
+            continue
+        assert ref.notes == [], (cell.name, ref.notes)
+        assert ref.periods == [p.period for p in series.points if p.used]
+        assert ref.rows
+        rows = {r.period: r.value for r in cell.rows}
+        for period in ref.rows:
+            assert rows[period] == pytest.approx(ref.value, abs=1e-12), (cell.name, period)
+        assert sum(ref.weights) == pytest.approx(1.0)
+        checked.add((cell.name, ref.how))
+    assert checked >= {
+        ("operating_margin", "pooled"),
+        ("operating_margin", "mean"),
+        ("tax_rate", "pooled"),
+        ("da_pct", "pooled"),
+        ("capex_pct", "pooled"),
+        ("nwc_pct", "mean"),
+        ("revenue_growth", "mean"),
+    }
+    seed = _cell(answer, dcf.SEED)
+    assert all(s.reference is None for s in seed.history)
+    context = [s for c in answer.cells for s in c.history if not s.primary]
+    assert context and all(s.reference is None for s in context)
+
+
+DRIVER_NAMES = {dcf.SEED, "revenue_growth", "operating_margin", "nwc_pct", "tax_rate",
+                "debt_tax_rate", "da_pct", "capex_pct"}  # fmt: skip
+
+
+def test_a_pooled_point_carries_its_two_sums(run):
+    conn, run_id = run
+    answer = inputs_behind(conn, run_id, [("value_per_share", SINGLE)])
+    for name, codes in (
+        ("operating_margin", ("operating_income", "revenue")),
+        ("tax_rate", ("income_tax", "pretax_income")),
+        ("capex_pct", ("capex", "revenue")),
+    ):
+        year = next(s for s in _cell(answer, name).history if s.frequency == "year" and s.primary)
+        for p in year.points:
+            if p.value is not None:
+                assert p.numerator / p.base == pytest.approx(p.value, abs=1e-15)
+        ref = year.reference
+        assert (ref.numerator_code, ref.base_code) == codes
+        used = [p for p in year.points if p.used]
+        assert ref.numerator_sum == pytest.approx(sum(p.numerator for p in used))
+        assert ref.base_sum == pytest.approx(sum(p.base for p in used))
+        assert ref.weights == pytest.approx([p.base / ref.base_sum for p in used])
+    growth = _cell(answer, "revenue_growth").history[0].reference
+    assert (growth.numerator_sum, growth.base_sum, growth.base_code) == (None, None, None)
+    assert growth.weights == pytest.approx([1 / 3] * 3)
+
+
+def test_growth_rows_are_the_ones_that_hold_the_starting_average(run):
+    conn, run_id = run
+    answer = inputs_behind(conn, run_id, [("value_per_share", SINGLE)])
+    growth = _cell(answer, "revenue_growth")
+    ref = growth.history[0].reference
+    assert ref.method_code == "same_filing_average_fading"
+    held = [r.period for r in growth.rows if r.value == pytest.approx(ref.value, abs=1e-12)]
+    assert ref.rows == held and ref.rows
+    assert len(ref.rows) < len(growth.rows)  # the later rows fade to terminal growth
+
+
+def test_a_pooled_line_is_not_the_bars_average_when_big_years_differ(make_company):
+    # FY2017's annual operating income halved: margins 10%, 20%, 20% on revenues growing 10%
+    def low_2017(tag, row):
+        annual = row.get("start", "").endswith("-01-01") and row["end"].endswith("-12-31")
+        if tag == "OperatingIncomeLoss" and annual and row["end"] == "2017-12-31":
+            return {**row, "val": row["val"] / 2}
+        return row
+
+    conn = make_company(low_2017)
+    run_id = run_baseline(conn, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    answer = inputs_behind(conn, run_id, [("value_per_share", SINGLE)])
+    margin = _cell(answer, "operating_margin")
+    year = next(s for s in margin.history if s.frequency == "year")
+    ref = year.reference
+    assert ref.how == "pooled" and ref.notes == []
+    assert [p.value for p in year.points if p.used] == pytest.approx([0.1, 0.2, 0.2])
+    assert ref.simple_mean == pytest.approx(0.5 / 3)
+    revenues = [sum(revenue(y, q) for q in (1, 2, 3, 4)) for y in (2017, 2018, 2019)]
+    want = (0.1 * revenues[0] + 0.2 * revenues[1] + 0.2 * revenues[2]) / sum(revenues)
+    assert ref.value == pytest.approx(want)
+    assert ref.value > ref.simple_mean  # the low year is the smallest, so it weighs least
+    rows = {r.period: r.value for r in margin.rows}
+    assert all(rows[p] == pytest.approx(ref.value, abs=1e-12) for p in ref.rows)
+
+
+def test_a_run_stored_differently_gets_a_reference_note(run):
+    conn, run_id = run
+    conn.execute(
+        "UPDATE assumptions SET value = value + 0.01 WHERE run_id = ? AND name = 'da_pct'",
+        (run_id,),
+    )
+    answer = inputs_behind(conn, run_id, [("value_per_share", SINGLE)])
+    ref = _cell(answer, "da_pct").history[0].reference
+    (note,) = ref.notes
+    assert note.code == "reference_differs_from_run"
+    assert note.params["run_value"] == pytest.approx(ref.value + 0.01)
+    assert note.params["rows"] == ref.rows
+
+
+def test_a_used_point_with_no_value_today_leaves_the_reference_empty(run, monkeypatch):
+    from domains.analysis import inputs
+
+    conn, run_id = run
+    real = inputs._ratio_point
+
+    def drop_2018(reader, label, ratio, used, extra=()):
+        point = real(reader, label, ratio, used, extra)
+        if label == "FY2018" and ratio == "capex_share":
+            return inputs._empty(label, used)
+        return point
+
+    monkeypatch.setattr(inputs, "_ratio_point", drop_2018)
+    answer = inputs_behind(conn, run_id, [("value_per_share", SINGLE)])
+    ref = _cell(answer, "capex_pct").history[0].reference
+    assert (ref.value, ref.simple_mean, ref.weights) == (None, None, None)
+    assert [n.code for n in ref.notes] == ["reference_point_missing"]
+    assert ref.notes[0].params["periods"] == ["FY2018"]
+
+
+def test_kept_years_tax_pools_only_the_kept_years(run):
+    conn, run_id = run
+    answer = inputs_behind(conn, run_id, [("value_per_share", SINGLE)])
+    tax = _cell(answer, "tax_rate")
+    ref = tax.history[0].reference
+    assert ref.periods == next(r.used for r in tax.rows)
+    assert ref.how == "pooled" and ref.value == pytest.approx(0.25)
+
+
+def test_a_what_if_row_is_not_a_row_of_the_line(run):
+    from domains.analysis.whatif import Change, revalue
+
+    conn, run_id = run
+    child = revalue(conn, run_id, [Change("operating_margin", value=0.3, period="Y3")]).run_id
+    answer = inputs_behind(conn, child, [("value_per_share", SINGLE)])
+    margin = _cell(answer, "operating_margin")
+    year = next(s for s in margin.history if s.frequency == "year")
+    assert "Y3" not in year.reference.rows and year.reference.rows  # Y4, Y5 still from history
+    assert year.reference.notes == []  # the student's own value is not a stale run
+
+
+def test_a_clipped_tax_rate_is_said_as_clipped_not_as_a_stale_run(make_company):
+    # every year's tax tripled: 75% of pretax, which the run holds to 50%
+    def high_tax(tag, row):
+        if tag == "IncomeTaxExpenseBenefit":
+            return {**row, "val": row["val"] * 3}
+        return row
+
+    conn = make_company(high_tax)
+    run_id = run_baseline(conn, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    answer = inputs_behind(conn, run_id, [("value_per_share", SINGLE)])
+    ref = _cell(answer, "tax_rate").history[0].reference
+    assert ref.value == pytest.approx(0.75)
+    assert [n.code for n in ref.notes] == ["reference_clipped"]
+    assert ref.notes[0].params["run_value"] == 0.5
