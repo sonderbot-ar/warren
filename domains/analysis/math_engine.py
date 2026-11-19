@@ -1616,6 +1616,23 @@ def _erp_sources(first_year: int, last_year: int) -> list[dict]:
     ]
 
 
+def cost_of_debt_year(history: History, year: int):
+    """D8 for one fiscal year: interest over the average of the two year-end debts (the closing
+    debt alone when the opening is not reported). None when the year reports no interest or the
+    average is not above zero. Returns (rate, interest, (opening, its facts), (closing, its
+    facts)); shared with the inputs' history (backlog #476) so the rule exists once."""
+    try:
+        interest = resolve("interest", history.year(year), f"FY{year}")
+    except EngineError:
+        return None
+    end, end_used, _, _ = debt_parts(history.year(year))
+    start, start_used, _, _ = debt_parts(history.year(year - 1))
+    average = (start + end) / 2 if start_used else end
+    if average <= 0:
+        return None
+    return fm.cost_of_debt(interest.value, average), interest, (start, start_used), (end, end_used)
+
+
 def _cost_of_debt(history: History, fiscal_years: list[int], result: EngineResult) -> None:
     """Interest over average debt, from the newest fiscal year that reports both (D8)."""
     if result.value_of("debt") == 0:
@@ -1627,16 +1644,10 @@ def _cost_of_debt(history: History, fiscal_years: list[int], result: EngineResul
         )
         return
     for year in reversed(fiscal_years):
-        try:
-            interest = resolve("interest", history.year(year), f"FY{year}")
-        except EngineError:
+        found = cost_of_debt_year(history, year)
+        if found is None:
             continue
-        end, end_used, _, _ = debt_parts(history.year(year))
-        start, start_used, _, _ = debt_parts(history.year(year - 1))
-        average = (start + end) / 2 if start_used else end
-        if average <= 0:
-            continue
-        kd = fm.cost_of_debt(interest.value, average)
+        kd, interest, (start, start_used), (end, end_used) = found
         opening = f"FY{year - 1} {start:,.0f}" if start_used else f"FY{year - 1} not reported"
         result.add(
             "cost_of_debt",
