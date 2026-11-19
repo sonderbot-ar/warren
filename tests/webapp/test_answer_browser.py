@@ -57,7 +57,7 @@ def test_a_forecast_opens_its_source_and_escape_returns_to_it(page, base):
     figure.click()
     dialog = page.locator("dialog[data-panel]")
     expect(dialog).to_be_visible()
-    expect(dialog).to_contain_text("0000320193-25-000079")
+    expect(dialog).to_contain_text("0000320193\u201125\u2011000079")
     expect(page.locator("#pestana-fuente")).to_be_focused()
     assert "panel=pronostico-FY2026Q4" in page.url
     page.keyboard.press("Escape")

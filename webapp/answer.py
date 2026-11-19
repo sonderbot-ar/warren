@@ -356,7 +356,8 @@ def _growth_years(cell: dict | None) -> dict[str, dict]:
 
 def _filing_text(f: dict, region, t, short: bool = False) -> str:
     key = "answer.fuente.filing_short" if short else "answer.fuente.filing"
-    return t(key, form=f["form"], accession=f["accession_no"],
+    # non-breaking hyphens: a filing number never splits across lines (design critic)
+    return t(key, form=f["form"], accession=f["accession_no"].replace("-", "\u2011"),
              date=formatting.format_date(date.fromisoformat(f["filed_at"]), region))  # fmt: skip
 
 
@@ -411,8 +412,8 @@ def _growth_items(growth: dict, years: dict, millions, percent, region, t) -> li
 LAYOUTS = {
     "l": {"box": "-28 0 508 300", "left": 56, "right": 468, "top": 30, "bottom": 260,
           "label_every": 2, "label_from": 1, "xlab_y": 278},
-    "s": {"box": "0 0 380 270", "left": 72, "right": 372, "top": 30, "bottom": 230,
-          "label_every": 4, "label_from": 0, "xlab_y": 248},
+    "s": {"box": "0 0 380 276", "left": 72, "right": 372, "top": 30, "bottom": 230,
+          "label_every": 4, "label_from": 0, "xlab_y": 256},
 }  # fmt: skip
 
 

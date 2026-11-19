@@ -158,7 +158,7 @@ def test_a_page_without_a_corte_is_redirected_and_keeps_the_company(client):
 def test_the_panel_opens_on_the_source_with_the_filings_and_the_formula(client):
     html = client.get(PAGE + "&panel=pronostico-FY2026Q4").text
     assert "<dialog" in html and "Pronóstico, T4 2026" in html
-    assert "0000320193-25-000079" in html and "https://www.sec.gov/Archives/" in html
+    assert "0000320193\u201125\u2011000079" in html and "https://www.sec.gov/Archives/" in html
     assert "=102466*(1+0.018823)" in html
     assert 'class="fig on"' in html  # the open figure is marked in the sheet
 
