@@ -175,3 +175,53 @@ def test_no_tax_and_riskless_debt_keep_wacc_whatever_the_debt(bu, d, e, rf, erp)
     unlevered_cost = fm.capm_cost_of_equity(rf, bu, erp)
     ke = fm.capm_cost_of_equity(rf, fm.relevered_beta(bu, d, e, 0.0), erp)
     assert fm.wacc(e, d, ke, rf, 0.0) == pytest.approx(unlevered_cost, rel=1e-9)
+
+
+# -- pooled ratio and mean (backlog #477) ---------------------------------------------------------
+
+base = st.floats(min_value=1.0, max_value=1e6)
+share = st.floats(min_value=-0.5, max_value=0.9)
+periods = st.lists(st.tuples(share, base), min_size=1, max_size=10)
+
+
+@given(periods)
+def test_a_pooled_ratio_lies_between_the_smallest_and_largest_period_ratio(rows):
+    numerators = [r * b for r, b in rows]
+    bases = [b for _r, b in rows]
+    pooled = fm.pooled_ratio(numerators, bases)
+    ratios = [n / b for n, b in zip(numerators, bases, strict=True)]
+    assert min(ratios) - 1e-12 <= pooled <= max(ratios) + 1e-12
+
+
+@given(periods, st.floats(min_value=0.01, max_value=100.0))
+def test_a_pooled_ratio_does_not_depend_on_the_unit(rows, scale):
+    numerators = [r * b for r, b in rows]
+    bases = [b for _r, b in rows]
+    scaled = fm.pooled_ratio([n * scale for n in numerators], [b * scale for b in bases])
+    assert scaled == pytest.approx(fm.pooled_ratio(numerators, bases), rel=1e-9, abs=1e-12)
+
+
+@given(st.lists(share, min_size=1, max_size=10), base)
+def test_equal_bases_make_the_pooled_ratio_the_mean(ratios, b):
+    pooled = fm.pooled_ratio([r * b for r in ratios], [b] * len(ratios))
+    assert pooled == pytest.approx(fm.mean(ratios), rel=1e-9, abs=1e-12)
+
+
+@given(share, base)
+def test_one_period_pools_to_its_own_ratio(r, b):
+    assert fm.pooled_ratio([r * b], [b]) == pytest.approx(r, rel=1e-12, abs=1e-15)
+
+
+@given(st.lists(share, min_size=1, max_size=10))
+def test_the_mean_lies_between_the_smallest_and_largest_value(values):
+    assert min(values) - 1e-12 <= fm.mean(values) <= max(values) + 1e-12
+
+
+@given(periods)
+def test_a_pooled_ratio_is_the_ratios_weighted_by_each_periods_share_of_the_base(rows):
+    # Σn/Σb = Σ (b_i/Σb)·(n_i/b_i): a larger base weighs more (Cochran 1977, ch. 6)
+    numerators = [r * b for r, b in rows]
+    bases = [b for _r, b in rows]
+    total = sum(bases)
+    weighted = sum(b / total * (n / b) for n, b in zip(numerators, bases, strict=True))
+    assert fm.pooled_ratio(numerators, bases) == pytest.approx(weighted, rel=1e-9, abs=1e-12)
