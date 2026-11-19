@@ -40,7 +40,7 @@ The exact type, colours and layout are chosen once, at the visual direction (F2)
   - *Density.* Table rows at least 36 px tall (7 px above and below, a 1 px cell line), cells 10 px apart from their lines; at most two panes beside the side panel at 1440 px; one pane below 900 px.
   - *White space.* A 4 px grid (4, 8, 12, 16, 24, 32, 48 px). Panes 16 px apart and 16 px inside; nothing touches a pane's edge.
   - *Where figures open.* From 900 px up the side panel docks beside the panes (380 px wide) so the sheet stays visible; below 900 px it opens full screen. The formula bar (`fx`) above a table shows the selected figure's spreadsheet formula, and says what to do when none is selected.
-  - *Theme.* Dark by default (owner, nov.18.2026); a "Modo claro" / "Modo oscuro" switch in the header, beside the language link, gives the other theme and remembers it. Both themes clear every rule here.
+  - *Theme.* Dark by default (owner, nov.18.2026); a "Modo claro" / "Modo oscuro" switch in the header, beside the language link, gives the other theme and remembers it (the built screen tests that; the mockup does not persist it). Both themes clear every rule here.
   - *Colour.* The accent marks only what can be acted on or is selected (a figure's underline, the selected cell, the active tab) and the forecast in a chart; reported values are in the text colour. Muted text clears 4.5:1 on every surface it sits on, in both themes.
 
 ## The bar a screen must clear

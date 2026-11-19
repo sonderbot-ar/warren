@@ -1,6 +1,6 @@
 # F2 design: chart every input behind an answer
 
-Front-end team, nov.19.2026. Branch `f2-input-charts`, stacked on the first screen's mockup (`f2-first-screen`, PR #456, F2 Step 4a), because the charts are added to that screen.
+Front-end team, nov.19.2026. Branch `f2-input-charts`. The charts are added to the first screen's mockup (F2 Step 4a, approved by the owner and merged as v0.10.11).
 
 ## Problem
 
