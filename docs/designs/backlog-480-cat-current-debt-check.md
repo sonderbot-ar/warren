@@ -14,7 +14,7 @@ The #476 review saw two 2026 Caterpillar (CAT) runs count `debt_current` as zero
 
 **Conclusion: no bug and no rule change.** The zero in the flagged runs is the old map, kept on purpose so every stored run reproduces to the cent. A fresh CAT run counts its current debt. The principal-versus-carrying-value question the issue raises was settled in #341 (the map row's note: principal, a fallback only where nothing better exists, CAT only).
 
-**What stays true, said plainly.** The 113 stored CAT runs (24 of them scored in `eval_results`, 91 behind `forecast_origins`) still understate CAT's debt by 5.3B to 9.1B and so overstate value per share (on 102 of 113 dates). The app shows the "same rules, different map fingerprints" note (`docs/product/brief.md`, line 109) when an older CAT run sits beside a newer one. The backtest scores revenue and operating profit, which current debt does not touch, so its errors stand; only value per share, net debt and working capital on those stored runs are off. Rebuilding the stored dates as new runs under today's map is not done here: it is a data refresh, not a docs fix, and is filed as #485.
+**What stays true, said plainly.** The 113 stored CAT runs (24 of them scored in `eval_results`, 91 behind `forecast_origins`) still understate CAT's debt by 5.3B to 9.1B and so overstate value per share (on 102 of 113 dates). When the app shows an older CAT run beside a newer one of the same date, the brief's "either version NULL" note applies (`docs/product/brief.md`, "Two runs of the same date", its CAT sentence): every stored CAT run has `reading_rules_version` NULL, and the two fresh ones are on rules 11 with a `+dirty` code version. That note says the reading may have changed but cannot say which run is current; it never says "corregida". The "different map fingerprints" note, which does name the current run, cannot fire for CAT until both runs record their rules. The backtest scores revenue and operating profit, which current debt does not touch, so its errors stand; only value per share, net debt and working capital on those stored runs are off. Rebuilding the stored dates as new runs under today's map is not done here: it is a data refresh, not a docs fix, and is filed as #485.
 
 ## Plan
 
@@ -34,4 +34,4 @@ No test changes: the mechanism is already pinned (`tests/analysis/test_runs.py`,
 
 ## Product impact
 
-None. No output, name or field changes. Brief Q3, Q5 and Q8 on CAT are right on fresh runs; an older CAT run beside a newer one already gets the map-fingerprint note (brief line 109).
+None. No output, name or field changes. Brief Q3, Q5 and Q8 on CAT are right on fresh runs; an older CAT run beside a newer one of the same date gets the brief's "either version NULL" note, which does not say which run to use (see Findings).
