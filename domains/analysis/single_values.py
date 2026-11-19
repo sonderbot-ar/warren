@@ -33,7 +33,9 @@ MISSING_REASONS = (
     "no_price_on_date",
     "erp_too_few_years",  # fewer than ten years from the run's first ERP year
     "market_data_not_loaded",
-    "market_data_not_covered",  # the download does not reach the date
+    "market_data_not_refreshed",  # the download does not reach the date
+    "market_year_end_missing",  # ERP: no close or yield at a year end
+    "market_data_error",  # any other market-data failure (its text is in the note)
     # the balance step (`math_engine._balance`)
     "no_balance_sheet",
     "balance_item_not_reported",
@@ -114,21 +116,19 @@ class Singles:
         from domains.market.store import MarketDataError, fetch_with_hash, pin_fetches
         from domains.market.yields import RISK_FREE_SERIES
 
-        try:
-            pins = {
-                (source, symbol): fetch_with_hash(self.conn, source, symbol, self.run[column])[
-                    "fetch_id"
-                ]
-                for source, symbol, column in (
-                    ("yahoo", self.run["ticker"], "price_fetch_sha256"),
-                    ("yahoo", MARKET_INDEX, "index_fetch_sha256"),
-                    ("fred", RISK_FREE_SERIES, "yield_fetch_sha256"),
-                )
-                if self.run[column]
-            }
-        except (MarketDataError, KeyError, IndexError):
-            return nullcontext()
-        return pin_fetches(pins)
+        pins = {}
+        for source, symbol, column in (
+            ("yahoo", self.run["ticker"], "price_fetch_sha256"),
+            ("yahoo", MARKET_INDEX, "index_fetch_sha256"),
+            ("fred", RISK_FREE_SERIES, "yield_fetch_sha256"),
+        ):
+            try:  # pin each download the run names that is still stored
+                pins[(source, symbol)] = fetch_with_hash(
+                    self.conn, source, symbol, self.run[column]
+                )["fetch_id"]
+            except (MarketDataError, KeyError, IndexError, TypeError):
+                continue
+        return pin_fetches(pins) if pins else nullcontext()
 
     def months(self) -> list[date]:
         """The first of each month, `years` × 12 of them, before the run's date."""
@@ -144,8 +144,11 @@ def _add_months(day: date, months: int) -> date:
 
 
 def _not_computable(error) -> Coded:
-    code = getattr(error, "code", None) or "market_data_not_covered"
+    code = getattr(error, "code", None)
     params = dict(getattr(error, "params", None) or {})
+    if code not in MISSING_REASONS:  # keep the list closed: the app words every reason
+        params = {**params, "error_code": code}
+        code = "market_data_error"
     return Coded(NOT_COMPUTABLE, {"reason": code, **params}, str(error))
 
 

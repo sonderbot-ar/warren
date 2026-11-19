@@ -210,3 +210,14 @@ def test_a_balance_filed_after_the_run_date_is_never_read(make_company):
     debt = _primary(_cell(inputs_behind(conn, run_id, VPS), "debt"))
     assert all(p.value == 200 for p in debt.points)
     assert late not in {q.filing["accession_no"] for p in debt.points for q in p.parts}
+
+
+def test_an_unlisted_market_failure_keeps_the_list_closed():
+    from domains.analysis.single_values import _not_computable
+    from domains.market.store import MarketDataError
+
+    known = _not_computable(MarketDataError("x", code="market_year_end_missing", params={}))
+    assert known.params["reason"] == "market_year_end_missing"
+    other = _not_computable(MarketDataError("y", params={"a": 1}))  # e.g. a code-less failure
+    assert other.params == {"reason": "market_data_error", "a": 1, "error_code": None}
+    assert other.params["reason"] in MISSING_REASONS
