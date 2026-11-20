@@ -275,3 +275,35 @@ def test_a_book_cost_of_debt_below_the_yield_says_so(make_company):
             assert p.period_end - timedelta(days=364) <= first <= last <= p.period_end
             assert note.params["observations"] >= 50  # weekly yields over a year
             assert note.params["risk_free"] == pytest.approx(0.03)
+
+
+def _floored_child(conn, parent):
+    from domains.analysis.whatif import Change, revalue
+
+    changes = [Change("debt", delta=100.0, use="buyback"), Change("risk_free", value=0.05)]
+    return revalue(conn, parent, changes).run_id
+
+
+def test_a_floored_what_if_says_its_cost_of_debt_is_the_floor(run):
+    conn, parent = run
+    child = _floored_child(conn, parent)
+    answer = inputs_behind(conn, child, VPS)
+    cell = _cell(answer, "cost_of_debt")
+    (note,) = [n for n in cell.notes if n.code == "floored_at_risk_free"]
+    parent_kd = _cell(inputs_behind(conn, parent, VPS), "cost_of_debt").rows[0].value
+    assert note.params["value"] == cell.rows[0].value == _cell(answer, "risk_free").rows[0].value
+    assert note.params["book_cost_of_debt"] == pytest.approx(parent_kd)
+    assert note.params["book_year"] == "FY2019" and note.params["parent_run_id"] == parent
+    assert note.params["cell"] == "risk_free" and note.params["risk_free_changed"] is True
+    points = _primary(cell).points
+    assert not any(p.used for p in points)
+    assert any(p.period == "FY2019" and p.value == pytest.approx(parent_kd) for p in points)
+
+
+def test_a_what_if_that_does_not_floor_has_no_floor_note(run):
+    from domains.analysis.whatif import Change, revalue
+
+    conn, parent = run
+    child = revalue(conn, parent, [Change("debt", delta=100.0, use="buyback")]).run_id
+    cell = _cell(inputs_behind(conn, child, VPS), "cost_of_debt")
+    assert not any(n.code == "floored_at_risk_free" for n in cell.notes)

@@ -70,6 +70,8 @@ POINT_NOTES = (
 CELL_NOTES = (
     "follows_risk_free",  # terminal growth equals the risk-free rate by the owner's method
     "computed_from_other_cells",  # params inputs: the rows it is computed from
+    # a what-if child's cost of debt is the risk-free rate, not a book year (backlog #481)
+    "floored_at_risk_free",
 )
 SERIES_NOTES = (
     "book_value",  # debt, cash and minority interest are the balance sheet's book values
@@ -197,7 +199,10 @@ def single_cell(singles: Singles, name: str, cell_rows: list):
     if name not in builders:
         return None
     history = [_checked(s, cell_rows) for s in builders[name]()]
-    return Cell(name, cell_rows, history, None, [])
+    notes = []
+    if name == "cost_of_debt" and (floored := _floored_note(singles)) is not None:
+        notes.append(floored)
+    return Cell(name, cell_rows, history, None, notes)
 
 
 def _cached(singles: Singles, key: str, build):
@@ -477,6 +482,7 @@ def _cost_of_debt(singles: Singles):
 
     sources = singles.stored.get(("cost_of_debt", SINGLE), [])
     interest = _interest_source(sources)
+    # a what-if child's changed cost of debt is not a book year: no point is used (backlog #481)
     used_label = f"FY{interest['fiscal_year']}" if interest else None
     last_quarter = singles.reader.latest(quarterly=True)
     last_year = max(singles.reader.latest(quarterly=False).fiscal_year, last_quarter.fiscal_year)
@@ -516,6 +522,43 @@ def _cost_of_debt(singles: Singles):
 def _interest_source(sources: list) -> dict | None:
     return next(
         (s for s in sources if s["kind"] == "filing" and s["item"].startswith("interest")), None
+    )
+
+
+def _floored_note(singles: Singles):
+    """`floored_at_risk_free` on a what-if child whose cost of debt the debt change floored at
+    the child's own risk-free row (`whatif._leverage_rows`; backlog #481): the value is that row
+    (itself a what-if value when `risk_free_changed`), and the parent's book cost of debt and
+    its fiscal year (None when the parent's sources name no interest filing) say what it
+    replaced."""
+    sources = singles.stored.get(("cost_of_debt", SINGLE), [])
+    floored = next(
+        (s for s in sources if s["kind"] == "what_if" and s.get("how") == "floored_at_risk_free"),
+        None,
+    )
+    if floored is None:
+        return None
+    value = singles.conn.execute(
+        "SELECT value FROM assumptions WHERE run_id = ? AND name = 'cost_of_debt' AND period = ?",
+        (singles.run["run_id"], SINGLE),
+    ).fetchone()["value"]
+    book = _interest_source(floored.get("parent_sources") or [])
+    rf_sources = singles.stored.get(("risk_free", SINGLE), [])
+    return Coded(
+        "floored_at_risk_free",
+        {
+            "value": value,
+            "book_cost_of_debt": floored["before"],
+            "book_year": f"FY{book['fiscal_year']}" if book else None,
+            "parent_run_id": floored["parent_run_id"],
+            "cell": "risk_free",
+            "risk_free_changed": any(s["kind"] == "what_if" for s in rf_sources),
+        },
+        f"the cost of debt is the risk-free rate ({value:.2%}), not a book year: the debt "
+        f"changed and the book cost of debt ({floored['before']:.2%}) was below the risk-free "
+        "rate, so Warren holds it at that floor (a lender charges at least what the government "
+        "pays). The floor is a minimum, not an estimate: more debt usually costs more, so this "
+        "what-if's value is on the high side",
     )
 
 
