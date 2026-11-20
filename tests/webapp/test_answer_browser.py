@@ -73,7 +73,7 @@ def test_nothing_scrolls_sideways_and_every_door_is_at_least_24_px(page, base):
     assert doors.count() >= 15
     for i in range(doors.count()):
         box = doors.nth(i).bounding_box()
-        if box is None:  # hidden at this width (the range has its own column on a laptop)
+        if box is None or box["height"] == 0:  # hidden: another width's copy, or a closed table
             continue
         assert box["height"] >= 24 and box["width"] >= 24
 
@@ -86,3 +86,35 @@ def test_the_open_panel_fits_the_phone(browser, base):
     assert box["x"] == 0 and box["width"] == 390
     assert page.evaluate("document.querySelector('dialog').scrollWidth") <= 390
     context.close()
+
+
+# -- part 2: the cells behind the answer -------------------------------------------------------
+
+
+def test_the_years_switch_swaps_the_cells_in_place_and_keeps_the_address(page, base):
+    page.goto(base + PAGE)
+    page.locator(".yrs-opt", has_text="10").click()
+    expect(page.locator('.yrs-opt[aria-current="true"]')).to_have_text("10")
+    assert page.url.endswith("anos=10")
+    tables = page.locator(".cellcard").first.locator("tbody tr").first.locator("td")
+    expect(tables).to_have_count(11)  # ten years, the base the last of them, then the forecast
+
+
+def test_the_cells_never_scroll_sideways_at_ten_years(page, base):
+    page.goto(base + PAGE + "&anos=10")
+    for summary in page.locator(".cellcard details summary").all():
+        summary.click()
+    width = page.viewport_size["width"]
+    assert page.evaluate("document.documentElement.scrollWidth") <= width
+    for door in page.locator(".yrs-opt, .cellcard summary").all():
+        box = door.bounding_box()
+        assert box["height"] >= 44 and box["width"] >= 44
+
+
+def test_a_value_in_the_cells_opens_its_source(page, base):
+    page.goto(base + PAGE)
+    page.locator('a.fig[data-figura="supuesto-revenue_growth"]').first.click()
+    dialog = page.locator("dialog[data-panel]")
+    expect(dialog).to_be_visible()
+    expect(dialog).to_contain_text("2023")
+    expect(page.locator(".fx code")).to_contain_text("=PROMEDIO(")

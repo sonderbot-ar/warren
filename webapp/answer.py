@@ -20,11 +20,13 @@ import sqlite3
 from dataclasses import dataclass, field
 from datetime import date
 
+from webapp import cells as cells_mod
 from webapp import formatting
 
 QUARTERS_SHOWN = 4  # brief Q5: the next four quarters
 POOL = "pooled"  # the range the brief shows: every company's past misses (M9's headline)
 HISTORY_QUARTERS = 8  # reported quarters on the chart, before the forecast
+HISTORY_YEARS_MAX = 10  # the cells' history is fetched once at its longest; the view shows 3/5/10
 GROWTH = "revenue_growth"
 SEED = "revenue_seed"
 
@@ -76,7 +78,7 @@ def bundle_for_run(conn: sqlite3.Connection, run_id: str) -> dict:
     ranges = run_ranges(conn, run_id).to_dict()
     quarters = ranges["quarters"][:QUARTERS_SHOWN]
     outputs = [("revenue", q["period"]) for q in quarters]
-    inputs = inputs_behind(conn, run_id, outputs).to_dict()
+    inputs = inputs_behind(conn, run_id, outputs, years=HISTORY_YEARS_MAX).to_dict()
     sources = run_sources(conn, run_id).to_dict()
     wanted_rows = {(c["name"], r["period"]) for c in inputs["cells"] for r in c["rows"]}
     wanted_outputs = set(outputs)
@@ -197,6 +199,7 @@ class AnswerView:
     coverage_counts: dict
     chart: dict
     figures: dict[str, Figure] = field(default_factory=dict)
+    cells: dict = field(default_factory=dict)
 
 
 SHORT_NAMES = {  # the companies as a student says them; SEC's names are in capitals
@@ -219,7 +222,9 @@ def _month_span(first: date, last: date, region: formatting.Region) -> str:
     return f"{a} {first.year}–{b} {last.year}"
 
 
-def answer_view(bundle: dict, region: formatting.Region, t) -> AnswerView:
+def answer_view(
+    bundle: dict, region: formatting.Region, t, years: int = cells_mod.DEFAULT_YEARS
+) -> AnswerView:
     company = bundle["company"]
     ticker, fye = company["ticker"], company["fiscal_year_end"]
     name = SHORT_NAMES.get(ticker, company["name"])
@@ -238,6 +243,8 @@ def answer_view(bundle: dict, region: formatting.Region, t) -> AnswerView:
     growth_years = _growth_years(cells.get(GROWTH))
 
     figures: dict[str, Figure] = {}
+    forecast_by_seed: dict[str, dict] = {}
+    growth_items_shown: list[dict] = []
     rows = []
     for q in bundle["ranges"]["quarters"]:
         period = q["period"]
@@ -248,6 +255,10 @@ def answer_view(bundle: dict, region: formatting.Region, t) -> AnswerView:
         growth_key = next((i["name"], i["period"]) for i in out["inputs"] if i["name"] == GROWTH)
         seed, growth = rows_by_key[seed_key], rows_by_key[growth_key]
         fid = f"pronostico-{period}"
+        forecast_by_seed[seed["period"]] = {"id": fid, "value": q["revenue_forecast"],
+                                            "period": period}  # fmt: skip
+        growth_items = _growth_items(growth, growth_years, millions, percent, region, t)
+        growth_items_shown = growth_items_shown or growth_items
         figures[fid] = Figure(
             fid,
             millions(q["revenue_forecast"]),
@@ -260,8 +271,7 @@ def answer_view(bundle: dict, region: formatting.Region, t) -> AnswerView:
                 "run_line": t(
                     "answer.fuente.run_line", date=as_of_text, run_id=bundle["run_id"], company=name
                 ),  # fmt: skip
-                "items": [_seed_item(seed, qlabel, millions, region, t)]
-                + _growth_items(growth, growth_years, millions, percent, region, t),
+                "items": [_seed_item(seed, qlabel, millions, region, t)] + growth_items,
                 "foot": t("answer.fuente.same_filing") + " " + t("answer.fuente.rounding"),
             },
             t(
@@ -337,9 +347,28 @@ def answer_view(bundle: dict, region: formatting.Region, t) -> AnswerView:
         }
         for scope in coverage
     }
+
+    def months_of(period: str) -> str:
+        if "Q" not in period:
+            return ""
+        return _month_span(*quarter_months(period, fye), region)
+
+    periods = {p["period"] for c in bundle["inputs"]["cells"] for s in c["history"]
+               for p in s["points"]} | {r["period"] for c in bundle["inputs"]["cells"]
+                                        for r in c["rows"]}  # fmt: skip
+    cells = cells_mod.cells_view(bundle, region, t, years, {
+        "qlabel": qlabel,
+        "months": {p: months_of(p) for p in periods},
+        "figures": figures,
+        "figure_cls": Figure,
+        "company": name,
+        "as_of_text": as_of_text,
+        "forecast_by_seed": forecast_by_seed,
+        "growth_items": growth_items_shown,
+    })  # fmt: skip
     view = AnswerView(
         bundle["run_id"], ticker, name, as_of, rows, cov_figs.get("all"),
-        cov_figs.get("company"), counts, _chart(bundle, region, t, qlabel), figures,
+        cov_figs.get("company"), counts, _chart(bundle, region, t, qlabel), figures, cells,
     )  # fmt: skip
     return view
 

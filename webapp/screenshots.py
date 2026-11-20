@@ -27,6 +27,12 @@ PAGES = (
     # the first screen's answer (F2 Step 4b): brief Q5 on the stored run the mockup used
     ("respuesta", "/respuesta?corte=2026-10-30&empresa=AAPL"),
     ("respuesta-fuente", "/respuesta?corte=2026-10-30&empresa=AAPL&panel=pronostico-FY2026Q4"),
+    # part 2: the cells behind the answer, at ten years, and a cell's figure opened
+    ("respuesta-10-anos", "/respuesta?corte=2026-10-30&empresa=AAPL&anos=10"),
+    (
+        "respuesta-supuesto",
+        "/respuesta?corte=2026-10-30&empresa=AAPL&panel=supuesto-revenue_growth",
+    ),
 )
 
 

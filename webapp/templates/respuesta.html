@@ -5,11 +5,7 @@
    JavaScript, swapped in place by htmx when it runs. #}
 {% block title %}{{ t("answer.title", company=view.company) }} · {{ t("app.name") }}{% endblock %}
 {% block main_class %}{{ "wide" }}{% endblock %}
-{% macro fig(f, extra="") -%}
-  <a class="fig{{ extra }}{% if open_figure == f.id %} on{% endif %}" href="{{ figure_url(f.id) }}"
-     data-figura="{{ f.id }}" hx-get="{{ figure_fragment_url(f.id) }}" hx-target="#panel-host"
-     hx-push-url="{{ figure_url(f.id) }}" aria-haspopup="dialog">{{ f.text }}</a>
-{%- endmacro %}
+{% from "_macros.html" import fig with context %}
 {% macro chart_svg(d, size, aria) -%}
   <svg class="chart {{ size }}" viewBox="{{ d.box }}" role="img" aria-label="{{ aria }}">
     {% for tick in d.ticks %}
@@ -49,7 +45,7 @@
       <h1>{{ t("answer.title", company=view.company) }}</h1>
       <div class="fx" aria-live="polite">
         <span class="fx-tag" aria-hidden="true">{{ t("answer.fx.tag") }}</span>
-        <code>{{ formula or t("answer.fx.empty") }}</code>
+        <code id="fx-code">{{ formula or t("answer.fx.empty") }}</code>
       </div>
       <div class="sheet">
         <table class="t">
@@ -104,5 +100,6 @@
         <span class="run-id">{{ view.run_id }}</span></p>
     </section>
   </div>
+  {% include "_celdas.html" %}
 {% endblock %}
 {% block panel %}{% if panel %}{% include "_panel.html" %}{% endif %}{% endblock %}

@@ -1,0 +1,175 @@
+{# The cells behind the answer (F2 Step 4b part 2; docs/designs/f2-input-charts.md; mockup
+   approved nov.19.2026): one card per assumption row the answer reaches, its history and what
+   Warren assumes now. Swapped whole by the years switch (htmx), or reloaded with ?anos= without
+   JavaScript. Every value is the engine's and every figure opens its panel. #}
+{% from "_macros.html" import fig with context %}
+{% set cv = view.cells %}
+<section class="cells" id="celdas" aria-labelledby="celdas-h">
+  <div class="cellshead">
+    <div>
+      <h2 id="celdas-h">{{ t("cells.title") }}</h2>
+      <p class="p">{{ t("cells.intro") }}</p>
+    </div>
+    <div class="yrs" role="group" aria-label="{{ t('cells.years.label') }}">
+      <span class="yrs-label">{{ t("cells.years.label") }}</span>
+      {% for n in cv.options %}
+      <a class="yrs-opt" href="{{ years_url(n) }}" hx-get="{{ years_fragment_url(n) }}"
+         hx-target="#celdas" hx-swap="outerHTML" hx-push-url="{{ years_url(n) }}"
+         aria-current="{{ 'true' if n == cv.years else 'false' }}"
+         aria-label="{{ t('cells.years.option', n=n) }}">{{ n }}</a>
+      {% endfor %}
+    </div>
+  </div>
+  <p class="src">{{ t("cells.years.note") }}</p>
+  <div class="cgrid">
+    {% for card in cv.cards %}
+    {% if card.kind == "seed" %}
+    <article class="pane cellcard">
+      <h3><span class="cell">{{ card.letter }}</span>{{ card.title }}</h3>
+      <p class="q">{{ card.lead }}</p>
+      <div class="minis">
+        {% for m in card.minis %}
+        <div class="mcell">
+          <p class="mt"><b>{{ m.label }}</b> {{ m.months }}<span class="sub">{{ m.years }}</span></p>
+          {% for size, d in m.drawings.items() %}
+          <svg class="mini {{ size }}" viewBox="{{ d.box }}" role="img" aria-label="{{ m.aria }}">
+            {% for gy in d.grid %}<line class="grid" x1="{{ d.left }}" x2="{{ d.right }}" y1="{{ gy }}" y2="{{ gy }}"/>{% endfor %}
+            <polyline class="hline" points="{% for px, py in d.line %}{{ px }},{{ py }} {% endfor %}"/>
+            {% if d.forecast %}<line class="fcline" x1="{{ d.seed[0] }}" y1="{{ d.seed[1] }}" x2="{{ d.forecast[0] }}" y2="{{ d.forecast[1] }}"/>{% endif %}
+            {% for px, py, title in d.history %}<circle class="hdot" cx="{{ px }}" cy="{{ py }}" r="4"><title>{{ title }}</title></circle>{% endfor %}
+            <circle class="seed" cx="{{ d.seed[0] }}" cy="{{ d.seed[1] }}" r="5.5"><title>{{ d.seed[2] }}</title></circle>
+            {% if d.forecast %}<circle class="fcdot" cx="{{ d.forecast[0] }}" cy="{{ d.forecast[1] }}" r="5"><title>{{ d.forecast[2] }}</title></circle>{% endif %}
+            <text class="xlab" x="{{ d.left - 4 }}" y="{{ d.xlab_y }}" text-anchor="start">{{ d.first_label }}</text>
+            <text class="xlab acc" x="{{ d.right + 6 }}" y="{{ d.xlab_y }}" text-anchor="end">{{ d.last_label }}</text>
+          </svg>
+          {% endfor %}
+          <p class="mv"><span class="cell">{{ card.letter }}</span>{{ m.base_label }}: {{ fig(view.figures[m.base_id]) }} {{ t("cells.millions_short") }}</p>
+        </div>
+        {% endfor %}
+      </div>
+      <figcaption class="legend">
+        <span><i class="key-hist"></i>{{ t("answer.chart.reported") }}</span>
+        <span><i class="key-seed"></i>{{ t("cells.b.base_key") }}</span>
+        <span><i class="key-forecast"></i>{{ t("answer.chart.forecast") }}</span>
+      </figcaption>
+      <p class="src">{{ t("cells.b.caption") }} {{ card.scale }}</p>
+      <p class="note">{{ t("cells.b.note") }}</p>
+      <div class="soon"><b>{{ t("cells.soon.lead") }}</b> {{ t("cells.soon.body") }}</div>
+      <details>
+        <summary>{{ t("cells.data") }}</summary>
+        <div class="sheet">
+          <table class="t">
+            <caption class="visually-hidden">{{ t("cells.b.table_caption") }}</caption>
+            <thead><tr>
+              <th scope="col">{{ t("answer.table.quarter") }}</th>
+              {% for h in card.table_heads %}<th scope="col" class="num">{{ h }}</th>{% endfor %}
+              <th scope="col" class="num">{{ t("cells.b.base_key") }}</th>
+              <th scope="col" class="num">{{ t("answer.chart.forecast") }}</th>
+            </tr></thead>
+            <tbody>
+              {% for m in card.minis %}
+              <tr>
+                <th scope="row">{{ m.label }}<span class="sub">{{ m.months }}, {{ m.years }}</span></th>
+                {% if m.table|length < card.table_heads|length + 1 %}{% for _ in range(card.table_heads|length + 1 - m.table|length) %}<td class="num">{{ t("cells.none") }}</td>{% endfor %}{% endif %}
+                {% for c in m.table %}<td class="num">{{ fig(view.figures[c.id]) }}{% if c.derived %}<span class="mark" title="{{ t('cells.derived_title') }}">*</span>{% endif %}</td>{% endfor %}
+                <td class="num acc">{% if m.forecast_id %}{{ fig(view.figures[m.forecast_id]) }}{% else %}{{ t("cells.none") }}{% endif %}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <p class="src">{{ t("cells.table_units", date=fmt_date(view.as_of), company=view.company) }}{% if card.any_derived %} {{ t("cells.derived_note") }}{% endif %}</p>
+      </details>
+    </article>
+    {% elif card.kind == "ratio" %}
+    <article class="pane cellcard">
+      <h3><span class="cell">{{ card.letter }}</span>{{ card.title }}</h3>
+      <p class="q">{{ t(card.lead_key ~ "_start") }}{{ fig(view.figures[card.assumption_id]) }}{{ t(card.lead_key ~ "_end") }}</p>
+      <p class="ct">{{ card.annual_title }}</p>
+      {% for size, d in card.annual.items() %}
+      <svg class="ic {{ size }}" viewBox="{{ d.box }}" role="img" aria-label="{{ card.annual_aria }}">
+        {% for tk in d.ticks %}
+        <line class="{{ 'zero' if tk.zero else 'grid' }}" x1="{{ d.left }}" x2="{{ d.right }}" y1="{{ tk.y }}" y2="{{ tk.y }}"/>
+        <text class="ylab" x="{{ d.left - 6 }}" y="{{ tk.y + 4 }}" text-anchor="end">{{ tk.label }}</text>
+        {% endfor %}
+        {% for b in d.bars %}
+        <rect class="abar {{ b.kind }}" x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" rx="2"><title>{{ b.title }}</title></rect>
+        {% if d.show_values or b.kind == "sup" %}<text class="vlab{{ ' acc' if b.kind == 'sup' }}" x="{{ b.cx }}" y="{{ b.vy }}" text-anchor="middle">{{ b.value }}</text>{% endif %}
+        <text class="xlab{{ ' acc' if b.kind == 'sup' }}" x="{{ b.cx }}" y="{{ d.xlab_y }}" text-anchor="middle">{{ b.xlab }}</text>
+        {% endfor %}
+        {% if d.bracket %}
+        <path class="brk" d="M{{ d.bracket.x1 }},216 v4 H{{ d.bracket.x2 }} v-4"/>
+        <text class="xlab" x="{{ d.bracket.cx }}" y="233" text-anchor="middle">{{ d.bracket.label }}</text>
+        {% endif %}
+      </svg>
+      {% endfor %}
+      {% if card.quarterly %}
+      <p class="ct">{{ card.quarterly_title }}</p>
+      {% for size, d in card.quarterly.items() %}
+      <svg class="ic {{ size }}" viewBox="{{ d.box }}" role="img" aria-label="{{ card.quarterly_aria }}">
+        {% for tk in d.ticks %}
+        <line class="{{ 'zero' if tk.zero else 'grid' }}" x1="{{ d.left }}" x2="{{ d.right }}" y1="{{ tk.y }}" y2="{{ tk.y }}"/>
+        <text class="ylab" x="{{ d.left - 6 }}" y="{{ tk.y + 4 }}" text-anchor="end">{{ tk.label }}</text>
+        {% endfor %}
+        {% for b in d.bars %}<rect class="qbar" x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" rx="1.5"><title>{{ b.title }}</title></rect>{% endfor %}
+        <line class="split" x1="{{ d.split }}" x2="{{ d.split }}" y1="{{ d.top }}" y2="{{ d.bottom }}"/>
+        <line class="ref" x1="{{ d.left }}" x2="{{ d.right }}" y1="{{ d.ref_y }}" y2="{{ d.ref_y }}"/>
+        <text class="vlab acc" x="{{ d.sup_x }}" y="{{ d.ref_y - 10 }}" text-anchor="middle">{{ view.figures[card.assumption_id].text }}</text>
+        <circle class="fcdot" cx="{{ d.sup_x }}" cy="{{ d.ref_y }}" r="4.5"><title>{{ t("cells.c.assumption_point", value=view.figures[card.assumption_id].text) }}</title></circle>
+        {% for lab in d.xlabels %}<text class="xlab" x="{{ lab.x }}" y="{{ d.xlab_y }}" text-anchor="start">{{ lab.label }}</text>{% endfor %}
+        <text class="xlab acc" x="{{ d.sup_x }}" y="{{ d.xlab_y }}" text-anchor="middle">{{ d.sup_label }}</text>
+      </svg>
+      {% endfor %}
+      {% endif %}
+      <figcaption class="legend">
+        <span><i class="key-used"></i>{{ t("cells.c.used") }}</span>
+        <span><i class="key-old"></i>{{ t("cells.c.not_used") }}</span>
+        <span><i class="key-forecast"></i>{{ t("cells.c.assumption") }}</span>
+      </figcaption>
+      <p class="note">{% if card.note %}{{ card.note }} {% endif %}{{ t("cells.c.note_rule") }}{% if card.note_next %} {{ card.note_next }}{% endif %} {{ t("cells.c.note_sure") }}</p>
+      <details>
+        <summary>{{ t("cells.data") }}</summary>
+        <div class="sheet">
+          <table class="t">
+            <caption class="visually-hidden">{{ t("cells.c.table_caption") }}</caption>
+            <thead><tr>
+              <th scope="col">{{ t("cells.c.period") }}</th>
+              <th scope="col" class="num">{{ t("cells.c.revenue") }}</th>
+              <th scope="col" class="num">{{ t("cells.c.growth") }}</th>
+            </tr></thead>
+            <tbody>
+              {% for r in card.annual_rows %}
+              <tr>
+                <th scope="row">{{ r.label }}{% if r.used %}<span class="sub">{{ t("cells.c.used_row") }}</span>{% endif %}</th>
+                <td class="num">{{ fig(view.figures[r.revenue]) }}</td>
+                <td class="num">{{ fig(view.figures[r.growth]) }}</td>
+              </tr>
+              {% endfor %}
+              <tr>
+                <th scope="row">{{ t("cells.c.assumption") }}<span class="sub">{{ t("answer.reading.next_four") }}</span></th>
+                <td class="num">{{ t("cells.none") }}</td>
+                <td class="num acc">{{ fig(view.figures[card.assumption_id]) }}</td>
+              </tr>
+              {% for r in card.quarter_rows %}
+              <tr>
+                <th scope="row">{{ r.label }}</th>
+                <td class="num">{{ fig(view.figures[r.revenue]) }}{% if r.derived %}<span class="mark" title="{{ t('cells.derived_title') }}">*</span>{% endif %}</td>
+                <td class="num">{{ fig(view.figures[r.growth]) }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <p class="src">{{ t("cells.table_units", date=fmt_date(view.as_of), company=view.company) }}{% if card.any_derived %} {{ t("cells.derived_note") }}{% endif %}</p>
+      </details>
+    </article>
+    {% else %}
+    <article class="pane cellcard">
+      <h3>{% if card.letter %}<span class="cell">{{ card.letter }}</span>{% endif %}{{ card.title }}</h3>
+      <p class="q">{{ t("cells.plain.no_chart") }}</p>
+    </article>
+    {% endif %}
+    {% endfor %}
+  </div>
+  <p class="src">{{ cv.source }}</p>
+</section>

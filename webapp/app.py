@@ -29,7 +29,7 @@ from fastapi.templating import Jinja2Templates
 from shared_kernel.calendar import last_ended_day
 from shared_kernel.config import DB_PATH
 from shared_kernel.database import get_db_connection
-from webapp import formatting
+from webapp import cells, formatting
 from webapp.answer import NoRun, answer_view, bundle_for_run, find_run
 from webapp.database import schema_status
 from webapp.text import translate
@@ -286,10 +286,18 @@ def create_app(
             raise UnknownCompany(ticker)
         return corte, ticker
 
-    def answer_panel(view, corte: date, ticker: str, figura: str, pestana: str, full: bool):
+    def answer_base(corte: date, ticker: str, years: int) -> dict:
+        base = {"corte": corte.isoformat(), "empresa": ticker}
+        if years != cells.DEFAULT_YEARS:  # the default stays out of the address
+            base["anos"] = str(years)
+        return base
+
+    def answer_panel(
+        view, corte: date, ticker: str, figura: str, pestana: str, full: bool, years: int
+    ):
         if figura not in view.figures or pestana not in PANEL_TABS:
             raise UnknownPanel(f"{figura}/{pestana}")
-        base = {"corte": corte.isoformat(), "empresa": ticker}
+        base = answer_base(corte, ticker, years)
         return {
             "full_page": full,
             "corte": corte,
@@ -302,19 +310,23 @@ def create_app(
             "tab_fragment_url": lambda tab: page_url(
                 "/respuesta/fragmentos/pestana", **base, figura=figura, pestana=tab
             ),
+            # the formula bar follows the open figure when htmx swaps the panel in (out of band)
+            "formula": view.figures[figura].formula,
         }
 
-    @app.get("/respuesta", response_class=HTMLResponse)
-    def respuesta(request: Request) -> Response:
-        """Brief Q5: the company's revenue for the next four quarters, its p10–p90 range and
-        how often that range held, from the stored baseline dated the fecha de corte."""
-        params = answer_params(request)
-        if isinstance(params, RedirectResponse):
-            return params
-        corte, ticker = params
+    def answer_context(request: Request, corte: date, ticker: str):
+        """The view and the links every part of the answer needs, for the address's years."""
         region = region_of(request)
-        view = answer_view(bundle_for(ticker, corte), region, partial(translate, region.language))
-        base = {"corte": corte.isoformat(), "empresa": ticker}
+        years = cells.years_from(request.query_params.get("anos"))
+        view = answer_view(
+            bundle_for(ticker, corte), region, partial(translate, region.language), years
+        )
+        base = answer_base(corte, ticker, years)
+        plain = {"corte": corte.isoformat(), "empresa": ticker}
+
+        def with_years(n: int) -> dict:
+            return {**plain, "anos": str(n)} if n != cells.DEFAULT_YEARS else plain
+
         context = {
             "corte": corte,
             "view": view,
@@ -325,14 +337,40 @@ def create_app(
             "figure_fragment_url": lambda f: page_url(
                 "/respuesta/fragmentos/panel", **base, figura=f
             ),
+            "years_url": lambda n: page_url("/respuesta", **with_years(n)),
+            "years_fragment_url": lambda n: page_url(
+                "/respuesta/fragmentos/celdas", **with_years(n)
+            ),
         }
+        return view, years, context
+
+    @app.get("/respuesta", response_class=HTMLResponse)
+    def respuesta(request: Request) -> Response:
+        """Brief Q5: the company's revenue for the next four quarters, its p10–p90 range and
+        how often that range held, from the stored baseline dated the fecha de corte; below
+        it, the cells behind the answer with 3, 5 or 10 years of history (`anos`)."""
+        params = answer_params(request)
+        if isinstance(params, RedirectResponse):
+            return params
+        corte, ticker = params
+        view, years, context = answer_context(request, corte, ticker)
         figura = request.query_params.get("panel")
         if figura is not None:
             pestana = request.query_params.get("pestana", PANEL_TABS[0])
-            context["panel"] = answer_panel(view, corte, ticker, figura, pestana, True)
+            context["panel"] = answer_panel(view, corte, ticker, figura, pestana, True, years)
             context["open_figure"] = figura
             context["formula"] = view.figures[figura].formula
         return render(request, "respuesta.html", context)
+
+    @app.get("/respuesta/fragmentos/celdas", response_class=HTMLResponse)
+    def respuesta_celdas(request: Request) -> Response:
+        """The cells section alone, for the years switch (htmx swaps it in place)."""
+        params = answer_params(request)
+        if isinstance(params, RedirectResponse):
+            return params
+        corte, ticker = params
+        _, _, context = answer_context(request, corte, ticker)
+        return render(request, "_celdas.html", context)
 
     def answer_fragment(request: Request, template: str) -> Response:
         params = answer_params(request)
@@ -342,10 +380,9 @@ def create_app(
         figura = request.query_params.get("figura")
         if figura is None:
             raise UnknownPanel("")
-        region = region_of(request)
-        view = answer_view(bundle_for(ticker, corte), region, partial(translate, region.language))
+        view, years, _ = answer_context(request, corte, ticker)
         pestana = request.query_params.get("pestana", PANEL_TABS[0])
-        panel = answer_panel(view, corte, ticker, figura, pestana, False)
+        panel = answer_panel(view, corte, ticker, figura, pestana, False, years)
         return render(request, template, {"panel": panel, "corte": corte})
 
     @app.get("/respuesta/fragmentos/panel", response_class=HTMLResponse)

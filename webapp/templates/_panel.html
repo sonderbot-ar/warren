@@ -27,3 +27,6 @@
   </div>
   <p class="visually-hidden" aria-live="polite" data-panel-live></p>
 </dialog>
+{% if panel.formula is defined and not panel.full_page %}
+<code id="fx-code" hx-swap-oob="true">{{ panel.formula or t("answer.fx.empty") }}</code>
+{% endif %}
