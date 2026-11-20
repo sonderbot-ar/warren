@@ -76,3 +76,54 @@ def test_a_caller_changing_its_rows_leaves_the_kept_ones_alone(company):
     rows = RN.scored_origin_rows(company, D, pairs, N)
     rows[0]["p10"] = -1.0
     assert RN.scored_origin_rows(company, D, pairs, N) == _cold(company, D, pairs)
+
+
+def test_a_request_with_other_misses_waits_for_a_build_in_progress(company, monkeypatch):
+    """Analyst, design review: the app serves requests on threads. A request whose misses differ
+    arrives while another builds; without the lock it would reset the kept rows and the first
+    request would then write rows built from its own misses under the second's."""
+    import threading
+
+    _origins(company)
+    pairs = R.load_pairs(company)
+    moved = [*pairs[:-1], R.ErrorPair(*[*pairs[-1].__dict__.values()][:-1], pairs[-1].ebit + 1)]
+    want_moved = _cold(company, D, moved)
+    want = _cold(company, D, pairs)
+    RN.forget_kept_rows()
+    building, release = threading.Event(), threading.Event()
+    real = R.subject_rows
+
+    def slow(*args, **kwargs):
+        if threading.current_thread().name == "first":
+            building.set()
+            release.wait(5)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(R, "subject_rows", slow)
+    origin = [s for s in R.origin_subjects(company) if s.as_of == date(2021, 3, 15)][0]
+    got: dict = {}
+    first = threading.Thread(
+        target=lambda: got.update(first=RN._origin_rows(origin, pairs, N)), name="first"
+    )
+    second = threading.Thread(
+        target=lambda: got.update(second=RN._origin_rows(origin, moved, N)), name="second"
+    )
+    first.start()
+    assert building.wait(5)
+    second.start()
+    second.join(0.2)
+    assert second.is_alive()  # waits for the build in progress
+    release.set()
+    first.join(5)
+    second.join(5)
+
+    def mine(rows):
+        return [
+            {k: v for k, v in r.items() if k != "ticker"}
+            for r in rows
+            if r["subject_id"] == origin.subject_id
+        ]
+
+    assert got["first"] == mine(want)
+    assert got["second"] == mine(want_moved)
+    assert RN._origin_rows(origin, moved, N) == mine(want_moved)  # what is kept is the second's

@@ -51,3 +51,21 @@ def test_series_notes_with_kept_reads_equal_notes_read_afresh(make_company):
     codes |= {n.code for n in _series_recast_notes(conn, answers, AS_OF, shared)}
     assert codes  # the case reaches the notes, so the kept reads are exercised
     assert {"recasts", "versions", "changes"} <= {k[0] for k in shared}
+
+
+def test_a_date_past_the_history_warns_on_every_period_with_kept_reads(make_company, monkeypatch):
+    """Analyst, design review: once every read is kept, a later period made no read that warns,
+    so `reported_period` says it itself (Exxon on 2026-10-30, past its 2026-08-03 cut-off)."""
+    from domains.fundamentals import universe
+
+    conn = make_company(_both)
+    cik = conn.execute("SELECT cik FROM companies WHERE ticker = 'TST'").fetchone()[0]
+    fields = {"ticker": "TST", "cik": cik, "as_of": AS_OF.isoformat(),
+              "history_ends": "2019-01-01", "reason": None, "successor_cik": None,
+              "successor_name": None, "note": ""}  # fmt: skip
+    monkeypatch.setattr(universe, "coverage_gap", lambda c, d: ("past history", fields))
+    shared: dict = {}
+    kept = _read(conn, YEARS, shared)
+    fresh = _read(conn, YEARS, None)
+    assert [[w.code for w in a.warnings] for a in kept] == [["beyond_history"]] * len(YEARS)
+    assert [a.warnings for a in kept] == [b.warnings for b in fresh]

@@ -71,7 +71,7 @@ from domains.fundamentals.facts import (
     version_dates,
 )
 from domains.fundamentals.schemas import Fact
-from domains.fundamentals.universe import PHASE1_UNIVERSE
+from domains.fundamentals.universe import PHASE1_UNIVERSE, warn_if_beyond_history
 
 LATEST_QUARTER, LATEST_YEAR = "latest-quarter", "latest-year"
 PERIOD_FORMS = f"FY2025, FY2025Q4, {LATEST_QUARTER} or {LATEST_YEAR}"
@@ -828,6 +828,8 @@ def reported_period(
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
+        # every call says when the date is past the company's history, kept reads or not (#477)
+        warn_if_beyond_history(cik, as_of)
         key = (cik, as_of)
         views = once(("views", *key, quarterly), lambda: _views(conn, cik, as_of, quarterly))
         resolved = resolved or latest_period(views, quarterly)

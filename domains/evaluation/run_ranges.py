@@ -12,6 +12,7 @@ Designs: docs/designs/backlog-144-run-ranges.md, docs/designs/backlog-167-shocke
 """
 
 import sqlite3
+import threading
 from dataclasses import asdict, dataclass, field
 from datetime import date
 
@@ -295,7 +296,11 @@ def basis_flags(conn: sqlite3.Connection, ticker: str, on: date) -> set[tuple[st
 # (backlog #477 item 2: the track record took about 4 s of every answer). The kept rows are
 # used only while the misses and the count are equal to the ones they were built from, and an
 # origin only while it is equal to the one they were built for; anything else builds afresh.
+# One lock around the check, the build and the read, since the app serves requests on worker
+# threads and a reset between another thread's check and its write would keep rows built from
+# other misses (analyst, design review).
 _KEPT: dict = {"pairs": None, "n": None, "rows": {}}
+_KEPT_LOCK = threading.Lock()
 
 
 def _origin_rows(s: R.Subject, pairs: list[R.ErrorPair], n: int) -> list[dict]:
@@ -303,24 +308,21 @@ def _origin_rows(s: R.Subject, pairs: list[R.ErrorPair], n: int) -> list[dict]:
     import json
 
     exact = tuple(pairs)
-    if _KEPT["pairs"] != exact or _KEPT["n"] != n:
-        _KEPT.update(pairs=exact, n=n, rows={})
-    key = (
-        s.kind,
-        s.subject_id,
-        s.ticker,
-        s.as_of,
-        s.run_id,
-        json.dumps(s.quarters, sort_keys=True),
-    )
-    if key not in _KEPT["rows"]:
-        _KEPT["rows"][key] = R.subject_rows(s, pairs, {BASIS: R.baseline_samples(s, n)}, n)
-    return [dict(row) for row in _KEPT["rows"][key]]
+    quarters = json.dumps(s.quarters, sort_keys=True)
+    key = (s.kind, s.subject_id, s.ticker, s.as_of, s.run_id, quarters)
+    with _KEPT_LOCK:
+        if _KEPT["pairs"] != exact or _KEPT["n"] != n:
+            _KEPT.update(pairs=exact, n=n, rows={})
+        kept = _KEPT["rows"]
+        if key not in kept:
+            kept[key] = R.subject_rows(s, pairs, {BASIS: R.baseline_samples(s, n)}, n)
+        return [dict(row) for row in kept[key]]
 
 
 def forget_kept_rows() -> None:
     """Drop the kept origin rows (tests, or a caller that wants a cold build)."""
-    _KEPT.update(pairs=None, n=None, rows={})
+    with _KEPT_LOCK:
+        _KEPT.update(pairs=None, n=None, rows={})
 
 
 def scored_origin_rows(
