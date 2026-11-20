@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/502 (items 1 and 2) · Branch `backlog-502-diluted-order` · Version v0.10.21 when merged.
 
-Status: In progress (nov.20.2026).
+Status: Done (nov.20.2026; v0.10.21, PR #504, merge `6ede725`, after CI green and a gatekeeper GO; #502 item 3 stays with the front-end team).
 
 ## Problem
 
