@@ -711,7 +711,7 @@ def _shares(singles: Singles):
     yearly = [point(f, _label(f.fiscal_year, "FY"), (f.fiscal_year, "FY")) for f in annual]
     diluted = sorted(
         diluted + _fourth_quarter_gaps(quarterly, annual),
-        key=lambda p: (p.fiscal_year, p.fiscal_period),
+        key=lambda p: (p.fiscal_year, _quarter_number(p.fiscal_period)),
     )
     cover_used = bool(counted and counted["item"] == "shares_outstanding")
     return [
@@ -719,6 +719,15 @@ def _shares(singles: Singles):
         Series("diluted_shares", "quarter", "latest", any(p.used for p in diluted), None, diluted),
         Series("diluted_shares", "year", "latest", any(p.used for p in yearly), None, yearly),
     ]
+
+
+def _quarter_number(fiscal_period: str) -> int:
+    """1 to 4 for `Q1` to `Q4`, so the quarterly series sorts on the quarter's number, not on its
+    label's spelling; any other label is refused rather than placed by a string compare
+    (gatekeeper, #502)."""
+    if fiscal_period not in ("Q1", "Q2", "Q3", "Q4"):
+        raise ValueError(f"not a fiscal quarter: {fiscal_period!r}")
+    return int(fiscal_period[1])
 
 
 def _fourth_quarter_gaps(quarterly: list, annual: list) -> list:

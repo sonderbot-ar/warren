@@ -432,3 +432,49 @@ def test_an_open_year_without_its_count_has_no_fourth_quarter_gap(run):
     conn, run_id = run
     _cover, diluted, _yearly = _cell(inputs_behind(conn, run_id, VPS), "shares").history
     assert "FY2020Q4" not in {p.period for p in diluted.points}
+
+
+# -- the diluted series' order and a year with no annual count (backlog #502) --------------------
+
+
+def test_the_quarterly_series_sorts_on_the_quarters_number():
+    from domains.analysis.single_values import _quarter_number
+
+    assert [_quarter_number(p) for p in ("Q1", "Q2", "Q3", "Q4")] == [1, 2, 3, 4]
+    # a label that is not a fiscal quarter is refused, never placed by its spelling
+    for label in ("FY", "Q5", "q1", "H1", ""):
+        with pytest.raises(ValueError, match="not a fiscal quarter"):
+            _quarter_number(label)
+
+
+def test_a_year_whose_10k_count_is_not_read_gets_a_gap_without_a_year(make_company):
+    """Exxon's FY2009 and FY2010 on real data: a filed 10-K whose diluted count no mapped tag
+    reads. End to end on Test Corp with FY2017's annual count dropped from every filing."""
+
+    def edit(tag, row):
+        year_long = row.get("start") == "2017-01-01" and row["end"] == "2017-12-31"
+        return None if tag == DILUTED and year_long else row
+
+    conn = make_company(edit)
+    run_id = run_baseline(conn, "TST", NO_COVER, choices=CHOICES, today=AS_OF)
+    _cover, diluted, yearly = _cell(inputs_behind(conn, run_id, VPS), "shares").history
+    assert "FY2017" not in {p.period for p in yearly.points}
+    assert {"FY2016", "FY2018", "FY2019"} <= {p.period for p in yearly.points}
+    (gap,) = [p for p in diluted.points if p.period == "FY2017Q4"]
+    assert gap.value is None and not gap.used and gap.period_end is None
+    assert gap.missing.code == NOT_COMPUTABLE
+    assert gap.missing.params == {
+        "reason": "no_fourth_quarter_count",
+        "fiscal_year": 2017,
+        "annual_period": None,
+    }
+    assert "read no count for FY2017" in gap.missing.text
+    assert "did not file" not in gap.missing.text
+    # the neighbouring years keep their own year's count
+    for year in (2016, 2018, 2019):
+        (q4,) = [p for p in diluted.points if p.period == f"FY{year}Q4"]
+        assert q4.missing.params["annual_period"] == f"FY{year}"
+    # FY2017's three filed quarters stay in place, in fiscal order around the gap
+    periods = [p.period for p in diluted.points]
+    i = periods.index("FY2017Q4")
+    assert periods[i - 3 : i + 2] == ["FY2017Q1", "FY2017Q2", "FY2017Q3", "FY2017Q4", "FY2018Q1"]
