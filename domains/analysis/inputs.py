@@ -473,7 +473,7 @@ def _contributions(reader: _Reader, point: Point) -> Point:
         parts.append(
             Part(
                 name="revenue_quarter_contribution",
-                value=now.value - before.value,
+                value=fm.difference(now.value, before.value),
                 period=f"FY{year}Q{q}",
                 filing=_filing(now.latest.filing),
                 derived=now.derived,
@@ -484,11 +484,11 @@ def _contributions(reader: _Reader, point: Point) -> Point:
         )
     notes = list(point.notes)
     if abs(total - point.value) > 1e-9:
-        rest = point.value - total
+        rest = fm.difference(point.value, total)
         parts.append(
             Part(
                 name="not_in_quarters",
-                value=rest * prior_year.value,
+                value=fm.contribution_amount(rest, prior_year.value),
                 period=f"FY{year}",
                 filing=None,
                 contribution=rest,

@@ -493,3 +493,18 @@ def growth_contribution(current: Number, prior: Number, prior_total: Number) -> 
     if _any(prior_total <= 0):
         raise FinancialMathError(f"a contribution needs a positive prior total, got {prior_total}")
     return (current - prior) / prior_total
+
+
+def difference(current: Number, prior: Number) -> Number:
+    """A part's change between two periods, current − prior, in the parts' own currency (the bar
+    behind a quarter's contribution to the year's growth)."""
+    return current - prior
+
+
+def contribution_amount(contribution: Number, prior_total: Number) -> Number:
+    """A contribution to a total's growth turned back into an amount: contribution × the
+    year-earlier total (what the quarters leave unexplained, in the total's currency). The inverse
+    of `growth_contribution` over the same positive total."""
+    if _any(prior_total <= 0):
+        raise FinancialMathError(f"a contribution needs a positive prior total, got {prior_total}")
+    return contribution * prior_total
