@@ -301,7 +301,8 @@ def basis_flags(conn: sqlite3.Connection, ticker: str, on: date) -> set[tuple[st
 # threads and a reset between another thread's check and its write would keep rows built from
 # other misses (analyst, design review).
 # The kept rows have no size limit: one entry per origin of the misses in use (about 550 today).
-# A miss is never NaN (SQLite stores NaN as NULL), so equal misses always compare equal.
+# A miss never comes back as NaN: SQLite stores NaN as NULL, read back as None (not filtered
+# here; see #495), so equal misses always compare equal.
 _KEPT: dict = {"pairs": None, "n": None, "rows": {}}
 _KEPT_LOCK = threading.Lock()
 
