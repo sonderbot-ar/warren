@@ -723,13 +723,15 @@ def _shares(singles: Singles):
 
 def _fourth_quarter_gaps(quarterly: list, annual: list) -> list:
     """A point with no value for each fiscal year whose fourth quarter has ended in the filings
-    (the year's own count is filed, or a later year's) but has no quarterly count: a 10-K files the
-    year's weighted count, not the fourth quarter's, and Warren never derives a weighted count
-    (an average of averages is not one). Years with no count at all are left out."""
+    (the year's own count is read, or a later year's) but has no quarterly count: a 10-K files the
+    year's weighted count, not the fourth quarter's, and Warren never derives one. The year minus
+    three quarters is not exact for diluted counts: each period is tested for anti-dilution on its
+    own and a loss quarter counts no potential shares (ASC 260-10-45-20, IAS 33.41-44), and
+    quarters can differ in length. Only years with a quarterly count in the window get a gap, so
+    the series never opens on one (analyst)."""
     from domains.analysis.inputs import Point
 
     have = {f.fiscal_year for f in quarterly if f.fiscal_period != "Q4"}
-    have |= {f.fiscal_year for f in annual}
     q4 = {f.fiscal_year for f in quarterly if f.fiscal_period == "Q4"}
     by_year = {f.fiscal_year: f for f in annual}
     latest = max((f.fiscal_year for f in (*quarterly, *annual)), default=None)
@@ -743,7 +745,10 @@ def _fourth_quarter_gaps(quarterly: list, annual: list) -> list:
             f"FY{year}'s 10-K files the year's weighted diluted count ({annual_period}, in the "
             "yearly series), not the fourth quarter's; Warren does not derive one"
             if annual_period
-            else f"FY{year}Q4 has no diluted count of its own, and the year's count is not filed"
+            # the 10-K may be filed with a count Warren's concept map does not read (Exxon's FY2009
+            # and FY2010), so the text never says the company did not file it (analyst)
+            else f"FY{year}Q4 has no diluted count of its own, and Warren read no count for "
+            f"FY{year} from the filings"
         )
         missing = Coded(
             NOT_COMPUTABLE,

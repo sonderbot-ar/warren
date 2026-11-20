@@ -369,6 +369,24 @@ def test_diluted_counts_come_by_quarter_and_by_year_with_each_fourth_quarter_cod
     assert diluted.points == sorted(diluted.points, key=lambda p: (p.fiscal_year, p.period[-2:]))
 
 
+def test_a_year_with_no_quarter_in_the_window_opens_no_gap():
+    from types import SimpleNamespace as Fact
+
+    from domains.analysis.single_values import _fourth_quarter_gaps
+
+    def fact(year, period):
+        return Fact(fiscal_year=year, fiscal_period=period, period_end=date(year, 12, 31))
+
+    # the window holds FY2021's count but none of its quarters (they end before the window), then
+    # FY2022 in full and FY2023 open; Exxon-like FY2022 count missing in a second case
+    quarterly = [fact(2022, q) for q in ("Q1", "Q2", "Q3")] + [fact(2023, "Q1")]
+    gaps = _fourth_quarter_gaps(quarterly, [fact(2021, "FY"), fact(2022, "FY")])
+    assert [(g.period, g.missing.params["annual_period"]) for g in gaps] == [("FY2022Q4", "FY2022")]
+    (gap,) = _fourth_quarter_gaps(quarterly, [fact(2021, "FY")])
+    assert gap.period == "FY2022Q4" and gap.missing.params["annual_period"] is None
+    assert gap.period_end is None and "read no count" in gap.missing.text
+
+
 def test_the_fallback_on_the_years_count_is_the_used_point_of_the_yearly_series(make_company):
     conn = make_company(None)
     _without_cover(conn)
@@ -405,6 +423,8 @@ def test_a_fourth_quarter_count_filed_beside_the_year_is_its_own_point(make_comp
     # filing and the date
     used = [p for s in (diluted, yearly) for p in s.points if p.used]
     assert len(used) == 1 and used[0].value == pytest.approx(cell.rows[0].value)
+    # the engine takes the quarter's count on a tie of dates (its quarterly counts come first)
+    assert used[0].period == "FY2019Q4" and diluted.primary and not yearly.primary
     assert diluted.primary != yearly.primary
 
 
