@@ -148,7 +148,6 @@
   "answer.kpi.company": "de los rangos de {company} contuvieron la cifra real: {inside} de {n} casos",
   "answer.fuente.rounding": "En la hoja, C va como fracción con seis decimales; la pantalla la muestra redondeada a un decimal.",
   "cells.title": "Las celdas detrás de la respuesta",
-  "cells.intro": "Cada pronóstico de la tabla sale de dos celdas de la fórmula: pronóstico = B × (1 + C). B son los ingresos del mismo trimestre fiscal del año anterior; C es el crecimiento que Warren supone. Para cada una: cómo cambió en los últimos años y qué supone Warren ahora.",
   "cells.years.label": "Años de historia",
   "cells.years.option": "{n} años de historia",
   "cells.years.note": "Los años de historia solo cambian las gráficas: el supuesto siempre usa los tres últimos años fiscales.",
@@ -197,7 +196,7 @@
   "cells.c.not_used": "No se usa",
   "cells.c.used_row": "se usa en el promedio",
   "cells.c.note_recent": "Los tres trimestres más recientes crecieron {values}; el supuesto es {assumption}.",
-  "cells.c.note_rule": "Warren no dice si ese ritmo seguirá o se acabará: su pronóstico base es una regla simple y fija, el promedio de los tres últimos años fiscales completos, y no mira trimestres sueltos.",
+  "cells.c.note_rule": "Warren no dice si ese ritmo seguirá o se acabará: su pronóstico base es una regla simple y fija, el promedio de los tres últimos años fiscales completos, que deja fuera a propósito los trimestres sueltos para que un solo periodo no la mueva.",
   "cells.c.note_next_year": "El año fiscal {year} entrará en el promedio cuando {company} presente su reporte anual.",
   "cells.c.note_sure": "Qué tan bien le ha ido a esta regla está arriba, en «¿Qué tan seguro?».",
   "cells.c.table_caption": "Crecimiento de los ingresos por año fiscal y por trimestre",
@@ -222,5 +221,8 @@
   "cells.fx.mean": "{formula}",
   "cells.fx.reported": "Cifra reportada: no tiene fórmula en Warren.",
   "cells.fx.derived": "Año fiscal del 10-K − T1 − T2 − T3 (cifra calculada por Warren con los reportes).",
-  "cells.none": "—"
+  "cells.none": "—",
+  "cells.intro_lead": "Cada pronóstico de la tabla sale de dos celdas de la fórmula:",
+  "cells.intro_forecast": "pronóstico",
+  "cells.intro_rest": "B son los ingresos del mismo trimestre fiscal del año anterior; C es el crecimiento que Warren supone. Para cada una: cómo cambió en los últimos años y qué supone Warren ahora."
 }

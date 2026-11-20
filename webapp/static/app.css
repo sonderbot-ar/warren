@@ -792,6 +792,7 @@ main.wide {
 
 .ic.l {
   max-width: 37.5rem; /* 600 px: labels at their own size */
+  margin-inline: auto;
 }
 
 .mini.s,
@@ -857,6 +858,8 @@ main.wide {
 
 .abar.used {
   fill: var(--color-accent);
+  stroke: var(--color-fg); /* told from the unused years without colour too */
+  stroke-width: 1.5;
 }
 
 .abar.old,
@@ -897,6 +900,14 @@ main.wide {
   border: 1.5px solid var(--color-fg);
   border-radius: 50%;
   background: var(--color-accent);
+}
+
+.legend .key-used {
+  outline: 1.5px solid var(--color-fg);
+}
+
+.legend span {
+  white-space: nowrap; /* a key never parts from its label */
 }
 
 .legend .key-used,

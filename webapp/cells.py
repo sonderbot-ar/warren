@@ -48,7 +48,7 @@ QUARTERLY = {
     "l": {"box": "0 0 600 210", "left": 44, "right": 592, "top": 18, "bottom": 186, "xlab_y": 204,
           "label_width": 60},
     "s": {"box": "0 0 320 210", "left": 44, "right": 312, "top": 18, "bottom": 186, "xlab_y": 204,
-          "label_width": 46},
+          "label_width": 58},
 }  # fmt: skip
 VALUE_LABEL_MIN_SLOT = 44  # a bar's value is written above it only when its slot is this wide
 
@@ -273,6 +273,14 @@ class CellsBuilder:
         return {
             "years": self.years,
             "options": YEARS_OPTIONS,
+            # "pronóstico = B × (1 + C)." with the letters drawn as the cards' badges
+            "formula": [
+                (self.t("cells.intro_forecast") + " = ", False),
+                ("B", True),
+                ("× (1 + ", False),
+                ("C", True),
+                ("). ", False),
+            ],
             "cards": cards,
             "source": self.t("cells.source", date=self.as_of_text, company=self.company),
         }
@@ -497,7 +505,10 @@ class CellsBuilder:
                         continue
                     text = (self.qlabel(p["period"]) if size == "l"
                             else self.short_label(p["period"]))  # fmt: skip
-                    labels.append({"x": round(lay["left"] + slot * i, 1), "label": text})
+                    x = round(lay["left"] + slot * i, 1)
+                    if x + lay["label_width"] > split - 4:  # would run into the assumption's label
+                        continue
+                    labels.append({"x": x, "label": text})
                 quarterly_drawings[size] = {
                     **lay,
                     "ticks": [

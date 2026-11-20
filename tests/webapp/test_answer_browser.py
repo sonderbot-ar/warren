@@ -118,3 +118,11 @@ def test_a_value_in_the_cells_opens_its_source(page, base):
     expect(dialog).to_be_visible()
     expect(dialog).to_contain_text("2023")
     expect(page.locator(".fx code")).to_contain_text("=PROMEDIO(")
+
+
+def test_the_years_switch_keeps_keyboard_focus_on_the_chosen_option(page, base):
+    page.goto(base + PAGE)
+    page.locator(".yrs-opt", has_text="10").focus()
+    page.keyboard.press("Enter")
+    expect(page.locator('.yrs-opt[aria-current="true"]')).to_have_text("10")
+    expect(page.locator('.yrs-opt[aria-current="true"]')).to_be_focused()

@@ -3,7 +3,7 @@
 {% set f = panel.figure.fuente %}
 <p class="fuente-lead">{{ f.lead }}</p>
 <p class="fuente-value"><span class="fuente-big">{{ f.value }}</span>
-  {% if f.kind != "coverage" %}<span class="fuente-unit">{{ t("answer.unit_millions") }}</span>{% endif %}</p>
+  {% if f.kind in ("forecast", "range", "history") %}<span class="fuente-unit">{{ t("answer.unit_millions") }}</span>{% endif %}</p>
 <p class="fuente-small"><b>{{ t("answer.fuente.how") }}</b> {{ f.how }}</p>
 <p class="fuente-small">{{ f.run_line }}</p>
 {% if f["items"] %}

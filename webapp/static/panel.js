@@ -193,6 +193,18 @@
       window.location.href = elt.href; // the panel failed to open: the full page shows why
     }
   }
+  // the years switch swaps the whole cells section: keep keyboard focus on the chosen option
+  document.addEventListener("htmx:afterSettle", function (event) {
+    var cells = document.getElementById("celdas");
+    if (!cells || !cells.contains(event.detail.elt) && event.detail.elt.id !== "celdas") {
+      return;
+    }
+    var chosen = cells.querySelector('.yrs-opt[aria-current="true"]');
+    if (chosen) {
+      chosen.focus();
+    }
+  });
+
   document.addEventListener("htmx:responseError", failed);
   document.addEventListener("htmx:sendError", failed);
 

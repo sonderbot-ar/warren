@@ -171,7 +171,7 @@ def test_the_page_shows_the_cells_and_the_switch(client):  # noqa: F811
     html = client.get(PAGE).text
     assert 'id="celdas"' in html
     assert html.count('class="yrs-opt"') == 3
-    assert 'aria-current="true"' in html and ">5</a>" in html
+    assert re.search(r'class="yrs-opt"[^>]*aria-current="true"[^>]*>5</a>', html, re.S)
     assert "Próximamente:" in html
 
 

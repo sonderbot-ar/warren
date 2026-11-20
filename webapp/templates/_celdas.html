@@ -8,14 +8,14 @@
   <div class="cellshead">
     <div>
       <h2 id="celdas-h">{{ t("cells.title") }}</h2>
-      <p class="p">{{ t("cells.intro") }}</p>
+      <p class="p">{{ t("cells.intro_lead") }} <b>{% for text, is_cell in cv.formula %}{% if is_cell %}<span class="cell">{{ text }}</span>{% else %}{{ text }}{% endif %}{% endfor %}</b> {{ t("cells.intro_rest") }}</p>
     </div>
     <div class="yrs" role="group" aria-label="{{ t('cells.years.label') }}">
       <span class="yrs-label">{{ t("cells.years.label") }}</span>
       {% for n in cv.options %}
       <a class="yrs-opt" href="{{ years_url(n) }}" hx-get="{{ years_fragment_url(n) }}"
          hx-target="#celdas" hx-swap="outerHTML" hx-push-url="{{ years_url(n) }}"
-         aria-current="{{ 'true' if n == cv.years else 'false' }}"
+         {% if n == cv.years %}aria-current="true"{% endif %}
          aria-label="{{ t('cells.years.option', n=n) }}">{{ n }}</a>
       {% endfor %}
     </div>
@@ -47,11 +47,11 @@
         </div>
         {% endfor %}
       </div>
-      <figcaption class="legend">
+      <div class="legend">
         <span><i class="key-hist"></i>{{ t("answer.chart.reported") }}</span>
         <span><i class="key-seed"></i>{{ t("cells.b.base_key") }}</span>
         <span><i class="key-forecast"></i>{{ t("answer.chart.forecast") }}</span>
-      </figcaption>
+      </div>
       <p class="src">{{ t("cells.b.caption") }} {{ card.scale }}</p>
       <p class="note">{{ t("cells.b.note") }}</p>
       <div class="soon"><b>{{ t("cells.soon.lead") }}</b> {{ t("cells.soon.body") }}</div>
@@ -121,12 +121,12 @@
       </svg>
       {% endfor %}
       {% endif %}
-      <figcaption class="legend">
+      <div class="legend">
         <span><i class="key-used"></i>{{ t("cells.c.used") }}</span>
         <span><i class="key-old"></i>{{ t("cells.c.not_used") }}</span>
         <span><i class="key-forecast"></i>{{ t("cells.c.assumption") }}</span>
-      </figcaption>
-      <p class="note">{% if card.note %}{{ card.note }} {% endif %}{{ t("cells.c.note_rule") }}{% if card.note_next %} {{ card.note_next }}{% endif %} {{ t("cells.c.note_sure") }}</p>
+      </div>
+      <p class="note">{% if card.note %}{{ card.note }} {% endif %}{% if card.note_next %}{{ card.note_next }} {% endif %}{{ t("cells.c.note_rule") }} {{ t("cells.c.note_sure") }}</p>
       <details>
         <summary>{{ t("cells.data") }}</summary>
         <div class="sheet">

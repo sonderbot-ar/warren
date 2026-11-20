@@ -148,7 +148,6 @@
   "answer.kpi.company": "of {company}'s ranges held the actual figure: {inside} of {n} cases",
   "answer.fuente.rounding": "In the sheet, C goes in as a fraction with six decimals; the screen rounds it to one decimal.",
   "cells.title": "The cells behind the answer",
-  "cells.intro": "Each forecast in the table comes from two cells of the formula: forecast = B × (1 + C). B is revenue in the same fiscal quarter a year earlier; C is the growth Warren assumes. For each: how it moved in recent years and what Warren assumes now.",
   "cells.years.label": "Years of history",
   "cells.years.option": "{n} years of history",
   "cells.years.note": "The years of history only change the charts: the assumption always uses the last three fiscal years.",
@@ -197,7 +196,7 @@
   "cells.c.not_used": "Not used",
   "cells.c.used_row": "used in the average",
   "cells.c.note_recent": "The three latest quarters grew {values}; the assumption is {assumption}.",
-  "cells.c.note_rule": "Warren does not say whether that pace will last or stop: its baseline is a simple, fixed rule, the average of the last three full fiscal years, and it does not look at single quarters.",
+  "cells.c.note_rule": "Warren does not say whether that pace will last or stop: its baseline is a simple, fixed rule, the average of the last three full fiscal years, which leaves single quarters out on purpose so that one period does not move it.",
   "cells.c.note_next_year": "Fiscal year {year} enters the average once {company} files its annual report.",
   "cells.c.note_sure": "How well this rule has done is above, in “How sure?”.",
   "cells.c.table_caption": "Revenue growth by fiscal year and by quarter",
@@ -222,5 +221,8 @@
   "cells.fx.mean": "{formula}",
   "cells.fx.reported": "Reported figure: Warren applies no formula to it.",
   "cells.fx.derived": "10-K fiscal year − Q1 − Q2 − Q3 (computed by Warren from the filings).",
-  "cells.none": "—"
+  "cells.none": "—",
+  "cells.intro_lead": "Each forecast in the table comes from two cells of the formula:",
+  "cells.intro_forecast": "forecast",
+  "cells.intro_rest": "B is revenue in the same fiscal quarter a year earlier; C is the growth Warren assumes. For each: how it moved in recent years and what Warren assumes now."
 }
