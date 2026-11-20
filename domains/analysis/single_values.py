@@ -44,6 +44,10 @@ MISSING_REASONS = (
     # the cost of debt (D8)
     "no_interest_reported",  # the year's filings report no interest expense or interest paid
     "average_debt_not_positive",  # the year's average debt is zero: nothing to divide by
+    # diluted shares by quarter: the fourth quarter has no count of its own (the 10-K files the
+    # year's weighted count instead); params fiscal_year, annual_period (FY2024, the annual
+    # series' point, or None when that year's count is not filed either) (backlog #481)
+    "no_fourth_quarter_count",
 )
 # Notes a balance point can carry: the balance step's own notes on that date (their codes and
 # params are the run notes' own, `coded.RUN_NOTE_CODES`)
@@ -631,8 +635,10 @@ def _below_risk_free(singles: Singles, kd: float, used: bool, period_end: date |
 
 
 def _shares(singles: Singles):
-    """Every cover-page count and every quarter's diluted count in the window, on the run's
-    share basis (split-adjusted to the run's price date with the engine's basis rule)."""
+    """Every cover-page count, every quarter's diluted count and every fiscal year's diluted count
+    in the window, on the run's share basis (split-adjusted to the run's price date with the
+    engine's basis rule). The engine's fallback reads both diluted frequencies, newest first, so
+    the count it used is in one of the two diluted series (backlog #481)."""
     from domains.analysis.inputs import Part, Point, Series, _label
     from domains.market.prices import split_factor
 
@@ -660,6 +666,8 @@ def _shares(singles: Singles):
             and counted["item"] == fact.canonical_name
             and counted["accession_no"] == fact.accession_no
             and counted["period_end"] == fact.period_end.isoformat()
+            # a 10-K may file a fourth quarter's count beside the year's, on the same date
+            and counted.get("fiscal_period", fact.fiscal_period) == fact.fiscal_period
         )
         notes = (
             [
@@ -681,28 +689,71 @@ def _shares(singles: Singles):
         year, fp = frequency_basis
         return Point(label, year, fp, fact.period_end, fact.value * factor, used, [part], notes)
 
+    def diluted_facts(facts):
+        return sorted(
+            (f for f in facts if start < f.period_end and f.value > 0),
+            key=lambda f: f.period_end,
+        )
+
     cover = [
         point(f, f.period_end.isoformat(), (None, None))
         for f in history.instants.get("shares_outstanding", [])
         if start < f.period_end <= singles.as_of and f.value > 0
     ]
-    diluted_facts = sorted(
-        (
-            f
-            for (n, _y, _p), f in history.quarterly.items()
-            if n == "diluted_shares" and start < f.period_end and f.value > 0
-        ),
-        key=lambda f: f.period_end,
+    quarterly = diluted_facts(
+        f for (n, _y, _p), f in history.quarterly.items() if n == "diluted_shares"
     )
+    annual = diluted_facts(f for (n, _y), f in history.annual.items() if n == "diluted_shares")
     diluted = [
         point(f, _label(f.fiscal_year, f.fiscal_period), (f.fiscal_year, f.fiscal_period))
-        for f in diluted_facts
+        for f in quarterly
     ]
+    yearly = [point(f, _label(f.fiscal_year, "FY"), (f.fiscal_year, "FY")) for f in annual]
+    diluted = sorted(
+        diluted + _fourth_quarter_gaps(quarterly, annual),
+        key=lambda p: (p.fiscal_year, p.fiscal_period),
+    )
     cover_used = bool(counted and counted["item"] == "shares_outstanding")
     return [
         Series("shares_outstanding", "date", "latest", cover_used, None, cover),
-        Series("diluted_shares", "quarter", "latest", not cover_used, None, diluted),
+        Series("diluted_shares", "quarter", "latest", any(p.used for p in diluted), None, diluted),
+        Series("diluted_shares", "year", "latest", any(p.used for p in yearly), None, yearly),
     ]
+
+
+def _fourth_quarter_gaps(quarterly: list, annual: list) -> list:
+    """A point with no value for each fiscal year whose fourth quarter has ended in the filings
+    (the year's own count is filed, or a later year's) but has no quarterly count: a 10-K files the
+    year's weighted count, not the fourth quarter's, and Warren never derives a weighted count
+    (an average of averages is not one). Years with no count at all are left out."""
+    from domains.analysis.inputs import Point
+
+    have = {f.fiscal_year for f in quarterly if f.fiscal_period != "Q4"}
+    have |= {f.fiscal_year for f in annual}
+    q4 = {f.fiscal_year for f in quarterly if f.fiscal_period == "Q4"}
+    by_year = {f.fiscal_year: f for f in annual}
+    latest = max((f.fiscal_year for f in (*quarterly, *annual)), default=None)
+    gaps = []
+    for year in sorted(have - q4):
+        year_count = by_year.get(year)
+        if year_count is None and year >= latest:
+            continue  # the year may still be open: its fourth quarter is not due yet
+        annual_period = f"FY{year}" if year_count is not None else None
+        why = (
+            f"FY{year}'s 10-K files the year's weighted diluted count ({annual_period}, in the "
+            "yearly series), not the fourth quarter's; Warren does not derive one"
+            if annual_period
+            else f"FY{year}Q4 has no diluted count of its own, and the year's count is not filed"
+        )
+        missing = Coded(
+            NOT_COMPUTABLE,
+            {"reason": "no_fourth_quarter_count", "fiscal_year": year,
+             "annual_period": annual_period},
+            why,
+        )  # fmt: skip
+        end = year_count.period_end if year_count is not None else None
+        gaps.append(Point(f"FY{year}Q4", year, "Q4", end, None, False, missing=missing))
+    return gaps
 
 
 # -- cells computed from other cells -----------------------------------------------------------
