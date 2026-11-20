@@ -11,6 +11,7 @@ baseline repeated, as M9 does for its cases ("combined" range).
 Designs: docs/designs/backlog-144-run-ranges.md, docs/designs/backlog-167-shocked-range.md.
 """
 
+import json
 import sqlite3
 import threading
 from dataclasses import asdict, dataclass, field
@@ -299,14 +300,15 @@ def basis_flags(conn: sqlite3.Connection, ticker: str, on: date) -> set[tuple[st
 # One lock around the check, the build and the read, since the app serves requests on worker
 # threads and a reset between another thread's check and its write would keep rows built from
 # other misses (analyst, design review).
+# The kept rows have no size limit: one entry per origin of the misses in use (about 550 today).
+# A miss never comes back as NaN: SQLite stores NaN as NULL, read back as None (not filtered
+# here; see #495), so equal misses always compare equal.
 _KEPT: dict = {"pairs": None, "n": None, "rows": {}}
 _KEPT_LOCK = threading.Lock()
 
 
 def _origin_rows(s: R.Subject, pairs: list[R.ErrorPair], n: int) -> list[dict]:
     """`R.subject_rows` of an origin's baseline, built once per process for the same inputs."""
-    import json
-
     exact = tuple(pairs)
     quarters = json.dumps(s.quarters, sort_keys=True)
     key = (s.kind, s.subject_id, s.ticker, s.as_of, s.run_id, quarters)

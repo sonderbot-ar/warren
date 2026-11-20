@@ -455,3 +455,53 @@ def test_a_clipped_tax_rate_is_said_as_clipped_not_as_a_stale_run(make_company):
     assert ref.value == pytest.approx(0.75)
     assert [n.code for n in ref.notes] == ["reference_clipped"]
     assert ref.notes[0].params["run_value"] == 0.5
+
+
+# -- the part values through financial_math (backlog #477, gatekeeper on #478) --------------------
+
+
+@given(st.floats(-1e9, 1e9), st.floats(-1e9, 1e9))
+def test_difference_is_current_minus_prior(current, prior):
+    assert fm.difference(current, prior) == current - prior
+
+
+@given(st.floats(-1e6, 1e6), st.floats(-1e6, 1e6), st.floats(1.0, 1e9))
+def test_contribution_amount_undoes_growth_contribution(now, before, total):
+    share = fm.growth_contribution(now, before, total)
+    assert fm.contribution_amount(share, total) == pytest.approx(now - before, abs=1e-6)
+
+
+def test_contribution_amount_needs_a_positive_prior_total():
+    with pytest.raises(fm.FinancialMathError):
+        fm.contribution_amount(0.1, 0.0)
+
+
+def test_a_missing_prior_year_is_a_coded_note_not_a_bare_point():
+    """`_contributions` on a year whose prior-year revenue is not reported (or not above zero)
+    says so with a code, as a missing quarter does (gatekeeper on #478, item 6)."""
+    from domains.analysis import inputs as inp
+
+    class _Annual:
+        def __init__(self, prior_lines):
+            self.prior_lines = prior_lines
+
+    class _Line:
+        name = "revenue"
+
+        def __init__(self, value):
+            self.value = value
+
+    class _Reader:
+        def __init__(self, prior_lines):
+            self._annual = _Annual(prior_lines)
+
+        def period(self, label):
+            return self._annual
+
+    point = inp.Point("FY2020", 2020, "FY", None, 0.05, True)
+    for prior in ([], [_Line(0.0)], [_Line(-5.0)]):
+        out = inp._contributions(_Reader(prior), point)
+        (note,) = out.notes
+        assert note.code == "contribution_prior_year_missing"
+        assert note.params == {"period": "FY2019"}
+        assert out.parts == [] and out.value == point.value
