@@ -538,10 +538,7 @@ def _floored_note(singles: Singles):
     )
     if floored is None:
         return None
-    value = singles.conn.execute(
-        "SELECT value FROM assumptions WHERE run_id = ? AND name = 'cost_of_debt' AND period = ?",
-        (singles.run["run_id"], SINGLE),
-    ).fetchone()["value"]
+    value = _run_row(singles, "cost_of_debt")
     book = _interest_source(floored.get("parent_sources") or [])
     rf_sources = singles.stored.get(("risk_free", SINGLE), [])
     return Coded(
@@ -562,19 +559,24 @@ def _floored_note(singles: Singles):
     )
 
 
+def _run_row(singles: Singles, name: str) -> float | None:
+    row = singles.conn.execute(
+        "SELECT value FROM assumptions WHERE run_id = ? AND name = ? AND period = ?",
+        (singles.run["run_id"], name, SINGLE),
+    ).fetchone()
+    return None if row is None else row["value"]
+
+
 def _run_risk_free(singles: Singles):
     """The run's own risk-free row and the date of its DGS10 observation (its stored source)."""
-    row = singles.conn.execute(
-        "SELECT value FROM assumptions WHERE run_id = ? AND name = 'risk_free' AND period = ?",
-        (singles.run["run_id"], SINGLE),
-    ).fetchone()
-    if row is None:
+    value = _run_row(singles, "risk_free")
+    if value is None:
         return None
     source = next(
         (s for s in singles.stored.get(("risk_free", SINGLE), []) if s["kind"] == "market"),
         None,
     )
-    return row["value"], source["end"] if source else None
+    return value, source["end"] if source else None
 
 
 def _below_risk_free(singles: Singles, kd: float, used: bool, period_end: date | None) -> list:
@@ -591,6 +593,10 @@ def _below_risk_free(singles: Singles, kd: float, used: bool, period_end: date |
         if found is None:
             return []
         rf, rf_date = found
+        # the run's own row, so the note agrees with the what-if floor's test on the same two
+        # stored values (`whatif._would_floor`; analyst, #481), even on an older run whose
+        # year now reads differently (`run_read_differently` says so)
+        kd = _run_row(singles, "cost_of_debt")
         extra = {"against": "run_risk_free"}
         benchmark = f"the run's own risk-free rate, on {rf_date}"
     else:
@@ -610,7 +616,7 @@ def _below_risk_free(singles: Singles, kd: float, used: bool, period_end: date |
             "observations": len(obs),
         }
         benchmark = f"its average from {obs[0].date.isoformat()} to {rf_date}"
-    if not kd < rf:
+    if kd is None or not kd < rf:
         return []
     return [
         Coded(

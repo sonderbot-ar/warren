@@ -307,3 +307,22 @@ def test_a_what_if_that_does_not_floor_has_no_floor_note(run):
     child = revalue(conn, parent, [Change("debt", delta=100.0, use="buyback")]).run_id
     cell = _cell(inputs_behind(conn, child, VPS), "cost_of_debt")
     assert not any(n.code == "floored_at_risk_free" for n in cell.notes)
+
+
+def test_the_used_years_note_agrees_with_the_what_if_floor(run):
+    """An older run whose stored cost of debt differs from today's read: the note on the used
+    year compares the run's own two rows, as the what-if floor does (analyst, #481)."""
+    from domains.analysis.whatif import Change, revalue
+
+    conn, run_id = run
+    conn.execute(  # the run read 2.5%: below the 3% yield, though the year now reads 4%
+        "UPDATE assumptions SET value = 0.025 WHERE run_id = ? AND name = 'cost_of_debt'",
+        (run_id,),
+    )
+    cell = _cell(inputs_behind(conn, run_id, VPS), "cost_of_debt")
+    (used,) = [p for p in _primary(cell).points if p.used]
+    (note,) = [n for n in used.notes if n.code == "below_risk_free"]
+    assert note.params["cost_of_debt"] == 0.025
+    assert any(n.code == "run_read_differently" for n in used.notes)
+    child = revalue(conn, run_id, [Change("debt", delta=100.0, use="buyback")])
+    assert {c.name: c.how for c in child.changes}["cost_of_debt"] == "floored_at_risk_free"
