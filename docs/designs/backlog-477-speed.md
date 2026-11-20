@@ -43,7 +43,7 @@ No number, note, field or output changes. Two kinds of reuse:
 
 The track record still costs about 4.4 s the first time a process asks for it; every later answer in that process, on any company and any date, pays about 1 s (the three warm rows of the table; what is left is the change-of-basis count on the run's own company, `basis_flags`, 0.85 s in the profile). A Q5 answer after the first takes 1.6 to 3.1 s for ranges and inputs together on these runs (was 6.3 to 9 s).
 
-**Not done here.** The first track-record build (a cold app start) is still 4.4 s: the percentiles themselves are most of it (1.8 s in numpy's partition). Making that faster without changing a digit means computing the same order statistics another way, which is a method question, not a reuse one; it is left for a backlog issue (filed with this PR) if the app's warm-up does not hide it. The rest of an inputs call is the per-name fact reads (`_rows_by_period`, 0.9 s), shared by three functions in `facts.py`; a joint read is a larger change.
+**Not done here.** The first track-record build (a cold app start) is still 4.4 s: the percentiles themselves are most of it (1.8 s in numpy's partition). Making that faster without changing a digit means computing the same order statistics another way, which is a method question, not a reuse one; it is left for backlog #492 if the app's warm-up does not hide it. The rest of an inputs call is the per-name fact reads (`_rows_by_period`, 0.9 s), shared by three functions in `facts.py`; a joint read is a larger change.
 
 ## Alternatives considered
 
