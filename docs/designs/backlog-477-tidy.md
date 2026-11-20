@@ -1,6 +1,6 @@
 # Backlog #477: the inputs behind an answer, tidy-ups from the gatekeepers
 
-Status: built nov.20.2026 (branch `backlog-477-tidy`). Engine team.
+Status: merged nov.20.2026 as v0.10.18 (PR #494, merge `2e34df2`). Engine team.
 
 ## Problem
 
@@ -38,4 +38,4 @@ Serves brief Q5 (the growth card's quarter bars). One new note code for the Span
 
 ## Review notes
 
-Small tidy-up from two gatekeeper reviews; design review by the explainer only (below), PR review by the gatekeeper.
+Small tidy-up from two gatekeeper reviews, so no separate design panel. Gatekeeper on PR #494: GO (2,685 passed, ruff clean; probed the NaN test and found it not vacuous). Taken: the run-ranges comment now says a NaN miss comes back as None, not filtered. Filed: #495 (refuse or filter a NULL miss in `load_pairs`).
