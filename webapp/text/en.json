@@ -283,7 +283,7 @@
   "reading.later.title": "The screen for this kind of question is not ready yet",
   "reading.later.body": "Warren understands your question, but for now it only shows revenue estimates. The other screens will come one at a time.",
   "reading.later.try": "See how much {company} will sell over the next four quarters",
-  "reading.ai_note": "An AI model reads your question and turns it into these fields. It computes no figure: Warren computes them from the company's filings when you press Compute.",
+  "reading.ai_note": "An AI model reads your question and turns it into these fields. It computes no figure: Warren computes them from the company's filings, only after you confirm the reading.",
   "menus.title": "Correct the reading",
   "menus.kind": "Kind of question",
   "menus.company": "Company",

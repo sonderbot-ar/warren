@@ -283,7 +283,7 @@
   "reading.later.title": "La pantalla para este tipo de pregunta todavía no está lista",
   "reading.later.body": "Warren ya entiende tu pregunta, pero por ahora solo muestra estimaciones de ingresos. Las demás pantallas llegarán una por una.",
   "reading.later.try": "Ver cuánto venderá {company} en los próximos cuatro trimestres",
-  "reading.ai_note": "Un modelo de IA lee tu pregunta y la convierte en estos campos. No calcula ninguna cifra: las calcula Warren con los reportes de la empresa, cuando pulsas Calcular.",
+  "reading.ai_note": "Un modelo de IA lee tu pregunta y la convierte en estos campos. No calcula ninguna cifra: Warren las calcula con los reportes de la empresa, solo después de que confirmas la lectura.",
   "menus.title": "Corrige la lectura",
   "menus.kind": "Tipo de pregunta",
   "menus.company": "Empresa",
