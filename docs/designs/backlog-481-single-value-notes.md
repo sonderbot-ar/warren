@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/481 · Branch `backlog-481-single-value-notes` · Version v0.10.19 when merged.
 
-Status: Built (nov.20.2026); PR open.
+Status: Done (nov.20.2026; v0.10.19, PR #498, merge `88af417`, after CI green and a gatekeeper GO; follow-ups #497, #499).
 
 ## Problem
 
