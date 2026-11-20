@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{# Calculando (F2 Step 4b, part 3a): the reading still shown while the engine works, not a
+   spinner alone (mockup state "calculando"). htmx asks for the answer as soon as the page
+   loads and follows it there; without JavaScript, the link below does the same. #}
+{% block title %}{{ t("answer.title", company=company) }} · {{ t("app.name") }}{% endblock %}
+{% block main_class %}{{ "wide" }}{% endblock %}
+{% block content %}
+  {% include "_chips.html" %}
+  <div class="answer" hx-post="{{ ready_url }}" hx-trigger="load" hx-vals='{{ ready_vals }}' hx-swap="none">
+    <section class="pane" aria-busy="true">
+      <h1>{{ t("answer.title", company=company) }}</h1>
+      <p class="p" role="status">{{ t("calc.status", company=company, date=fmt_date(corte)) }}</p>
+      <div class="sheet">
+        <table class="t">
+          <caption class="visually-hidden">{{ t("answer.table.caption") }}</caption>
+          <thead>
+            <tr>
+              <th scope="col">{{ t("answer.table.quarter") }}</th>
+              <th scope="col" class="num">{{ t("answer.table.forecast") }}</th>
+              <th scope="col" class="num rng">{{ t("answer.table.range") }}<span class="sub">{{ t("answer.table.range_sub") }}</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for _ in range(4) %}
+            <tr><th scope="row"><span class="skel"></span></th><td><span class="skel"></span></td><td class="rng"><span class="skel"></span></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="src">{{ t("calc.hint") }} <a href="{{ answer_url }}">{{ t("calc.go") }}</a></p>
+    </section>
+    <section class="pane" aria-hidden="true">
+      <h2>{{ t("answer.chart.title") }}</h2>
+      <span class="skel tall"></span>
+    </section>
+  </div>
+{% endblock %}

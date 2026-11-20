@@ -15,13 +15,37 @@ import time
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlencode
 
 WIDTHS = {"laptop": (1440, 900), "phone": (390, 844)}
 THEMES = ("light", "dark")
 # the pages to capture: (name, address with its fixed corte, whether the panel is open)
-FIXED_CORTE = "2026-11-03"
+FIXED_CORTE = "2026-10-30"  # the last ended day on the fixed clock below, as in the mockup
+# the questions the reading card is shown for, read by a fixed reader (no question leaves the
+# machine); the first is the catalogue's own example, brief Q5
+Q5 = "¿Cuánto venderá Apple en los próximos cuatro trimestres, y qué tan seguro es ese pronóstico?"
+Q5_NO_COMPANY = (
+    "¿Cuánto venderá en los próximos cuatro trimestres, y qué tan seguro es ese pronóstico?"
+)
+Q_CHANGE = (
+    "Si el margen operativo de Walmart baja un punto porcentual, "
+    "¿cuánto cambia su valor por acción?"
+)
+
+
+def _lectura(question: str, **extra: str) -> str:
+    return "/lectura?" + urlencode({"corte": FIXED_CORTE, "pregunta": question, **extra})
+
+
 PAGES = (
     ("inicio", f"/?corte={FIXED_CORTE}"),
+    # part 3a: the reading card, ready; with an ask; corrected with the menus; a later screen
+    ("lectura", _lectura(Q5)),
+    ("lectura-falta", _lectura(Q5_NO_COMPANY)),
+    ("lectura-menus", _lectura(Q5, menus="1")),
+    ("lectura-pronto", _lectura(Q_CHANGE)),
+    # Calculando: the card's Calcular, shot before the engine's answer arrives
+    ("calculando", "click:" + _lectura(Q5)),
     ("componentes", f"/componentes?corte={FIXED_CORTE}"),
     ("panel", f"/componentes?corte={FIXED_CORTE}&panel=ejemplo&pestana=fuente"),
     # the first screen's answer (F2 Step 4b): brief Q5 on the stored run the mockup used
@@ -70,15 +94,39 @@ def launch_chromium(playwright):
     )
 
 
+def readings() -> dict:
+    """The fixed reader's readings for the screenshot questions (what Haiku reads for them)."""
+    from webapp.reader.reading import NamedInput, Reading
+
+    q5 = Reading(kind="estimacion", companies=("AAPL",), period="próximos cuatro trimestres")
+    change = Reading(
+        kind="cambio_de_supuesto",
+        companies=("WMT",),
+        inputs=(
+            NamedInput(
+                "operating_margin", how="add", direction="down", value_text="un punto porcentual"
+            ),
+        ),
+    )
+    return {
+        Q5: q5,
+        Q5_NO_COMPANY: Reading(kind="estimacion", period="próximos cuatro trimestres"),
+        Q_CHANGE: change,
+    }
+
+
 def capture(out: Path, db_path: Path | None = None, only: str | None = None) -> list[Path]:
     from playwright.sync_api import sync_playwright
 
     from webapp.app import THEME_COOKIE, create_app
+    from webapp.question import fixed_reader
 
     out.mkdir(parents=True, exist_ok=True)
-    clock = lambda: datetime(2026, 11, 4, 18, 0, tzinfo=UTC)  # noqa: E731 (fixed day for stable shots)
+    clock = lambda: datetime(2026, 10, 31, 18, 0, tzinfo=UTC)  # noqa: E731 (fixed day for stable shots)
     saved = []
-    with serve(create_app(db_path=db_path, clock=clock)) as base, sync_playwright() as p:
+    reader = fixed_reader(readings())
+    app = create_app(db_path=db_path, clock=clock, reader=reader)
+    with serve(app) as base, sync_playwright() as p:
         browser = launch_chromium(p)
         for width_name, (width, height) in WIDTHS.items():
             for theme in THEMES:
@@ -91,9 +139,25 @@ def capture(out: Path, db_path: Path | None = None, only: str | None = None) -> 
                 for name, address in PAGES:
                     if only and not name.startswith(only):
                         continue
+                    path = out / f"{name}-{width_name}-{theme}.png"
+                    if address.startswith("click:"):  # Calculando: shoot right after Calcular
+                        # a fresh app, since an answer already worked out skips Calculando
+                        fresh = create_app(db_path=db_path, clock=clock, reader=reader)
+                        with serve(fresh) as other:
+                            context.add_cookies(
+                                [{"name": THEME_COOKIE, "value": theme, "url": other}]
+                            )
+                            shot = context.new_page()  # its held request dies with it
+                            shot.route("**/calcular/listo", lambda route: None)  # never answers
+                            shot.goto(other + address.removeprefix("click:"))
+                            shot.get_by_role("button", name="Calcular").click()
+                            shot.wait_for_selector('[aria-busy="true"]')
+                            shot.screenshot(path=path, full_page=True)
+                            shot.close()
+                        saved.append(path)
+                        continue
                     page.goto(base + address)
                     page.wait_for_load_state("networkidle")
-                    path = out / f"{name}-{width_name}-{theme}.png"
                     # an open panel scrolls on its own over the page: shoot what is seen
                     page.screenshot(path=path, full_page="panel=" not in address)
                     saved.append(path)

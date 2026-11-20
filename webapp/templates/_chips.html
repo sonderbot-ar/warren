@@ -1,0 +1,11 @@
+{# The reading, collapsed to one line above the answer (mockup states "calculando" and
+   "respuesta"); "Cambiar la lectura" goes back to the card when the answer came from a question. #}
+  <div class="chips" aria-label="{{ t('answer.reading.label') }}">
+    <span class="chips-lead">{{ t("answer.reading.lead") }}</span>
+    <span class="chip"><b>{{ t("answer.reading.kind") }}</b></span>
+    <span class="chip">{{ t("answer.reading.company") }} <b>{{ company }}</b></span>
+    <span class="chip">{{ t("answer.reading.line") }} <b>{{ t("answer.reading.revenue") }}</b></span>
+    <span class="chip">{{ t("answer.reading.period") }} <b>{{ t("answer.reading.next_four") }}</b></span>
+    <span class="chip">{{ t("header.corte") }}: <b>{{ fmt_date(corte) }}</b></span>
+    {% if change_url %}<a class="chip-change" href="{{ change_url }}">{{ t("answer.reading.change") }}</a>{% endif %}
+  </div>

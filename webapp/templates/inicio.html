@@ -1,8 +1,35 @@
 {% extends "base.html" %}
+{# Inicio (F2 Step 4b, part 3a): the question box first (design principle 6), the fecha de corte
+   named, three example questions from the brief and the eight companies, as the approved mockup
+   draws it (docs/product/mockups/f2-screen1-q5.html, state "inicio"). Every example and company
+   is a link to its reading card, so the page works without JavaScript. #}
+{% block main_class %}{{ "solo" }}{% endblock %}
 {% block content %}
-  <h1>{{ t("inicio.title") }}</h1>
-  <p class="lede">{{ t("app.tagline") }}</p>
-  <p>{{ t("inicio.lede") }}</p>
-  <p><a href="/respuesta?corte=2026-10-30&amp;empresa=AAPL">{{ t("inicio.example_link") }}</a></p>
-  <p><a href="/componentes?corte={{ corte.isoformat() }}">{{ t("inicio.bench_link") }}</a></p>
+  <div class="pane">
+    <h1>{{ t("inicio.title") }}</h1>
+    <form class="ask-first" action="/lectura" method="get">
+      <input type="hidden" name="corte" value="{{ corte.isoformat() }}">
+      <label class="visually-hidden" for="pregunta">{{ t("inicio.question_label") }}</label>
+      <textarea class="big-ask" id="pregunta" name="pregunta" maxlength="{{ max_question }}" required placeholder="{{ t('inicio.placeholder') }}"></textarea>
+      <div class="row">
+        <button class="btn pri" type="submit">{{ t("inicio.read") }}</button>
+        <span class="muted">{{ t("inicio.read_hint") }}</span>
+      </div>
+    </form>
+    <p class="note">{{ t("card.note.corte_default", date=fmt_date(corte), today=fmt_date(today)) }}</p>
+    <h2>{{ t("inicio.examples") }}</h2>
+    <ul class="ex">
+      {% for example in examples %}
+      <li><a href="{{ example.url }}"><span class="k">{{ t("question.kind." ~ example.kind) }}</span>{{ example.text }}</a></li>
+      {% endfor %}
+    </ul>
+    <h2 id="cos-h">{{ t("inicio.companies") }}</h2>
+    <p class="src">{{ t("inicio.companies_hint") }}</p>
+    <ul class="cos" aria-labelledby="cos-h">
+      {% for company in companies %}
+      <li><a href="{{ company.url }}">{{ t("company." ~ company.ticker) }}</a></li>
+      {% endfor %}
+    </ul>
+    <p class="src">{{ t("inicio.scope") }}</p>
+  </div>
 {% endblock %}

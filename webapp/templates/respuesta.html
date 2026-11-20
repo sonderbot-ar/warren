@@ -32,14 +32,7 @@
   </svg>
 {%- endmacro %}
 {% block content %}
-  <div class="chips" aria-label="{{ t('answer.reading.label') }}">
-    <span class="chips-lead">{{ t("answer.reading.lead") }}</span>
-    <span class="chip"><b>{{ t("answer.reading.kind") }}</b></span>
-    <span class="chip">{{ t("answer.reading.company") }} <b>{{ view.company }}</b></span>
-    <span class="chip">{{ t("answer.reading.line") }} <b>{{ t("answer.reading.revenue") }}</b></span>
-    <span class="chip">{{ t("answer.reading.period") }} <b>{{ t("answer.reading.next_four") }}</b></span>
-    <span class="chip">{{ t("header.corte") }}: <b>{{ fmt_date(view.as_of) }}</b></span>
-  </div>
+  {% with company=view.company, corte=view.as_of %}{% include "_chips.html" %}{% endwith %}
   <div class="answer">
     <section class="pane">
       <h1>{{ t("answer.title", company=view.company) }}</h1>

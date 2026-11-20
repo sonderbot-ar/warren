@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{# The reading card (F2 Step 4b, part 3a; Decision 9): what Warren read, as labelled fields,
+   before anything is computed. Calcular only when nothing is left to answer and a screen exists;
+   the menus (Decision 9's fallback) open by themselves when the reader was unsure, and are one
+   click away otherwise. Mockup states "lectura" and "falta". #}
+{% block title %}{{ t("reading.title") }} · {{ t("app.name") }}{% endblock %}
+{% block main_class %}{{ "solo" }}{% endblock %}
+{% block content %}
+  {% set r = qc.reading %}
+  <div class="pane">
+    <h1>{{ t("reading.title") }}</h1>
+    <p class="quote">{{ t("reading.quote", question=qc.question) }}</p>
+    <div class="sheet">
+      <table class="t kv">
+        <caption class="visually-hidden">{{ t("reading.caption") }}</caption>
+        <tbody>
+          <tr>
+            <th scope="row">{{ t("reading.row.kind") }}</th>
+            <td>
+              {% if r.kind %}{{ t("question.kind." ~ r.kind) }}<span class="sub">{{ t("question.kind_sub." ~ r.kind) }}</span>
+              {% else %}<span class="muted">{{ t("reading.unknown") }}</span>{% endif %}
+            </td>
+          </tr>
+          {% if r.kind == "fuera_de_alcance" %}
+          <tr>
+            <th scope="row">{{ t("reading.row.why") }}</th>
+            <td>{% if r.out_of_scope %}{{ t("question.out." ~ r.out_of_scope) }}{% else %}<span class="muted">{{ t("reading.unknown") }}</span>{% endif %}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <th scope="row">{{ t("reading.row.company") }}</th>
+            <td>
+              {% if r.companies %}{% for c in r.companies %}{{ t("company." ~ c) }}{% if not loop.last %}, {% endif %}{% endfor %}
+              {% else %}<span class="muted">{{ t("reading.no_company") }}</span>{% endif %}
+            </td>
+          </tr>
+          {% if r.inputs %}
+          <tr>
+            <th scope="row">{{ t("reading.row.inputs") }}</th>
+            <td>
+              {% for i in r.inputs %}<span class="kv-line">{% if i.value_text %}{{ t("reading.input_value", input=t("input." ~ i.name), value=i.value_text) }}{% else %}{{ t("input." ~ i.name) }}{% endif %}</span>{% endfor %}
+            </td>
+          </tr>
+          {% endif %}
+          {% if r.period %}
+          <tr>
+            <th scope="row">{{ t("reading.row.period") }}</th>
+            <td>{{ r.period }}</td>
+          </tr>
+          {% endif %}
+          {% if screen_shows %}
+          <tr>
+            <th scope="row">{{ t("reading.row.shows") }}</th>
+            <td>{{ t("reading.shows." ~ r.kind) }}</td>
+          </tr>
+          {% endif %}
+          <tr>
+            <th scope="row">{{ t("reading.row.corte") }}</th>
+            <td>{{ fmt_date(qc.corte) }} <a class="lnk" href="{{ menus_url }}#menus">{{ t("reading.change_date") }}</a></td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+
+    {% for ask in asks %}
+    <div class="askbox" role="group" aria-labelledby="ask-{{ loop.index }}">
+      <p id="ask-{{ loop.index }}"><b>{{ ask.text }}</b></p>
+      {% if ask.companies %}
+      <ul class="cos">
+        {% for c in ask.companies %}
+        <li><a href="{{ c.url }}">{{ t("company." ~ c.ticker) }}</a></li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+    {% endfor %}
+
+    {% for note in notes %}
+    <p class="note">{{ note }}</p>
+    {% endfor %}
+
+    {% if qc.step == "pronto" %}
+    <div class="askbox later">
+      <p><b>{{ t("reading.later.title") }}</b></p>
+      <p>{{ t("reading.later.body") }}</p>
+      {% if later_url %}<p><a class="lnk" href="{{ later_url }}">{{ t("reading.later.try", company=t("company." ~ qc.company)) }}</a></p>{% endif %}
+    </div>
+    {% elif qc.step == "fuera" %}
+    <p class="p">{{ t("question.out_body." ~ (r.out_of_scope or "sin_pregunta")) }}</p>
+    {% endif %}
+
+    <div class="row">
+      {% if qc.step == "calcular" %}
+      <form action="/calcular" method="post">
+        {% for name, value in calculate_fields.items() %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+        <button class="btn pri" type="submit">{{ t("reading.calculate") }}</button>
+      </form>
+      {% endif %}
+      {% if not menus_open %}
+      <a class="btn" href="{{ menus_url }}#menus">{{ t("reading.correct") }}</a>
+      {% endif %}
+      {% if qc.step == "preguntar" %}<span class="muted">{{ t("reading.ask_hint") }}</span>{% endif %}
+    </div>
+
+    {% if menus_open %}
+    <form class="menus" id="menus" action="/lectura" method="get" aria-labelledby="menus-h">
+      <h2 id="menus-h">{{ t("menus.title") }}</h2>
+      <input type="hidden" name="pregunta" value="{{ qc.question }}">
+      <input type="hidden" name="corte" value="{{ corte.isoformat() }}">
+      <input type="hidden" name="corregido" value="1">
+      <label for="m-tipo">{{ t("menus.kind") }}</label>
+      <select id="m-tipo" name="tipo" required>
+        <option value="" {% if not r.kind or r.kind == "fuera_de_alcance" %}selected{% endif %} disabled>{{ t("menus.pick") }}</option>
+        {% for k in menu_kinds %}<option value="{{ k }}" {% if r.kind == k %}selected{% endif %}>{{ t("question.kind." ~ k) }}</option>{% endfor %}
+      </select>
+      <label for="m-empresa">{{ t("menus.company") }}</label>
+      <select id="m-empresa" name="empresa" required>
+        <option value="" {% if not qc.company %}selected{% endif %} disabled>{{ t("menus.pick") }}</option>
+        {% for c in all_companies %}<option value="{{ c }}" {% if qc.company == c %}selected{% endif %}>{{ t("company." ~ c) }}</option>{% endfor %}
+      </select>
+      <label for="m-fecha">{{ t("menus.corte") }}</label>
+      <input id="m-fecha" name="fecha" type="date" value="{{ qc.corte.isoformat() }}" max="{{ latest.isoformat() }}" aria-describedby="m-fecha-h">
+      <p class="src" id="m-fecha-h">{{ t("menus.corte_hint", date=fmt_date(latest)) }}</p>
+      <div class="row"><button class="btn pri" type="submit">{{ t("menus.send") }}</button></div>
+    </form>
+    {% endif %}
+
+    <p class="src">{{ t("reading.ai_note") }}</p>
+  </div>
+{% endblock %}

@@ -14,22 +14,24 @@ Rules every route keeps:
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Callable
 from datetime import UTC, date, datetime
 from functools import partial
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.concurrency import run_in_threadpool
 
 from shared_kernel.calendar import last_ended_day
 from shared_kernel.config import DB_PATH
 from shared_kernel.database import get_db_connection
-from webapp import cells, formatting
+from webapp import cells, formatting, question
 from webapp.answer import NoRun, answer_view, bundle_for_run, find_run
 from webapp.database import schema_status
 from webapp.text import translate
@@ -67,10 +69,15 @@ def create_app(
     db_path: Path | None = None,
     clock: Callable[[], datetime] = _utc_now,
     bundle_loader: Callable[[str, date], dict] | None = None,
+    reader: Callable[[str, date], object] | None = None,
 ) -> FastAPI:
     """The app. `db_path` defaults to the engine's database; `clock` is injectable for tests,
-    and so is `bundle_loader(ticker, corte)`, the engine's answer for brief Q5 (`answer.py`)."""
+    and so are `bundle_loader(ticker, corte)`, the engine's answer for brief Q5 (`answer.py`),
+    and `reader(question, last_ended_day)`, the question reader behind the card (Claude Haiku,
+    Decision 9; `question.Reader`). Tests and screenshots pass `question.fixed_reader`, so no
+    question leaves the machine."""
     db = Path(db_path) if db_path is not None else DB_PATH
+    read_question = reader or question.Reader(_claude_backend).read
 
     bundles: dict[str, dict] = {}  # by run_id: a stored run never changes (answer.py)
 
@@ -83,7 +90,14 @@ def create_app(
                 bundles[run_id] = bundle_for_run(conn, run_id)
             return bundles[run_id]
 
-    bundle_for = bundle_loader or engine_bundle
+    engine_or_test = bundle_loader or engine_bundle
+    loaded: set[tuple[str, date]] = set()  # answers already worked out: no Calculando for them
+
+    def bundle_for(ticker: str, corte: date) -> dict:
+        bundle = engine_or_test(ticker, corte)
+        loaded.add((ticker, corte))
+        return bundle
+
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
@@ -118,6 +132,8 @@ def create_app(
             "region": region,
             "fmt_date": partial(formatting.format_date, region=region),
             "corte": latest_corte(),  # pages override it with the address's own
+            "question": None,  # the student's question, in the header after Inicio
+            "max_question": question.MAX_QUESTION,
             "path": request.url.path,
             "query": str(request.url.query),
         }
@@ -238,7 +254,150 @@ def create_app(
         corte = corte_or_redirect(request)
         if isinstance(corte, RedirectResponse):
             return corte
-        return render(request, "inicio.html", {"corte": corte})
+        t = partial(translate, region_of(request).language)
+
+        def reading_url(text: str) -> str:
+            return page_url("/lectura", corte=corte.isoformat(), pregunta=text)
+
+        examples = [
+            {"kind": kind, "text": t(f"inicio.example.{kind}")}
+            for kind in ("estimacion", "dato", "cambio_de_supuesto")
+        ]
+        for example in examples:
+            example["url"] = reading_url(example["text"])
+        companies = [
+            {
+                "ticker": ticker,
+                "url": reading_url(t("inicio.company_question", company=t(f"company.{ticker}"))),
+            }
+            for ticker in COMPANIES
+        ]
+        context = {
+            "corte": corte,
+            "today": question.today_after(latest_corte()),
+            "examples": examples,
+            "companies": companies,
+        }
+        return render(request, "inicio.html", context)
+
+    # -- the question in front (part 3a): the reading card, the menus, Calculando ---------------
+
+    @app.get("/lectura", response_class=HTMLResponse)
+    def lectura(request: Request) -> Response:
+        """The reading card for the address's question: what Warren read, the student's choices
+        in place of the reader's, and Calcular only when nothing is left to answer."""
+        corte = corte_or_redirect(request)
+        if isinstance(corte, RedirectResponse):
+            return corte
+        text = question.clean_question(request.query_params.get("pregunta"))
+        if not text:
+            return RedirectResponse(page_url("/", corte=corte.isoformat()), status_code=303)
+        region = region_of(request)
+        t = partial(translate, region.language)
+        latest = latest_corte()
+        choices = question.Choices.from_query(request.query_params, latest)
+        qc = question.question_card(text, read_question(text, latest), choices, latest, region)
+        base = {"corte": corte.isoformat(), "pregunta": text}
+
+        def choose(**picked: str) -> str:
+            return page_url("/lectura", **{**base, **choices.params(), **picked})
+
+        asks = []
+        for item in qc.asks:
+            ask = {"text": t(question.ask_key(item), **question.item_params(item, t, region))}
+            if item.code == "company_missing":  # the buttons name the eight; the text need not
+                ask["text"] = t("question.ask.company_pick")
+            if item.code in ("company_missing", "one_company"):
+                ask["companies"] = [
+                    {"ticker": c, "url": choose(empresa=c)} for c in item.params["companies"]
+                ]
+            asks.append(ask)
+        notes = [
+            t(question.note_key(n), **question.item_params(n, t, region)) for n in qc.card.notes
+        ]
+        later_url = None
+        if qc.step == question.STEP_LATER and qc.company:
+            name = t(f"company.{qc.company}")
+            later_url = page_url(
+                "/lectura",
+                corte=corte.isoformat(),
+                pregunta=t("inicio.company_question", company=name),
+            )
+        context = {
+            "corte": qc.corte,
+            "latest": latest,
+            "question": text,
+            "qc": qc,
+            "asks": asks,
+            "notes": notes,
+            "screen_shows": qc.reading.kind in question.SCREENS,
+            "menus_open": qc.show_menus or request.query_params.get("menus") == "1",
+            "menus_url": choose(menus="1"),
+            "menu_kinds": question.MENU_KINDS,
+            "all_companies": COMPANIES,
+            "later_url": later_url,
+            "calculate_fields": {
+                "corte": qc.corte.isoformat(),
+                "empresa": qc.company or "",
+                "pregunta": text,
+            },
+        }
+        return render(request, "lectura.html", context)
+
+    async def calculate_params(request: Request) -> tuple[date, str, str]:
+        """The confirmed reading the card sent: corte, company and the question, checked again
+        here (the form is the student's, so nothing in it is trusted)."""
+        form = parse_qs((await request.body()).decode("utf-8", "replace"))
+        raw = (form.get("corte") or [""])[0]
+        try:
+            corte = date.fromisoformat(raw)
+        except ValueError:
+            raise BadCorte(raw) from None
+        if corte > latest_corte():
+            raise BadCorte(raw)
+        ticker = (form.get("empresa") or [""])[0].upper()
+        if ticker not in COMPANIES:
+            raise UnknownCompany(ticker)
+        return corte, ticker, question.clean_question((form.get("pregunta") or [""])[0])
+
+    def answer_address(corte: date, ticker: str, text: str) -> str:
+        params = {"corte": corte.isoformat(), "empresa": ticker}
+        if text:
+            params["pregunta"] = text
+        return page_url("/respuesta", **params)
+
+    @app.post("/calcular", response_class=HTMLResponse)
+    async def calcular(request: Request) -> Response:
+        """Calcular on the card. An answer already worked out opens at once; otherwise
+        Calculando shows the reading while the engine works, and htmx follows to the answer."""
+        corte, ticker, text = await calculate_params(request)
+        answer_url = answer_address(corte, ticker, text)
+        if (ticker, corte) in loaded:
+            return RedirectResponse(answer_url, status_code=303)
+        fields = {"corte": corte.isoformat(), "empresa": ticker, "pregunta": text}
+        context = {
+            "corte": corte,
+            "question": text or None,
+            "company": translate(region_of(request).language, f"company.{ticker}"),
+            "change_url": page_url("/lectura", **fields) if text else None,
+            "answer_url": answer_url,
+            "ready_url": "/calcular/listo",
+            "ready_vals": json.dumps(fields),
+        }
+        return render(request, "calculando.html", context)
+
+    @app.post("/calcular/listo")
+    async def calcular_listo(request: Request) -> Response:
+        """Works the answer out (htmx, from Calculando), then sends the page to it. A date with
+        no stored estimate goes to the answer's address too, which says so."""
+        corte, ticker, text = await calculate_params(request)
+        try:
+            await run_in_threadpool(bundle_for, ticker, corte)
+        except NoRun:
+            pass
+        return Response(
+            status_code=204, headers={"HX-Redirect": answer_address(corte, ticker, text)}
+        )
 
     @app.get("/componentes", response_class=HTMLResponse)
     def componentes(request: Request) -> Response:
@@ -286,18 +445,27 @@ def create_app(
             raise UnknownCompany(ticker)
         return corte, ticker
 
-    def answer_base(corte: date, ticker: str, years: int) -> dict:
+    def answer_base(corte: date, ticker: str, years: int, text: str = "") -> dict:
         base = {"corte": corte.isoformat(), "empresa": ticker}
+        if text:  # the student's question rides along, so the header and the card keep it
+            base["pregunta"] = text
         if years != cells.DEFAULT_YEARS:  # the default stays out of the address
             base["anos"] = str(years)
         return base
 
     def answer_panel(
-        view, corte: date, ticker: str, figura: str, pestana: str, full: bool, years: int
+        view,
+        corte: date,
+        ticker: str,
+        figura: str,
+        pestana: str,
+        full: bool,
+        years: int,
+        text: str = "",
     ):
         if figura not in view.figures or pestana not in PANEL_TABS:
             raise UnknownPanel(f"{figura}/{pestana}")
-        base = answer_base(corte, ticker, years)
+        base = answer_base(corte, ticker, years, text)
         return {
             "full_page": full,
             "corte": corte,
@@ -321,14 +489,17 @@ def create_app(
         view = answer_view(
             bundle_for(ticker, corte), region, partial(translate, region.language), years
         )
-        base = answer_base(corte, ticker, years)
-        plain = {"corte": corte.isoformat(), "empresa": ticker}
+        text = question.clean_question(request.query_params.get("pregunta"))
+        base = answer_base(corte, ticker, years, text)
+        plain = answer_base(corte, ticker, cells.DEFAULT_YEARS, text)
 
         def with_years(n: int) -> dict:
             return {**plain, "anos": str(n)} if n != cells.DEFAULT_YEARS else plain
 
         context = {
             "corte": corte,
+            "question": text or None,
+            "change_url": page_url("/lectura", **plain) if text else None,
             "view": view,
             "panel": None,
             "open_figure": None,
@@ -357,7 +528,9 @@ def create_app(
         figura = request.query_params.get("panel")
         if figura is not None:
             pestana = request.query_params.get("pestana", PANEL_TABS[0])
-            context["panel"] = answer_panel(view, corte, ticker, figura, pestana, True, years)
+            context["panel"] = answer_panel(
+                view, corte, ticker, figura, pestana, True, years, context["question"] or ""
+            )
             context["open_figure"] = figura
             context["formula"] = view.figures[figura].formula
         return render(request, "respuesta.html", context)
@@ -380,9 +553,11 @@ def create_app(
         figura = request.query_params.get("figura")
         if figura is None:
             raise UnknownPanel("")
-        view, years, _ = answer_context(request, corte, ticker)
+        view, years, context = answer_context(request, corte, ticker)
         pestana = request.query_params.get("pestana", PANEL_TABS[0])
-        panel = answer_panel(view, corte, ticker, figura, pestana, False, years)
+        panel = answer_panel(
+            view, corte, ticker, figura, pestana, False, years, context["question"] or ""
+        )
         return render(request, template, {"panel": panel, "corte": corte})
 
     @app.get("/respuesta/fragmentos/panel", response_class=HTMLResponse)
@@ -434,6 +609,15 @@ def create_app(
         return JSONResponse(body, status_code=200 if status.current else 503)
 
     return app
+
+
+def _claude_backend():
+    """The reader's model: Claude Haiku through Anthropic's API (Decision 9, the owner's card of
+    nov.08.2026). Made on the first question; without a key the reader is unavailable and the
+    card opens its menus."""
+    from webapp.reader.model import ClaudeBackend
+
+    return ClaudeBackend()
 
 
 def _redirect_with(request: Request, **params: str) -> RedirectResponse:

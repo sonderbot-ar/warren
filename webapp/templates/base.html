@@ -16,6 +16,15 @@
   <a class="skip-link" href="#contenido">{{ t("skip_link") }}</a>
   <header class="site-header">
     <a class="brand" href="/?corte={{ corte.isoformat() }}">{{ t("app.name") }}</a>
+    {% if question %}
+    {# the student's question stays in reach on every state after Inicio (mockup, header) #}
+    <form class="header-ask" action="/lectura" method="get" role="search">
+      <input type="hidden" name="corte" value="{{ corte.isoformat() }}">
+      <label class="visually-hidden" for="header-ask-q">{{ t("header.ask_label") }}</label>
+      <input class="ask" id="header-ask-q" name="pregunta" type="text" value="{{ question }}" maxlength="{{ max_question }}" required>
+      <button class="btn" type="submit">{{ t("header.ask_send") }}</button>
+    </form>
+    {% endif %}
     <p class="corte" title="{{ t('header.corte_help') }}">
       <span class="corte-label">{{ t("header.corte") }}</span>
       <time datetime="{{ corte.isoformat() }}" data-corte>{{ fmt_date(corte) }}</time>

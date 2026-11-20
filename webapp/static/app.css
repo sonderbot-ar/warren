@@ -978,3 +978,265 @@ main.wide {
     display: block;
   }
 }
+
+/* -- the question in front (F2 Step 4b, part 3a): Inicio, the reading card, Calculando -------- */
+main.solo {
+  max-width: 52rem;
+  padding: var(--space-4);
+}
+
+.btn {
+  font: inherit;
+  font-size: var(--text-md);
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-4);
+  min-height: var(--target-min);
+  cursor: pointer;
+  border: var(--border-width) solid var(--color-line);
+  background: var(--color-surface);
+  color: var(--color-fg);
+  text-decoration: none;
+}
+
+.btn.pri {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-accent-fg);
+}
+
+.btn:focus-visible,
+.ex a:focus-visible,
+.cos a:focus-visible,
+.big-ask:focus-visible,
+.ask:focus-visible,
+.menus select:focus-visible,
+.menus input:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.ask-first {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.big-ask {
+  width: 100%;
+  font: inherit;
+  font-size: var(--text-md);
+  line-height: var(--leading-body);
+  color: var(--color-fg);
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-line);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  min-height: 6rem;
+  resize: vertical;
+}
+
+.row {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.row form {
+  margin: 0;
+}
+
+.muted {
+  color: var(--color-muted);
+}
+
+.ex,
+.cos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ex {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.ex a {
+  display: block;
+  font-size: var(--text-md);
+  color: var(--color-fg);
+  text-decoration: none;
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-line);
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
+  min-height: var(--target-min);
+}
+
+.ex a:hover,
+.cos a:hover {
+  border-color: var(--color-accent);
+}
+
+.ex .k {
+  display: block;
+  font-family: var(--font-figures);
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.cos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.cos a {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--text-md);
+  color: var(--color-fg);
+  text-decoration: none;
+  background: var(--color-head);
+  border: var(--border-width) solid var(--color-line);
+  border-radius: var(--radius);
+  padding: var(--space-1) var(--space-3);
+  min-height: var(--target-min);
+}
+
+.quote {
+  margin: 0;
+  font-size: var(--text-md);
+  color: var(--color-muted);
+}
+
+.kv th {
+  width: 38%;
+}
+
+.kv td {
+  text-align: left;
+  white-space: normal;
+}
+
+.kv td .sub,
+.kv-line {
+  display: block;
+}
+
+.kv td .sub {
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
+.askbox {
+  border: var(--border-width) solid var(--color-accent);
+  background: var(--color-accent-soft);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  display: grid;
+  gap: var(--space-3);
+}
+
+.askbox p {
+  margin: 0;
+}
+
+.askbox.later {
+  border-color: var(--color-line);
+  background: var(--color-surface);
+}
+
+.lnk {
+  color: var(--color-accent);
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-min);
+  margin-left: var(--space-2);
+}
+
+.askbox .lnk,
+.p .lnk {
+  margin-left: 0;
+}
+
+.menus {
+  display: grid;
+  gap: var(--space-2);
+  border-top: var(--border-width) solid var(--color-line);
+  padding-top: var(--space-4);
+}
+
+.menus label {
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+.menus select,
+.menus input[type="date"] {
+  font: inherit;
+  font-size: var(--text-md);
+  color: var(--color-fg);
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-line);
+  border-radius: var(--radius);
+  padding: var(--space-2);
+  min-height: var(--target-min);
+  max-width: 24rem;
+}
+
+.header-ask {
+  flex: 1 1 22rem;
+  display: flex;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.header-ask .ask {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--color-fg);
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-line);
+  border-radius: var(--radius);
+  padding: var(--space-1) var(--space-3);
+  min-height: var(--target-min);
+}
+
+.chip-change {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-min);
+  font-size: var(--text-sm);
+}
+
+.skel {
+  display: block;
+  height: 0.875rem;
+  border-radius: 3px;
+  background: var(--color-cellline);
+  width: 100%;
+}
+
+.skel.tall {
+  height: 13.75rem;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .skel {
+    animation: skel-pulse 1.4s ease-in-out infinite;
+  }
+}
+
+@keyframes skel-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
