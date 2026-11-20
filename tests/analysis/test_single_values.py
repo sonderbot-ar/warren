@@ -172,8 +172,8 @@ def test_shares_are_split_adjusted_to_the_run_price_date(make_company):
     )
     run_id = run_baseline(conn, "TST", AS_OF, choices=CHOICES, today=AS_OF)
     answer = inputs_behind(conn, run_id, VPS)
-    cover, diluted = _cell(answer, "shares").history
-    assert cover.primary and not diluted.primary
+    cover, diluted, yearly = _cell(answer, "shares").history
+    assert cover.primary and not diluted.primary and not yearly.primary
     before = [p for p in cover.points if p.period_end < date(2019, 6, 1)]
     after = [p for p in cover.points if p.period_end >= date(2019, 6, 1)]
     assert before and after
@@ -326,3 +326,109 @@ def test_the_used_years_note_agrees_with_the_what_if_floor(run):
     assert any(n.code == "run_read_differently" for n in used.notes)
     child = revalue(conn, run_id, [Change("debt", delta=100.0, use="buyback")])
     assert {c.name: c.how for c in child.changes}["cost_of_debt"] == "floored_at_risk_free"
+
+
+# -- diluted shares by fiscal year, and the fourth quarters (backlog #481 item 4) ------------------
+
+DILUTED = "WeightedAverageNumberOfDilutedSharesOutstanding"
+NO_COVER = date(2020, 3, 15)  # after the FY2019 10-K (2020-02-15), before the Q1 10-Q
+
+
+def _without_cover(conn):
+    conn.execute(
+        "DELETE FROM financial_facts WHERE xbrl_concept LIKE '%EntityCommonStockSharesOutstanding'"
+    )
+
+
+def test_diluted_counts_come_by_quarter_and_by_year_with_each_fourth_quarter_coded(run):
+    conn, run_id = run
+    cover, diluted, yearly = _cell(inputs_behind(conn, run_id, VPS), "shares").history
+    assert (diluted.measure, diluted.frequency) == ("diluted_shares", "quarter")
+    assert (yearly.measure, yearly.frequency) == ("diluted_shares", "year")
+    assert cover.primary and not diluted.primary and not yearly.primary
+    assert [p.period for p in yearly.points] == [f"FY{y}" for y in range(2015, 2020)]
+    for p in yearly.points:
+        assert p.value == 100 and p.fiscal_period == "FY" and not p.used
+        assert p.period_end == date(p.fiscal_year, 12, 31)
+        assert p.parts[0].filing["form"] == "10-K"
+    gaps = [p for p in diluted.points if p.missing is not None]
+    assert [p.period for p in gaps] == [f"FY{y}Q4" for y in range(2015, 2020)]
+    for p in gaps:
+        assert p.value is None and not p.used and p.fiscal_period == "Q4"
+        assert p.missing.code == NOT_COMPUTABLE
+        assert p.missing.params == {
+            "reason": "no_fourth_quarter_count",
+            "fiscal_year": p.fiscal_year,
+            "annual_period": f"FY{p.fiscal_year}",
+        }
+        assert p.period_end == date(p.fiscal_year, 12, 31)
+    # every other quarter has its count, in fiscal order, ending at the newest 10-Q
+    filed = [p for p in diluted.points if p.missing is None]
+    assert all(p.value == 100 and p.fiscal_period in ("Q1", "Q2", "Q3") for p in filed)
+    assert diluted.points[-1].period == "FY2020Q1"
+    assert diluted.points == sorted(diluted.points, key=lambda p: (p.fiscal_year, p.period[-2:]))
+
+
+def test_a_year_with_no_quarter_in_the_window_opens_no_gap():
+    from types import SimpleNamespace as Fact
+
+    from domains.analysis.single_values import _fourth_quarter_gaps
+
+    def fact(year, period):
+        return Fact(fiscal_year=year, fiscal_period=period, period_end=date(year, 12, 31))
+
+    # the window holds FY2021's count but none of its quarters (they end before the window), then
+    # FY2022 in full and FY2023 open; Exxon-like FY2022 count missing in a second case
+    quarterly = [fact(2022, q) for q in ("Q1", "Q2", "Q3")] + [fact(2023, "Q1")]
+    gaps = _fourth_quarter_gaps(quarterly, [fact(2021, "FY"), fact(2022, "FY")])
+    assert [(g.period, g.missing.params["annual_period"]) for g in gaps] == [("FY2022Q4", "FY2022")]
+    (gap,) = _fourth_quarter_gaps(quarterly, [fact(2021, "FY")])
+    assert gap.period == "FY2022Q4" and gap.missing.params["annual_period"] is None
+    assert gap.period_end is None and "read no count" in gap.missing.text
+
+
+def test_the_fallback_on_the_years_count_is_the_used_point_of_the_yearly_series(make_company):
+    conn = make_company(None)
+    _without_cover(conn)
+    run_id = run_baseline(conn, "TST", NO_COVER, choices=CHOICES, today=AS_OF)
+    cell = _cell(inputs_behind(conn, run_id, VPS), "shares")
+    cover, diluted, yearly = cell.history
+    assert not cover.points and not cover.primary
+    assert not diluted.primary and not any(p.used for p in diluted.points)
+    assert yearly.primary
+    (used,) = [p for p in yearly.points if p.used]
+    assert used.period == "FY2019" and used.value == pytest.approx(cell.rows[0].value)
+    # the year has ended, but its 10-K files no fourth-quarter count
+    (q4,) = [p for p in diluted.points if p.period == "FY2019Q4"]
+    assert q4.missing.params["annual_period"] == "FY2019"
+
+
+def test_a_fourth_quarter_count_filed_beside_the_year_is_its_own_point(make_company):
+    def edit(tag, row):
+        if tag == DILUTED and row["form"] == "10-K" and row["end"] == f"{row['fy']}-12-31":
+            q4 = {**row, "start": f"{row['fy']}-10-01", "val": 99}
+            return [(tag, row), (tag, q4)]
+        return row
+
+    conn = make_company(edit)
+    _without_cover(conn)
+    run_id = run_baseline(conn, "TST", NO_COVER, choices=CHOICES, today=AS_OF)
+    cell = _cell(inputs_behind(conn, run_id, VPS), "shares")
+    _cover, diluted, yearly = cell.history
+    # FY2015's 10-K is older than the fixture's filings, so only its fourth quarter stays a gap
+    assert [p.period for p in diluted.points if p.missing] == ["FY2015Q4"]
+    q4s = {p.period: p.value for p in diluted.points if p.fiscal_period == "Q4" and not p.missing}
+    assert q4s == {f"FY{y}Q4": 99 for y in range(2016, 2020)}
+    # one used point across the two series, though the year and its fourth quarter share the
+    # filing and the date
+    used = [p for s in (diluted, yearly) for p in s.points if p.used]
+    assert len(used) == 1 and used[0].value == pytest.approx(cell.rows[0].value)
+    # the engine takes the quarter's count on a tie of dates (its quarterly counts come first)
+    assert used[0].period == "FY2019Q4" and diluted.primary and not yearly.primary
+    assert diluted.primary != yearly.primary
+
+
+def test_an_open_year_without_its_count_has_no_fourth_quarter_gap(run):
+    conn, run_id = run
+    _cover, diluted, _yearly = _cell(inputs_behind(conn, run_id, VPS), "shares").history
+    assert "FY2020Q4" not in {p.period for p in diluted.points}
