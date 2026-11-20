@@ -179,12 +179,15 @@ def question_card(
 
     if reading.kind == "fuera_de_alcance":
         step = STEP_OUT
+    elif reading.kind and reading.kind not in SCREENS and not reading.unsure:
+        # read and confirmed, but no screen yet: the value asks (which years, points or basis
+        # points) belong to that screen, so the card does not ask what it cannot use
+        step = STEP_LATER
+        card = replace(card, asks=tuple(a for a in card.asks if a.code == "company_missing"))
     elif card.asks or extra:
         step = STEP_ASK
-    elif reading.kind in SCREENS:
-        step = STEP_CALCULATE
     else:
-        step = STEP_LATER
+        step = STEP_CALCULATE
     return QuestionCard(question, card, step, corte, tuple(extra))
 
 

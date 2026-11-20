@@ -38,7 +38,7 @@
           <tr>
             <th scope="row">{{ t("reading.row.inputs") }}</th>
             <td>
-              {% for i in r.inputs %}<span class="kv-line">{% if i.value_text %}{{ t("reading.input_value", input=t("input." ~ i.name), value=i.value_text) }}{% else %}{{ t("input." ~ i.name) }}{% endif %}</span>{% endfor %}
+              {% for i in r.inputs %}<span class="kv-line">{% if i.value_text and i.direction %}{{ t("reading.input_move." ~ i.direction, input=t("input." ~ i.name), value=i.value_text) }}{% elif i.value_text %}{{ t("reading.input_value", input=t("input." ~ i.name), value=i.value_text) }}{% else %}{{ t("input." ~ i.name) }}{% endif %}</span>{% endfor %}
             </td>
           </tr>
           {% endif %}
@@ -51,7 +51,7 @@
           {% if screen_shows %}
           <tr>
             <th scope="row">{{ t("reading.row.shows") }}</th>
-            <td>{{ t("reading.shows." ~ r.kind) }}</td>
+            <td>{{ t("reading.shows." ~ r.kind) }}<span class="sub">{{ t("reading.shows_note") }}</span></td>
           </tr>
           {% endif %}
           <tr>
@@ -76,10 +76,6 @@
     </div>
     {% endfor %}
 
-    {% for note in notes %}
-    <p class="note">{{ note }}</p>
-    {% endfor %}
-
     {% if qc.step == "pronto" %}
     <div class="askbox later">
       <p><b>{{ t("reading.later.title") }}</b></p>
@@ -90,8 +86,12 @@
     <p class="p">{{ t("question.out_body." ~ (r.out_of_scope or "sin_pregunta")) }}</p>
     {% endif %}
 
+    {% for note in notes %}
+    <p class="note">{{ note }}</p>
+    {% endfor %}
+
     <div class="row">
-      {% if qc.step == "calcular" %}
+      {% if qc.step == "calcular" and not menus_open %}
       <form action="/calcular" method="post">
         {% for name, value in calculate_fields.items() %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
         <button class="btn pri" type="submit">{{ t("reading.calculate") }}</button>
@@ -100,7 +100,7 @@
       {% if not menus_open %}
       <a class="btn" href="{{ menus_url }}#menus">{{ t("reading.correct") }}</a>
       {% endif %}
-      {% if qc.step == "preguntar" %}<span class="muted">{{ t("reading.ask_hint") }}</span>{% endif %}
+      {% if qc.step == "preguntar" %}<span class="muted">{{ t("reading.ask_hint_company" if company_only else "reading.ask_hint") }}</span>{% endif %}
     </div>
 
     {% if menus_open %}

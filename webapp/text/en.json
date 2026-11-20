@@ -223,7 +223,7 @@
   "cells.intro_forecast": "forecast",
   "cells.intro_rest": "B is revenue in the same fiscal quarter a year earlier; C is the growth Warren assumes. For each: how it moved in recent years and what Warren assumes now.",
   "inicio.question_label": "Your question",
-  "inicio.placeholder": "For example: how much will Apple sell next quarter?",
+  "inicio.placeholder": "For example: how much will Apple sell over the next four quarters?",
   "inicio.read": "Read my question",
   "inicio.read_hint": "Before computing anything, I show you how I understood it.",
   "inicio.examples": "Try",
@@ -269,7 +269,7 @@
   "reading.row.why": "Why",
   "reading.row.company": "Company",
   "reading.row.inputs": "You change",
-  "reading.row.period": "Period you named",
+  "reading.row.period": "Period in your question",
   "reading.row.shows": "I show you",
   "reading.row.corte": "Cutoff date",
   "reading.input_value": "{input}: “{value}”",
@@ -283,7 +283,7 @@
   "reading.later.title": "The screen for this kind of question is not ready yet",
   "reading.later.body": "Warren understands your question, but for now it only shows revenue estimates. The other screens will come one at a time.",
   "reading.later.try": "See how much {company} will sell over the next four quarters",
-  "reading.ai_note": "An AI model reads your question and turns it into these fields. It computes no figure: Warren computes them from the company's filings once you confirm.",
+  "reading.ai_note": "An AI model reads your question and turns it into these fields. It computes no figure: Warren computes them from the company's filings when you press Compute.",
   "menus.title": "Correct the reading",
   "menus.kind": "Kind of question",
   "menus.company": "Company",
@@ -297,5 +297,10 @@
   "calc.status": "Computing from the filings {company} submitted up to {date}…",
   "calc.hint": "It usually takes a few seconds.",
   "calc.go": "See the answer",
-  "question.ask.company_pick": "Which company do you mean? Warren covers eight:"
+  "question.ask.company_pick": "Which company do you mean? Warren covers eight:",
+  "inicio.today_scope": "For now Warren computes one question: how much a company will sell over the next four quarters. It reads the others and tells you their screen is coming.",
+  "reading.input_move.up": "{input}: up “{value}”",
+  "reading.input_move.down": "{input}: down “{value}”",
+  "reading.shows_note": "Chosen by Warren, not the AI: it is what this screen shows for an estimate.",
+  "reading.ask_hint_company": "Pick a company to compute."
 }

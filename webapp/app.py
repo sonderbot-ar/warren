@@ -331,6 +331,7 @@ def create_app(
             "asks": asks,
             "notes": notes,
             "screen_shows": qc.reading.kind in question.SCREENS,
+            "company_only": all(a.code in ("company_missing", "one_company") for a in qc.asks),
             "menus_open": qc.show_menus or request.query_params.get("menus") == "1",
             "menus_url": choose(menus="1"),
             "menu_kinds": question.MENU_KINDS,

@@ -165,10 +165,13 @@ def test_a_date_from_the_menus_is_the_corte_and_said_to_be_the_students():
 
 
 def test_a_change_question_is_read_and_confirmed_but_its_screen_comes_later(client):
-    assert card(CAMBIO, empresa="WMT").step in (STEP_ASK, STEP_LATER)
+    qc = card(CAMBIO)
+    assert qc.step == STEP_LATER and qc.asks == ()  # no ask the student could not answer here
     html = lectura(client, CAMBIO).text
-    assert "Cambio de supuesto" in html and "el margen operativo" in html
-    assert "«un punto porcentual»" in html
+    assert (
+        "Cambio de supuesto" in html and "el margen operativo: baja «un punto porcentual»" in html
+    )
+    assert ES["reading.later.title"] in html and "solo el próximo año" not in html
     assert "/calcular" not in html
 
 
@@ -193,6 +196,8 @@ def test_an_unread_question_opens_the_menus_by_itself(client):
     html = lectura(client, "una pregunta que el lector no conoce").text
     assert 'id="menus"' in html
     assert "No estoy seguro de haber entendido tu pregunta" in html
+    ready = lectura(client, Q5, menus="1").text  # menus open on a ready card: one way forward
+    assert 'id="menus"' in ready and 'action="/calcular"' not in ready
     assert "/calcular" not in html
 
 
@@ -202,6 +207,7 @@ def test_the_menus_make_the_reading_the_students(client):
         fecha="2026-10-30", corregido="1",
     ).text  # fmt: skip
     assert "No estoy seguro" not in html
+    assert 'id="menus"' not in html  # sent: the card is ready, with one Calcular
     assert 'name="empresa" value="JNJ"' in html and 'name="corte" value="2026-10-30"' in html
     assert "la que elegiste" in html
 

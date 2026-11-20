@@ -223,7 +223,7 @@
   "cells.intro_forecast": "pronóstico",
   "cells.intro_rest": "B son los ingresos del mismo trimestre fiscal del año anterior; C es el crecimiento que Warren supone. Para cada una: cómo cambió en los últimos años y qué supone Warren ahora.",
   "inicio.question_label": "Tu pregunta",
-  "inicio.placeholder": "Por ejemplo: ¿cuánto venderá Apple el próximo trimestre?",
+  "inicio.placeholder": "Por ejemplo: ¿cuánto venderá Apple en los próximos cuatro trimestres?",
   "inicio.read": "Leer mi pregunta",
   "inicio.read_hint": "Antes de calcular, te muestro cómo la entendí.",
   "inicio.examples": "Prueba con",
@@ -269,7 +269,7 @@
   "reading.row.why": "Por qué",
   "reading.row.company": "Empresa",
   "reading.row.inputs": "Cambias",
-  "reading.row.period": "Periodo que nombraste",
+  "reading.row.period": "Periodo de tu pregunta",
   "reading.row.shows": "Te muestro",
   "reading.row.corte": "Fecha de corte",
   "reading.input_value": "{input}: «{value}»",
@@ -283,7 +283,7 @@
   "reading.later.title": "La pantalla para este tipo de pregunta todavía no está lista",
   "reading.later.body": "Warren ya entiende tu pregunta, pero por ahora solo muestra estimaciones de ingresos. Las demás pantallas llegarán una por una.",
   "reading.later.try": "Ver cuánto venderá {company} en los próximos cuatro trimestres",
-  "reading.ai_note": "Un modelo de IA lee tu pregunta y la convierte en estos campos. No calcula ninguna cifra: las calcula Warren con los reportes de la empresa, cuando confirmas.",
+  "reading.ai_note": "Un modelo de IA lee tu pregunta y la convierte en estos campos. No calcula ninguna cifra: las calcula Warren con los reportes de la empresa, cuando pulsas Calcular.",
   "menus.title": "Corrige la lectura",
   "menus.kind": "Tipo de pregunta",
   "menus.company": "Empresa",
@@ -297,5 +297,10 @@
   "calc.status": "Calculando con los reportes de {company} presentados hasta el {date}…",
   "calc.hint": "Suele tardar unos segundos.",
   "calc.go": "Ver la respuesta",
-  "question.ask.company_pick": "¿De qué empresa hablas? Warren cubre ocho:"
+  "question.ask.company_pick": "¿De qué empresa hablas? Warren cubre ocho:",
+  "inicio.today_scope": "Por ahora Warren calcula una pregunta: cuánto venderá una empresa en los próximos cuatro trimestres. Las demás las lee y te dice que su pantalla llegará pronto.",
+  "reading.input_move.up": "{input}: sube «{value}»",
+  "reading.input_move.down": "{input}: baja «{value}»",
+  "reading.shows_note": "Lo elige Warren, no la IA: es lo que muestra esta pantalla para una estimación.",
+  "reading.ask_hint_company": "Elige una empresa para poder calcular."
 }
