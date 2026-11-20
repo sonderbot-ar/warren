@@ -225,3 +225,74 @@ def test_a_pooled_ratio_is_the_ratios_weighted_by_each_periods_share_of_the_base
     total = sum(bases)
     weighted = sum(b / total * (n / b) for n, b in zip(numerators, bases, strict=True))
     assert fm.pooled_ratio(numerators, bases) == pytest.approx(weighted, rel=1e-9, abs=1e-12)
+
+
+# -- beta's standard error (backlog #481) ---------------------------------------------------------
+
+_returns = st.lists(st.floats(-0.2, 0.2, allow_nan=False), min_size=5, max_size=60)
+
+
+def _spread(xs):
+    return max(xs) - min(xs) > 1e-3
+
+
+@given(_returns, _returns)
+def test_beta_std_error_is_not_negative(stock, market):
+    n = min(len(stock), len(market))
+    stock, market = stock[:n], market[:n]
+    if not _spread(market):
+        return
+    assert fm.ols_beta_std_error(stock, market) >= 0
+
+
+@given(_returns, st.floats(-3, 3), st.floats(-0.01, 0.01))
+def test_beta_std_error_is_zero_on_an_exact_line(market, beta, alpha):
+    if not _spread(market):
+        return
+    stock = [alpha + beta * m for m in market]
+    assert fm.ols_beta_std_error(stock, market) == pytest.approx(0, abs=1e-9)
+
+
+@given(_returns, _returns, st.floats(-0.05, 0.05), st.floats(-0.05, 0.05))
+def test_beta_std_error_ignores_a_constant_added_to_either_series(stock, market, a, b):
+    n = min(len(stock), len(market))
+    stock, market = stock[:n], market[:n]
+    if not _spread(market):
+        return
+    se = fm.ols_beta_std_error(stock, market)
+    shifted = fm.ols_beta_std_error([s + a for s in stock], [m + b for m in market])
+    assert shifted == pytest.approx(se, rel=1e-6, abs=1e-9)
+
+
+@given(_returns, _returns, st.floats(0.1, 10))
+def test_beta_std_error_scales_with_the_stock_series(stock, market, k):
+    n = min(len(stock), len(market))
+    stock, market = stock[:n], market[:n]
+    if not _spread(market):
+        return
+    se = fm.ols_beta_std_error(stock, market)
+    assert fm.ols_beta_std_error([k * s for s in stock], market) == pytest.approx(
+        k * se, rel=1e-6, abs=1e-9
+    )
+
+
+def test_beta_std_error_by_hand():
+    # x = 1..5, y = 2, 4, 5, 4, 5: slope 0.6, residuals sum of squares 2.4,
+    # Sxx 10, so se = sqrt(2.4 / 3 / 10) = sqrt(0.08)
+    x, y = [1, 2, 3, 4, 5], [2, 4, 5, 4, 5]
+    assert fm.ols_beta(y, x) == pytest.approx(0.6)
+    assert fm.ols_beta_std_error(y, x) == pytest.approx(0.08**0.5)
+
+
+def test_blume_std_error_is_the_weight_times_the_raw_one():
+    assert fm.blume_adjusted_std_error(0.3) == pytest.approx(fm.BLUME_WEIGHT * 0.3)
+    # the adjustment's slope, read off blume_adjusted_beta itself
+    slope = fm.blume_adjusted_beta(1.3) - fm.blume_adjusted_beta(0.3)
+    assert fm.blume_adjusted_std_error(1.0) == pytest.approx(slope)
+
+
+def test_beta_std_error_refuses_what_ols_beta_refuses():
+    with pytest.raises(fm.FinancialMathError):
+        fm.ols_beta_std_error([0.1, 0.2], [0.1, 0.2])
+    with pytest.raises(fm.FinancialMathError):
+        fm.ols_beta_std_error([0.1, 0.2, 0.3], [0.0, 0.0, 0.0])

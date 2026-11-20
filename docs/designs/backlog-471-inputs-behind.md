@@ -56,7 +56,7 @@ Every latest-basis ratio and growth point is the value `reported_period` compute
 
 ## Files to change
 
-`domains/analysis/inputs.py` (new), `domains/analysis/financial_math.py` (`growth_contribution`), `domains/analysis/__main__.py` (`inputs` command), `tests/analysis/test_inputs.py` (new), `tests/analysis/test_financial_math.py`, `docs/versions.md`, `docs/build-plan.md`, `docs/team-sync.md`.
+`domains/analysis/inputs.py` (new), `domains/analysis/financial_math.py` (`growth_contribution`), `domains/analysis/__main__.py` (`inputs` command), `tests/analysis/test_inputs.py` (new; also holds the `growth_contribution` property test), `docs/versions.md`, `docs/build-plan.md`, `docs/team-sync.md`.
 
 ## Product impact
 

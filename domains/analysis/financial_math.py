@@ -358,6 +358,27 @@ def blume_adjusted_beta(raw_beta: Number) -> Number:
     return BLUME_WEIGHT * raw_beta + (1 - BLUME_WEIGHT)
 
 
+def ols_beta_std_error(stock_returns: Sequence[float], market_returns: Sequence[float]) -> float:
+    """Ordinary least squares standard error of `ols_beta`'s slope on the same returns:
+    sqrt(Σ residual² / (n − 2) / Σ (m − m̄)²), under the estimate's own assumptions (plain
+    OLS, no correction for autocorrelation or changing variance; backlog #481)."""
+    beta = ols_beta(stock_returns, market_returns)  # checks the lengths, n >= 3, the variance
+    n = len(stock_returns)
+    mean_s, mean_m = sum(stock_returns) / n, sum(market_returns) / n
+    alpha = mean_s - beta * mean_m
+    residuals = sum(
+        (s - alpha - beta * m) ** 2 for s, m in zip(stock_returns, market_returns, strict=True)
+    )
+    var = sum((m - mean_m) ** 2 for m in market_returns)
+    return math.sqrt(max(residuals, 0.0) / (n - 2) / var)
+
+
+def blume_adjusted_std_error(raw_std_error: Number) -> Number:
+    """The Blume-adjusted beta's standard error: the adjustment is linear in the raw beta
+    (BLUME_WEIGHT × raw + a constant), so its error is BLUME_WEIGHT × the raw beta's."""
+    return BLUME_WEIGHT * raw_std_error
+
+
 # -- equity risk premium --------------------------------------------------------------------------
 
 
@@ -493,3 +514,18 @@ def growth_contribution(current: Number, prior: Number, prior_total: Number) -> 
     if _any(prior_total <= 0):
         raise FinancialMathError(f"a contribution needs a positive prior total, got {prior_total}")
     return (current - prior) / prior_total
+
+
+def difference(current: Number, prior: Number) -> Number:
+    """A part's change between two periods, current − prior, in the parts' own currency (the bar
+    behind a quarter's contribution to the year's growth)."""
+    return current - prior
+
+
+def contribution_amount(contribution: Number, prior_total: Number) -> Number:
+    """A contribution to a total's growth turned back into an amount: contribution × the
+    year-earlier total (what the quarters leave unexplained, in the total's currency). The inverse
+    of `growth_contribution` over the same positive total."""
+    if _any(prior_total <= 0):
+        raise FinancialMathError(f"a contribution needs a positive prior total, got {prior_total}")
+    return contribution * prior_total

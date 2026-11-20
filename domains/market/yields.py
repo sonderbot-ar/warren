@@ -98,6 +98,25 @@ def risk_free_rate(
     )
 
 
+def yields_through(
+    conn: sqlite3.Connection, first: date, last: date, series: str = RISK_FREE_SERIES
+) -> list[YieldPoint]:
+    """Every observation of `series` dated from `first` through `last`, oldest first, from the
+    fetch a query on the day after `last` reads (so nothing dated after `last` is read)."""
+    from datetime import timedelta
+
+    fetch = require_coverage(conn, "fred", series, last + timedelta(days=1))
+    rows = conn.execute(
+        "SELECT date, value FROM yields WHERE series = ? AND fetch_id = ? AND date >= ? "
+        "AND date <= ? ORDER BY date",
+        (series, fetch["fetch_id"], first.isoformat(), last.isoformat()),
+    ).fetchall()
+    return [
+        YieldPoint(series, date.fromisoformat(r["date"]), r["value"] / 100, fetch["fetch_id"])
+        for r in rows
+    ]
+
+
 def annual_bond_returns(
     conn: sqlite3.Connection,
     first_year: int,

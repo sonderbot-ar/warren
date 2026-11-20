@@ -60,10 +60,18 @@ POINT_NOTES = (
     "run_date",  # the run's own date (the last point of a monthly series), not a month start
     "split_adjusted",  # params factor: new shares per old share (4.0 = one became four)
     "run_read_differently",  # the used point differs from the run's row (an older run)
+    # beta: the regression's standard error, params raw_std_error, std_error (the adjusted
+    # beta's), weeks (backlog #481)
+    "beta_std_error",
+    # cost of debt: the book (embedded) rate is below the 10-year Treasury yield, params
+    # cost_of_debt, risk_free, risk_free_date, against (backlog #481)
+    "below_risk_free",
 )
 CELL_NOTES = (
     "follows_risk_free",  # terminal growth equals the risk-free rate by the owner's method
     "computed_from_other_cells",  # params inputs: the rows it is computed from
+    # a what-if child's cost of debt is the risk-free rate, not a book year (backlog #481)
+    "floored_at_risk_free",
 )
 SERIES_NOTES = (
     "book_value",  # debt, cash and minority interest are the balance sheet's book values
@@ -191,7 +199,10 @@ def single_cell(singles: Singles, name: str, cell_rows: list):
     if name not in builders:
         return None
     history = [_checked(s, cell_rows) for s in builders[name]()]
-    return Cell(name, cell_rows, history, None, [])
+    notes = []
+    if name == "cost_of_debt" and (floored := _floored_note(singles)) is not None:
+        notes.append(floored)
+    return Cell(name, cell_rows, history, None, notes)
 
 
 def _cached(singles: Singles, key: str, build):
@@ -292,12 +303,22 @@ def _beta(singles: Singles):
     def at(day):
         pairs = aligned_weekly_returns(singles.conn, ticker, day, BETA_WEEKS)
         raw = fm.ols_beta(pairs.stock, pairs.market)
+        raw_se = fm.ols_beta_std_error(pairs.stock, pairs.market)
+        se = fm.blume_adjusted_std_error(raw_se)
         window = f"{pairs.first_week.isoformat()}/{pairs.last_week.isoformat()}"
+        looseness = Coded(
+            "beta_std_error",
+            {"raw_std_error": raw_se, "std_error": se, "weeks": len(pairs.stock)},
+            f"standard error {se:.2f} (the raw beta's {raw_se:.2f}, plain least squares on "
+            f"{len(pairs.stock)} weekly returns, scaled by the fixed Blume weight): how far "
+            "this estimate may be from the true beta; it is not a test of the change from "
+            "last month, since neighbouring months share most of their weeks",
+        )
         return (
             fm.blume_adjusted_beta(raw),
             pairs.last_week,
             [Part("raw_beta", raw, window, None)],
-            [],
+            [looseness],
         )
 
     overlap = Coded(
@@ -460,9 +481,8 @@ def _cost_of_debt(singles: Singles):
     from domains.analysis.math_engine import EngineError, cost_of_debt_year, resolve
 
     sources = singles.stored.get(("cost_of_debt", SINGLE), [])
-    interest = next(
-        (s for s in sources if s["kind"] == "filing" and s["item"].startswith("interest")), None
-    )
+    interest = _interest_source(sources)
+    # a what-if child's changed cost of debt is not a book year: no point is used (backlog #481)
     used_label = f"FY{interest['fiscal_year']}" if interest else None
     last_quarter = singles.reader.latest(quarterly=True)
     last_year = max(singles.reader.latest(quarterly=False).fiscal_year, last_quarter.fiscal_year)
@@ -494,8 +514,120 @@ def _cost_of_debt(singles: Singles):
             for f in (*paid.facts, *opening, *closing)
         ]
         period_end = paid.facts[0].period_end if paid.facts else None
-        points.append(Point(label, year, "FY", period_end, kd, used, parts))
+        notes = _below_risk_free(singles, kd, used, period_end)
+        points.append(Point(label, year, "FY", period_end, kd, used, parts, notes))
     return Series("cost_of_debt", "year", "latest", True, None, points)
+
+
+def _interest_source(sources: list) -> dict | None:
+    return next(
+        (s for s in sources if s["kind"] == "filing" and s["item"].startswith("interest")), None
+    )
+
+
+def _floored_note(singles: Singles):
+    """`floored_at_risk_free` on a what-if child whose cost of debt the debt change floored at
+    the child's own risk-free row (`whatif._leverage_rows`; backlog #481): the value is that row
+    (itself a what-if value when `risk_free_changed`), and the parent's book cost of debt and
+    its fiscal year (None when the parent's sources name no interest filing) say what it
+    replaced."""
+    sources = singles.stored.get(("cost_of_debt", SINGLE), [])
+    floored = next(
+        (s for s in sources if s["kind"] == "what_if" and s.get("how") == "floored_at_risk_free"),
+        None,
+    )
+    if floored is None:
+        return None
+    value = _run_row(singles, "cost_of_debt")
+    book = _interest_source(floored.get("parent_sources") or [])
+    rf_sources = singles.stored.get(("risk_free", SINGLE), [])
+    return Coded(
+        "floored_at_risk_free",
+        {
+            "value": value,
+            "book_cost_of_debt": floored["before"],
+            "book_year": f"FY{book['fiscal_year']}" if book else None,
+            "parent_run_id": floored["parent_run_id"],
+            "cell": "risk_free",
+            "risk_free_changed": any(s["kind"] == "what_if" for s in rf_sources),
+        },
+        f"the cost of debt is the risk-free rate ({value:.2%}), not a book year: the debt "
+        f"changed and the book cost of debt ({floored['before']:.2%}) was below the risk-free "
+        "rate, so Warren holds it at that floor (a lender charges at least what the government "
+        "pays). The floor is a minimum, not an estimate: more debt usually costs more, so this "
+        "what-if's value is on the high side",
+    )
+
+
+def _run_row(singles: Singles, name: str) -> float | None:
+    row = singles.conn.execute(
+        "SELECT value FROM assumptions WHERE run_id = ? AND name = ? AND period = ?",
+        (singles.run["run_id"], name, SINGLE),
+    ).fetchone()
+    return None if row is None else row["value"]
+
+
+def _run_risk_free(singles: Singles):
+    """The run's own risk-free row and the date of its DGS10 observation (its stored source)."""
+    value = _run_row(singles, "risk_free")
+    if value is None:
+        return None
+    source = next(
+        (s for s in singles.stored.get(("risk_free", SINGLE), []) if s["kind"] == "market"),
+        None,
+    )
+    return value, source["end"] if source else None
+
+
+def _below_risk_free(singles: Singles, kd: float, used: bool, period_end: date | None) -> list:
+    """`below_risk_free` when a year's book (embedded) cost of debt is strictly below the 10-year
+    Treasury yield (backlog #481): the used year against the run's own risk-free row (the rate
+    in the same WACC, and the row `whatif._would_floor` compares with), every other year against
+    the average 10-year yield over that fiscal year (interest over average debt is a flow over
+    the year, so one day's yield is not like for like; analyst, #481). Nothing after `as_of`."""
+    from domains.market.store import MarketDataError
+    from domains.market.yields import yields_through
+
+    if used:
+        found = _run_risk_free(singles)
+        if found is None:
+            return []
+        rf, rf_date = found
+        # the run's own row, so the note agrees with the what-if floor's test on the same two
+        # stored values (`whatif._would_floor`; analyst, #481), even on an older run whose
+        # year now reads differently (`run_read_differently` says so)
+        kd = _run_row(singles, "cost_of_debt")
+        extra = {"against": "run_risk_free"}
+        benchmark = f"the run's own risk-free rate, on {rf_date}"
+    else:
+        if period_end is None or period_end >= singles.as_of:
+            return []
+        try:
+            with singles.pins():
+                obs = yields_through(singles.conn, period_end - timedelta(days=364), period_end)
+        except MarketDataError:
+            return []
+        if not obs:
+            return []
+        rf, rf_date = fm.mean([o.rate for o in obs]), obs[-1].date.isoformat()
+        extra = {
+            "against": "year_average_yield",
+            "risk_free_from": obs[0].date.isoformat(),
+            "observations": len(obs),
+        }
+        benchmark = f"its average from {obs[0].date.isoformat()} to {rf_date}"
+    if kd is None or not kd < rf:
+        return []
+    return [
+        Coded(
+            "below_risk_free",
+            {"cost_of_debt": kd, "risk_free": rf, "risk_free_date": rf_date, **extra},
+            f"the book cost of debt ({kd:.2%}, interest over average book debt) is below the "
+            f"10-year Treasury yield ({rf:.2%}, {benchmark}): it is the average rate on debt "
+            "raised in past years, often when rates were lower (and on short-term borrowing "
+            "and swaps), not what a lender would charge today, so it is common, not a mistake",
+        )
+    ]
 
 
 def _shares(singles: Singles):
