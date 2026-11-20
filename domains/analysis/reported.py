@@ -564,9 +564,12 @@ def _in_scope(pair: tuple[Fact, Fact], line: Line) -> bool:
     )
 
 
-def _disagreements(conn, cik, lines, as_of, filings) -> list[Disagreement]:
+def _disagreements(conn, cik, lines, as_of, filings, rows=None) -> list[Disagreement]:
+    """The newest-filing disagreements in scope of `lines`. `rows` is the company's list for the
+    lines' names on `as_of`, when the caller has it already (backlog #477 item 2)."""
     names = sorted({x.name for x in lines})
-    rows = newest_filing_disagreements(conn, cik, names, as_of)
+    if rows is None:
+        rows = newest_filing_disagreements(conn, cik, names, as_of)
     out = []
     for pair in rows:
         if any(_in_scope(pair, x) for x in lines):
@@ -784,6 +787,19 @@ def _close(value: float, target: float) -> bool:
     return abs(value - target) <= MEANING_CHANGE_MATCH * abs(target)
 
 
+def _once(shared: dict | None):
+    """`once(key, make)`: `make()` the first time a key is asked of `shared`, the kept answer
+    after. With no `shared`, every call makes its own (backlog #471, #477 item 2)."""
+    shared = {} if shared is None else shared
+
+    def once(key, make):
+        if key not in shared:
+            shared[key] = make()
+        return shared[key]
+
+    return once
+
+
 def reported_period(
     conn: sqlite3.Connection,
     ticker: str,
@@ -797,12 +813,7 @@ def reported_period(
     a dict it keeps between calls, where the reads that depend only on the company, the date and
     the frequency are kept, so each is made once. The answers are the same with or without it,
     except `warnings`: a warning raised by a kept read is caught only by the call that made it."""
-    shared = {} if _shared is None else _shared
-
-    def once(key, make):
-        if key not in shared:
-            shared[key] = make()
-        return shared[key]
+    once = _once(_shared)
 
     company = conn.execute("SELECT * FROM companies WHERE ticker = ?", (ticker.upper(),)).fetchone()
     if company is None:
@@ -825,8 +836,12 @@ def reported_period(
             ("changes", *key), lambda: tag_meaning_changes(conn, cik, ["revenue"], as_of)
         )
         lines = _lines(views, resolved, filings, changes)
-        disagreements = _disagreements(conn, cik, lines, as_of, filings)
         names = tuple(sorted({x.name for x in lines}))
+        newest = once(
+            ("newest", *key, names),
+            lambda: newest_filing_disagreements(conn, cik, list(names), as_of),
+        )
+        disagreements = _disagreements(conn, cik, lines, as_of, filings, newest)
         flips = once(
             ("flips", *key, names), lambda: skipped_sign_flips(conn, cik, list(names), as_of)
         )
@@ -1441,7 +1456,10 @@ def reported_series(
 
 
 def _series_meaning_notes(
-    conn: sqlite3.Connection, answers: list[ReportedPeriod], as_of: date
+    conn: sqlite3.Connection,
+    answers: list[ReportedPeriod],
+    as_of: date,
+    _shared: dict | None = None,
 ) -> list[Coded]:
     """One `series_mixes_meanings` note per change of meaning whose periods in the series do not
     all carry its new meaning, when at least one does (or any is a mix). A period's state is
@@ -1451,13 +1469,17 @@ def _series_meaning_notes(
     The note says where this break is; it says nothing about other changes on either side (a
     recast that no other tag records is `series_mixes_vintages`, #297 item 13)."""
     cik, quarterly = answers[0].cik, answers[0].fiscal_period != "FY"
+    once = _once(_shared)
+    key = (cik, as_of)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")  # each period already carries its coded warnings
-        changes = tag_meaning_changes(conn, cik, ["revenue"], as_of)
+        changes = once(
+            ("changes", *key), lambda: tag_meaning_changes(conn, cik, ["revenue"], as_of)
+        )
         if not changes:
             return []
-        views = _views(conn, cik, as_of, quarterly)
-    filed_at = _Filings(conn, cik).filed_at
+        views = once(("views", *key, quarterly), lambda: _views(conn, cik, as_of, quarterly))
+    filed_at = once(("filings", *key), lambda: _Filings(conn, cik)).filed_at
     facts = {r.period: _getter(views, parse_period(r.period))("revenue") for r in answers}
     ratios = _revenue_ratios(answers)
     notes = []
@@ -1517,7 +1539,10 @@ QUARTER_SPAN = (80, 100)  # and for a series of quarters only when it moved a qu
 
 
 def _series_recast_notes(
-    conn: sqlite3.Connection, answers: list[ReportedPeriod], as_of: date
+    conn: sqlite3.Connection,
+    answers: list[ReportedPeriod],
+    as_of: date,
+    _shared: dict | None = None,
 ) -> list[Coded]:
     """One `series_mixes_vintages` note per recast of revenue (`facts.item_recasts`: a filing
     gave earlier periods new figures, and no tag still holds the old ones) that leaves the series
@@ -1531,19 +1556,21 @@ def _series_recast_notes(
     repeats an earlier one's is left out (Johnson & Johnson's 10-Q of 2023-10-27, then its 10-K
     of 2024-02-16)."""
     cik, quarterly = answers[0].cik, answers[0].fiscal_period != "FY"
+    once = _once(_shared)
+    key = (cik, as_of)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")  # each period already carries its coded warnings
         recasts = [
             r
-            for r in item_recasts(conn, cik, "revenue", as_of)
+            for r in once(("recasts", *key), lambda: item_recasts(conn, cik, "revenue", as_of))
             if r.largest_move(ANNUAL_MIN_DAYS) is not None
             or (quarterly and r.largest_move(*QUARTER_SPAN) is not None)
         ]
         if not recasts:
             return []
-        views = _views(conn, cik, as_of, quarterly)
-        versions = version_dates(conn, cik, "revenue", as_of)
-    filed_at = _Filings(conn, cik).filed_at
+        views = once(("views", *key, quarterly), lambda: _views(conn, cik, as_of, quarterly))
+        versions = once(("versions", *key), lambda: version_dates(conn, cik, "revenue", as_of))
+    filed_at = once(("filings", *key), lambda: _Filings(conn, cik)).filed_at
     facts = {r.period: _getter(views, parse_period(r.period))("revenue") for r in answers}
     ratios = _revenue_ratios(answers)
     notes, seen = [], set()

@@ -521,8 +521,9 @@ def _series_notes(reader: _Reader, labels: list[str]) -> list[Coded]:
         return []
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        return _series_meaning_notes(reader.conn, answers, reader.as_of) + _series_recast_notes(
-            reader.conn, answers, reader.as_of
+        conn, as_of, shared = reader.conn, reader.as_of, reader.shared
+        return _series_meaning_notes(conn, answers, as_of, shared) + _series_recast_notes(
+            conn, answers, as_of, shared
         )
 
 
