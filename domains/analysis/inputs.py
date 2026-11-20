@@ -439,7 +439,20 @@ def _contributions(reader: _Reader, point: Point) -> Point:
     annual = reader.period(f"FY{year}")
     prior_year = next((x for x in annual.prior_lines if x.name == "revenue"), None)
     if prior_year is None or prior_year.value <= 0:
-        return point
+        return Point(
+            **{
+                **_fields(point),
+                "notes": [
+                    *point.notes,
+                    Coded(
+                        "contribution_prior_year_missing",
+                        {"period": f"FY{year - 1}"},
+                        f"FY{year - 1} revenue is not reported or not above zero: "
+                        "no quarter contributions",
+                    ),
+                ],
+            }
+        )
     parts = list(point.parts)
     total = 0.0
     for q in range(1, 5):
