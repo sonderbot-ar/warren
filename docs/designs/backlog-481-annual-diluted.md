@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/481 (item 4) · Branch `backlog-481-annual-diluted` · Version v0.10.20 when merged.
 
-Status: In progress (nov.20.2026).
+Status: Done (nov.20.2026; v0.10.20, PR #501, merge `f75047e`, after CI green and a gatekeeper GO; follow-ups #502).
 
 ## Problem
 
