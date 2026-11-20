@@ -104,6 +104,37 @@ class Point:
     parts: list[Part] = field(default_factory=list)
     notes: list[Coded] = field(default_factory=list)
     missing: Coded | None = None
+    # a fraction's two sums, in the filing's currency (not millions), and its formula (#477);
+    # None on the seed, on growth and on the single values
+    numerator: float | None = None
+    base: float | None = None
+    formula_id: str | None = None
+
+
+@dataclass(frozen=True)
+class Reference:
+    """The assumption recomputed over the points the run used, as this chart reads them today
+    (backlog #477), so the app can label the assumption's line and check it against the bars.
+
+    `how` is `pooled` (Σ numerator ÷ Σ base: a larger year weighs more) or `mean` (each point
+    counts the same). `simple_mean` is always the plain average of the same points, so the
+    card can say why a pooled line is not where the bars' average would put it. `weights` are
+    each point's weight in `value`, in the order of `periods` (pooled: its share of
+    `base_sum`; mean: 1 ÷ the count). `rows` are the cell's rows computed from exactly these
+    points (growth: the rows that hold the starting average, before the fade)."""
+
+    method_code: str
+    how: str  # pooled or mean
+    value: float | None
+    simple_mean: float | None
+    periods: list[str]
+    weights: list[float] | None
+    numerator_sum: float | None  # pooled only, in the filing's currency
+    base_sum: float | None
+    numerator_code: str | None  # e.g. operating_income, income_tax (pooled only)
+    base_code: str | None  # e.g. revenue, pretax_income
+    rows: list[str]
+    notes: list[Coded] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -117,6 +148,8 @@ class Series:
     # about the series as a whole (`reported_series`): its revenue crosses a tag that changed
     # meaning (`series_mixes_meanings`, Exxon FY2016/FY2017) or a recast
     notes: list[Coded] = field(default_factory=list)
+    # the assumption over this series' used points (#477): primary driver series only
+    reference: Reference | None = None
 
 
 @dataclass(frozen=True)
@@ -369,6 +402,9 @@ def _ratio_point(reader: _Reader, label: str, ratio: str, used: bool, extra=()) 
         parts,
         notes,
         r.missing,
+        r.numerator,
+        r.base,
+        r.formula_id,
     )
 
 
@@ -485,8 +521,9 @@ def _series_notes(reader: _Reader, labels: list[str]) -> list[Coded]:
         return []
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        return _series_meaning_notes(reader.conn, answers, reader.as_of) + _series_recast_notes(
-            reader.conn, answers, reader.as_of
+        conn, as_of, shared = reader.conn, reader.as_of, reader.shared
+        return _series_meaning_notes(conn, answers, as_of, shared) + _series_recast_notes(
+            conn, answers, as_of, shared
         )
 
 
@@ -552,6 +589,9 @@ def _same_filing_growth(
     return Series("revenue_growth_yoy", "year", "same_filing", True, None, points)
 
 
+NWC_FORMULA = "operating_nwc_over_revenue"
+
+
 def _nwc_series(conn, cik: str, as_of: date, labels: list[str], used: set[str], filings) -> Series:
     """Year-end operating working capital ÷ the year's revenue, in the run's own definition."""
     from domains.analysis.math_engine import EngineError, _operating_nwc, load_history
@@ -613,6 +653,10 @@ def _nwc_series(conn, cik: str, as_of: date, labels: list[str], used: set[str], 
                 label in used,
                 parts,
                 notes,
+                None,
+                nwc,
+                revenue.value,
+                NWC_FORMULA,
             )
         )
     return Series("operating_nwc_share", "year", "latest", True, None, points)
@@ -677,6 +721,159 @@ def _with_run_reads(cell: "Cell", stored: dict, growth_filings: dict, rules: int
             )
             points.append(Point(**{**_fields(p), "notes": [*p.notes, note]}))
         history.append(Series(**{**_fields_of(series), "points": points}))
+    return Cell(cell.name, cell.rows, history, cell.gap, cell.notes)
+
+
+# -- the reference line (backlog #477) ------------------------------------------------------------
+
+# how each method computes its rows from the history points
+POOLED_METHODS = ("years_sum_ratio", "years_sum_ratio_kept_years")
+MEAN_METHODS = ("same_quarter_average", "year_end_average_ratio", "same_filing_average_fading")
+REFERENCE_HOW = ("pooled", "mean")
+REFERENCE_NOTES = (
+    "reference_point_missing",  # a used point has no value today: no line
+    "reference_differs_from_run",  # the run's row differs (older rules, or a figure refiled)
+    "reference_clipped",  # the row is the line held to the engine's bounds (tax 0%-50%)
+    "reference_mixes_formulas",  # the used points divide different lines (e.g. two tax bases)
+)
+CLIPPED_CELLS = ("tax_rate", "debt_tax_rate")
+
+# what each fraction divides: formula id -> (numerator code, base code), for the app to word
+FORMULA_LINES = {
+    "ebit_over_revenue": ("operating_income", "revenue"),
+    "pretax_plus_interest_over_revenue": ("pretax_income_plus_interest", "revenue"),
+    "capex_over_revenue": ("capex", "revenue"),
+    "capex_over_revenue_fallback": ("capex", "revenue"),
+    "d_and_a_over_revenue": ("d_and_a", "revenue"),
+    "d_and_a_over_revenue_fallback": ("d_and_a", "revenue"),
+    "tax_over_pretax": ("income_tax", "pretax_income"),
+    "tax_over_pretax_by_region": ("income_tax", "pretax_income_by_region"),
+    "tax_over_net_income_plus_tax": ("income_tax", "net_income_plus_tax"),
+    NWC_FORMULA: ("operating_working_capital", "revenue"),
+}
+
+
+def _same(a: float, b: float) -> bool:
+    return abs(a - b) <= 1e-9 * max(1.0, abs(a))
+
+
+def _reference(cell: "Cell", series: Series) -> Reference | None:
+    used = [p for p in series.points if p.used]
+    periods = [p.period for p in used]
+    rows = [
+        r
+        for r in cell.rows
+        if r.method_code in (*POOLED_METHODS, *MEAN_METHODS) and set(r.used) == set(periods)
+    ]
+    if not used or not rows:
+        return None  # an owner's choice, a what-if's own value, a statutory rate, the seed
+    method = rows[0].method_code
+    how = "pooled" if method in POOLED_METHODS else "mean"
+    if method == "same_filing_average_fading":  # the rows that hold the start, before the fade
+        first = rows[0].value
+        rows = [r for r in rows if r.value is not None and first is not None and r.value == first]
+        rows = rows or cell.rows[:1]
+    formulas = {p.formula_id for p in used if p.formula_id is not None}
+    codes = FORMULA_LINES.get(next(iter(formulas))) if len(formulas) == 1 else None
+    numerator_code, base_code = codes if codes and how == "pooled" else (None, None)
+    notes: list[Coded] = []
+    value = simple = num_sum = base_sum = weights = None
+    gaps = [
+        p.period
+        for p in used
+        if p.value is None or (how == "pooled" and (p.numerator is None or p.base is None))
+    ]
+    if gaps:
+        notes.append(
+            Coded(
+                "reference_point_missing",
+                {"periods": gaps},
+                f"no value today for {', '.join(gaps)}, a point the run used",
+            )
+        )
+    else:
+        values = [p.value for p in used]
+        simple = fm.mean(values)
+        if how == "pooled":
+            nums, bases = [p.numerator for p in used], [p.base for p in used]
+            if sum(bases) > 0:
+                value = fm.pooled_ratio(nums, bases)
+                num_sum, base_sum = sum(nums), sum(bases)
+                weights = fm.base_shares(bases)
+            else:
+                notes.append(
+                    Coded(
+                        "reference_point_missing",
+                        {"periods": periods},
+                        "the bases of the points the run used do not sum to a positive figure",
+                    )
+                )
+        else:
+            value = simple
+            weights = [1 / len(values)] * len(values)
+    if len(formulas) > 1:
+        notes.append(
+            Coded(
+                "reference_mixes_formulas",
+                {"formula_ids": sorted(f for f in formulas if f)},
+                "the points the run used do not all divide the same lines",
+            )
+        )
+    if value is not None:
+        off = [r for r in rows if r.value is not None and not _same(r.value, value)]
+        if cell.name in CLIPPED_CELLS:
+            from domains.analysis.math_engine import TAX_RATE_BOUNDS
+
+            low, high = TAX_RATE_BOUNDS
+            held = min(max(value, low), high)
+            clipped = [r for r in off if held != value and _same(r.value, held)]
+            if clipped:
+                notes.append(
+                    Coded(
+                        "reference_clipped",
+                        {
+                            "rows": [r.period for r in clipped],
+                            "run_value": held,
+                            "value": value,
+                            "low": low,
+                            "high": high,
+                        },  # fmt: skip
+                        f"the history gives {value:.6g}; the run holds it to {held:.6g}, "
+                        "inside the engine's bounds",
+                    )
+                )
+            off = [r for r in off if r not in clipped]
+        if off:
+            notes.append(
+                Coded(
+                    "reference_differs_from_run",
+                    {"rows": [r.period for r in off], "run_value": off[0].value, "value": value},
+                    f"the run's {off[0].period} is {off[0].value:.6g}, not {value:.6g}: it was "
+                    "stored under other reading rules, before a filing changed a figure, or "
+                    "clipped to the engine's bounds",
+                )
+            )
+    return Reference(
+        method,
+        how,
+        value,
+        simple,
+        periods,
+        weights,
+        num_sum,
+        base_sum,
+        numerator_code,
+        base_code,
+        [r.period for r in rows],
+        notes,
+    )
+
+
+def _with_references(cell: "Cell") -> "Cell":
+    history = [
+        Series(**{**_fields_of(s), "reference": _reference(cell, s)}) if s.primary else s
+        for s in cell.history
+    ]
     return Cell(cell.name, cell.rows, history, cell.gap, cell.notes)
 
 
@@ -769,6 +966,7 @@ def inputs_behind(
         cell = _cell(name, cell_rows, reader, run, years, filings, singles)
         if cell.gap is None and name in DRIVER_CELLS:  # single values check their own
             cell = _with_run_reads(cell, run_values, growth_pairs, run["reading_rules_version"])
+            cell = _with_references(cell)
         if name in ("tax_rate", "debt_tax_rate") and tax_notes:
             cell = Cell(cell.name, cell.rows, cell.history, cell.gap, [*tax_notes, *cell.notes])
         cells.append(cell)
@@ -919,4 +1117,11 @@ def _cell(
     return Cell(name, cell_rows, history, None, notes)
 
 
-__all__ = ["SINGLE", "InputsBehind", "InputsError", "inputs_behind", "reached_rows"]
+__all__ = [
+    "SINGLE",
+    "InputsBehind",
+    "InputsError",
+    "Reference",
+    "inputs_behind",
+    "reached_rows",
+]

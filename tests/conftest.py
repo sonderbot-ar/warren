@@ -18,3 +18,14 @@ def _no_real_anthropic_settings(monkeypatch):
         "ANTHROPIC_BASE_URL",
     ):
         monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _no_kept_track_record():
+    """Every test starts and ends without the track-record rows a process keeps (backlog #477
+    item 2), so a test that patches how ranges are built never meets rows another one kept."""
+    from domains.evaluation.run_ranges import forget_kept_rows
+
+    forget_kept_rows()
+    yield
+    forget_kept_rows()
