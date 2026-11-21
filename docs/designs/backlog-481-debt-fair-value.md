@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/481 (item 3) · Branch `backlog-481-debt-fair-value` · Version v0.10.22 when merged.
 
-Status: In progress (nov.21.2026).
+Status: Done (nov.21.2026), merged as v0.10.22 in `512545d` (PR #506).
 
 ## Problem
 
