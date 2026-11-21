@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/495 (from the #494 gatekeeper) · Branch `backlog-495-empty-miss` · Version v0.10.26 when merged.
 
-Status: PR open (nov.21.2026).
+Status: Done (v0.10.26, nov.21.2026; PR #518, merge `73027d4`).
 
 ## Problem
 
@@ -33,4 +33,4 @@ None on any answer: no number, field or note changes. A new refusal code, `store
 
 ## Review notes
 
-Explainer, analyst and professor not run: a guard on stored data with no method or number change. The gatekeeper reviews the PR.
+Explainer, analyst and professor not run: a guard on stored data with no method or number change. Gatekeeper GO on PR #518: full suite green; on the nov.21 snapshot no ok miss is NULL or infinite, and `load_pairs` gives 2705 pairs with the same hash on the branch and on `main`. Its non-blocking notes are #519.
