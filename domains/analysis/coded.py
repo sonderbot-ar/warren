@@ -64,6 +64,11 @@ SIMULATION_NOTE_CODES = frozenset(
 # refusal without a code is text only. The app's text catalogue covers this set too.
 SIMULATION_REFUSAL_CODES = frozenset({"wacc_set_with_risk_premium_shock"})
 
+# Every code a refused range read can carry (backlog #495, `ranges.RangeError.code`): a stored
+# past miss marked ok that is empty or not finite means Warren's own store is damaged, not
+# anything the student asked. A refusal without a code is text only.
+RANGE_REFUSAL_CODES = frozenset({"stored_miss_not_finite"})
+
 # Every code a refused run can carry (backlog #376): `math_engine.EngineError.code` and
 # `market.store.MarketDataError.code`, raised on the way from a company and a date to a stored
 # baseline run (`build_inputs`, then `runs.run_baseline`'s valuation). A refusal without a code
