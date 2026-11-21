@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/495 (from the #494 gatekeeper) · Branch `backlog-495-empty-miss` · Version v0.10.26 when merged.
 
-Status: In progress (nov.21.2026).
+Status: PR open (nov.21.2026).
 
 ## Problem
 
