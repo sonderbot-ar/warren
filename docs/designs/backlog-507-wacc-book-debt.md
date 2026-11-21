@@ -14,6 +14,8 @@ The output trace describes the WACC step (`sources.FORMULAS["wacc"]`, `domains/a
 
 **Step 1. The wording.** `FORMULAS["wacc"]` becomes "…, weighted by market equity and book debt". `FORMULAS` is English documentation keyed by code: no run stores the text, no output carries it (the trace carries the code), and the app owns the Spanish words. A test pins the wording (`tests/analysis/test_sources.py`). `sources.py` is inside the reading rules' fingerprint, so `domains/analysis/reading_rules.md` gets a same-version row. No other English text says the debt weight is a market value (searched `domains/` and `webapp/` for "market value", "market weight", "weighted by").
 
+**Step 2. The #515 gatekeeper's two notes** (non-blocking, on the code v0.10.24 just merged): `math_engine.refusal_filings` raises `RuntimeError` instead of a bare `assert` when given filings without a CIK (`python -O` drops asserts, which would let wrong EDGAR links through silently), with its test; the `EngineError` docstring says `cik` is set on every refusal out of the steps, as the code does. Folded in here rather than filed, since both are a line each and touch the same reading-rules row.
+
 Exit: full suite, `ruff check`, `ruff format --check` green; no number changes.
 
 ## Alternatives considered
@@ -22,7 +24,7 @@ Exit: full suite, `ruff check`, `ruff format --check` green; no number changes.
 
 ## Files to change
 
-`domains/analysis/sources.py`, `domains/analysis/reading_rules.md`, `tests/analysis/test_sources.py`, this doc; on merge `docs/versions.md`, `docs/team-sync.md`.
+`domains/analysis/sources.py`, `domains/analysis/math_engine.py`, `domains/analysis/reading_rules.md`, `tests/analysis/test_sources.py`, `tests/analysis/test_refusal_codes.py`, this doc; on merge `docs/versions.md`, `docs/team-sync.md`.
 
 ## Product impact
 

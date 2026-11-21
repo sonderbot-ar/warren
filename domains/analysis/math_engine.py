@@ -164,7 +164,7 @@ class EngineError(ValueError):
     (None until then), and turned into the `filings` param by `build_inputs`, which can look up
     each filing's form and link. An attribute, not a param, so the callers that read `_balance`'s
     or `_operating_nwc`'s params into chart notes see them unchanged. `cik` is the company's,
-    set by `_build_inputs` with a missing line's accessions, so the filings are looked up for the
+    set by `_build_inputs` on every refusal out of its steps, so the filings are looked up for the
     company the run read (backlog #513); internal too."""
 
     def __init__(
@@ -507,7 +507,8 @@ def refusal_filings(conn: sqlite3.Connection, cik: str | None, accessions: list[
 
     if not accessions:
         return []
-    assert cik is not None, "a refusal with filings must carry the run's CIK"
+    if cik is None:  # not an assert: `python -O` would drop it and build wrong links
+        raise RuntimeError("a refusal with filings must carry the run's CIK")
     filings = _Filings(conn, cik)
     return [_filing(filings.get(a)) for a in accessions]
 
