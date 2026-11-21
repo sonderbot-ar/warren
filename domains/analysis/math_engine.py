@@ -35,6 +35,7 @@ from domains.analysis.coded import (
     Coded,
     coded_warnings,
     pass_on,
+    require_code,
 )
 from domains.analysis.dcf import QUARTERS, SEED, YEARS
 from domains.analysis.reading_rules import READING_RULES_VERSION
@@ -175,7 +176,7 @@ class EngineError(ValueError):
         accessions: list[str] | None = None,
     ):
         super().__init__(text)
-        assert code is None or code in ENGINE_REFUSAL_CODES, code
+        require_code(code, ENGINE_REFUSAL_CODES, "engine refusal")
         self.text, self.code, self.params = text, code, dict(params or {})
         self.accessions = accessions
         self.cik: str | None = None

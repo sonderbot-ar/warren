@@ -19,7 +19,7 @@ from datetime import UTC, date, datetime
 import numpy as np
 
 from domains.analysis import financial_math as fm
-from domains.analysis.coded import RANGE_REFUSAL_CODES, Coded
+from domains.analysis.coded import RANGE_REFUSAL_CODES, Coded, require_code
 from domains.analysis.montecarlo import DEFAULT_SAMPLES
 from domains.analysis.runs import code_version
 from domains.evaluation.cases import Case
@@ -49,8 +49,7 @@ class RangeError(ValueError):
 
     def __init__(self, text: str, code: str | None = None, params: dict | None = None):
         super().__init__(text)
-        if code is not None and code not in RANGE_REFUSAL_CODES:
-            raise RuntimeError(f"unknown range refusal code {code!r}")
+        require_code(code, RANGE_REFUSAL_CODES, "range refusal")
         self.text, self.code, self.params = text, code, dict(params or {})
 
     def coded(self) -> Coded | None:
@@ -218,10 +217,13 @@ class ErrorPair:
 
 
 def _finite_miss(row, item: str, value) -> float:
-    """A stored ok miss, refused when it is empty (SQLite keeps a NaN as NULL) or not finite."""
+    """A stored ok miss, refused when it is empty (SQLite keeps a NaN as NULL) or not finite.
+
+    The refusal's `value` param is null when empty and the float's text ("inf", "-inf")
+    otherwise, so the params stay strict JSON (backlog #519)."""
     if value is None or not math.isfinite(value):
         params = {"origin_id": row["origin_id"], "horizon": row["horizon"], "item": item,
-                  "value": value}  # fmt: skip
+                  "value": None if value is None else str(value)}  # fmt: skip
         raise RangeError(
             f"stored {item} miss of {row['origin_id']} at horizon {row['horizon']} is marked ok "
             f"but is {'empty' if value is None else value}: the stored misses are damaged",

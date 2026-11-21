@@ -119,7 +119,7 @@ def test_a_plain_refusal_is_text_only(cls):
 
 @pytest.mark.parametrize("cls", [EngineError, MarketDataError])
 def test_an_uncatalogued_code_is_refused(cls):
-    with pytest.raises(AssertionError):
+    with pytest.raises(RuntimeError, match="unknown engine refusal code"):  # backlog #519
         cls("text", code="not_a_code")
 
 
