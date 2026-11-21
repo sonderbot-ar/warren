@@ -97,3 +97,36 @@ def test_vendored_htmx_is_the_pinned_release():
         hashlib.sha256(data).hexdigest()
         == "d6fdc75f204e6bdefa99b69bf1e6d4ac69b8a364f77929f45c13476b4000f717"
     )
+
+
+# sha256 of fonts/complete/woff2/<file> in @ibm/plex-sans-1.1.0.tgz and @ibm/plex-mono-1.1.0.tgz
+# (npm sha512 integrity of both tarballs verified at download, nov.19.2026)
+PLEX_FACES = {
+    "IBMPlexSans-Regular.woff2": "ba711a3085ff9f27440b6b9c4550cfc47c97bf36591d5da958b975bb3add8c1a",
+    "IBMPlexSans-Medium.woff2": "5660f8a658f8bb50dbc005232f885eadffd2bc1c235c4f6fbb63469d1f9cde6d",
+    "IBMPlexSans-SemiBold.woff2": (
+        "f78048030eab62e860efa39a0df79e2e5581bf122eb95b9bc42c0b8a4988d205"
+    ),
+    "IBMPlexMono-Regular.woff2": "49ce58b41a0e1cb921c0f58d9a5b8b96a2cc21437c7066f3ba4f24873076d131",
+    "IBMPlexMono-Medium.woff2": "8c2c290cbd998fa1f647e4572aca6ebbd72589551b0f3f9f8bb8628fbb8219d5",
+}
+
+
+def test_vendored_plex_faces_are_the_pinned_release_with_their_licence():
+    import hashlib
+
+    fonts = WEBAPP / "static" / "vendor" / "fonts"
+    assert sorted(p.name for p in fonts.glob("*.woff2")) == sorted(PLEX_FACES)
+    for name, digest in PLEX_FACES.items():
+        assert hashlib.sha256((fonts / name).read_bytes()).hexdigest() == digest, name
+    licence = (fonts / "IBM-Plex-LICENSE.txt").read_text(encoding="utf-8")
+    assert "SIL Open Font License, Version 1.1" in licence
+
+
+def test_every_font_face_points_at_a_vendored_file_and_nothing_else():
+    tokens = (WEBAPP / "static" / "tokens.css").read_text(encoding="utf-8")
+    urls = re.findall(r'url\("([^"]+)"\)', tokens)
+    assert sorted(u.rsplit("/", 1)[-1] for u in urls) == sorted(PLEX_FACES)
+    assert all(u.startswith("/static/vendor/fonts/") for u in urls)
+    assert tokens.count("@font-face") == len(PLEX_FACES)
+    assert "font-display: swap;" in tokens

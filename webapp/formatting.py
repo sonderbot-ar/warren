@@ -171,3 +171,25 @@ def spreadsheet_formula(
         else:
             parts.append(format(_decimal(arg), "f").replace(".", mark))
     return f"={name}({separator.join(parts)})"
+
+
+def count(value: int, region: Region = DEFAULT_REGION) -> str:
+    """A whole count with the region's grouping: 2,033 in Mexico, 2.033 in Argentina."""
+    return format_decimal(int(value), "#,##0", locale=region.babel)
+
+
+def format_month(d: date, region: Region = DEFAULT_REGION) -> str:
+    """A month's short name as the principles write it: "jul" in Spanish, "Jul" in English."""
+    return _babel_date(d, "MMM", locale=region.babel).replace(".", "")
+
+
+def spreadsheet_number(value: float, decimals: int, region: Region = DEFAULT_REGION) -> str:
+    """A number as a student types it into a cell: no grouping, the region's decimal mark."""
+    text = format(_decimal(value).quantize(Decimal(1).scaleb(-decimals), ROUND_HALF_UP), "f")
+    return text.replace("-", MINUS).replace(".", _spreadsheet_decimal_mark(region))
+
+
+def spreadsheet_product(base: float, rate: float, region: Region = DEFAULT_REGION) -> str:
+    """ "=base*(1+rate)" as typed in a spreadsheet: the base in millions, the rate as a fraction
+    with six decimals, so the cell gives the same rounded figure the screen shows."""
+    return f"={spreadsheet_number(base / 1e6, 0, region)}*(1+{spreadsheet_number(rate, 6, region)})"

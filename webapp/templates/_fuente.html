@@ -1,0 +1,22 @@
+{# The Fuente tab for a figure of the answer: what it is, its value, how it is made and the
+   filings behind it (design principle 2; mockup state "Fuente"). Every value is the engine's. #}
+{% set f = panel.figure.fuente %}
+<p class="fuente-lead">{{ f.lead }}</p>
+<p class="fuente-value"><span class="fuente-big">{{ f.value }}</span>
+  {% if f.kind in ("forecast", "range", "history") %}<span class="fuente-unit">{{ t("answer.unit_millions") }}</span>{% endif %}</p>
+<p class="fuente-small"><b>{{ t("answer.fuente.how") }}</b> {{ f.how }}</p>
+<p class="fuente-small">{{ f.run_line }}</p>
+{% if f["items"] %}
+<ul class="src-list">
+  {% for item in f["items"] %}
+  <li>
+    <span><span class="cell">{{ item.cell }}</span>{{ item.label }}</span>
+    {% if item.meta %}<span class="src-meta">{{ item.meta }}</span>{% endif %}
+    {% for form, url in item.links %}
+    <a href="{{ url }}" rel="noopener" target="_blank">{{ t("answer.fuente.open_filing", form=form) }}</a>
+    {% endfor %}
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+<p class="fuente-small">{{ f.foot }}</p>

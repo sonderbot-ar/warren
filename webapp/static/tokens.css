@@ -1,9 +1,46 @@
 /* Warren's design tokens: the only place a colour, a size or a typeface is set (design principles,
    "How Warren looks"). Values from the visual direction the owner chose on nov.17.2026, B "Hoja"
    (docs/product/mockups/f2-direction-b-hoja.html): IBM Plex Sans for text, IBM Plex Mono for
-   figures, teal on cool grey. The faces are SIL OFL and are vendored under static/ with the first
-   screen (F2 Step 4); until then the stacks fall back to the system faces. app.css and every
+   figures, teal on cool grey. The faces are SIL OFL 1.1 and are vendored under static/vendor/fonts/
+   (npm @ibm/plex-sans and @ibm/plex-mono 1.1.0, complete woff2, licence beside them); a face
+   that fails to load falls back to the system stack. app.css and every
    screen use only these variables; a test refuses a raw colour anywhere else. */
+/* The vendored faces: only the weights the screens use (400, 500, 600 text; 400, 500 figures). */
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/static/vendor/fonts/IBMPlexSans-Regular.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/static/vendor/fonts/IBMPlexSans-Medium.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/static/vendor/fonts/IBMPlexSans-SemiBold.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/static/vendor/fonts/IBMPlexMono-Regular.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/static/vendor/fonts/IBMPlexMono-Medium.woff2") format("woff2");
+}
 :root {
   color-scheme: light;
   /* type */

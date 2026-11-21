@@ -8,6 +8,7 @@ The owner's comments on what students see, kept so the owner never says the same
 
 | Item | Sent | Answer | Date |
 |---|---|---|---|
+| The built first screen (F2 Step 4b, PR #510: the answer, the cells behind it, the question in front, the run on demand and *No se pudo*; studio page); recommended Approve | nov.21.2026 | waiting | |
 | Charts for every input behind an answer (Q5 mockup, cards B and C; `docs/designs/f2-input-charts.md`; 5 years of history by default) | nov.19.2026 | Approved (card), 5 years by default | nov.19.2026 |
 | The first screen's mockup (F2 Step 4a): seven states of brief Q5 on Apple in *Hoja* (`docs/product/mockups/f2-screen1-q5.html`, studio page); recommended Approve; a third option renames "fecha de corte" | nov.18.2026 | Changes needed (in words): "make it dark mode" and "use 'fecha de corte' instead"; resent after the changes | nov.18.2026 |
 | The first screen's mockup, resent with the owner's changes (dark by default, "Fecha de corte" in full) | nov.18.2026 | Approved (card) | nov.18.2026 |

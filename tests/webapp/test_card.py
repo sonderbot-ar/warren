@@ -259,7 +259,7 @@ def test_the_corte_is_the_last_ended_day_unless_the_question_sets_one():
     question = "¿Cuánto valía Apple por acción a fines de 2024?"
     plain = card_for(Reading(kind="estimacion", companies=("AAPL",)), "x", TODAY, MX)
     assert plain.notes[0].code == "corte_default"
-    assert plain.notes[0].params == {"date": "8 nov 2026"}
+    assert plain.notes[0].params == {"date": "8 nov 2026", "today": "9 nov 2026"}
     dated = Reading(
         kind="estimacion", companies=("AAPL",), as_of="2024-12-31", period="a fines de 2024"
     )
@@ -322,7 +322,7 @@ PARAMS = {
     "card.ask.value_unreadable": {"text", "input"},
     "card.ask.driver_periods": {"input"},
     "card.ask.method_unknown": set(),
-    "card.note.corte_default": {"date"},
+    "card.note.corte_default": {"date", "today"},
     "card.note.corte_from_question": {"date"},
 }
 
