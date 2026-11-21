@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/507 (from the #506 professor review) · Branch `backlog-507-wacc-book-debt` · Version v0.10.25 when merged.
 
-Status: In progress (nov.21.2026).
+Status: In progress (nov.21.2026; PR open).
 
 ## Problem
 
