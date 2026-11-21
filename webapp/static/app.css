@@ -1249,8 +1249,11 @@ main.solo {
 /* "Ver reporte": the filings the sentence names (backlog 509), one per line, each a full target */
 .filings {
   list-style: none;
-  margin: 0;
+  margin: calc(-1 * var(--space-2)) 0 0; /* close to the sentence that leads into it */
   padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
 
 .filings a {

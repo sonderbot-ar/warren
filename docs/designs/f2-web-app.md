@@ -297,6 +297,16 @@ Part 3 is split in two, so each part stays one reviewable step: **3a** (this one
 - **Gatekeeper (PR #510, at 7073395): GO**, on condition that CI is green at merge. Ruff and 860 webapp tests pass; no engine file changed; the only write is behind a student's POST; every refusal code has Spanish in both catalogues; `run_baseline` checked on a scratch copy for all 8 companies from 2019 to 2026 with no uncoded error. Ideas filed as #511 (an uncoded error leaves Calculando spinning; fragment requests get a full 404 page; "tu pregunta" with no question).
 - **Owner sign-off:** sent nov.21.2026 (card and email, studio page).
 
+### Step 4b follow-ups, while the owner's card waits (nov.21.2026, branch `f2-screen1-followups`, stacked on PR #510)
+
+Built on a branch of its own so the screen the owner is judging does not change under the card; its PR opens against `main` once #510 merges.
+
+- **"Ver reporte" (#509, v0.10.23):** *No se pudo* lists each filing in a refusal's `filings` param, in the engine's order, as "Ver el 10-Q presentado el 1 ago 2025" (the answer's *Fuente* says "Ver el {form}"), with "(se abre en otra pestaña)" for screen readers; a derived fourth quarter's sentence now ends "…con estos reportes:" and leads into them. A filing with no `https://` link, form or readable date is left out, so a link never leads nowhere. Amounts on the two balance-sheet sentences stay out until their Spanish is reviewed.
+- **#511, the gatekeeper's three:** an uncoded error during *Calcular* is logged and lands on the generic *No se pudo* (before: a 500 that left *Calculando* spinning); a `/respuesta/fragmentos/*` request with no stored run gets an empty 404, and the script opens the full address (the years switch now does too, as the panel already did); with no question typed, `as_of_too_early` says "esta fecha de corte" and the chips lead with "Estás viendo:" instead of "Leí:".
+- **Tests:** 18 new in `tests/webapp/test_refusal.py` (links in order, bad filings left out, codes outside `FILING_REFUSAL_CODES` never link, both catalogues, no "tu pregunta" by address, the uncoded error logged and shown generic, fragments with no run). 873 webapp tests pass, browser tests included.
+- **Design critic: READY FOR OWNER**, no blockers; polish taken: even spacing between links, the date never split from "el", the new tab announced, the list closer to its lead-in.
+- **Student reviewer**, two blockers. Taken: the link says which form it opens and that it opens a new tab. Not taken here, filed on #511: the `zero_divisor` sentence ("los reportes muestran ingresos igual a cero") reads as a fact about the company when it may be Warren's reading; it is the approved wording on PR #510 and fires on no real run today, so it is reworded after the owner's answer rather than under the card.
+
 ## Alternatives considered
 
 - **Wait for M10 before choosing a stack.** The Build Plan's first order. The owner chose (nov.04.2026) to compare stacks now, since the stack does not depend on the engine's outputs; screens still wait.

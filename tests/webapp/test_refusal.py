@@ -489,7 +489,7 @@ FILING_K = {
 def test_a_refusal_that_names_a_filing_links_it_as_ver_reporte():
     v = view("zero_divisor", {**SAMPLES["zero_divisor"][0], "filings": [FILING_Q]})
     assert [f.url for f in v.filings] == [FILING_Q["url"]]
-    assert v.filings[0].label.replace(NBSP, " ") == "Ver reporte: 10-Q presentado el 2 ago 2017"
+    assert v.filings[0].label.replace(NBSP, " ") == "Ver el 10-Q presentado el 2 ago 2017"
     assert v.extra == []  # a quarter Warren read: the sentence alone, then its link
 
 
@@ -564,3 +564,15 @@ def test_a_fragment_with_no_stored_run_gets_no_page(client, engine):
     for path in ("/respuesta/fragmentos/panel", "/respuesta/fragmentos/celdas"):
         r = client.get(f"{path}?{q}")
         assert r.status_code == 404 and r.text == ""  # the script opens the full address
+
+
+def test_a_filing_link_keeps_its_date_on_one_line_and_says_it_opens_a_new_tab(engine):
+    def refuse(ticker, corte, today):
+        raise EngineError("x", code="zero_divisor", params={**SAMPLES["zero_divisor"][0],
+                          "filings": [FILING_Q]})  # fmt: skip
+
+    c = TestClient(create_app(clock=lambda: NOW, bundle_loader=engine.load, runner=refuse),
+                   follow_redirects=False)  # fmt: skip
+    html = c.get(post(c).headers["HX-Redirect"]).text
+    assert "presentado el 2 ago 2017" in html
+    assert ES["refusal.new_tab"] in html and 'target="_blank"' in html
