@@ -171,13 +171,17 @@ def capture(out: Path, db_path: Path | None = None, only: str | None = None) -> 
                     if address.startswith("calc"):  # Calcular posts, then htmx follows
                         how, _, address = address.partition(":")
                         page.goto(base + address)
-                        # the same app keeps its refusal, so later shots land on it directly
-                        if page.locator('[role="alert"]').count() == 0:
-                            page.get_by_role("button", name="Calcular").click()
-                        page.wait_for_selector('[role="alert"], .answer:not([hx-post])')
+                        # the same app keeps its refusal, so later shots land on it directly;
+                        # with no data (CI's empty database) there is nothing to click: shoot
+                        # whatever the page shows
+                        button = page.get_by_role("button", name="Calcular")
+                        if page.locator('[role="alert"]').count() == 0 and button.count():
+                            button.click()
+                            page.wait_for_selector('[role="alert"], .answer:not([hx-post])')
                         page.wait_for_load_state("networkidle")
-                        if how == "calc+why":
-                            page.locator("details.why summary").click()
+                        why = page.locator("details.why summary")
+                        if how == "calc+why" and why.count():
+                            why.click()
                         page.screenshot(path=path, full_page=True)
                         saved.append(path)
                         continue
