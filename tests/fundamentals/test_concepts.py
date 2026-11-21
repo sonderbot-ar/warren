@@ -148,7 +148,7 @@ def test_shipped_maps_load_together():
     names = {r.canonical_name for r in load_concept_map()}
     assert {"revenue", "net_income", "discontinued_operations"} <= names
     assert "net_income" not in {r.canonical_name for r in load_concept_map(CONCEPT_MAP_PATH)}
-    assert reported_only_names() == {"net_income", "discontinued_operations"}
+    assert reported_only_names() == {"net_income", "discontinued_operations", "debt_fair_value"}
 
 
 def test_the_fingerprint_is_the_valuation_map_alone():

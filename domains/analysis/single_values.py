@@ -44,6 +44,10 @@ MISSING_REASONS = (
     # the cost of debt (D8)
     "no_interest_reported",  # the year's filings report no interest expense or interest paid
     "average_debt_not_positive",  # the year's average debt is zero: nothing to divide by
+    # diluted shares by quarter: the fourth quarter has no count of its own (the 10-K files the
+    # year's weighted count instead); params fiscal_year, annual_period (FY2024, the annual
+    # series' point, or None when that year's count is not filed either) (backlog #481)
+    "no_fourth_quarter_count",
 )
 # Notes a balance point can carry: the balance step's own notes on that date (their codes and
 # params are the run notes' own, `coded.RUN_NOTE_CODES`)
@@ -77,7 +81,16 @@ SERIES_NOTES = (
     "book_value",  # debt, cash and minority interest are the balance sheet's book values
     "overlapping_windows",  # beta: each month's 104 weeks share all but about 4 with the last
     "expanding_window",  # ERP: one more year each point, from the same first year
+    # the debt card's second series: the filing's own fair value of its long-term debt, params
+    # known_on, tag, left_out_dates (figures filed for a date that is not a balance date, so not
+    # the total); or, when Warren reads none in the window, fair_value_not_read (#481 item 3)
+    "fair_value_as_filed",
+    "fair_value_not_read",
 )
+# The filed fair value of long-term debt (concept_map_reported.csv): context beside book debt,
+# never read by a valuation (backlog #481 item 3)
+FAIR_VALUE_ITEM = "debt_fair_value"
+FAIR_VALUE_TAG = "us-gaap:LongTermDebtFairValue"
 # What each cell's series measure is called
 MEASURES = {
     "risk_free": "risk_free_yield",
@@ -195,6 +208,7 @@ def single_cell(singles: Singles, name: str, cell_rows: list):
         "cost_of_debt": lambda: [_cost_of_debt(singles)],
         "shares": lambda: _shares(singles),
         **{n: (lambda n=n: [_balance_series(singles, n)]) for n in BALANCE_CELLS},
+        "debt": lambda: [_balance_series(singles, "debt"), _debt_fair_value(singles)],
     }
     if name not in builders:
         return None
@@ -403,7 +417,7 @@ def _balances(singles: Singles) -> list:
     from domains.analysis.math_engine import EngineError, EngineResult, _balance
 
     history = singles.history
-    start = singles.as_of - timedelta(days=round(365.25 * singles.years))
+    start = _window_start(singles)
     dates = [
         f.period_end
         for f in history.instants.get("current_assets", [])
@@ -474,6 +488,72 @@ def _balance_series(singles: Singles, name: str):
         "date as known on the run's date (a later restatement replaces the first filing)",
     )
     return Series(MEASURES[name], "quarter", "latest", True, None, points, [note])
+
+
+def _window_start(singles: Singles) -> date:
+    return singles.as_of - timedelta(days=round(365.25 * singles.years))
+
+
+def _debt_fair_value(singles: Singles):
+    """The debt card's context series (backlog #481 item 3): the fair value of long-term debt
+    each filing names (`LongTermDebtFairValue`), on its own balance dates in the book series'
+    window, as known on the run's date (a later filing's restatement replaces the first figure).
+    Never used by the valuation: `primary` and every point's `used` are false. When Warren reads
+    no figure in the window the series is empty and says so (`fair_value_not_read`), never that
+    the company does not disclose one."""
+    from domains.analysis.inputs import Part, Point, Series
+    from domains.fundamentals.facts import get_facts
+
+    start = _window_start(singles)
+    # only on the book series' balance dates: a figure filed for another date is not the
+    # company's total (Coca-Cola's 9,345M at 2010-10-02, the day the CCE deal closed, the debt it
+    # took on, beside its 2010-10-01 quarter end), so it is left out and its date listed
+    balance_dates = {day for day, _ in _balances(singles)}
+    newest = {}  # one figure per balance date: the newest filing's, as `latest` reads it
+    left_out = set()
+    for f in get_facts(singles.conn, singles.run["cik"], [FAIR_VALUE_ITEM], singles.as_of):
+        if f.period_start is not None or not start < f.period_end < singles.as_of:
+            continue
+        if f.period_end not in balance_dates:
+            left_out.add(f.period_end.isoformat())
+            continue
+        kept = newest.get(f.period_end)
+        if kept is None or (f.filed_at, f.accession_no or "") > (
+            kept.filed_at,
+            kept.accession_no or "",
+        ):
+            newest[f.period_end] = f
+    points = []
+    for day in sorted(newest):
+        f = newest[day]
+        label = day.isoformat()
+        part = Part(FAIR_VALUE_ITEM, f.value, label, _filing_of(singles, f.accession_no))
+        points.append(Point(label, None, None, day, f.value, False, [part]))
+    params = {
+        "known_on": singles.as_of.isoformat(),
+        "tag": FAIR_VALUE_TAG,
+        "left_out_dates": sorted(left_out),
+    }
+    if points:
+        note = Coded(
+            "fair_value_as_filed",
+            params,
+            "the filing's own estimate of what its long-term debt (with the part due within a "
+            "year) would be worth on that date, which moves when interest rates or the "
+            "company's credit change; textbooks prefer it to book value, and the valuation uses "
+            "book value as a proxy, which is fine while the two are close. It leaves out "
+            "short-term borrowings and commercial paper, and often leases, so it is not the same "
+            "debt as the book line: compare how the two move, not their gap. Many filings round it "
+            "(to $0.1B), so a small move between dates means little",
+        )
+    else:
+        note = Coded(
+            "fair_value_not_read",
+            params,
+            "Warren reads no fair value of long-term debt for this company in the window; the "
+            "filing may give it in its text or by instrument, which Warren does not read",
+        )
+    return Series("debt_fair_value", "quarter", "latest", False, None, points, [note])
 
 
 def _cost_of_debt(singles: Singles):
@@ -631,8 +711,10 @@ def _below_risk_free(singles: Singles, kd: float, used: bool, period_end: date |
 
 
 def _shares(singles: Singles):
-    """Every cover-page count and every quarter's diluted count in the window, on the run's
-    share basis (split-adjusted to the run's price date with the engine's basis rule)."""
+    """Every cover-page count, every quarter's diluted count and every fiscal year's diluted count
+    in the window, on the run's share basis (split-adjusted to the run's price date with the
+    engine's basis rule). The engine's fallback reads both diluted frequencies, newest first, so
+    the count it used is in one of the two diluted series (backlog #481)."""
     from domains.analysis.inputs import Part, Point, Series, _label
     from domains.market.prices import split_factor
 
@@ -660,6 +742,8 @@ def _shares(singles: Singles):
             and counted["item"] == fact.canonical_name
             and counted["accession_no"] == fact.accession_no
             and counted["period_end"] == fact.period_end.isoformat()
+            # a 10-K may file a fourth quarter's count beside the year's, on the same date
+            and counted.get("fiscal_period", fact.fiscal_period) == fact.fiscal_period
         )
         notes = (
             [
@@ -681,28 +765,85 @@ def _shares(singles: Singles):
         year, fp = frequency_basis
         return Point(label, year, fp, fact.period_end, fact.value * factor, used, [part], notes)
 
+    def diluted_facts(facts):
+        return sorted(
+            (f for f in facts if start < f.period_end and f.value > 0),
+            key=lambda f: f.period_end,
+        )
+
     cover = [
         point(f, f.period_end.isoformat(), (None, None))
         for f in history.instants.get("shares_outstanding", [])
         if start < f.period_end <= singles.as_of and f.value > 0
     ]
-    diluted_facts = sorted(
-        (
-            f
-            for (n, _y, _p), f in history.quarterly.items()
-            if n == "diluted_shares" and start < f.period_end and f.value > 0
-        ),
-        key=lambda f: f.period_end,
+    quarterly = diluted_facts(
+        f for (n, _y, _p), f in history.quarterly.items() if n == "diluted_shares"
     )
+    annual = diluted_facts(f for (n, _y), f in history.annual.items() if n == "diluted_shares")
     diluted = [
         point(f, _label(f.fiscal_year, f.fiscal_period), (f.fiscal_year, f.fiscal_period))
-        for f in diluted_facts
+        for f in quarterly
     ]
+    yearly = [point(f, _label(f.fiscal_year, "FY"), (f.fiscal_year, "FY")) for f in annual]
+    diluted = sorted(
+        diluted + _fourth_quarter_gaps(quarterly, annual),
+        key=lambda p: (p.fiscal_year, _quarter_number(p.fiscal_period)),
+    )
     cover_used = bool(counted and counted["item"] == "shares_outstanding")
     return [
         Series("shares_outstanding", "date", "latest", cover_used, None, cover),
-        Series("diluted_shares", "quarter", "latest", not cover_used, None, diluted),
+        Series("diluted_shares", "quarter", "latest", any(p.used for p in diluted), None, diluted),
+        Series("diluted_shares", "year", "latest", any(p.used for p in yearly), None, yearly),
     ]
+
+
+def _quarter_number(fiscal_period: str) -> int:
+    """1 to 4 for `Q1` to `Q4`, so the quarterly series sorts on the quarter's number, not on its
+    label's spelling; any other label is refused rather than placed by a string compare
+    (gatekeeper, #502)."""
+    if fiscal_period not in ("Q1", "Q2", "Q3", "Q4"):
+        raise ValueError(f"not a fiscal quarter: {fiscal_period!r}")
+    return int(fiscal_period[1])
+
+
+def _fourth_quarter_gaps(quarterly: list, annual: list) -> list:
+    """A point with no value for each fiscal year whose fourth quarter has ended in the filings
+    (the year's own count is read, or a later year's) but has no quarterly count: a 10-K files the
+    year's weighted count, not the fourth quarter's, and Warren never derives one. The year minus
+    three quarters is not exact for diluted counts: each period is tested for anti-dilution on its
+    own and a loss quarter counts no potential shares (ASC 260-10-45-20, IAS 33.41-44), and
+    quarters can differ in length. Only years with a quarterly count in the window get a gap, so
+    the series never opens on one (analyst)."""
+    from domains.analysis.inputs import Point
+
+    have = {f.fiscal_year for f in quarterly if f.fiscal_period != "Q4"}
+    q4 = {f.fiscal_year for f in quarterly if f.fiscal_period == "Q4"}
+    by_year = {f.fiscal_year: f for f in annual}
+    latest = max((f.fiscal_year for f in (*quarterly, *annual)), default=None)
+    gaps = []
+    for year in sorted(have - q4):
+        year_count = by_year.get(year)
+        if year_count is None and year >= latest:
+            continue  # the year may still be open: its fourth quarter is not due yet
+        annual_period = f"FY{year}" if year_count is not None else None
+        why = (
+            f"FY{year}'s 10-K files the year's weighted diluted count ({annual_period}, in the "
+            "yearly series), not the fourth quarter's; Warren does not derive one"
+            if annual_period
+            # the 10-K may be filed with a count Warren's concept map does not read (Exxon's FY2009
+            # and FY2010), so the text never says the company did not file it (analyst)
+            else f"FY{year}Q4 has no diluted count of its own, and Warren read no count for "
+            f"FY{year} from the filings"
+        )
+        missing = Coded(
+            NOT_COMPUTABLE,
+            {"reason": "no_fourth_quarter_count", "fiscal_year": year,
+             "annual_period": annual_period},
+            why,
+        )  # fmt: skip
+        end = year_count.period_end if year_count is not None else None
+        gaps.append(Point(f"FY{year}Q4", year, "Q4", end, None, False, missing=missing))
+    return gaps
 
 
 # -- cells computed from other cells -----------------------------------------------------------

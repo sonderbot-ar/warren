@@ -172,8 +172,8 @@ def test_shares_are_split_adjusted_to_the_run_price_date(make_company):
     )
     run_id = run_baseline(conn, "TST", AS_OF, choices=CHOICES, today=AS_OF)
     answer = inputs_behind(conn, run_id, VPS)
-    cover, diluted = _cell(answer, "shares").history
-    assert cover.primary and not diluted.primary
+    cover, diluted, yearly = _cell(answer, "shares").history
+    assert cover.primary and not diluted.primary and not yearly.primary
     before = [p for p in cover.points if p.period_end < date(2019, 6, 1)]
     after = [p for p in cover.points if p.period_end >= date(2019, 6, 1)]
     assert before and after
@@ -326,3 +326,249 @@ def test_the_used_years_note_agrees_with_the_what_if_floor(run):
     assert any(n.code == "run_read_differently" for n in used.notes)
     child = revalue(conn, run_id, [Change("debt", delta=100.0, use="buyback")])
     assert {c.name: c.how for c in child.changes}["cost_of_debt"] == "floored_at_risk_free"
+
+
+# -- diluted shares by fiscal year, and the fourth quarters (backlog #481 item 4) ------------------
+
+DILUTED = "WeightedAverageNumberOfDilutedSharesOutstanding"
+NO_COVER = date(2020, 3, 15)  # after the FY2019 10-K (2020-02-15), before the Q1 10-Q
+
+
+def _without_cover(conn):
+    conn.execute(
+        "DELETE FROM financial_facts WHERE xbrl_concept LIKE '%EntityCommonStockSharesOutstanding'"
+    )
+
+
+def test_diluted_counts_come_by_quarter_and_by_year_with_each_fourth_quarter_coded(run):
+    conn, run_id = run
+    cover, diluted, yearly = _cell(inputs_behind(conn, run_id, VPS), "shares").history
+    assert (diluted.measure, diluted.frequency) == ("diluted_shares", "quarter")
+    assert (yearly.measure, yearly.frequency) == ("diluted_shares", "year")
+    assert cover.primary and not diluted.primary and not yearly.primary
+    assert [p.period for p in yearly.points] == [f"FY{y}" for y in range(2015, 2020)]
+    for p in yearly.points:
+        assert p.value == 100 and p.fiscal_period == "FY" and not p.used
+        assert p.period_end == date(p.fiscal_year, 12, 31)
+        assert p.parts[0].filing["form"] == "10-K"
+    gaps = [p for p in diluted.points if p.missing is not None]
+    assert [p.period for p in gaps] == [f"FY{y}Q4" for y in range(2015, 2020)]
+    for p in gaps:
+        assert p.value is None and not p.used and p.fiscal_period == "Q4"
+        assert p.missing.code == NOT_COMPUTABLE
+        assert p.missing.params == {
+            "reason": "no_fourth_quarter_count",
+            "fiscal_year": p.fiscal_year,
+            "annual_period": f"FY{p.fiscal_year}",
+        }
+        assert p.period_end == date(p.fiscal_year, 12, 31)
+    # every other quarter has its count, in fiscal order, ending at the newest 10-Q
+    filed = [p for p in diluted.points if p.missing is None]
+    assert all(p.value == 100 and p.fiscal_period in ("Q1", "Q2", "Q3") for p in filed)
+    assert diluted.points[-1].period == "FY2020Q1"
+    assert diluted.points == sorted(diluted.points, key=lambda p: (p.fiscal_year, p.period[-2:]))
+
+
+def test_a_year_with_no_quarter_in_the_window_opens_no_gap():
+    from types import SimpleNamespace as Fact
+
+    from domains.analysis.single_values import _fourth_quarter_gaps
+
+    def fact(year, period):
+        return Fact(fiscal_year=year, fiscal_period=period, period_end=date(year, 12, 31))
+
+    # the window holds FY2021's count but none of its quarters (they end before the window), then
+    # FY2022 in full and FY2023 open; Exxon-like FY2022 count missing in a second case
+    quarterly = [fact(2022, q) for q in ("Q1", "Q2", "Q3")] + [fact(2023, "Q1")]
+    gaps = _fourth_quarter_gaps(quarterly, [fact(2021, "FY"), fact(2022, "FY")])
+    assert [(g.period, g.missing.params["annual_period"]) for g in gaps] == [("FY2022Q4", "FY2022")]
+    (gap,) = _fourth_quarter_gaps(quarterly, [fact(2021, "FY")])
+    assert gap.period == "FY2022Q4" and gap.missing.params["annual_period"] is None
+    assert gap.period_end is None and "read no count" in gap.missing.text
+
+
+def test_the_fallback_on_the_years_count_is_the_used_point_of_the_yearly_series(make_company):
+    conn = make_company(None)
+    _without_cover(conn)
+    run_id = run_baseline(conn, "TST", NO_COVER, choices=CHOICES, today=AS_OF)
+    cell = _cell(inputs_behind(conn, run_id, VPS), "shares")
+    cover, diluted, yearly = cell.history
+    assert not cover.points and not cover.primary
+    assert not diluted.primary and not any(p.used for p in diluted.points)
+    assert yearly.primary
+    (used,) = [p for p in yearly.points if p.used]
+    assert used.period == "FY2019" and used.value == pytest.approx(cell.rows[0].value)
+    # the year has ended, but its 10-K files no fourth-quarter count
+    (q4,) = [p for p in diluted.points if p.period == "FY2019Q4"]
+    assert q4.missing.params["annual_period"] == "FY2019"
+
+
+def test_a_fourth_quarter_count_filed_beside_the_year_is_its_own_point(make_company):
+    def edit(tag, row):
+        if tag == DILUTED and row["form"] == "10-K" and row["end"] == f"{row['fy']}-12-31":
+            q4 = {**row, "start": f"{row['fy']}-10-01", "val": 99}
+            return [(tag, row), (tag, q4)]
+        return row
+
+    conn = make_company(edit)
+    _without_cover(conn)
+    run_id = run_baseline(conn, "TST", NO_COVER, choices=CHOICES, today=AS_OF)
+    cell = _cell(inputs_behind(conn, run_id, VPS), "shares")
+    _cover, diluted, yearly = cell.history
+    # FY2015's 10-K is older than the fixture's filings, so only its fourth quarter stays a gap
+    assert [p.period for p in diluted.points if p.missing] == ["FY2015Q4"]
+    q4s = {p.period: p.value for p in diluted.points if p.fiscal_period == "Q4" and not p.missing}
+    assert q4s == {f"FY{y}Q4": 99 for y in range(2016, 2020)}
+    # one used point across the two series, though the year and its fourth quarter share the
+    # filing and the date
+    used = [p for s in (diluted, yearly) for p in s.points if p.used]
+    assert len(used) == 1 and used[0].value == pytest.approx(cell.rows[0].value)
+    # the engine takes the quarter's count on a tie of dates (its quarterly counts come first)
+    assert used[0].period == "FY2019Q4" and diluted.primary and not yearly.primary
+    assert diluted.primary != yearly.primary
+
+
+def test_an_open_year_without_its_count_has_no_fourth_quarter_gap(run):
+    conn, run_id = run
+    _cover, diluted, _yearly = _cell(inputs_behind(conn, run_id, VPS), "shares").history
+    assert "FY2020Q4" not in {p.period for p in diluted.points}
+
+
+# -- the diluted series' order and a year with no annual count (backlog #502) --------------------
+
+
+def test_the_quarterly_series_sorts_on_the_quarters_number():
+    from domains.analysis.single_values import _quarter_number
+
+    assert [_quarter_number(p) for p in ("Q1", "Q2", "Q3", "Q4")] == [1, 2, 3, 4]
+    # a label that is not a fiscal quarter is refused, never placed by its spelling
+    for label in ("FY", "Q5", "q1", "H1", ""):
+        with pytest.raises(ValueError, match="not a fiscal quarter"):
+            _quarter_number(label)
+
+
+def test_a_year_whose_10k_count_is_not_read_gets_a_gap_without_a_year(make_company):
+    """Exxon's FY2009 and FY2010 on real data: a filed 10-K whose diluted count no mapped tag
+    reads. End to end on Test Corp with FY2017's annual count dropped from every filing."""
+
+    def edit(tag, row):
+        year_long = row.get("start") == "2017-01-01" and row["end"] == "2017-12-31"
+        return None if tag == DILUTED and year_long else row
+
+    conn = make_company(edit)
+    run_id = run_baseline(conn, "TST", NO_COVER, choices=CHOICES, today=AS_OF)
+    _cover, diluted, yearly = _cell(inputs_behind(conn, run_id, VPS), "shares").history
+    assert "FY2017" not in {p.period for p in yearly.points}
+    assert {"FY2016", "FY2018", "FY2019"} <= {p.period for p in yearly.points}
+    (gap,) = [p for p in diluted.points if p.period == "FY2017Q4"]
+    assert gap.value is None and not gap.used and gap.period_end is None
+    assert gap.missing.code == NOT_COMPUTABLE
+    assert gap.missing.params == {
+        "reason": "no_fourth_quarter_count",
+        "fiscal_year": 2017,
+        "annual_period": None,
+    }
+    assert "read no count for FY2017" in gap.missing.text
+    assert "did not file" not in gap.missing.text
+    # the neighbouring years keep their own year's count
+    for year in (2016, 2018, 2019):
+        (q4,) = [p for p in diluted.points if p.period == f"FY{year}Q4"]
+        assert q4.missing.params["annual_period"] == f"FY{year}"
+    # FY2017's three filed quarters stay in place, in fiscal order around the gap
+    periods = [p.period for p in diluted.points]
+    i = periods.index("FY2017Q4")
+    assert periods[i - 3 : i + 2] == ["FY2017Q1", "FY2017Q2", "FY2017Q3", "FY2017Q4", "FY2018Q1"]
+
+
+# -- the fair value of long-term debt beside the book debt (backlog #481 item 3) ---------------
+
+
+def _fair_value(value=190, extra=()):
+    """An edit filing `LongTermDebtFairValue` beside each non-current debt row, plus `extra`
+    rows: (end, value, accn, filed)."""
+
+    def edit(tag, row):
+        if tag != "LongTermDebtNoncurrent":
+            return row
+        pairs = [(tag, row), ("LongTermDebtFairValue", {**row, "val": value})]
+        if row["end"] == "2019-12-31" and row["form"] == "10-K":
+            for end, val, accn, filed in extra:
+                pairs.append(("LongTermDebtFairValue", {**row, "end": end, "val": val,
+                                                        "accn": accn, "filed": filed}))  # fmt: skip
+        return pairs
+
+    return edit
+
+
+def _fair_series(conn, run_id):
+    debt = _cell(inputs_behind(conn, run_id, VPS), "debt")
+    book, fair = debt.history
+    return book, fair
+
+
+def test_the_debt_card_has_an_empty_fair_value_series_when_none_is_filed(run):
+    conn, run_id = run
+    book, fair = _fair_series(conn, run_id)
+    assert book.primary and book.measure == "debt"
+    assert not fair.primary and fair.measure == "debt_fair_value" and fair.points == []
+    (note,) = fair.notes
+    assert note.code == "fair_value_not_read"
+    assert note.params == {
+        "known_on": AS_OF.isoformat(),
+        "tag": "us-gaap:LongTermDebtFairValue",
+        "left_out_dates": [],
+    }
+    for name in ("cash_and_investments", "minority_interest"):
+        assert len(_cell(inputs_behind(conn, run_id, VPS), name).history) == 1
+
+
+def test_the_filed_fair_value_sits_beside_the_book_debt_and_is_never_used(run, make_company):
+    plain_conn, plain_id = run
+    conn = make_company(_fair_value())
+    run_id = run_baseline(conn, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    book, fair = _fair_series(conn, run_id)
+    plain_book, _ = _fair_series(plain_conn, plain_id)
+    assert book == plain_book  # the book series does not move
+    assert fair.notes[0].code == "fair_value_as_filed"
+    assert [p.period for p in fair.points] == [p.period for p in book.points]
+    for p in fair.points:
+        assert p.value == 190 and not p.used and p.fiscal_year is None
+        (part,) = p.parts
+        assert part.name == "debt_fair_value" and part.value == 190
+        assert part.filing["accession_no"]
+    # the valuation reads none of it: every answer to the value per share is the same
+    plain = inputs_behind(plain_conn, plain_id, VPS)
+    fair_answer = inputs_behind(conn, run_id, VPS)
+    assert fair_answer.outputs == plain.outputs
+    for c, d in zip(fair_answer.cells, plain.cells, strict=True):
+        assert [r.value for r in c.rows] == [r.value for r in d.rows], c.name
+
+
+def test_a_fair_value_is_read_point_in_time(make_company):
+    before, after = "0000000123-99-000001", "0000000123-99-000002"
+    conn = make_company(
+        _fair_value(
+            extra=[
+                ("2019-12-31", 185, before, "2020-05-01"),  # restated before the run's date
+                ("2019-12-31", 999, after, "2020-08-01"),  # and again after it
+            ]
+        )
+    )
+    run_id = run_baseline(conn, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    _, fair = _fair_series(conn, run_id)
+    (year_end,) = [p for p in fair.points if p.period == "2019-12-31"]
+    assert year_end.value == 185
+    assert year_end.parts[0].filing["accession_no"] == before
+    accessions = {q.filing["accession_no"] for p in fair.points for q in p.parts}
+    assert after not in accessions
+
+
+def test_a_fair_value_off_the_balance_dates_is_left_out_and_listed(make_company):
+    # Coca-Cola's 9,345M at 2010-10-02, the CCE deal's debt, beside its 2010-10-01 quarter end
+    conn = make_company(_fair_value(extra=[("2019-11-15", 50, "0000000123-99-000003",
+                                            "2020-02-15")]))  # fmt: skip
+    run_id = run_baseline(conn, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    book, fair = _fair_series(conn, run_id)
+    assert "2019-11-15" not in {p.period for p in fair.points}
+    assert {p.period for p in fair.points} <= {p.period for p in book.points}
+    assert fair.notes[0].params["left_out_dates"] == ["2019-11-15"]
