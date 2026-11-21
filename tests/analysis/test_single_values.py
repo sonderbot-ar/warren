@@ -478,3 +478,97 @@ def test_a_year_whose_10k_count_is_not_read_gets_a_gap_without_a_year(make_compa
     periods = [p.period for p in diluted.points]
     i = periods.index("FY2017Q4")
     assert periods[i - 3 : i + 2] == ["FY2017Q1", "FY2017Q2", "FY2017Q3", "FY2017Q4", "FY2018Q1"]
+
+
+# -- the fair value of long-term debt beside the book debt (backlog #481 item 3) ---------------
+
+
+def _fair_value(value=190, extra=()):
+    """An edit filing `LongTermDebtFairValue` beside each non-current debt row, plus `extra`
+    rows: (end, value, accn, filed)."""
+
+    def edit(tag, row):
+        if tag != "LongTermDebtNoncurrent":
+            return row
+        pairs = [(tag, row), ("LongTermDebtFairValue", {**row, "val": value})]
+        if row["end"] == "2019-12-31" and row["form"] == "10-K":
+            for end, val, accn, filed in extra:
+                pairs.append(("LongTermDebtFairValue", {**row, "end": end, "val": val,
+                                                        "accn": accn, "filed": filed}))  # fmt: skip
+        return pairs
+
+    return edit
+
+
+def _fair_series(conn, run_id):
+    debt = _cell(inputs_behind(conn, run_id, VPS), "debt")
+    book, fair = debt.history
+    return book, fair
+
+
+def test_the_debt_card_has_an_empty_fair_value_series_when_none_is_filed(run):
+    conn, run_id = run
+    book, fair = _fair_series(conn, run_id)
+    assert book.primary and book.measure == "debt"
+    assert not fair.primary and fair.measure == "debt_fair_value" and fair.points == []
+    (note,) = fair.notes
+    assert note.code == "fair_value_not_read"
+    assert note.params == {
+        "known_on": AS_OF.isoformat(),
+        "tag": "us-gaap:LongTermDebtFairValue",
+        "left_out_dates": [],
+    }
+    for name in ("cash_and_investments", "minority_interest"):
+        assert len(_cell(inputs_behind(conn, run_id, VPS), name).history) == 1
+
+
+def test_the_filed_fair_value_sits_beside_the_book_debt_and_is_never_used(run, make_company):
+    plain_conn, plain_id = run
+    conn = make_company(_fair_value())
+    run_id = run_baseline(conn, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    book, fair = _fair_series(conn, run_id)
+    plain_book, _ = _fair_series(plain_conn, plain_id)
+    assert book == plain_book  # the book series does not move
+    assert fair.notes[0].code == "fair_value_as_filed"
+    assert [p.period for p in fair.points] == [p.period for p in book.points]
+    for p in fair.points:
+        assert p.value == 190 and not p.used and p.fiscal_year is None
+        (part,) = p.parts
+        assert part.name == "debt_fair_value" and part.value == 190
+        assert part.filing["accession_no"]
+    # the valuation reads none of it: every answer to the value per share is the same
+    plain = inputs_behind(plain_conn, plain_id, VPS)
+    fair_answer = inputs_behind(conn, run_id, VPS)
+    assert fair_answer.outputs == plain.outputs
+    for c, d in zip(fair_answer.cells, plain.cells, strict=True):
+        assert [r.value for r in c.rows] == [r.value for r in d.rows], c.name
+
+
+def test_a_fair_value_is_read_point_in_time(make_company):
+    before, after = "0000000123-99-000001", "0000000123-99-000002"
+    conn = make_company(
+        _fair_value(
+            extra=[
+                ("2019-12-31", 185, before, "2020-05-01"),  # restated before the run's date
+                ("2019-12-31", 999, after, "2020-08-01"),  # and again after it
+            ]
+        )
+    )
+    run_id = run_baseline(conn, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    _, fair = _fair_series(conn, run_id)
+    (year_end,) = [p for p in fair.points if p.period == "2019-12-31"]
+    assert year_end.value == 185
+    assert year_end.parts[0].filing["accession_no"] == before
+    accessions = {q.filing["accession_no"] for p in fair.points for q in p.parts}
+    assert after not in accessions
+
+
+def test_a_fair_value_off_the_balance_dates_is_left_out_and_listed(make_company):
+    # Coca-Cola's 9,345M at 2010-10-02, the CCE deal's debt, beside its 2010-10-01 quarter end
+    conn = make_company(_fair_value(extra=[("2019-11-15", 50, "0000000123-99-000003",
+                                            "2020-02-15")]))  # fmt: skip
+    run_id = run_baseline(conn, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    book, fair = _fair_series(conn, run_id)
+    assert "2019-11-15" not in {p.period for p in fair.points}
+    assert {p.period for p in fair.points} <= {p.period for p in book.points}
+    assert fair.notes[0].params["left_out_dates"] == ["2019-11-15"]
