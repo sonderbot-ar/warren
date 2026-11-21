@@ -1246,6 +1246,25 @@ main.solo {
   color: var(--color-fg);
 }
 
+/* "Ver reporte": the filings the sentence names (backlog 509), one per line, each a full target */
+.filings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.filings a {
+  color: var(--color-accent);
+  min-height: var(--target-min);
+  display: inline-flex;
+  align-items: center;
+}
+
+.filings a:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: 2px;
+}
+
 .why {
   margin: 0;
 }

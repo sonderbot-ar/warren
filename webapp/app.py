@@ -15,6 +15,7 @@ Rules every route keeps:
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import threading
 from collections.abc import Callable
@@ -43,6 +44,7 @@ from webapp.refusal import BUTTON_DATE, BUTTON_MENUS, refusal_view
 from webapp.text import translate
 
 HERE = Path(__file__).parent
+log = logging.getLogger(__name__)
 REGION_COOKIE = "warren_region"
 THEME_COOKIE = "warren_theme"
 THEMES = {"oscuro": "dark", "claro": "light"}  # the address's word -> the page's data-theme
@@ -147,6 +149,12 @@ def create_app(
                 run_or_test(ticker, corte, latest_corte())
             except (EngineError, MarketDataError) as exc:
                 refused[key] = refusal(exc)
+                return
+            except NoRun:
+                raise
+            except Exception:  # a bug, or an error with no code: the generic No se pudo (#511)
+                log.exception("run for %s on %s failed with an uncoded error", ticker, corte)
+                refused[key] = None
                 return
             bundle_for(ticker, corte)
 
@@ -270,9 +278,12 @@ def create_app(
         )
 
     @app.exception_handler(NoRun)
-    def _no_run(request: Request, exc: NoRun) -> HTMLResponse:
+    def _no_run(request: Request, exc: NoRun) -> Response:
         # No stored estimate for the date: a page view never writes, so the page offers
-        # Calcular, which posts and runs one (part 3b).
+        # Calcular, which posts and runs one (part 3b). A fragment request gets no page: the
+        # panel's script opens the full address, which shows this (#511).
+        if "/fragmentos/" in request.url.path:
+            return Response(status_code=404)
         ticker = request.query_params.get("empresa", "").upper()
         corte = request.query_params.get("corte", "")
         day = date.fromisoformat(corte)
@@ -616,8 +627,10 @@ def create_app(
         region = region_of(request)
         t = partial(translate, region.language)
         company = t(f"company.{ticker}")
-        view = refusal_view(refused[(ticker, corte)], company, corte, latest_corte(), region, t)
         text = question.clean_question(request.query_params.get("pregunta"))
+        view = refusal_view(
+            refused[(ticker, corte)], company, corte, latest_corte(), region, t, bool(text)
+        )
         fields = {"corte": corte.isoformat(), "empresa": ticker, "pregunta": text}
         button_fields = None
         menus_url = None

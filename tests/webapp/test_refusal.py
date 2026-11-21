@@ -45,6 +45,7 @@ LATEST = date(2026, 11, 3)
 CORTE = date(2018, 1, 15)
 MX = formatting.REGIONS["es-MX"]
 ES = catalogue("es")
+EN = catalogue("en")
 t = partial(translate, "es")
 
 # One params set per code as the engine raises it (math_engine, market.store, runs), with each
@@ -467,3 +468,99 @@ def test_without_a_runner_a_test_app_never_touches_the_real_database(engine):
     c = TestClient(app, follow_redirects=False)
     done = post(c)
     assert done.status_code == 204 and c.get(done.headers["HX-Redirect"]).status_code == 404
+
+
+# -- follow-ups from the PR #510 review (#509 links, #511) ---------------------------------------
+
+FILING_Q = {
+    "accession_no": "0000320193-17-000009",
+    "form": "10-Q",
+    "filed_at": "2017-08-02",
+    "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019317000009/",
+}
+FILING_K = {
+    "accession_no": "0000320193-17-000070",
+    "form": "10-K",
+    "filed_at": "2017-11-03",
+    "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019317000070/",
+}
+
+
+def test_a_refusal_that_names_a_filing_links_it_as_ver_reporte():
+    v = view("zero_divisor", {**SAMPLES["zero_divisor"][0], "filings": [FILING_Q]})
+    assert [f.url for f in v.filings] == [FILING_Q["url"]]
+    assert v.filings[0].label.replace(NBSP, " ") == "Ver reporte: 10-Q presentado el 2 ago 2017"
+    assert v.extra == []  # a quarter Warren read: the sentence alone, then its link
+
+
+def test_a_derived_fourth_quarter_leads_into_its_filings_in_the_engines_order():
+    p = {**SAMPLES["zero_divisor"][1], "filings": [FILING_K, FILING_Q]}
+    v = view("zero_divisor", p)
+    assert v.extra == [ES["refusal.code.zero_divisor.derived.listed"]]
+    assert v.extra[0].endswith("con estos reportes:")
+    assert [f.url for f in v.filings] == [FILING_K["url"], FILING_Q["url"]]
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {**FILING_Q, "url": ""},
+        {**FILING_Q, "url": "javascript:alert(1)"},
+        {**FILING_Q, "form": None},
+        {**FILING_Q, "filed_at": "not a date"},
+    ],
+    ids=["no link", "not https", "no form", "bad date"],
+)
+def test_a_filing_that_cannot_be_opened_is_left_out_and_the_sentence_stays(bad):
+    v = view("balance_item_negative", {**SAMPLES["balance_item_negative"][0], "filings": [bad]})
+    assert v.filings == [] and v.code == "balance_item_negative"
+
+
+def test_a_code_outside_the_filing_codes_never_links_a_filing():
+    v = view("as_of_too_early", {**SAMPLES["as_of_too_early"][0], "filings": [FILING_Q]})
+    assert v.filings == []
+
+
+def test_every_filing_code_has_its_link_text_in_both_languages():
+    for words in (ES, EN):
+        assert "{form}" in words["refusal.filing_link"] and "{date}" in words["refusal.filing_link"]
+        assert "refusal.code.zero_divisor.derived.listed" in words
+        assert "refusal.code.as_of_too_early.no_question" in words
+
+
+def test_too_early_by_address_names_no_question():
+    p = SAMPLES["as_of_too_early"][0]
+    v = refusal_view(Coded("as_of_too_early", p, ""), "Apple", CORTE, LATEST, MX, t, False)
+    assert "tu pregunta" not in v.sentence
+    assert v.sentence.replace(NBSP, " ").endswith("y esta fecha de corte es el 15 ene 2018.")
+
+
+def test_no_se_pudo_by_address_says_what_the_page_shows_not_what_it_read(client, engine):
+    page = answer(client, corte=CORTE)
+    assert "tu pregunta" not in page.text
+    assert ES["answer.reading.lead_no_question"] in page.text
+    assert ES["answer.reading.lead"] not in page.text
+    q = {"corte": CORTE.isoformat(), "empresa": "AAPL", "pregunta": "¿Cuánto vendía Apple?"}
+    asked = client.get(f"/respuesta?{urlencode(q)}")
+    assert ES["answer.reading.lead"] in asked.text and "tu pregunta" in asked.text
+
+
+def test_an_uncoded_error_lands_on_the_generic_no_se_pudo_and_is_logged(engine, caplog):
+    def broken(ticker, corte, today):
+        raise ZeroDivisionError("a bug")
+
+    app = create_app(clock=lambda: NOW, bundle_loader=engine.load, runner=broken)
+    c = TestClient(app, follow_redirects=False)
+    done = post(c)
+    assert done.status_code == 204  # Calculando follows to the answer's address, never a 500
+    page = c.get(done.headers["HX-Redirect"])
+    assert page.status_code == 200 and 'data-group="generic"' in page.text
+    assert ES["refusal.generic.sentence"] in page.text
+    assert "uncoded error" in caplog.text and "ZeroDivisionError" in caplog.text
+
+
+def test_a_fragment_with_no_stored_run_gets_no_page(client, engine):
+    q = urlencode({"corte": LATEST.isoformat(), "empresa": "AAPL", "figura": "p50-FY2027Q1"})
+    for path in ("/respuesta/fragmentos/panel", "/respuesta/fragmentos/celdas"):
+        r = client.get(f"{path}?{q}")
+        assert r.status_code == 404 and r.text == ""  # the script opens the full address

@@ -19,7 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
 
-from domains.analysis.coded import REFUSAL_GROUPS, Coded
+from domains.analysis.coded import FILING_REFUSAL_CODES, REFUSAL_GROUPS, Coded
 from domains.analysis.text import REFUSAL_LESSONS, refusal_lesson
 from webapp import formatting
 
@@ -40,6 +40,14 @@ class Button:
 
 
 @dataclass(frozen=True)
+class FilingLink:
+    """One "Ver reporte" link: the filing that backs a figure the sentence names (#509)."""
+
+    label: str  # "Ver reporte: 10-Q presentado el 1 ago 2017"
+    url: str
+
+
+@dataclass(frozen=True)
 class Lesson:
     why: str
     source: str  # the published source, or Warren's own criterion said as such
@@ -56,6 +64,7 @@ class RefusalView:
     lesson: Lesson | None
     setup_note: str | None = None  # the `setup` group's "this doesn't depend on you"
     extra: list[str] = field(default_factory=list)  # further sentences (a derived quarter)
+    filings: list[FilingLink] = field(default_factory=list)  # "Ver reporte", in the engine's order
 
 
 def _day(raw: str | None) -> date | None:
@@ -73,7 +82,13 @@ def _fiscal_year(period: str) -> str:
 
 
 def _sentence(
-    code: str, p: dict, company: str, corte: date, region, t: Callable[..., str]
+    code: str,
+    p: dict,
+    company: str,
+    corte: date,
+    region,
+    t: Callable[..., str],
+    has_question: bool = True,
 ) -> tuple[str, list[str]]:
     """The cause on this company and date, and any further sentence; KeyError when the
     catalogue has no sentence for the code or its variant (the caller falls back)."""
@@ -83,6 +98,8 @@ def _sentence(
     key = f"refusal.code.{code}"
     extra: list[str] = []
     if code == "as_of_too_early":
+        if not has_question:  # arrived by address: there is no "tu pregunta" to name (#511)
+            key += ".no_question"
         params = {"supported_from": d("supported_from"), "as_of": d("as_of")}
     elif code == "as_of_in_future":
         params = {"as_of": d("as_of"), "today": d("today")}
@@ -137,7 +154,9 @@ def _sentence(
             params["divisor"] = t(f"refusal.divisor.{p['divisor']}")
             params["period_end"] = d("period_end")
             if p.get("accession_no") is None and p.get("inputs"):
-                extra.append(t("refusal.code.zero_divisor.derived"))
+                # with the filings to link, the sentence leads into them (brief, #509)
+                listed = ".listed" if _filing_links(code, p, region, t) else ""
+                extra.append(t(f"refusal.code.zero_divisor.derived{listed}"))
         elif kind == "quarters_sum":
             params["fiscal_year"] = _fiscal_year(p["period"])
         else:  # years_sum: the divisor names the sentence (revenue or pretax income)
@@ -145,8 +164,8 @@ def _sentence(
             first, _, last = _fiscal_year(p["period"]).partition("-")
             params["first"], params["last"] = first, last or first
     elif code in ("balance_item_negative", "securities_exceed_current_assets"):
-        # no amounts until the filing can be linked beside them (#509): a number on screen
-        # always shows its source (design critic, part 3b)
+        # no amounts yet: since #509 the filing is linked below the sentence, and the amounts
+        # wait for their Spanish wording and the student reviewer (#511)
         if code == "securities_exceed_current_assets":
             key += ".with_cash" if p.get("with_cash") else ".alone"
         params = {"period_end": d("period_end")}
@@ -158,6 +177,25 @@ def _sentence(
     else:  # the codes whose sentence needs only the company and the date
         params = {}
     return t(key, **base, **params), extra
+
+
+def _filing_links(code: str | None, p: dict, region, t: Callable[..., str]) -> list[FilingLink]:
+    """ "Ver reporte" for each filing the engine names (`filings`, #509), in its order: the
+    figure's filing, a derived quarter's year then its quarters, or each skipped count's.
+    A filing with no EDGAR link, form or date is left out, so a link never leads nowhere."""
+    if code not in FILING_REFUSAL_CODES:
+        return []
+    links = []
+    for f in p.get("filings") or []:
+        url, form, filed = f.get("url") or "", f.get("form"), f.get("filed_at")
+        if not (url.startswith("https://") and form and filed):
+            continue
+        try:
+            day = date.fromisoformat(filed[:10])
+        except ValueError:
+            continue
+        links.append(FilingLink(t("refusal.filing_link", form=form, date=_date(day, region)), url))
+    return links
 
 
 def _button(group: str, code: str | None, p: dict, latest: date, region, t) -> Button | None:
@@ -228,10 +266,12 @@ def refusal_view(
     latest: date,
     region: formatting.Region,
     t: Callable[..., str],
+    has_question: bool = True,
 ) -> RefusalView:
     """The refusal screen for one company and fecha de corte. `refused` is the engine's coded
     refusal (None when the error had no code); `latest` is the last ended New York day, the
-    newest date a button may offer."""
+    newest date a button may offer; `has_question` is False when the student came by address,
+    with no question typed."""
     code = refused.code if refused is not None else None
     group = REFUSAL_GROUPS.get(code, GENERIC) if code else GENERIC
     p = refused.params if refused is not None else {}
@@ -239,11 +279,12 @@ def refusal_view(
     try:
         if group == GENERIC:
             raise KeyError(code)
-        sentence, extra = _sentence(code, p, company, corte, region, t)
+        sentence, extra = _sentence(code, p, company, corte, region, t, has_question)
+        filings = _filing_links(code, p, region, t)
     except (KeyError, TypeError, ValueError):
         # no Spanish for this code, or params the sentence can't read: the generic sentence,
         # never a wrong cause (brief)
-        group, code = GENERIC, None
+        group, code, extra, filings = GENERIC, None, [], []
         sentence = t("refusal.generic.sentence")
     title_params = {"as_of": _date(corte, region)}
     return RefusalView(
@@ -255,4 +296,5 @@ def refusal_view(
         lesson=_lesson(group, code, region, t),
         setup_note=t("refusal.group.setup.note") if group == "setup" else None,
         extra=extra,
+        filings=filings,
     )

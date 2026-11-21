@@ -11,6 +11,11 @@
     <h1>{{ refusal.title }}</h1>
     <p class="p">{{ refusal.sentence }}</p>
     {% for line in refusal.extra %}<p class="p">{{ line }}</p>{% endfor %}
+    {% if refusal.filings %}
+    <ul class="filings">
+      {% for f in refusal.filings %}<li><a href="{{ f.url }}" rel="noopener" target="_blank">{{ f.label }}</a></li>{% endfor %}
+    </ul>
+    {% endif %}
     {% if refusal.setup_note %}<p class="p">{{ refusal.setup_note }}</p>{% endif %}
     {% if refusal.lesson %}
     <details class="why"{% if refusal.button and refusal.button.kind == "why" %} data-button{% endif %}>

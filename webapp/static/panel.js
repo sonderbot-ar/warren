@@ -191,6 +191,8 @@
       tabFailed(dialog, elt);
     } else if (elt && elt.hasAttribute("data-figura") && elt.href) {
       window.location.href = elt.href; // the panel failed to open: the full page shows why
+    } else if (elt && elt.classList && elt.classList.contains("yrs-opt") && elt.href) {
+      window.location.href = elt.href; // the years switch failed: its full address shows why
     }
   }
   // the years switch swaps the whole cells section: keep keyboard focus on the chosen option
