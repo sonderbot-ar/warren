@@ -113,6 +113,21 @@ REFUSAL_GROUP_ORDER = (
 )
 ENGINE_REFUSAL_CODES = frozenset(REFUSAL_GROUPS)
 
+# The refusals that name a filed figure, or a period whose figure is missing, and so carry a
+# `filings` param out of `math_engine.build_inputs` (backlog #509): a list of `{accession_no,
+# form, filed_at, url}`, the shape of a run source's filing, for the app's "Ver reporte" link; an
+# empty list when Warren found no filing (a sum, no count reported, nothing read for the period).
+FILING_REFUSAL_CODES = frozenset(
+    {
+        "zero_divisor",
+        "balance_item_negative",
+        "securities_exceed_current_assets",
+        "balance_item_not_reported",
+        "flow_item_not_reported",
+        "no_share_count",
+    }
+)
+
 # The closed value sets of `zero_divisor`'s params (backlog #383), so the app's text catalogue can
 # cover every value: `ratio` is the figure that couldn't be computed, `divisor` the filed figure
 # that is zero, and `period_kind` what `period` is: one quarter (`FY2018Q3`), one fiscal year
