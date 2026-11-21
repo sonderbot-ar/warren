@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/519 (from the #518 gatekeeper) · Branch `backlog-519-range-refusal-tidy` · Version v0.10.27 when merged.
 
-Status: In progress.
+Status: PR open.
 
 ## Problem
 
