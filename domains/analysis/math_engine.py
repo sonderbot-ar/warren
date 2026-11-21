@@ -163,7 +163,9 @@ class EngineError(ValueError):
     where the engine refuses, or for a missing line by `_build_inputs` from the run's history
     (None until then), and turned into the `filings` param by `build_inputs`, which can look up
     each filing's form and link. An attribute, not a param, so the callers that read `_balance`'s
-    or `_operating_nwc`'s params into chart notes see them unchanged."""
+    or `_operating_nwc`'s params into chart notes see them unchanged. `cik` is the company's,
+    set by `_build_inputs` with a missing line's accessions, so the filings are looked up for the
+    company the run read (backlog #513); internal too."""
 
     def __init__(
         self,
@@ -176,6 +178,7 @@ class EngineError(ValueError):
         assert code is None or code in ENGINE_REFUSAL_CODES, code
         self.text, self.code, self.params = text, code, dict(params or {})
         self.accessions = accessions
+        self.cik: str | None = None
 
     def coded(self) -> Coded | None:
         return None if self.code is None else Coded(self.code, self.params, self.text)
@@ -490,22 +493,21 @@ def build_inputs(
         raise
     except EngineError as e:
         if e.code in FILING_REFUSAL_CODES:
-            e.params["filings"] = refusal_filings(conn, ticker, e.accessions or [])
+            e.params["filings"] = refusal_filings(conn, e.cik, e.accessions or [])
         raise
 
 
-def refusal_filings(conn: sqlite3.Connection, ticker: str, accessions: list[str]) -> list[dict]:
+def refusal_filings(conn: sqlite3.Connection, cik: str | None, accessions: list[str]) -> list[dict]:
     """Each accession as the #140 filing shape, `{accession_no, form, filed_at, url}`, the same
     as a run source's filing (backlog #509). A filing's form and date never change, so reading
-    them adds nothing that was not public when the accession was read."""
+    them adds nothing that was not public when the accession was read. `cik` is the run's company
+    (backlog #513); accessions without one are a programming error, never an empty list."""
     from domains.analysis.reported import _Filings
     from domains.analysis.sources import _filing
 
     if not accessions:
         return []
-    cik = conn.execute("SELECT cik FROM companies WHERE ticker = ?", (ticker.upper(),)).fetchone()[
-        "cik"
-    ]
+    assert cik is not None, "a refusal with filings must carry the run's CIK"
     filings = _Filings(conn, cik)
     return [_filing(filings.get(a)) for a in accessions]
 
@@ -594,6 +596,7 @@ def _build_inputs(
     except EngineError as e:
         if e.code in FILING_REFUSAL_CODES and e.accessions is None:
             e.accessions = period_accessions(history, e.code, e.params)  # a missing line (#509)
+        e.cik = company["cik"]  # the filings are looked up for this company (#513)
         raise
     if changes:
         _meaning_notes(result, changes, filing_dates(conn, company["cik"], as_of))

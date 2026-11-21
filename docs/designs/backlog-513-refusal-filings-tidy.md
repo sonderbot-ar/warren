@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/513 (from the #512 gatekeeper) · Branch `backlog-513-refusal-filings-tidy` · Version v0.10.24 when merged.
 
-Status: In progress (nov.21.2026).
+Status: In progress (nov.21.2026; PR open).
 
 ## Problem
 
@@ -30,7 +30,7 @@ v0.10.23 (#509) gave six refusal codes a `filings` param. The gatekeeper's GO le
 
 ## Files to change
 
-`domains/analysis/math_engine.py`, `tests/analysis/test_refusal_codes.py`, this doc; on merge `docs/versions.md`, `docs/team-sync.md`.
+`domains/analysis/math_engine.py`, `domains/analysis/reading_rules.md` (a same-version row: the fingerprint covers `math_engine.py`), `tests/analysis/test_refusal_codes.py`, this doc; on merge `docs/versions.md`, `docs/team-sync.md`.
 
 ## Product impact
 
