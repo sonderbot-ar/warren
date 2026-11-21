@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/513 (from the #512 gatekeeper) · Branch `backlog-513-refusal-filings-tidy` · Version v0.10.24 when merged.
 
-Status: In progress (nov.21.2026; PR open).
+Status: Done (nov.21.2026; v0.10.24, PR #515, merge `ed5905f`, after CI green and a gatekeeper GO; its two non-blocking notes, a `RuntimeError` in place of the `assert` and the `cik` docstring, are folded into #507).
 
 ## Problem
 

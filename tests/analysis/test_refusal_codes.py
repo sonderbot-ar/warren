@@ -651,7 +651,7 @@ def test_filings_without_a_cik_are_a_programming_error(company):
     from domains.analysis.math_engine import refusal_filings
 
     assert refusal_filings(company, None, []) == []
-    with pytest.raises(AssertionError):
+    with pytest.raises(RuntimeError):
         refusal_filings(company, None, [TST_10Q_2020Q1])
 
 

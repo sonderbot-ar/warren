@@ -251,7 +251,7 @@ FORMULAS = {
     "fcff": "EBIT × (1 − tax rate) + D&A − capex − change in working capital",
     "discount_factor": "the period before's factor ÷ (1 + WACC) over the period's length",
     "capm": "risk-free rate + beta × equity risk premium",
-    "wacc": "cost of equity and after-tax cost of debt, weighted by market equity and debt",
+    "wacc": "cost of equity and after-tax cost of debt, weighted by market equity and book debt",
     "present_value_of_cash_flows": "Σ FCFF × discount factor",
     "gordon_terminal_value": "last FCFF × (1 + g) ÷ (WACC − g)",
     "value_driver_terminal_value": "last NOPAT × (1 + g) ÷ WACC",
