@@ -262,8 +262,8 @@ def test_every_group_has_its_title_button_and_lesson(language):
 def test_too_early_reads_as_the_mockup_and_offers_the_first_date():
     v = view("as_of_too_early", SAMPLES["as_of_too_early"][0])
     assert v.title == "Para esa fecha, Warren aún no tiene los datos que necesita"
-    assert v.sentence.startswith("Warren calcula estimaciones solo desde el 1 mar 2019:")
-    assert v.sentence.endswith("La fecha de corte de tu pregunta es el 15 ene 2018.")
+    assert v.sentence.startswith("Warren calcula estimaciones solo desde el 1 mar 2019,")
+    assert v.sentence.endswith("la fecha de corte de tu pregunta es el 15 ene 2018.")
     assert v.button.kind == BUTTON_DATE and v.button.corte == date(2019, 3, 1)
     assert v.button.label == "Probar el 1 mar 2019"  # the button names where it goes
     raw = refusal_view(Coded("as_of_too_early", SAMPLES["as_of_too_early"][0], ""), "Apple",

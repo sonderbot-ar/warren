@@ -293,7 +293,7 @@ def create_app(
                 "question": text or None,
                 "change_url": page_url("/lectura", corte=corte, empresa=ticker, pregunta=text)
                 if text
-                else None,
+                else page_url("/", corte=corte),
                 "company": translate(language, f"company.{ticker}"),
                 "corte_text": formatting.format_date(day, region_of(request)).replace(
                     " ", "\u00a0"

@@ -323,7 +323,7 @@
   "refusal.group.generic.title": "No se pudo calcular esta estimación",
   "refusal.group.generic.button": "Probar otra fecha",
   "refusal.generic.sentence": "Warren no pudo calcular esta estimación con los reportes disponibles hasta esa fecha. Prueba con otra fecha.",
-  "refusal.code.as_of_too_early": "Warren calcula estimaciones solo desde el {supported_from}: antes de esa fecha no tiene, publicados, los años de reportes y de precios que necesitan todos los supuestos. La fecha de corte de tu pregunta es el {as_of}.",
+  "refusal.code.as_of_too_early": "Warren calcula estimaciones solo desde el {supported_from}, y la fecha de corte de tu pregunta es el {as_of}.",
   "refusal.code.no_quarterly_revenue": "La estimación parte de los ingresos del último trimestre reportado, y Warren no encontró ingresos de ningún trimestre en los reportes de {empresa} publicados hasta el {fecha}.",
   "refusal.code.history_too_short": "Warren necesita los ingresos de {needed} años fiscales de {empresa}, publicados hasta la fecha de corte, y al {fecha} encuentra {found}: {years}.",
   "refusal.code.history_too_short.none": "Warren necesita los ingresos de {needed} años fiscales de {empresa}, publicados hasta la fecha de corte, y al {fecha} no encuentra ninguno.",

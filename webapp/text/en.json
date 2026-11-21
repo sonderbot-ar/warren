@@ -323,7 +323,7 @@
   "refusal.group.generic.title": "This estimate couldn't be computed",
   "refusal.group.generic.button": "Try another date",
   "refusal.generic.sentence": "Warren couldn't compute this estimate from the filings available up to that date. Try another date.",
-  "refusal.code.as_of_too_early": "Warren computes estimates only from {supported_from}: before that date it doesn't have, published, the years of filings and prices every assumption needs. Your question's cut-off date is {as_of}.",
+  "refusal.code.as_of_too_early": "Warren computes estimates only from {supported_from}, and your question's cut-off date is {as_of}.",
   "refusal.code.no_quarterly_revenue": "The estimate starts from the last reported quarter's revenue, and Warren found no quarter's revenue in {empresa}'s filings published up to {fecha}.",
   "refusal.code.history_too_short": "Warren needs {needed} fiscal years of {empresa}'s revenue published by the cut-off date, and on {fecha} it finds {found}: {years}.",
   "refusal.code.history_too_short.none": "Warren needs {needed} fiscal years of {empresa}'s revenue published by the cut-off date, and on {fecha} it finds none.",
