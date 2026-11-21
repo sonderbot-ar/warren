@@ -623,6 +623,38 @@ def test_only_the_filing_codes_carry_filings_and_they_survive_json(make_company,
         assert json.loads(json.dumps(e.params)) == e.params
 
 
+def test_a_quarter_missing_its_line_names_the_newest_10q_for_that_quarter(make_company):
+    # FY2019 Q1's operating income and interest dropped from the FY2019 Q1 10-Q and from its
+    # comparative in the FY2020 Q1 10-Q (#513): the quarter branch of `period_accessions`
+    e = refused(
+        make_company(
+            drop_where(
+                lambda t, r: (
+                    t in ("OperatingIncomeLoss", "InterestExpense") and r["end"] == "2019-03-31"
+                )
+            )
+        )
+    )
+    assert e.code == "flow_item_not_reported"
+    assert (e.params["item"], e.params["fiscal_year"], e.params["quarter"]) == ("ebit", 2019, 1)
+    # the newest filing that reported the quarter's flows, not the original 10-Q of 2019-04-30
+    assert e.params["filings"] == [filing(TST_10Q_2020Q1, "10-Q", "2020-04-30")]
+
+
+def test_a_refusal_carries_the_runs_cik_outside_its_params(make_company):
+    conn = make_company(drop_where(lambda t, r: t == "CashAndCashEquivalentsAtCarryingValue"))
+    e = refused(conn)
+    assert e.cik == "0000000123" and "cik" not in e.params  # internal, like accessions (#513)
+
+
+def test_filings_without_a_cik_are_a_programming_error(company):
+    from domains.analysis.math_engine import refusal_filings
+
+    assert refusal_filings(company, None, []) == []
+    with pytest.raises(AssertionError):
+        refusal_filings(company, None, [TST_10Q_2020Q1])
+
+
 def test_a_missing_line_never_names_a_filing_made_after_the_date(make_company):
     conn = make_company(drop_where(lambda t, r: t == "CashAndCashEquivalentsAtCarryingValue"))
     # an amended FY2018 10-K, filed after the run's date, that gives FY2017's balance sheet
