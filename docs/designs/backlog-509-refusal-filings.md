@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/509 (front-end request) · Branch `backlog-509-refusal-filings` · Version v0.10.23 when merged.
 
-Status: In progress (nov.21.2026).
+Status: Done (nov.21.2026; v0.10.23, PR #512, merge `9479fc5`, after CI green and a gatekeeper GO; follow-ups #513).
 
 ## Problem
 
