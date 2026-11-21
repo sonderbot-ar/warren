@@ -65,7 +65,7 @@ Coca-Cola point-in-time (series built on three dates): at `as_of` 2012-01-15 the
 
 ## Files to change
 
-`domains/fundamentals/concept_map.csv`, `domains/fundamentals/concept_maps/<sha>.csv` and `CHANGES.md`; `domains/analysis/single_values.py`; tests under `tests/analysis/` and `tests/fundamentals/`; `docs/versions.md`, `docs/team-sync.md`, `docs/build-plan.md` at merge.
+`domains/fundamentals/concept_map_reported.csv` (outside the fingerprint, so no archive copy and no `CHANGES.md` entry); `domains/analysis/single_values.py`; tests under `tests/analysis/` and `tests/fundamentals/`; `docs/versions.md`, `docs/team-sync.md`, `docs/build-plan.md` at merge.
 
 ## Product impact
 
