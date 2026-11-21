@@ -17,6 +17,14 @@ class Coded:
     text: str
 
 
+def require_code(code: str | None, allowed: frozenset, kind: str) -> None:
+    """Refuse a code outside its set (backlog #519): a `RuntimeError`, never an `assert` (which
+    `python -O` drops) or a `ValueError` (which callers catch as a data refusal), because an
+    unknown code is a slip in Warren's code that the app's text catalogue can't cover."""
+    if code is not None and code not in allowed:
+        raise RuntimeError(f"unknown {kind} code {code!r}")
+
+
 # Every code a run's notes can carry (backlog #172): build warnings, post-checks, missing bounds,
 # and `note_text` for a stored line without one. The app's text catalogue covers this set.
 RUN_NOTE_CODES = frozenset(

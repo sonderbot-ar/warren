@@ -384,7 +384,7 @@ def test_a_baseline_still_takes_a_risk_premium_shock(company):
 def test_a_refusal_without_a_code_is_text_only():
     e = SimulationError("need at least one sample")
     assert e.code is None and e.params == {} and e.coded() is None
-    with pytest.raises(AssertionError):
+    with pytest.raises(RuntimeError, match="unknown simulation refusal code"):  # backlog #519
         SimulationError("x", code="not_a_catalogued_code")
 
 

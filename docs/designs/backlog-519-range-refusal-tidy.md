@@ -27,7 +27,7 @@ Exit: full suite, `ruff check`, `ruff format --check` green; no number, field, c
 
 ## Files to change
 
-`domains/evaluation/ranges.py`, `domains/analysis/coded.py`, `domains/analysis/montecarlo.py`, `domains/analysis/math_engine.py`, `domains/market/store.py`, `domains/orchestration/simulations.py`, `tests/evaluation/test_ranges_empty_miss.py`, a new `tests/analysis/test_refusal_codes.py`, this doc; on merge `docs/versions.md`, `docs/team-sync.md`.
+`domains/evaluation/ranges.py`, `domains/analysis/coded.py`, `domains/analysis/montecarlo.py`, `domains/analysis/math_engine.py`, `domains/market/store.py`, `domains/orchestration/simulations.py`, `tests/evaluation/test_ranges_empty_miss.py`, `tests/analysis/test_refusal_codes.py` and `tests/analysis/test_montecarlo.py` (their unknown-code tests now expect `RuntimeError` instead of `AssertionError`), a new `tests/analysis/test_unknown_refusal_code.py`, `domains/analysis/reading_rules.md` (a row under v11: no run reads a different figure), this doc; on merge `docs/versions.md`, `docs/team-sync.md`.
 
 ## Product impact
 

@@ -19,7 +19,7 @@ from datetime import UTC, date, datetime
 import numpy as np
 
 from domains.analysis import financial_math as fm
-from domains.analysis.coded import RANGE_REFUSAL_CODES, Coded
+from domains.analysis.coded import RANGE_REFUSAL_CODES, Coded, require_code
 from domains.analysis.montecarlo import DEFAULT_SAMPLES
 from domains.analysis.runs import code_version
 from domains.evaluation.cases import Case
@@ -49,8 +49,7 @@ class RangeError(ValueError):
 
     def __init__(self, text: str, code: str | None = None, params: dict | None = None):
         super().__init__(text)
-        if code is not None and code not in RANGE_REFUSAL_CODES:
-            raise RuntimeError(f"unknown range refusal code {code!r}")
+        require_code(code, RANGE_REFUSAL_CODES, "range refusal")
         self.text, self.code, self.params = text, code, dict(params or {})
 
     def coded(self) -> Coded | None:
