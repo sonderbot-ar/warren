@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/519 (from the #518 gatekeeper) · Branch `backlog-519-range-refusal-tidy` · Version v0.10.27 when merged.
 
-Status: PR open.
+Status: Done (v0.10.27, nov.21.2026; PR #521, merge `c014089`).
 
 ## Problem
 
@@ -35,4 +35,4 @@ Exit: full suite, `ruff check`, `ruff format --check` green; no number, field, c
 
 ## Review notes
 
-Explainer, analyst and professor not run: a param's type and a code check, with no method or number change.
+Explainer, analyst and professor not run: a param's type and a code check, with no method or number change. Gatekeeper GO on PR #521: full suite green (2741 passed), the two changed tests are stricter (they now match the message, and the check holds under `-O`), the reading-rules row is right. Its non-blocking note on `math_engine._nonzero`'s asserts is #522; item 2 of #519 stays with the front-end team.
