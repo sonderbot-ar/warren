@@ -30,7 +30,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
 from domains.analysis.coded import Coded, refusal
-from domains.analysis.math_engine import EngineError
+from domains.analysis.math_engine import SUPPORTED_FROM, EngineError
 from domains.analysis.runs import run_baseline
 from domains.market.store import MarketDataError
 from shared_kernel.calendar import last_ended_day
@@ -275,16 +275,29 @@ def create_app(
         # Calcular, which posts and runs one (part 3b).
         ticker = request.query_params.get("empresa", "").upper()
         corte = request.query_params.get("corte", "")
+        day = date.fromisoformat(corte)
+        if day < SUPPORTED_FROM:  # the engine would refuse it: don't make the student wait
+            refused[(ticker, day)] = Coded(
+                "as_of_too_early",
+                {"as_of": corte, "supported_from": SUPPORTED_FROM.isoformat()},
+                "before the first supported date",
+            )
+            return no_se_pudo(request, day, ticker)
         text = question.clean_question(request.query_params.get("pregunta"))
         language = region_of(request).language
         return render(
             request,
             "sin_estimacion.html",
             {
-                "corte": date.fromisoformat(corte),
+                "corte": day,
                 "question": text or None,
+                "change_url": page_url("/lectura", corte=corte, empresa=ticker, pregunta=text)
+                if text
+                else None,
                 "company": translate(language, f"company.{ticker}"),
-                "corte_text": formatting.format_date(date.fromisoformat(corte), region_of(request)),
+                "corte_text": formatting.format_date(day, region_of(request)).replace(
+                    " ", "\u00a0"
+                ),
                 "calculate_fields": {"corte": corte, "empresa": ticker, "pregunta": text},
             },
             status_code=404,

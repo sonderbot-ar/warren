@@ -4,6 +4,7 @@
 {% block title %}{{ t("no_run.title") }} · {{ t("app.name") }}{% endblock %}
 {% block main_class %}{{ "solo" }}{% endblock %}
 {% block content %}
+  {% include "_chips.html" %}
   <div class="pane">
     <h1>{{ t("no_run.title") }}</h1>
     <p class="p">{{ t("no_run.body", company=company, date=corte_text) }}</p>

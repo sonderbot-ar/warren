@@ -6,6 +6,7 @@ builds a baseline only after a student's Calcular. The runner here is a fake, so
 written; the answer is the engine's stored bundle for AAPL_2026-10-30_1.
 """
 
+import dataclasses
 import json
 import re
 import threading
@@ -195,7 +196,7 @@ SAMPLES: dict[str, list[dict]] = {
 
 def view(code, params, corte=CORTE, language="es"):
     region = formatting.REGIONS["es-MX" if language == "es" else "en-US"]
-    return refusal_view(
+    v = refusal_view(
         Coded(code, params, "English the app never shows"),
         "Apple",
         corte,
@@ -203,6 +204,18 @@ def view(code, params, corte=CORTE, language="es"):
         region,
         partial(translate, language),
     )
+    return plain(v)
+
+
+NBSP = "\u00a0"
+
+
+def plain(v):
+    """The view as read: dates never break across lines on screen (non-breaking spaces), and
+    the tests compare the words."""
+    fix = lambda s: s.replace(NBSP, " ") if isinstance(s, str) else s  # noqa: E731
+    button = v.button and dataclasses.replace(v.button, label=fix(v.button.label))
+    return dataclasses.replace(v, title=fix(v.title), sentence=fix(v.sentence), button=button)
 
 
 # -- the catalogue covers the engine -------------------------------------------------------------
@@ -249,12 +262,13 @@ def test_every_group_has_its_title_button_and_lesson(language):
 def test_too_early_reads_as_the_mockup_and_offers_the_first_date():
     v = view("as_of_too_early", SAMPLES["as_of_too_early"][0])
     assert v.title == "Para esa fecha, Warren aún no tiene los datos que necesita"
-    assert (
-        v.sentence
-        == "Warren solo calcula estimaciones desde el 1 mar 2019. Elegiste el 15 ene 2018."
-    )
+    assert v.sentence.startswith("Warren calcula estimaciones solo desde el 1 mar 2019:")
+    assert v.sentence.endswith("La fecha de corte de tu pregunta es el 15 ene 2018.")
     assert v.button.kind == BUTTON_DATE and v.button.corte == date(2019, 3, 1)
-    assert v.button.label == "Probar una fecha posterior"
+    assert v.button.label == "Probar el 1 mar 2019"  # the button names where it goes
+    raw = refusal_view(Coded("as_of_too_early", SAMPLES["as_of_too_early"][0], ""), "Apple",
+                       CORTE, LATEST, MX, t)  # fmt: skip
+    assert "1\u00a0mar\u00a02019" in raw.sentence  # a date never splits across lines
     assert v.lesson.source == ES["refusal.own_rule"]  # a Warren rule, said as such
 
 
@@ -270,7 +284,7 @@ def test_stale_prices_offer_the_one_date_the_sentence_names():
     both, one = (view("market_data_not_refreshed", p) for p in SAMPLES["market_data_not_refreshed"])
     assert "28 oct 2026" in both.sentence and both.button.corte == date(2026, 10, 28)
     assert "29 oct 2026" in one.sentence and one.button.corte == date(2026, 10, 29)
-    assert both.button.label == "Usar el último día disponible"
+    assert both.button.label == "Usar el 28 oct 2026"
 
 
 def test_company_data_and_inconsistent_data_reopen_the_card():
@@ -279,9 +293,10 @@ def test_company_data_and_inconsistent_data_reopen_the_card():
         assert v.button.kind == BUTTON_MENUS
 
 
-def test_a_negative_balance_line_shows_millions_and_never_blames():
+def test_a_negative_balance_line_shows_no_amount_until_its_filing_is_linked():
     v = view("balance_item_negative", SAMPLES["balance_item_negative"][0])
-    assert "(−1,500 millones de USD)" in v.sentence and "30 dic 2017" in v.sentence
+    assert "millones" not in v.sentence and "1,500" not in v.sentence  # #509 first
+    assert "30 dic 2017" in v.sentence and "tal como Warren la leyó" in v.sentence
     assert "FASB" in v.lesson.source and v.lesson.why.startswith("¿Por qué importa? Cada línea")
 
 
@@ -371,12 +386,18 @@ def answer(client, corte=LATEST, ticker="AAPL"):
     return client.get(f"/respuesta?{urlencode({'corte': corte.isoformat(), 'empresa': ticker})}")
 
 
+def test_a_date_before_the_first_supported_one_is_refused_without_a_wait(client, engine):
+    page = answer(client, corte=CORTE)
+    assert 'data-code="as_of_too_early"' in page.text and engine.runs == []
+    assert 'action="/calcular"' in page.text and 'value="2019-03-01"' in page.text
+
+
 def test_a_page_view_never_runs_the_engine_and_offers_calcular(client, engine):
     page = answer(client)
     assert page.status_code == 404 and engine.runs == []
     assert ES["no_run.title"] in page.text and 'action="/calcular"' in page.text
     assert (
-        "Warren puede calcularla ahora con los reportes de Apple publicados hasta el 3 nov 2026"
+        "Warren puede calcularla ahora con los reportes de Apple publicados hasta el 3\u00a0nov\u00a02026"
         in page.text
     )
 
@@ -395,10 +416,7 @@ def test_a_refused_run_lands_on_no_se_pudo_with_its_button(client, engine):
     page = client.get(done.headers["HX-Redirect"])
     assert page.status_code == 200 and 'role="alert"' in page.text
     assert 'data-code="as_of_too_early"' in page.text
-    assert (
-        "Warren solo calcula estimaciones desde el 1 mar 2019. Elegiste el 15 ene 2018."
-        in page.text
-    )
+    assert "Warren calcula estimaciones solo desde el 1\u00a0mar\u00a02019" in page.text
     assert 'name="corte" value="2019-03-01"' in page.text  # the button computes on that date
     assert ES["refusal.why"] in page.text and "<details" in page.text
     assert ES["answer.reading.change"] in page.text  # the reading stays, as chips
@@ -408,7 +426,7 @@ def test_a_market_data_refusal_is_coded_too(client, engine):
     done = post(client, empresa="XOM")
     page = client.get(done.headers["HX-Redirect"])
     assert 'data-code="no_price_on_date"' in page.text
-    assert "No hay precio de ExxonMobil el 3 nov 2026" in page.text
+    assert "Warren no encontró un precio de ExxonMobil el 3\u00a0nov\u00a02026" in page.text
 
 
 def test_a_new_calcular_asks_the_engine_again(client, engine):

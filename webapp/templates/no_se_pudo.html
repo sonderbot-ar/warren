@@ -25,7 +25,6 @@
         {% for name, value in button_fields.items() %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
         <button class="btn pri" type="submit">{{ refusal.button.label }}</button>
       </form>
-      <span class="muted">{{ t("refusal.calc_hint") }}</span>
     </div>
     {% elif menus_url %}
     <div class="row"><a class="btn pri" href="{{ menus_url }}">{{ refusal.button.label }}</a></div>

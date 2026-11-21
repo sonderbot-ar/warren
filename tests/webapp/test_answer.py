@@ -198,7 +198,7 @@ def test_a_company_warren_does_not_cover_gets_a_plain_page(client):
 def test_a_date_with_no_stored_estimate_says_so(client):
     response = client.get("/respuesta?corte=2026-10-29&empresa=AAPL")
     assert response.status_code == 404
-    assert "aún no hay una estimación guardada" in response.text
+    assert "Warren aún no ha calculado esta estimación" in response.text
 
 
 def test_the_page_reads_in_english_too(client):

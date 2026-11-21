@@ -62,6 +62,11 @@ def _day(raw: str | None) -> date | None:
     return date.fromisoformat(raw) if raw else None
 
 
+def _date(day: date, region) -> str:
+    """A date that never breaks across lines ("1 mar 2019"; design critic, part 3b)."""
+    return formatting.format_date(day, region).replace(" ", "\u00a0")
+
+
 def _fiscal_year(period: str) -> str:
     """ "FY2018" -> "2018"; "FY2017-FY2019" -> the two years for the range sentence."""
     return period.replace("FY", "")
@@ -72,10 +77,9 @@ def _sentence(
 ) -> tuple[str, list[str]]:
     """The cause on this company and date, and any further sentence; KeyError when the
     catalogue has no sentence for the code or its variant (the caller falls back)."""
-    d = lambda key: formatting.format_date(date.fromisoformat(p[key]), region)  # noqa: E731
+    d = lambda key: _date(date.fromisoformat(p[key]), region)  # noqa: E731
     n = lambda value: formatting.count(value, region)  # noqa: E731
-    money = lambda value: formatting.figure(value, "millions", region)  # noqa: E731
-    base = {"empresa": company, "fecha": formatting.format_date(corte, region)}
+    base = {"empresa": company, "fecha": _date(corte, region)}
     key = f"refusal.code.{code}"
     extra: list[str] = []
     if code == "as_of_too_early":
@@ -140,14 +144,12 @@ def _sentence(
             key += f".{p['divisor']}"
             first, _, last = _fiscal_year(p["period"]).partition("-")
             params["first"], params["last"] = first, last or first
-    elif code == "balance_item_negative":
-        params = {"period_end": d("period_end"), "value": money(p["value"]),
-                  "currency": p["currency"]}  # fmt: skip
-    elif code == "securities_exceed_current_assets":
-        key += ".with_cash" if p.get("with_cash") else ".alone"
-        params = {"period_end": d("period_end"), "securities": money(p["securities"]),
-                  "current_assets": money(p["current_assets"]),
-                  "currency": p["currency"]}  # fmt: skip
+    elif code in ("balance_item_negative", "securities_exceed_current_assets"):
+        # no amounts until the filing can be linked beside them (#509): a number on screen
+        # always shows its source (design critic, part 3b)
+        if code == "securities_exceed_current_assets":
+            key += ".with_cash" if p.get("with_cash") else ".alone"
+        params = {"period_end": d("period_end")}
     elif code == "market_year_end_missing":
         params = {"year": p["year"]}
     elif code == "no_base_value":
@@ -159,18 +161,22 @@ def _sentence(
 
 
 def _button(group: str, code: str | None, p: dict, latest: date, region, t) -> Button | None:
+    """The one button. A button that computes on another date always names that date, so the
+    student knows where it goes (student reviewer, part 3b)."""
+
+    def on(day: date, key: str) -> Button:
+        return Button(BUTTON_DATE, t(key, date=_date(day, region)), day)
+
     if group == "later_date":
         if code == "as_of_too_early":
-            return Button(BUTTON_DATE, t("refusal.group.later_date.button"),
-                          _day(p["supported_from"]))  # fmt: skip
+            return on(_day(p["supported_from"]), "refusal.button.try_date")
         if code == "erp_too_few_years":
             first = _day(p["first_as_of"])
             if first > latest:  # that date has not ended yet: no button (brief)
                 return None
-            label = t("refusal.button.try_date", date=formatting.format_date(first, region))
-            return Button(BUTTON_DATE, label, first)
+            return on(first, "refusal.button.try_date")
         # the newest ended day has the most history behind it
-        return Button(BUTTON_DATE, t("refusal.group.later_date.button"), latest)
+        return on(latest, "refusal.button.try_date")
     if group == "earlier_date":
         through = (
             _day(p.get("all_covered_through") or p.get("covered_through"))
@@ -179,7 +185,7 @@ def _button(group: str, code: str | None, p: dict, latest: date, region, t) -> B
         )
         if through is None:
             return None
-        return Button(BUTTON_DATE, t("refusal.group.earlier_date.button"), min(through, latest))
+        return on(min(through, latest), "refusal.button.use_date")
     if group == "no_value":
         return Button(BUTTON_WHY, t("refusal.group.no_value.button"))
     if group == "setup":
@@ -239,7 +245,7 @@ def refusal_view(
         # never a wrong cause (brief)
         group, code = GENERIC, None
         sentence = t("refusal.generic.sentence")
-    title_params = {"as_of": formatting.format_date(corte, region)}
+    title_params = {"as_of": _date(corte, region)}
     return RefusalView(
         group=group,
         code=code,

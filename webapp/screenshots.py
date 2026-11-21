@@ -64,9 +64,9 @@ PAGES = (
         "respuesta-supuesto",
         "/respuesta?corte=2026-10-30&empresa=AAPL&panel=supuesto-revenue_growth",
     ),
-    # part 3b: a date with no stored estimate offers Calcular; Calcular on a date the engine
-    # refuses lands on No se pudo (mockup state 5), and its "¿Por qué?" opens in place
-    ("sin-estimacion", EARLY),
+    # part 3b: a date with no stored estimate offers Calcular; a date the engine refuses lands
+    # on No se pudo (mockup state 5), and its "¿Por qué?" opens in place
+    ("sin-estimacion", "/respuesta?" + urlencode({"corte": "2026-10-21", "empresa": "WMT"})),
     ("no-se-pudo", "calc:" + EARLY),
     ("no-se-pudo-porque", "calc+why:" + EARLY),
 )
