@@ -28,6 +28,7 @@ from domains.analysis import financial_math as fm
 from domains.analysis import sources as src
 from domains.analysis.coded import (
     ENGINE_REFUSAL_CODES,
+    FILING_REFUSAL_CODES,
     ZERO_DIVISOR_ITEMS,
     ZERO_DIVISOR_PERIOD_KINDS,
     ZERO_DIVISOR_RATIOS,
@@ -156,12 +157,25 @@ class EngineError(ValueError):
     """A run can't be built: a required input is missing or the data breaks an invariant.
 
     A refusal a student's run can reach has a `code` from `coded.ENGINE_REFUSAL_CODES` and
-    `params` (backlog #376); every other one has `code` None and is text only."""
+    `params` (backlog #376); every other one has `code` None and is text only.
 
-    def __init__(self, text: str, code: str | None = None, params: dict | None = None):
+    `accessions` are the filings behind a refusal that names a filed figure (backlog #509): set
+    where the engine refuses, or for a missing line by `_build_inputs` from the run's history
+    (None until then), and turned into the `filings` param by `build_inputs`, which can look up
+    each filing's form and link. An attribute, not a param, so the callers that read `_balance`'s
+    or `_operating_nwc`'s params into chart notes see them unchanged."""
+
+    def __init__(
+        self,
+        text: str,
+        code: str | None = None,
+        params: dict | None = None,
+        accessions: list[str] | None = None,
+    ):
         super().__init__(text)
         assert code is None or code in ENGINE_REFUSAL_CODES, code
         self.text, self.code, self.params = text, code, dict(params or {})
+        self.accessions = accessions
 
     def coded(self) -> Coded | None:
         return None if self.code is None else Coded(self.code, self.params, self.text)
@@ -333,6 +347,19 @@ def where_params(where: str) -> dict:
     return {"fiscal_year": int(match[1]), "quarter": int(match[2]) if match[2] else None}
 
 
+def fact_accessions(*facts: Fact | None) -> list[str]:
+    """The filings behind facts, each once in order (backlog #509): a reported fact's own, a
+    derived one's inputs (Q4 = year − nine months has no filing of its own)."""
+    out: list[str] = []
+    for fact in facts:
+        if fact is None:
+            continue
+        for accession in [fact.accession_no] if fact.accession_no else fact.inputs:
+            if accession not in out:
+                out.append(accession)
+    return out
+
+
 @dataclass
 class History:
     quarterly: dict[tuple[str, int, str], Fact]
@@ -461,6 +488,53 @@ def build_inputs(
             newest = run_covered_through(conn, ticker)
             e.params["all_covered_through"] = newest.isoformat() if newest else None
         raise
+    except EngineError as e:
+        if e.code in FILING_REFUSAL_CODES:
+            e.params["filings"] = refusal_filings(conn, ticker, e.accessions or [])
+        raise
+
+
+def refusal_filings(conn: sqlite3.Connection, ticker: str, accessions: list[str]) -> list[dict]:
+    """Each accession as the #140 filing shape, `{accession_no, form, filed_at, url}`, the same
+    as a run source's filing (backlog #509). A filing's form and date never change, so reading
+    them adds nothing that was not public when the accession was read."""
+    from domains.analysis.reported import _Filings
+    from domains.analysis.sources import _filing
+
+    if not accessions:
+        return []
+    cik = conn.execute("SELECT cik FROM companies WHERE ticker = ?", (ticker.upper(),)).fetchone()[
+        "cik"
+    ]
+    filings = _Filings(conn, cik)
+    return [_filing(filings.get(a)) for a in accessions]
+
+
+def period_accessions(history: History, code: str, params: dict) -> list[str]:
+    """The newest filing Warren read for a missing line's period (backlog #509): the balance
+    sheet's date (`period_end`), else the fiscal year or quarter (`fiscal_year`, `quarter`), among
+    the reported facts of the run's point-in-time history (a derived quarter has no filing of its
+    own). A missing balance line looks among balances, a missing flow line among flows, so the
+    filing is one whose statement should have had the line (a 10-K's income statement covers three
+    years, its balance sheet two). Newest by filing date, then accession number; an empty list
+    when none was read."""
+    if params.get("fiscal_year") is None:
+        day = date.fromisoformat(params["period_end"])
+        facts = [f for fs in history.instants.values() for f in fs if f.period_end == day]
+    elif params["quarter"] is None:
+        facts = [f for (_n, y), f in history.annual.items() if y == params["fiscal_year"]]
+    else:
+        period = f"Q{params['quarter']}"
+        facts = [
+            f
+            for (_n, y, p), f in history.quarterly.items()
+            if (y, p) == (params["fiscal_year"], period)
+        ]
+    balance = code != "flow_item_not_reported"
+    reported = [f for f in facts if f.accession_no and (f.period_start is None) == balance]
+    if not reported:
+        return []
+    return [max(reported, key=lambda f: (f.filed_at, f.accession_no)).accession_no]
 
 
 def _build_inputs(
@@ -508,14 +582,19 @@ def _build_inputs(
     result.notes += coded_warnings(caught)  # one per text
     pass_on(caught)  # a library's warning goes to the log, never into the notes (#196)
 
-    last_year, last_quarter, base_date = _last_actual_quarter(history, result)
-    fiscal_years = _history_years(history, last_year, result)
-    _revenue_seed(history, last_year, last_quarter, result)
-    _history_rows(history, fiscal_years, result)
-    balance_date = _balance(history, base_date, result)
-    price = _market(conn, history, result, choices, balance_date)
-    _cost_of_debt(history, fiscal_years, result)
-    _drivers(history, comparisons, fiscal_years, last_year, last_quarter, result)
+    try:
+        last_year, last_quarter, base_date = _last_actual_quarter(history, result)
+        fiscal_years = _history_years(history, last_year, result)
+        _revenue_seed(history, last_year, last_quarter, result)
+        _history_rows(history, fiscal_years, result)
+        balance_date = _balance(history, base_date, result)
+        price = _market(conn, history, result, choices, balance_date)
+        _cost_of_debt(history, fiscal_years, result)
+        _drivers(history, comparisons, fiscal_years, last_year, last_quarter, result)
+    except EngineError as e:
+        if e.code in FILING_REFUSAL_CODES and e.accessions is None:
+            e.accessions = period_accessions(history, e.code, e.params)  # a missing line (#509)
+        raise
     if changes:
         _meaning_notes(result, changes, filing_dates(conn, company["cik"], as_of))
     last_seed = quarter_label(last_year, last_quarter)
@@ -1193,6 +1272,7 @@ def _balance(history: History, base_date: date, result: EngineResult) -> date:
             raise EngineError(
                 f"{result.ticker}: {trace(fact)} is negative",
                 code="balance_item_negative",
+                accessions=fact_accessions(fact),
                 params={
                     "ticker": result.ticker,
                     "item": item,
@@ -1258,12 +1338,14 @@ def _balance(history: History, base_date: date, result: EngineResult) -> date:
     short_term_investments = val("marketable_securities_current") + val(
         "other_short_term_investments"
     )
+    securities = (facts["marketable_securities_current"], facts["other_short_term_investments"])
     if short_term_investments > val("current_assets"):
         raise EngineError(
             f"{result.ticker}: current securities ({short_term_investments:,.0f}) exceed current "
             f"assets ({val('current_assets'):,.0f}) at {balance_date}: a tag picks up the wrong "
             "measure",
             code="securities_exceed_current_assets",
+            accessions=fact_accessions(facts["current_assets"], *securities),
             params={
                 "ticker": result.ticker,
                 "period_end": balance_date.isoformat(),
@@ -1277,6 +1359,7 @@ def _balance(history: History, base_date: date, result: EngineResult) -> date:
         raise EngineError(
             f"{result.ticker}: cash and current securities exceed current assets at {balance_date}",
             code="securities_exceed_current_assets",
+            accessions=fact_accessions(facts["current_assets"], facts["cash"], *securities),
             params={
                 "ticker": result.ticker,
                 "period_end": balance_date.isoformat(),
@@ -1450,19 +1533,24 @@ def _shares(
         method = f"fallback: weighted diluted shares {trace(counted)}"
     else:
         if cover_filed or any(n.code == "shares_not_positive" for n in result.notes):
+            skipped = [n.params for n in result.notes if n.code == "shares_not_positive"]
             raise EngineError(
                 f"{result.ticker}: no share count above zero reported",
                 code="no_share_count",
+                accessions=list(
+                    dict.fromkeys(s["accession_no"] for s in skipped if s["accession_no"])
+                ),
                 params={
                     "ticker": result.ticker,
                     "reason": "none_above_zero",
                     # the counts left out (their notes' params), since a refused run stores none
-                    "skipped": [n.params for n in result.notes if n.code == "shares_not_positive"],
+                    "skipped": skipped,
                 },
             )
         raise EngineError(
             f"{result.ticker}: neither shares_outstanding nor diluted_shares reported",
             code="no_share_count",
+            accessions=[],
             params={"ticker": result.ticker, "reason": "none_reported"},
         )
     if factor != 1:
@@ -1734,6 +1822,7 @@ def _nonzero(
         raise EngineError(
             f"{result.ticker}: {divisor_item} is zero in {period}, so {ratio} can't be computed",
             code="zero_divisor",
+            accessions=fact_accessions(fact),
             params={
                 "ticker": result.ticker,
                 "ratio": ratio,
