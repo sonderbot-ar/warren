@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{# No stored estimate for the company and date (F2 Step 4b, part 3b). A page view never writes,
+   so the page offers Calcular, which posts, shows Calculando and runs a baseline. #}
+{% block title %}{{ t("no_run.title") }} · {{ t("app.name") }}{% endblock %}
+{% block main_class %}{{ "solo" }}{% endblock %}
+{% block content %}
+  <div class="pane">
+    <h1>{{ t("no_run.title") }}</h1>
+    <p class="p">{{ t("no_run.body", company=company, date=corte_text) }}</p>
+    <div class="row">
+      <form action="/calcular" method="post">
+        {% for name, value in calculate_fields.items() %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+        <button class="btn pri" type="submit">{{ t("no_run.button") }}</button>
+      </form>
+      <span class="muted">{{ t("refusal.calc_hint") }}</span>
+    </div>
+  </div>
+{% endblock %}

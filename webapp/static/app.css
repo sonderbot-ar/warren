@@ -1240,3 +1240,33 @@ main.solo {
     opacity: 0.5;
   }
 }
+
+/* -- No se pudo (F2 Step 4b, part 3b): the refusal, its lesson in place ----------------------- */
+.pane.err h1 {
+  color: var(--color-fg);
+}
+
+.why {
+  margin: var(--space-2) 0 var(--space-3);
+}
+
+.why summary {
+  cursor: pointer;
+  color: var(--color-accent);
+  min-height: var(--target-min);
+  display: inline-flex;
+  align-items: center;
+}
+
+.why summary.btn {
+  color: var(--color-accent-fg);
+}
+
+.why summary:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.why[open] summary {
+  margin-bottom: var(--space-2);
+}

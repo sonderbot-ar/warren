@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{# No se pudo (F2 Step 4b, part 3b; mockup state "no-se-pudo"): why the engine refused this
+   company and date, in the brief's order ("When an estimate can't be built"): a title that names
+   what the student can do, one sentence with the cause, one button, and "¿Por qué?" under them.
+   The lesson opens in place (a disclosure), so it works without JavaScript. #}
+{% block title %}{{ refusal.title }} · {{ t("app.name") }}{% endblock %}
+{% block main_class %}{{ "solo" }}{% endblock %}
+{% block content %}
+  {% include "_chips.html" %}
+  <div class="pane err" role="alert" data-group="{{ refusal.group }}"{% if refusal.code %} data-code="{{ refusal.code }}"{% endif %}>
+    <h1>{{ refusal.title }}</h1>
+    <p class="p">{{ refusal.sentence }}</p>
+    {% for line in refusal.extra %}<p class="p">{{ line }}</p>{% endfor %}
+    {% if refusal.setup_note %}<p class="p">{{ refusal.setup_note }}</p>{% endif %}
+    {% if refusal.lesson %}
+    <details class="why"{% if refusal.button and refusal.button.kind == "why" %} data-button{% endif %}>
+      <summary{% if refusal.button and refusal.button.kind == "why" %} class="btn pri"{% endif %}>{{ refusal.button.label if refusal.button and refusal.button.kind == "why" else t("refusal.why") }}</summary>
+      <p class="p">{{ refusal.lesson.why }}</p>
+      {% if refusal.lesson.source %}<p class="src">{{ t("refusal.source_label") }} {{ refusal.lesson.source }}</p>{% endif %}
+    </details>
+    {% endif %}
+    {% if button_fields %}
+    <div class="row">
+      <form action="/calcular" method="post">
+        {% for name, value in button_fields.items() %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+        <button class="btn pri" type="submit">{{ refusal.button.label }}</button>
+      </form>
+      <span class="muted">{{ t("refusal.calc_hint") }}</span>
+    </div>
+    {% elif menus_url %}
+    <div class="row"><a class="btn pri" href="{{ menus_url }}">{{ refusal.button.label }}</a></div>
+    {% endif %}
+  </div>
+{% endblock %}

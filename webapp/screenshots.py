@@ -33,6 +33,13 @@ Q_CHANGE = (
 )
 
 
+Q_EARLY = (
+    "Con lo que se sabía el 15 de enero de 2018, ¿cuánto iba a vender Apple en los siguientes "
+    "cuatro trimestres?"
+)
+EARLY = "/respuesta?" + urlencode({"corte": "2018-01-15", "empresa": "AAPL", "pregunta": Q_EARLY})
+
+
 def _lectura(question: str, **extra: str) -> str:
     return "/lectura?" + urlencode({"corte": FIXED_CORTE, "pregunta": question, **extra})
 
@@ -57,6 +64,11 @@ PAGES = (
         "respuesta-supuesto",
         "/respuesta?corte=2026-10-30&empresa=AAPL&panel=supuesto-revenue_growth",
     ),
+    # part 3b: a date with no stored estimate offers Calcular; Calcular on a date the engine
+    # refuses lands on No se pudo (mockup state 5), and its "¿Por qué?" opens in place
+    ("sin-estimacion", EARLY),
+    ("no-se-pudo", "calc:" + EARLY),
+    ("no-se-pudo-porque", "calc+why:" + EARLY),
 )
 
 
@@ -154,6 +166,19 @@ def capture(out: Path, db_path: Path | None = None, only: str | None = None) -> 
                             shot.wait_for_selector('[aria-busy="true"]')
                             shot.screenshot(path=path, full_page=True)
                             shot.close()
+                        saved.append(path)
+                        continue
+                    if address.startswith("calc"):  # Calcular posts, then htmx follows
+                        how, _, address = address.partition(":")
+                        page.goto(base + address)
+                        # the same app keeps its refusal, so later shots land on it directly
+                        if page.locator('[role="alert"]').count() == 0:
+                            page.get_by_role("button", name="Calcular").click()
+                        page.wait_for_selector('[role="alert"], .answer:not([hx-post])')
+                        page.wait_for_load_state("networkidle")
+                        if how == "calc+why":
+                            page.locator("details.why summary").click()
+                        page.screenshot(path=path, full_page=True)
                         saved.append(path)
                         continue
                     page.goto(base + address)

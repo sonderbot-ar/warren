@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from collections.abc import Callable
 from datetime import UTC, date, datetime
 from functools import partial
@@ -28,12 +29,17 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
+from domains.analysis.coded import Coded, refusal
+from domains.analysis.math_engine import EngineError
+from domains.analysis.runs import run_baseline
+from domains.market.store import MarketDataError
 from shared_kernel.calendar import last_ended_day
 from shared_kernel.config import DB_PATH
 from shared_kernel.database import get_db_connection
 from webapp import cells, formatting, question
 from webapp.answer import NoRun, answer_view, bundle_for_run, find_run
 from webapp.database import schema_status
+from webapp.refusal import BUTTON_DATE, BUTTON_MENUS, refusal_view
 from webapp.text import translate
 
 HERE = Path(__file__).parent
@@ -70,12 +76,15 @@ def create_app(
     clock: Callable[[], datetime] = _utc_now,
     bundle_loader: Callable[[str, date], dict] | None = None,
     reader: Callable[[str, date], object] | None = None,
+    runner: Callable[[str, date, date], str] | None = None,
 ) -> FastAPI:
     """The app. `db_path` defaults to the engine's database; `clock` is injectable for tests,
     and so are `bundle_loader(ticker, corte)`, the engine's answer for brief Q5 (`answer.py`),
     and `reader(question, last_ended_day)`, the question reader behind the card (Claude Haiku,
     Decision 9; `question.Reader`). Tests and screenshots pass `question.fixed_reader`, so no
-    question leaves the machine."""
+    question leaves the machine. `runner(ticker, corte, today)` builds and stores a baseline
+    when none is stored for the date (part 3b; the engine's `run_baseline`), and raises the
+    engine's coded refusal when it can't; tests pass a fake one."""
     db = Path(db_path) if db_path is not None else DB_PATH
     read_question = reader or question.Reader(_claude_backend).read
 
@@ -97,6 +106,49 @@ def create_app(
         bundle = engine_or_test(ticker, corte)
         loaded.add((ticker, corte))
         return bundle
+
+    def engine_run(ticker: str, corte: date, today: date) -> str:
+        with get_db_connection(db) as conn:
+            return run_baseline(conn, ticker, corte, today=today)
+
+    def no_runner(ticker: str, corte: date, today: date) -> str:
+        raise NoRun(f"{ticker} {corte}")  # a test's answers with no runner: never the real DB
+
+    run_or_test = runner or (engine_run if bundle_loader is None else no_runner)
+    # The last refusal for a company and date, so the answer's address can say why after
+    # Calculando sends the page there. A refused run stores nothing, so this lives only in the
+    # server's memory; any new Calcular asks the engine again (data may have been loaded since).
+    refused: dict[tuple[str, date], Coded | None] = {}
+    run_locks: dict[tuple[str, date], threading.Lock] = {}
+    locks_guard = threading.Lock()
+
+    def lock_for(key: tuple[str, date]) -> threading.Lock:
+        with locks_guard:
+            return run_locks.setdefault(key, threading.Lock())
+
+    def work_out(ticker: str, corte: date) -> None:
+        """The answer for a company and date: the stored baseline, or a new one built now when
+        none is stored (the app writes only here, after a student's Calcular). One run at a time
+        per company and date, so a double click never stores two."""
+        key = (ticker, corte)
+        refused.pop(key, None)
+        try:
+            bundle_for(ticker, corte)
+            return
+        except NoRun:
+            pass
+        with lock_for(key):
+            try:  # another request may have built it while this one waited
+                bundle_for(ticker, corte)
+                return
+            except NoRun:
+                pass
+            try:
+                run_or_test(ticker, corte, latest_corte())
+            except (EngineError, MarketDataError) as exc:
+                refused[key] = refusal(exc)
+                return
+            bundle_for(ticker, corte)
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
@@ -219,15 +271,21 @@ def create_app(
 
     @app.exception_handler(NoRun)
     def _no_run(request: Request, exc: NoRun) -> HTMLResponse:
-        # Part 3 of Step 4b builds the refusal state ("No se pudo") and runs on demand; until
-        # then a date with no stored estimate says so plainly.
+        # No stored estimate for the date: a page view never writes, so the page offers
+        # Calcular, which posts and runs one (part 3b).
+        ticker = request.query_params.get("empresa", "").upper()
+        corte = request.query_params.get("corte", "")
+        text = question.clean_question(request.query_params.get("pregunta"))
+        language = region_of(request).language
         return render(
             request,
-            "error.html",
+            "sin_estimacion.html",
             {
-                "title_key": "error.no_run.title",
-                "body_key": "error.no_run.body",
-                "retry_url": "/?" + urlencode({"corte": request.query_params.get("corte", "")}),
+                "corte": date.fromisoformat(corte),
+                "question": text or None,
+                "company": translate(language, f"company.{ticker}"),
+                "corte_text": formatting.format_date(date.fromisoformat(corte), region_of(request)),
+                "calculate_fields": {"corte": corte, "empresa": ticker, "pregunta": text},
             },
             status_code=404,
         )
@@ -389,12 +447,13 @@ def create_app(
 
     @app.post("/calcular/listo")
     async def calcular_listo(request: Request) -> Response:
-        """Works the answer out (htmx, from Calculando), then sends the page to it. A date with
-        no stored estimate goes to the answer's address too, which says so."""
+        """Works the answer out (htmx, from Calculando), running a baseline when none is stored
+        for the date, then sends the page to the answer's address, which shows the answer or
+        why the engine refused it (No se pudo)."""
         corte, ticker, text = await calculate_params(request)
         try:
-            await run_in_threadpool(bundle_for, ticker, corte)
-        except NoRun:
+            await run_in_threadpool(work_out, ticker, corte)
+        except NoRun:  # nothing stored or built: the address says so and offers Calcular
             pass
         return Response(
             status_code=204, headers={"HX-Redirect": answer_address(corte, ticker, text)}
@@ -525,6 +584,8 @@ def create_app(
         if isinstance(params, RedirectResponse):
             return params
         corte, ticker = params
+        if (ticker, corte) in refused:
+            return no_se_pudo(request, corte, ticker)
         view, years, context = answer_context(request, corte, ticker)
         figura = request.query_params.get("panel")
         if figura is not None:
@@ -535,6 +596,36 @@ def create_app(
             context["open_figure"] = figura
             context["formula"] = view.figures[figura].formula
         return render(request, "respuesta.html", context)
+
+    def no_se_pudo(request: Request, corte: date, ticker: str) -> HTMLResponse:
+        """Why the engine refused this company and date (brief, "When an estimate can't be
+        built"): the group's title, the cause, one button, and the lesson under it."""
+        region = region_of(request)
+        t = partial(translate, region.language)
+        company = t(f"company.{ticker}")
+        view = refusal_view(refused[(ticker, corte)], company, corte, latest_corte(), region, t)
+        text = question.clean_question(request.query_params.get("pregunta"))
+        fields = {"corte": corte.isoformat(), "empresa": ticker, "pregunta": text}
+        button_fields = None
+        menus_url = None
+        if view.button and view.button.kind == BUTTON_DATE:
+            button_fields = {**fields, "corte": view.button.corte.isoformat()}
+        elif view.button and view.button.kind == BUTTON_MENUS:
+            menus_url = (
+                page_url("/lectura", **fields, menus="1")
+                if text
+                else page_url("/", corte=corte.isoformat())
+            )
+        context = {
+            "corte": corte,
+            "question": text or None,
+            "company": company,
+            "change_url": page_url("/lectura", **fields) if text else None,
+            "refusal": view,
+            "button_fields": button_fields,
+            "menus_url": menus_url,
+        }
+        return render(request, "no_se_pudo.html", context)
 
     @app.get("/respuesta/fragmentos/celdas", response_class=HTMLResponse)
     def respuesta_celdas(request: Request) -> Response:
