@@ -46,6 +46,10 @@ The brief ("When an estimate can't be built") says a refusal that names a filed 
 
 `domains/analysis/coded.py`, `domains/analysis/math_engine.py`, `tests/analysis/test_refusal_codes.py`, `docs/product/brief.md`, this doc; on merge `docs/versions.md`, `docs/team-sync.md`, `docs/build-plan.md` is unchanged (a backlog item).
 
+## Real check (Step 1)
+
+Snapshot of nov.21.2026 (`warren-20261121T001838Z`), today 2026-11-20: 368 asks (the eight companies, the 15th of every other month from 2019-03 to 2026-11) give no refusal at all, so no real run reaches the six codes today. Forced on the real data inside a rolled-back transaction: Apple's non-current debt negated, as of 2024-06-14, refuses with `balance_item_negative` at 2024-03-30 and `filings` = the 10-Q `0000320193-24-000069` filed 2024-05-03, `https://www.sec.gov/Archives/edgar/data/320193/000032019324000069/`. The tests are the rest of the evidence.
+
 ## Review notes
 
 - *Explainer* (15 points): the doc now says the constant is new, lists the raise sites that set the accessions, says they never enter `params`, defines "newest" and the tie-break, says which key each code uses and what counts as reported, names `sources._filing`, says what the point-in-time test guards, gives the exit when no real refusal is reachable, and splits the brief into Step 2. Question numbers (Q3, Q5, Q8) are the brief's, as in every engine doc.
