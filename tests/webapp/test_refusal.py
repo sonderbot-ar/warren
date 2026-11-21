@@ -397,7 +397,8 @@ def test_a_page_view_never_runs_the_engine_and_offers_calcular(client, engine):
     assert page.status_code == 404 and engine.runs == []
     assert ES["no_run.title"] in page.text and 'action="/calcular"' in page.text
     assert (
-        "Warren puede calcularla ahora con los reportes de Apple publicados hasta el 3\u00a0nov\u00a02026"
+        "Warren puede calcularla ahora con los reportes de Apple publicados hasta el "
+        "3\u00a0nov\u00a02026"
         in page.text
     )
 
