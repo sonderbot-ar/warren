@@ -218,10 +218,13 @@ class ErrorPair:
 
 
 def _finite_miss(row, item: str, value) -> float:
-    """A stored ok miss, refused when it is empty (SQLite keeps a NaN as NULL) or not finite."""
+    """A stored ok miss, refused when it is empty (SQLite keeps a NaN as NULL) or not finite.
+
+    The refusal's `value` param is null when empty and the float's text ("inf", "-inf")
+    otherwise, so the params stay strict JSON (backlog #519)."""
     if value is None or not math.isfinite(value):
         params = {"origin_id": row["origin_id"], "horizon": row["horizon"], "item": item,
-                  "value": value}  # fmt: skip
+                  "value": None if value is None else str(value)}  # fmt: skip
         raise RangeError(
             f"stored {item} miss of {row['origin_id']} at horizon {row['horizon']} is marked ok "
             f"but is {'empty' if value is None else value}: the stored misses are damaged",

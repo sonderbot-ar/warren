@@ -2,6 +2,7 @@
 or not finite is refused by `ranges.load_pairs` with a coded error, never passed on to the range
 maths; a clean store loads exactly as before."""
 
+import json
 from datetime import date
 
 import pytest
@@ -48,8 +49,8 @@ def test_a_clean_store_loads_every_ok_pair_as_stored(company):
         ("revenue", float("nan"), None),
         ("ebit", None, None),
         ("ebit", float("nan"), None),
-        ("revenue", float("inf"), float("inf")),
-        ("ebit", float("-inf"), float("-inf")),
+        ("revenue", float("inf"), "inf"),
+        ("ebit", float("-inf"), "-inf"),
     ],
 )
 def test_an_empty_or_infinite_ok_miss_is_refused_with_its_row_named(company, item, stored, seen):
@@ -91,3 +92,14 @@ def test_a_range_error_without_a_code_is_text_only_and_unknown_codes_are_refused
     assert R.RangeError("plain").coded() is None
     with pytest.raises(RuntimeError):
         R.RangeError("x", code="not_a_code")
+
+
+@pytest.mark.parametrize("item, stored", [("revenue", None), ("ebit", float("inf")),
+                                          ("revenue", float("-inf"))])  # fmt: skip
+def test_the_refusal_params_are_strict_json(company, item, stored):
+    """Backlog #519: an infinite miss is carried as text, never as a float JSON can't hold."""
+    _store(company)
+    _set(company, item, stored, horizon=1)
+    with pytest.raises(R.RangeError) as e:
+        R.load_pairs(company)
+    assert json.loads(json.dumps(e.value.params, allow_nan=False)) == e.value.params
