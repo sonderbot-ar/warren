@@ -119,7 +119,7 @@ def test_a_plain_refusal_is_text_only(cls):
 
 @pytest.mark.parametrize("cls", [EngineError, MarketDataError])
 def test_an_uncatalogued_code_is_refused(cls):
-    with pytest.raises(AssertionError):
+    with pytest.raises(RuntimeError, match="unknown engine refusal code"):  # backlog #519
         cls("text", code="not_a_code")
 
 
@@ -136,6 +136,9 @@ def test_refusal_reads_any_coded_exception():
 def test_where_params_split_the_period():
     assert where_params("FY2019") == {"fiscal_year": 2019, "quarter": None}
     assert where_params("FY2019 Q3") == {"fiscal_year": 2019, "quarter": 3}
+    for bad in ("2019", "FY2019 Q5", "FY2019Q3"):  # a RuntimeError, kept by python -O (#522)
+        with pytest.raises(RuntimeError, match="unreadable refusal period"):
+            where_params(bad)
 
 
 # -- each refusal on Test Corp ---------------------------------------------------------------
@@ -540,12 +543,17 @@ def test_ratio_divides_or_refuses_a_zero_divisor():
 def test_zero_divisor_params_come_from_closed_sets():
     from domains.analysis.math_engine import _nonzero
 
-    for bad in (
-        ("gross_margin", "revenue", "FY2018", "year"),
-        ("tax_rate", "ebit", "FY2018", "year"),
-        ("tax_rate", "pretax", "FY2018", "decade"),
+    for bad, match in (
+        (
+            ("gross_margin", "revenue", "FY2018", "year"),
+            "unknown zero_divisor ratio 'gross_margin'",
+        ),
+        (("tax_rate", "ebit", "FY2018", "year"), "unknown zero_divisor item 'ebit'"),
+        (("tax_rate", "pretax", "FY2018", "decade"), "unknown zero_divisor period kind 'decade'"),
+        ((None, "pretax", "FY2018", "years_sum"), "unknown zero_divisor ratio None"),
     ):
-        with pytest.raises(AssertionError):
+        # a RuntimeError, not an assert, so python -O keeps it (backlog #522)
+        with pytest.raises(RuntimeError, match=match):
             _nonzero(_Result(), 1.0, *bad)
 
 
@@ -586,10 +594,12 @@ def test_a_zero_derived_quarter_names_the_filings_it_comes_from(make_company):
 def test_one_quarter_or_year_needs_its_fact_and_a_sum_takes_none():
     from domains.analysis.math_engine import _nonzero
 
-    with pytest.raises(AssertionError):
+    with pytest.raises(RuntimeError, match="'year' with fact=False"):
         _nonzero(_Result(), 0.0, "nwc_pct", "revenue", "FY2018", "year")
-    with pytest.raises(AssertionError):
+    with pytest.raises(RuntimeError, match="'quarter' with fact=False"):
         _nonzero(_Result(), 0.0, "nwc_pct", "revenue", "FY2018", "quarter")
+    with pytest.raises(RuntimeError, match="'years_sum' with fact=True"):
+        _nonzero(_Result(), 0.0, "nwc_pct", "revenue", "FY2018", "years_sum", object())
 
 
 # -- refusals that name a filing carry its link (backlog #509) ---------------------------------

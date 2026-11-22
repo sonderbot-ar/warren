@@ -11,6 +11,7 @@ Errors (financial_math): revenue as ln(actual / forecast); EBIT in margin points
 """
 
 import hashlib
+import math
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -18,6 +19,7 @@ from datetime import UTC, date, datetime
 import numpy as np
 
 from domains.analysis import financial_math as fm
+from domains.analysis.coded import RANGE_REFUSAL_CODES, Coded, require_code
 from domains.analysis.montecarlo import DEFAULT_SAMPLES
 from domains.analysis.runs import code_version
 from domains.evaluation.cases import Case
@@ -40,7 +42,18 @@ PERCENTILES = (10, 50, 90)
 
 
 class RangeError(ValueError):
-    """A range that can't be built or a build that doesn't reproduce."""
+    """A range that can't be built or a build that doesn't reproduce.
+
+    A refusal the app explains has a `code` from `coded.RANGE_REFUSAL_CODES` and `params`
+    (backlog #495); every other one has `code` None and is text only."""
+
+    def __init__(self, text: str, code: str | None = None, params: dict | None = None):
+        super().__init__(text)
+        require_code(code, RANGE_REFUSAL_CODES, "range refusal")
+        self.text, self.code, self.params = text, code, dict(params or {})
+
+    def coded(self) -> Coded | None:
+        return None if self.code is None else Coded(self.code, self.params, self.text)
 
 
 # -- origins and their errors ------------------------------------------------------------------
@@ -203,8 +216,28 @@ class ErrorPair:
     ebit: float
 
 
+def _finite_miss(row, item: str, value) -> float:
+    """A stored ok miss, refused when it is empty (SQLite keeps a NaN as NULL) or not finite.
+
+    The refusal's `value` param is null when empty and the float's text ("inf", "-inf")
+    otherwise, so the params stay strict JSON (backlog #519)."""
+    if value is None or not math.isfinite(value):
+        params = {"origin_id": row["origin_id"], "horizon": row["horizon"], "item": item,
+                  "value": None if value is None else str(value)}  # fmt: skip
+        raise RangeError(
+            f"stored {item} miss of {row['origin_id']} at horizon {row['horizon']} is marked ok "
+            f"but is {'empty' if value is None else value}: the stored misses are damaged",
+            code="stored_miss_not_finite",
+            params=params,
+        )
+    return value
+
+
 def load_pairs(conn: sqlite3.Connection) -> list[ErrorPair]:
-    """Every quarter whose revenue and EBIT errors are both ok, in a fixed order."""
+    """Every quarter whose revenue and EBIT errors are both ok, in a fixed order.
+
+    A miss marked ok that is empty or not finite is refused (`stored_miss_not_finite`, backlog
+    #495) rather than passed on to the range maths; the first one in this order is named."""
     rows = conn.execute(
         "SELECT r.origin_id, r.ticker, r.horizon, r.period, r.actual_filed_at, "
         "r.error AS rev, e.error AS ebit, e.actual_filed_at AS ebit_filed "
@@ -218,8 +251,8 @@ def load_pairs(conn: sqlite3.Connection) -> list[ErrorPair]:
     for r in rows:
         filed = max(date.fromisoformat(r["actual_filed_at"]), date.fromisoformat(r["ebit_filed"]))
         out.append(
-            ErrorPair(r["origin_id"], r["ticker"], r["horizon"], r["period"], filed, r["rev"],
-                      r["ebit"])
+            ErrorPair(r["origin_id"], r["ticker"], r["horizon"], r["period"], filed,
+                      _finite_miss(r, "revenue", r["rev"]), _finite_miss(r, "ebit", r["ebit"]))
         )  # fmt: skip
     return out
 
