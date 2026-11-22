@@ -347,7 +347,8 @@ def where_params(where: str) -> dict:
     """A refusal's period as params (backlog #376): "FY2020" or "FY2020 Q3" gives `fiscal_year`
     and `quarter` (None for a year), so the app never translates the English label."""
     match = re.fullmatch(r"FY(\d{4})(?: Q([1-4]))?", where)
-    assert match, where
+    if not match:  # a slip in Warren's code, kept under python -O (backlog #522)
+        raise RuntimeError(f"unreadable refusal period {where!r}")
     return {"fiscal_year": int(match[1]), "quarter": int(match[2]) if match[2] else None}
 
 
@@ -1810,10 +1811,18 @@ def _nonzero(
     the filing that gives it (`accession_no`; None for a figure Warren derived, whose filings are
     `inputs`), so the app can show the date and link the report (backlog #381). A sum has no
     single filing and takes none."""
-    assert ratio in ZERO_DIVISOR_RATIOS, ratio
-    assert divisor_item in ZERO_DIVISOR_ITEMS, divisor_item
-    assert period_kind in ZERO_DIVISOR_PERIOD_KINDS, period_kind
-    assert (fact is not None) == (period_kind in ("quarter", "year")), period_kind
+    # closed sets, checked with a RuntimeError that python -O keeps (backlog #522); unlike
+    # `require_code`, None is refused too: every one of these params is required
+    for kind, value, allowed in (
+        ("ratio", ratio, ZERO_DIVISOR_RATIOS),
+        ("item", divisor_item, ZERO_DIVISOR_ITEMS),
+        ("period kind", period_kind, ZERO_DIVISOR_PERIOD_KINDS),
+    ):
+        if value not in allowed:
+            raise RuntimeError(f"unknown zero_divisor {kind} {value!r}")
+    if (fact is not None) != (period_kind in ("quarter", "year")):
+        # one quarter or year names its filing, a sum names none
+        raise RuntimeError(f"zero_divisor period kind {period_kind!r} with fact={fact is not None}")
     if divisor == 0:
         filing = (
             {
