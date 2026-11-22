@@ -326,7 +326,7 @@ def test_a_copy_without_the_companies_column_reads_as_unscoped(tmp_path):
     assert rows[0].companies == frozenset()
 
 
-def test_the_shipped_maps_scope_only_caterpillars_pgs_coca_colas_walmarts_and_microsofts_rows():
+def test_the_shipped_maps_scope_only_the_rows_checked_for_each_company():
     scoped = [r for r in load_concept_map() if r.companies]
     assert [(r.canonical_name, r.tag, r.priority, r.companies) for r in scoped] == [
         (
@@ -344,6 +344,11 @@ def test_the_shipped_maps_scope_only_caterpillars_pgs_coca_colas_walmarts_and_mi
         # Microsoft's too, summed with its cash interest paid on debt
         ("finance_lease_interest", "FinanceLeaseInterestExpense", 1, {"MSFT", "WMT"}),
         ("interest_paid_on_debt", "InterestPaid", 1, {"MSFT"}),
+        # backlog #533: ExxonMobil's interest capitalised, under its two tags, and its interest
+        # expense that is not on debt
+        ("interest_capitalized", "InterestPaidCapitalized", 1, {"XOM"}),
+        ("interest_capitalized", "InterestCostsCapitalized", 2, {"XOM"}),
+        ("interest_not_on_debt", "InterestExpenseOther", 1, {"XOM"}),
     ]
 
 

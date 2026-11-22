@@ -621,13 +621,13 @@ def test_loans_and_notes_payable_are_stored_for_ko_only(tag, ticker):
     assert other.skipped["company_scope"] == 1
 
 
-def _scoped_tag_kept(tag, item, scope, ticker):
+def _scoped_tag_kept(tag, item, scope, ticker, priority=1):
     """Whether ingest keeps the shipped row of `tag` for `ticker`, after checking the row."""
     from domains.fundamentals.concepts import load_concept_map
     from domains.fundamentals.ingest import IngestResult, extract_facts
 
     [row] = [r for r in load_concept_map() if r.xbrl_concept == f"us-gaap:{tag}"]
-    assert (row.canonical_name, row.priority, row.companies) == (item, 1, scope)
+    assert (row.canonical_name, row.priority, row.companies) == (item, priority, scope)
     assert (row.period_type, row.gate) == ("duration", "optional")
     facts = FakeEdgar().facts
     revenue = facts["facts"]["us-gaap"]["Revenues"]["units"]["USD"][0]
@@ -660,3 +660,24 @@ def test_interest_paid_on_debt_is_stored_for_microsoft_only(ticker):
     capitalising; another company's can hold lease interest or be net of capitalised interest."""
     kept = _scoped_tag_kept("InterestPaid", "interest_paid_on_debt", {"MSFT"}, ticker)
     assert kept == (ticker == "MSFT")
+
+
+@pytest.mark.parametrize("ticker", ["XOM", "MSFT", "WMT", "JNJ", "AAPL"])
+@pytest.mark.parametrize(
+    ("tag", "priority"), [("InterestPaidCapitalized", 1), ("InterestCostsCapitalized", 2)]
+)
+def test_interest_capitalized_is_stored_for_exxon_only(tag, priority, ticker):
+    """Backlog #533: ExxonMobil's interest expense is net of the interest it capitalises, which it
+    files under these two tags; another company's figure must be checked first (J&J and Apple
+    file one too)."""
+    kept = _scoped_tag_kept(tag, "interest_capitalized", {"XOM"}, ticker, priority)
+    assert kept == (ticker == "XOM")
+
+
+@pytest.mark.parametrize("ticker", ["XOM", "MSFT", "WMT", "AAPL"])
+def test_interest_not_on_debt_is_stored_for_exxon_only(ticker):
+    """Backlog #533 (analyst): ExxonMobil's interest expense holds non-debt-related interest,
+    which it files as `InterestExpenseOther`; another company's "other" interest can mean
+    anything."""
+    kept = _scoped_tag_kept("InterestExpenseOther", "interest_not_on_debt", {"XOM"}, ticker)
+    assert kept == (ticker == "XOM")
