@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/527 (from the #497 analyst review) · Branch `backlog-527-msft-capitalised-interest` · Version v0.10.31 when merged.
 
-Status: In progress (nov.22.2026). Steps 0 and 1 done; Step 2 (real data) next.
+Status: In progress (nov.22.2026). Steps 0 to 2 done; PR review next.
 
 ## Problem
 
@@ -21,7 +21,7 @@ So the debt part of the line has collapsed while the debt has not. Interest expe
 | 2025 | 2,385 | 1,417 | 968 | 1,600 |
 | 2026 | 3,051 | 2,547 | 504 | 1,500 |
 
-(Millions of US$, the 10-Ks' annual figures, company facts nov.22.2026.) Microsoft's long-term debt is about 40 billion at coupons of roughly 2% to 4%, so 504M of interest on it (about 1.3%) is not what the debt costs. The newest stored run, `MSFT_2026-10-30_1`, reads a cost of debt of 3.11% (3,051M over average debt 98,106M), below that year's 4.98% average 10-year yield, so the cost-of-debt chart's `below_risk_free` note fires and a debt what-if floors at the risk-free rate.
+(Millions of US$, the 10-Ks' annual figures, company facts nov.22.2026.) Microsoft's long-term debt is about 40 billion at coupons of roughly 2% to 4%, so 504M of interest on it (about 1.3%) is not what the debt costs. The newest stored run, `MSFT_2026-10-30_1`, reads a cost of debt of 3.11% (3,051M over average debt 98,106M), below FY2026's 4.25% average 10-year yield and the run's 4.98% risk-free rate, so the cost-of-debt chart's `below_risk_free` note fires and a debt what-if floors at the risk-free rate.
 
 **What Microsoft does file.** The debt note of every 10-K says: "Cash paid for interest on our debt for fiscal years 2026, 2025, and 2024 was $1.5 billion, $1.6 billion, and $1.7 billion, respectively", tagged `us-gaap:InterestPaid`. Cash paid is before any capitalising (capitalised interest is still paid to the lenders) and covers the debt only (finance-lease interest is paid as part of the lease payments, which Microsoft tags apart as `FinanceLeaseInterestPaymentOnLiability`). It is rounded to 100M from FY2016 on. Warren does not map `InterestPaid` today (it maps `InterestPaidNet`, cash paid net of capitalised interest, as the cash fallback for Caterpillar).
 
@@ -54,6 +54,29 @@ Expected from the filings (Microsoft, cost of debt today → new; every stored M
 
 FY2025, a year the 10-K says capitalising rose, stays low because the commercial paper repaid during it is in its opening debt: the cash figure would miss that paper's interest, so the rule keeps the expense rather than mix bases. It is said straight in the lesson. Cash paid also misses the yearly unwinding of the discount and exchange premium on Microsoft's bonds (about 188M a year in the FY2026 debt table; Activision's notes carry 1.35% to 4.50% coupons against 5.16% to 5.49% effective rates), so the new rate reads about 0.2 points low (analyst). Rounding to 100M moves it by at most 50M / 98,106M, about 0.05 points. The lease interest stays the accrual figure: Microsoft's finance-lease interest paid (`FinanceLeaseInterestPaymentOnLiability`) equals it in every year but FY2025 (1,372M against 1,417M), so the two bases differ by at most 0.05 points (professor).
 
+## Results (Step 2, nov.22.2026)
+
+On the restored snapshot `warren-20261122T053408Z`.
+
+- **Before anything changed.** `reproduce --all --rebuild`: 909 of 909 stored runs reproduced to the cent, 698 of 909 rebuilt to identical rows.
+- **Ingest.** `fundamentals ingest --all`: Microsoft gains 165 facts (`InterestPaid` and `FinanceLeaseInterestExpense`, years and quarters, every filing's version); every other company gains none (Walmart already had its lease interest). `fundamentals report --all`: 0 unexplained gaps for all eight companies.
+- **Stored runs after the ingest.** 909 of 909 reproduced to the cent; 698 of 909 rebuilt to identical rows, the same count as before (each run reads through its own map, which has no such item).
+- **Fresh runs.** Every stored run date (899 company-dates) built twice in memory, pinned market data and choices, through main's map (`fa48b47307cf`; with it the code reads as main does) and today's; none stored, none refused. Only Microsoft moves, 67 of 115 dates, and on each only the `cost_of_debt` row (no run note added or removed). **Walmart does not move** (professor).
+
+| Runs dated | Moved | Cost of debt (last moved run of the year) | WACC | Value per share |
+|---|---|---|---|---|
+| 2019 | 6 of 11 | 3.37% → 3.32% (FY2019) | 5.59% → 5.59% | +0.05% |
+| 2020 | 8 of 14 | 3.37% → 3.32% (FY2019) | 4.39% → 4.39% | +0.04% to +0.06% |
+| 2021 | 6 of 14 | 3.27% → 3.33% (FY2021) | 5.26% → 5.27% | −0.02% to −0.03% |
+| 2022 | 15 of 15 | 3.05% → 3.44% (FY2022) | 9.28% → 9.29% | −0.02% to −0.13% |
+| 2023 | 17 of 17 | 3.05% → 3.41% (FY2023) | 9.67% → 9.68% | −0.08% to −0.13% |
+| 2024 | 8 of 14 | 3.05% → 3.41% (FY2023) | 10.20% → 10.21% | −0.08% to −0.11% |
+| 2025 | 0 of 14 | (FY2024, FY2025: commercial paper, kept) | | |
+| 2026 | 7 of 16 | 3.11% → 4.13% (FY2026) | 11.45% → 11.47% | −0.22% to −0.27% |
+
+  Which runs do not move, and why: those reading FY2018 (9,072M of short-term borrowings at 2017-06-30), FY2024 and FY2025 (commercial paper at 2024-06-30), and FY2020 (Microsoft's FY2020 10-K did not tag its cash interest; the figure first appears in the FY2021 10-K, 2021-07-29, so a run of that time cannot read it, point-in-time). The newest run, as of 2026-10-30: cost of debt 3.11% → 4.13%, WACC 11.45% → 11.47%, value per share $203.55 → $203.08. The cost of debt moves up to a point, the WACC about 2 basis points: Microsoft's debt is about 3% of its capital at market value. Revenue and EBIT forecasts do not read the cost of debt, so no forecast-error score moves. `below_risk_free` against each fiscal year's average 10-year yield fires on the same years as before (FY2019 2.74%, FY2021 1.11% and FY2022 1.93% sit below both rates; FY2023 3.54% and FY2026 4.25% above both).
+- Snapshot saved after the ingest.
+
 ## Alternatives considered
 
 - **Add back capitalised interest to accrual interest.** The textbook fix (interest incurred = expensed + capitalised), but Microsoft files no capitalised amount, and Warren takes numbers only from tagged filings (an LLM reading the text would break "LLMs never produce financial numbers").
@@ -69,7 +92,7 @@ FY2025, a year the 10-K says capitalising rose, stays low because the commercial
 
 ## Product impact
 
-Serves brief Q3 (line 87, Microsoft's value per share and its assumptions), the only brief question about Microsoft this touches: the cost-of-debt row of a fresh Microsoft run reads interest paid on debt plus finance-lease interest, 4.13% instead of 3.11% for FY2026, so a slightly higher WACC and a slightly lower value per share (Step 2 gives the numbers). Microsoft's WACC and value per share move on the same screens the Walmart questions use (Q4, Q8). The cost-of-debt chart's points for FY2018 to FY2023 and FY2026 change, and their parts gain a new part code, `interest_paid_on_debt` (product lead's Spanish: "intereses pagados en efectivo sobre la deuda (incluye los que la empresa capitaliza)"), beside `finance_lease_interest` ("intereses de arrendamientos financieros"; neither is in the brief's catalogue yet, the front-end team adds both). A point read in cash carries `interest_paid_on_debt` among its parts, so the app can mark its basis without a new param. `below_risk_free` keeps firing on FY2026 (4.13% is below the 4.98% yield); on earlier years it can start or stop where the new rate crosses that year's yield (Step 2 lists them). Microsoft's reported view (Q1, Q2) may list `interest_paid_on_debt` and `finance_lease_interest` as lines, since it shows every mapped item. Stored runs keep their rows; beside an older Microsoft run of the same date the app shows the brief's "the reading rules changed" case (rules 12 and 13, brief line 107), or the "either NULL" case beside a run with no recorded rules (line 108), not the "different map fingerprints" case (product lead). No note, refusal code, param or field is added, renamed or removed. No other company changes: Walmart's #497 rule is the same (its only interest tag is debt-only).
+Serves brief Q3 (line 87, Microsoft's value per share and its assumptions), the only brief question about Microsoft this touches: the cost-of-debt row of a fresh Microsoft run reads interest paid on debt plus finance-lease interest, 4.13% instead of 3.11% for FY2026, so a slightly higher WACC and a slightly lower value per share (Step 2 gives the numbers). Microsoft's WACC and value per share move on the same screens the Walmart questions use (Q4, Q8). The cost-of-debt chart's points for FY2018 to FY2023 and FY2026 change, and their parts gain a new part code, `interest_paid_on_debt` (product lead's Spanish: "intereses pagados en efectivo sobre la deuda (incluye los que la empresa capitaliza)"), beside `finance_lease_interest` ("intereses de arrendamientos financieros"; neither is in the brief's catalogue yet, the front-end team adds both). A point read in cash carries `interest_paid_on_debt` among its parts, so the app can mark its basis without a new param. `below_risk_free` fires on the same years as before (Step 2): FY2026's 4.13% is still below that year's 4.25% average yield, and FY2023's 3.41% below its 3.54%; a debt what-if on the newest run still floors at the risk-free rate. Microsoft's reported view (Q1, Q2) may list `interest_paid_on_debt` and `finance_lease_interest` as lines, since it shows every mapped item. Stored runs keep their rows; beside an older Microsoft run of the same date the app shows the brief's "the reading rules changed" case (rules 12 and 13, brief line 107), or the "either NULL" case beside a run with no recorded rules (line 108), not the "different map fingerprints" case (product lead). No note, refusal code, param or field is added, renamed or removed. No other company changes: Walmart's #497 rule is the same (its only interest tag is debt-only).
 
 ## Design review (nov.22.2026)
 
