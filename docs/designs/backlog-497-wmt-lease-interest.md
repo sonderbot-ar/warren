@@ -40,6 +40,28 @@ So the line must be added for Walmart only.
 
 **Step 2. Real data.** On the restored snapshot (`warren-20261121T001838Z`): `fundamentals ingest --all` (only WMT gains facts; MSFT's are skipped as `company_scope`); `fundamentals report --all` passes; `reproduce --all` reproduces every stored run to the cent; `reproduce --all --rebuild` gives the same identical count as before the ingest (stored runs read through their own map, which has no such item). Then build every stored WMT date fresh in memory through the old map and the new one (same pinned market data and choices, none stored) and list cost of debt, WACC, value per share and whether `below_risk_free` fires, by year. (`reproduce --all --rebuild` recomputes each stored run with today's code through its own map and compares the rows.) The per-year table goes in Results below. Exit: no non-WMT run moves; WMT runs whose cost-of-debt year is FY2021 or later move, earlier ones (FY2020 included) do not. Save a snapshot after the ingest (`python -m shared_kernel.snapshot save --dir /mnt/project-files/warren-data/`).
 
+## Results (Step 2, nov.22.2026)
+
+On the restored snapshot `warren-20261121T001838Z` (909 of 909 stored runs reproduced to the cent before anything changed).
+
+- **Ingest.** `fundamentals ingest --all`: Walmart gains 89 facts (`FinanceLeaseInterestExpense`, years and quarters, every filing's version); every other company gains none, and Microsoft's 161 facts under the tag are skipped (`company_scope`). `fundamentals report --all`: 0 unexplained gaps for all eight companies.
+- **Stored runs.** `reproduce --all --rebuild` after the ingest: 909 of 909 reproduced to the cent; 698 of 909 rebuilt to identical rows, the same 698 as before the ingest (each run reads through its own map, which has no such item).
+- **Fresh runs.** Every stored run date (899 company-dates) built twice in memory, pinned market data and choices, through main's map (`91c71ab5c1f8`) and today's; none stored, none refused. Only Walmart moves: 87 of 115 dates, and on each only the `cost_of_debt` row changes (no note is added or removed). Runs dated 2019 to 2021-03 do not move (their cost-of-debt year is FY2020 or earlier: before the leases, or the straddle year). Every run from 2021-04-01 on moves.
+
+| Runs dated | Runs moved | Cost of debt (last run of the year) | WACC | Value per share |
+|---|---|---|---|---|
+| 2019 | 0 of 11 | | | |
+| 2020 | 0 of 14 | | | |
+| 2021 | 11 of 14 | 3.82% → 4.40% | 3.76% → 3.80% | −1.07% to −1.28% |
+| 2022 | 16 of 16 | 3.65% → 4.16% | 7.29% → 7.33% | −0.61% to −1.05% |
+| 2023 | 14 of 14 | 4.09% → 4.67% | 7.40% → 7.45% | −0.62% to −0.79% |
+| 2024 | 14 of 14 | 4.94% → 5.65% | 7.90% → 7.93% | −0.48% to −0.81% |
+| 2025 | 16 of 16 | 4.85% → 5.68% | 8.70% → 8.73% | −0.44% to −0.62% |
+| 2026 | 16 of 16 | 4.76% → 5.55% | 8.87% → 8.91% | −0.43% to −0.61% |
+
+  For example, as of 2026-10-30: cost of debt 4.76% → 5.55%, WACC 8.87% → 8.91%, value per share $31.24 → $31.09 (Walmart's 3-for-1 split in 2024 explains the level). The cost of debt moves 0.5 to 0.8 points, but the WACC only about 4 basis points: Walmart's debt is a small share of its capital at market value, and its after-tax cost is what the WACC weighs. FY2026's 5.55% is now above that year's 4.98% average 10-year yield, so the cost-of-debt chart's `below_risk_free` note no longer fires on that point. Revenue and EBIT forecasts do not read the cost of debt, so no forecast-error score moves.
+- Snapshot saved after the ingest.
+
 ## Alternatives considered
 
 - **Leave finance leases out of Walmart's cost-of-debt denominator.** Fixes the ratio but makes D8 compute debt two ways (with leases for net debt and the WACC weight, without for the rate), and the rate would then not describe the debt it weighs. Adding the missing interest keeps one debt.
