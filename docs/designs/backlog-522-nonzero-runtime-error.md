@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/522 (from the #521 gatekeeper) · Branch `backlog-522-nonzero-runtime-error` · Version v0.10.28 when merged.
 
-Status: In progress (nov.22.2026).
+Status: Done (v0.10.28, nov.22.2026; PR #524, merge `81536e1`).
 
 ## Problem
 
@@ -29,4 +29,4 @@ None. No output, param, code or English text is added, renamed or removed; every
 
 ## Review notes
 
-Explainer, analyst and professor not run: a check's exception type, with no method or number change (as for #519).
+Explainer, analyst and professor not run: a check's exception type, with no method or number change (as for #519). Gatekeeper GO on PR #524: `tests/analysis` green (1073 passed), lint and format clean, the reading-rules fingerprint matches the new row, no test weakened (both changed tests now require the `RuntimeError` and its message, plus three new cases), no `assert` left at line start in `domains` or `shared_kernel`. Non-blocking: the `-O` subprocess test passes `None` as `result`, which works only because the checks run before `result` is used.
