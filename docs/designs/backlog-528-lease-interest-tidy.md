@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/528 (from the #526 gatekeeper) · Branch `backlog-528-lease-interest-tidy` · Version v0.10.30 when merged.
 
-Status: In progress (nov.22.2026).
+Status: Done (v0.10.30, nov.22.2026; PR #530, merge `77fe94c`).
 
 ## Problem
 
@@ -26,7 +26,7 @@ Tests: the two above, plus the stricter message check. Exit: full suite, `ruff c
 
 ## Files to change
 
-`tests/analysis/test_lease_interest.py`, `domains/fundamentals/concepts.py`, `tests/fundamentals/test_concepts.py`, this doc; on merge `docs/versions.md`, `docs/team-sync.md`, `docs/build-plan.md` is unchanged (no milestone).
+`tests/analysis/test_lease_interest.py`, `domains/fundamentals/concepts.py`, `tests/fundamentals/test_concepts.py`, `domains/analysis/reading_rules.md` (a row under v12), this doc; on merge `docs/versions.md`, `docs/team-sync.md`, `docs/build-plan.md` is unchanged (no milestone).
 
 ## Product impact
 
@@ -34,4 +34,4 @@ None. No output, code or English text a student sees is added, renamed or remove
 
 ## Review notes
 
-Explainer, analyst and professor not run: a test and an error message, with no method or number change (as for #519 and #522).
+Explainer, analyst and professor not run: a test and an error message, with no method or number change (as for #519 and #522). Gatekeeper GO on PR #530: ruff clean, `tests/analysis` and `tests/fundamentals` green (1344 passed), the one changed test is stricter, the new database test fails with the gate in `load_history` removed, rows and lines stay aligned (`zip(..., strict=True)`), the reading-rules fingerprint `622ca36da546` matches its row. Non-blocking: this doc's file list left out `reading_rules.md` (fixed on record).
