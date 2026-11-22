@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 
 from domains.analysis.coded import (
     ENGINE_REFUSAL_CODES,
+    RANGE_REFUSAL_CODES,
     REFUSAL_GROUP_ORDER,
     REFUSAL_GROUPS,
     ZERO_DIVISOR_ITEMS,
@@ -30,11 +31,19 @@ from domains.analysis.coded import (
 )
 from domains.analysis.math_engine import EngineError
 from domains.analysis.text import REFUSAL_LESSONS
+from domains.evaluation.ranges import RangeError
 from domains.market.store import MarketDataError
 from webapp import formatting
 from webapp.answer import NoRun
 from webapp.app import create_app
-from webapp.refusal import BUTTON_DATE, BUTTON_MENUS, BUTTON_WHY, GENERIC, refusal_view
+from webapp.refusal import (
+    BUTTON_DATE,
+    BUTTON_MENUS,
+    BUTTON_WHY,
+    GENERIC,
+    OUR_SIDE,
+    refusal_view,
+)
 from webapp.text import LANGUAGES, catalogue, translate
 
 BUNDLE = json.loads(
@@ -576,3 +585,72 @@ def test_a_filing_link_keeps_its_date_on_one_line_and_says_it_opens_a_new_tab(en
     html = c.get(post(c).headers["HX-Redirect"]).text
     assert "presentado el 2 ago 2017" in html
     assert ES["refusal.new_tab"] in html and 'target="_blank"' in html
+
+
+# -- Warren's own store refuses the range (#495, #519 item 2) ------------------------------------
+
+MISS = {"origin_id": 7, "horizon": 2, "item": "revenue", "value": "inf"}
+
+
+@pytest.mark.parametrize("language", LANGUAGES)
+@pytest.mark.parametrize("code", sorted(RANGE_REFUSAL_CODES))
+def test_every_range_refusal_has_its_own_sentence_and_says_it_is_on_our_side(language, code):
+    v = view(code, MISS, language=language)
+    words = catalogue(language)
+    assert v.group == OUR_SIDE and v.code == code  # never the generic fallback
+    assert v.title == words["refusal.group.our_side.title"]
+    assert v.sentence == words[f"refusal.code.{code}"]
+    assert v.setup_note == words["refusal.group.our_side.note"]
+    assert v.button is None and v.lesson is None  # no date or company is sure to work
+
+
+class DamagedStore(FakeEngine):
+    """Every stored answer fails to read its range, coded or not."""
+
+    def __init__(self, code="stored_miss_not_finite"):
+        super().__init__()
+        self.code = code
+
+    def load(self, ticker, corte):
+        super().load(ticker, corte)
+        raise RangeError("a stored miss is not finite", code=self.code,
+                         params=MISS if self.code else None)  # fmt: skip
+
+
+def test_a_damaged_store_shows_no_se_pudo_on_the_answer_not_a_server_error():
+    store = DamagedStore()
+    store.stored.add(("AAPL", LATEST))
+    client = TestClient(create_app(clock=lambda: NOW, bundle_loader=store.load,
+                                   runner=store.run), follow_redirects=False)  # fmt: skip
+    page = answer(client)
+    assert page.status_code == 200 and 'data-group="our_side"' in page.text
+    assert 'data-code="stored_miss_not_finite"' in page.text
+    assert ES["refusal.group.our_side.title"] in page.text
+    assert 'action="/calcular"' not in page.text and "<details" not in page.text
+    fragment = client.get(
+        "/respuesta/fragmentos/celdas?"
+        + urlencode({"corte": LATEST.isoformat(), "empresa": "AAPL"})
+    )
+    assert fragment.status_code == 404  # the panel's script opens the full address (#511)
+
+
+def test_calcular_on_a_damaged_store_lands_on_no_se_pudo_without_spinning():
+    store = DamagedStore()
+    client = TestClient(create_app(clock=lambda: NOW, bundle_loader=store.load,
+                                   runner=store.run), follow_redirects=False)  # fmt: skip
+    done = post(client)  # nothing stored: Calcular runs, then reading the answer is refused
+    assert done.status_code == 204 and len(store.runs) == 1
+    page = client.get(done.headers["HX-Redirect"])
+    assert 'data-code="stored_miss_not_finite"' in page.text
+    post(client)  # stored now, still damaged: no second run, the same screen
+    assert len(store.runs) == 1
+
+
+def test_an_uncoded_range_error_gets_the_generic_sentence():
+    store = DamagedStore(code=None)
+    store.stored.add(("AAPL", LATEST))
+    client = TestClient(create_app(clock=lambda: NOW, bundle_loader=store.load,
+                                   runner=store.run), follow_redirects=False)  # fmt: skip
+    page = answer(client)
+    assert page.status_code == 200 and 'data-group="generic"' in page.text
+    assert ES["refusal.generic.sentence"] in page.text

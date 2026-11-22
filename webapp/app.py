@@ -33,6 +33,7 @@ from starlette.concurrency import run_in_threadpool
 from domains.analysis.coded import Coded, refusal
 from domains.analysis.math_engine import SUPPORTED_FROM, EngineError
 from domains.analysis.runs import run_baseline
+from domains.evaluation.ranges import RangeError
 from domains.market.store import MarketDataError
 from shared_kernel.calendar import last_ended_day
 from shared_kernel.config import DB_PATH
@@ -67,6 +68,15 @@ class UnknownCompany(LookupError):
 
 class UnknownPanel(LookupError):
     """The address names a figure or a tab the page does not have."""
+
+
+class AnswerRefused(Exception):
+    """Reading a stored answer was refused (a `RangeError`: Warren's store of past misses is
+    damaged, #495); the refusal is kept for the answer's address, which shows No se pudo."""
+
+    def __init__(self, ticker: str, corte: date):
+        super().__init__(f"{ticker} {corte}")
+        self.ticker, self.corte = ticker, corte
 
 
 def _utc_now() -> datetime:
@@ -105,7 +115,13 @@ def create_app(
     loaded: set[tuple[str, date]] = set()  # answers already worked out: no Calculando for them
 
     def bundle_for(ticker: str, corte: date) -> dict:
-        bundle = engine_or_test(ticker, corte)
+        try:
+            bundle = engine_or_test(ticker, corte)
+        except RangeError as exc:  # the range can't be read from Warren's store (#495, #519)
+            if exc.code is None:
+                log.exception("the answer for %s on %s failed to read its range", ticker, corte)
+            refused[(ticker, corte)] = exc.coded()
+            raise AnswerRefused(ticker, corte) from exc
         loaded.add((ticker, corte))
         return bundle
 
@@ -139,12 +155,16 @@ def create_app(
             return
         except NoRun:
             pass
+        except AnswerRefused:  # kept in `refused`: the answer's address says why
+            return
         with lock_for(key):
             try:  # another request may have built it while this one waited
                 bundle_for(ticker, corte)
                 return
             except NoRun:
                 pass
+            except AnswerRefused:
+                return
             try:
                 run_or_test(ticker, corte, latest_corte())
             except (EngineError, MarketDataError) as exc:
@@ -156,7 +176,10 @@ def create_app(
                 log.exception("run for %s on %s failed with an uncoded error", ticker, corte)
                 refused[key] = None
                 return
-            bundle_for(ticker, corte)
+            try:
+                bundle_for(ticker, corte)
+            except AnswerRefused:
+                return
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
@@ -313,6 +336,14 @@ def create_app(
             },
             status_code=404,
         )
+
+    @app.exception_handler(AnswerRefused)
+    def _answer_refused(request: Request, exc: AnswerRefused) -> Response:
+        # The stored answer could not be read (#519): No se pudo says why. A fragment request
+        # gets no page: the panel's script opens the full address, which shows it (#511).
+        if "/fragmentos/" in request.url.path:
+            return Response(status_code=404)
+        return no_se_pudo(request, exc.corte, exc.ticker)
 
     @app.exception_handler(sqlite3.OperationalError)
     def _busy(request: Request, exc: sqlite3.OperationalError) -> HTMLResponse:

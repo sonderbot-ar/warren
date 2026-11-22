@@ -19,11 +19,21 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
 
-from domains.analysis.coded import FILING_REFUSAL_CODES, REFUSAL_GROUPS, Coded
+from domains.analysis.coded import (
+    FILING_REFUSAL_CODES,
+    RANGE_REFUSAL_CODES,
+    REFUSAL_GROUPS,
+    Coded,
+)
 from domains.analysis.text import REFUSAL_LESSONS, refusal_lesson
 from webapp import formatting
 
 GENERIC = "generic"  # the "group" of a refusal with no code, or a code with no Spanish
+# Warren's own store is damaged (a stored past miss that is empty or infinite, #495): nothing
+# the student did, and no other date or company is sure to work, so no button and no lesson,
+# like `setup`; the screen says so plainly (#519 item 2).
+OUR_SIDE = "our_side"
+APP_REFUSAL_GROUPS = {code: OUR_SIDE for code in RANGE_REFUSAL_CODES}
 
 # Button kinds: compute again on another date (a form that posts to /calcular), change the
 # reading (a link to the card with its menus open), or open the lesson in place.
@@ -226,7 +236,7 @@ def _button(group: str, code: str | None, p: dict, latest: date, region, t) -> B
         return on(min(through, latest), "refusal.button.use_date")
     if group == "no_value":
         return Button(BUTTON_WHY, t("refusal.group.no_value.button"))
-    if group == "setup":
+    if group in ("setup", OUR_SIDE):
         return None
     return Button(BUTTON_MENUS, t(f"refusal.group.{group}.button"))
 
@@ -234,7 +244,7 @@ def _button(group: str, code: str | None, p: dict, latest: date, region, t) -> B
 def _lesson(group: str, code: str | None, region, t) -> Lesson | None:
     """The "¿Por qué?" lesson: the code's own when the engine has one, else its group's. The
     `setup` lesson would repeat the screen's words, so it is left out (brief)."""
-    if group in (GENERIC, "setup"):
+    if group in (GENERIC, "setup", OUR_SIDE):
         return None
     engine = refusal_lesson(code)
     key = f"refusal.lesson.{code}" if code in REFUSAL_LESSONS else f"refusal.lesson.{group}"
@@ -273,7 +283,7 @@ def refusal_view(
     newest date a button may offer; `has_question` is False when the student came by address,
     with no question typed."""
     code = refused.code if refused is not None else None
-    group = REFUSAL_GROUPS.get(code, GENERIC) if code else GENERIC
+    group = (REFUSAL_GROUPS.get(code) or APP_REFUSAL_GROUPS.get(code, GENERIC)) if code else GENERIC
     p = refused.params if refused is not None else {}
     extra: list[str] = []
     try:
@@ -294,7 +304,7 @@ def refusal_view(
         sentence=sentence,
         button=_button(group, code, p, latest, region, t),
         lesson=_lesson(group, code, region, t),
-        setup_note=t("refusal.group.setup.note") if group == "setup" else None,
+        setup_note=t(f"refusal.group.{group}.note") if group in ("setup", OUR_SIDE) else None,
         extra=extra,
         filings=filings,
     )
