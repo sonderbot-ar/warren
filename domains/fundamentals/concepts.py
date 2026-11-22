@@ -102,7 +102,7 @@ def load_concept_map(
             raw += [(f"{Path(source).name} line {n}", r) for n, r in enumerate(reader, start=2)]
 
     known = {c.ticker for c in load_universe()}
-    errors, rows = [], []
+    errors, rows, lines = [], [], []  # lines[i]: the file and line of rows[i] (backlog #528)
     for line, r in raw:
         if None in r or None in r.values():
             errors.append(f"{line}: wrong number of fields (quote any field with a comma)")
@@ -135,6 +135,7 @@ def load_concept_map(
             errors.append(f"{line}: companies {unknown} are not in universe.csv")
         files.setdefault(row.canonical_name, set()).add(line.split(" line ")[0])
         rows.append(row)
+        lines.append(line)
 
     tags = [r.xbrl_concept for r in rows]
     for tag in sorted({t for t in tags if tags.count(t) > 1}):
@@ -149,10 +150,10 @@ def load_concept_map(
         # an item whose every tag is limited (one only some companies read, backlog #497) has
         # no first tag for anyone else to keep
         if any(not r.companies for r in group):
-            for r in group:
-                if r.companies and r.priority == 1:
+            for line, r in zip(lines, rows, strict=True):
+                if r.canonical_name == name and r.companies and r.priority == 1:
                     errors.append(
-                        f"{name}: a tag limited to some companies can't be priority 1 "
+                        f"{line}: {name}: a tag limited to some companies can't be priority 1 "
                         "beside a tag for every company"
                     )
         if sorted(r.priority for r in group) != list(range(1, len(group) + 1)):
