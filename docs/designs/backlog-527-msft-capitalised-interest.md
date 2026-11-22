@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/527 (from the #497 analyst review) · Branch `backlog-527-msft-capitalised-interest` · Version v0.10.31 when merged.
 
-Status: In progress (nov.22.2026). Steps 0 to 2 done; PR review next.
+Status: Done (v0.10.31, nov.22.2026; PR #532, merge `af81413`, after CI green and a gatekeeper GO).
 
 ## Problem
 
@@ -43,7 +43,7 @@ So the debt part of the line has collapsed while the debt has not. Interest expe
 - Tests (`tests/analysis/test_lease_interest.py`, `tests/fundamentals/test_concepts.py`, `tests/fundamentals/test_ingest.py`): the shipped map loads; the scoped rows are the CAT, PG, KO rows plus `finance_lease_interest` (MSFT, WMT) and `interest_paid_on_debt` (MSFT); `extract_facts` keeps `InterestPaid` for MSFT and skips it for the others; `cost_of_debt_year` on Microsoft's FY2026 figures gives (1,500 + 2,547) / 98,106 = 4.13%; no leases at either end, a straddle year, lease debt without lease interest, or commercial paper above zero at either year end keeps the accrual (paper of zero does not count); a Microsoft-like year with lease interest but no `InterestPaid` keeps the accrual (no double count); Walmart's #497 cases unchanged; never on the `interest_paid` fallback.
 - Exit: `python -m pytest -q`, `ruff check .`, `ruff format --check .` green.
 
-**Step 2. Real data.** On the restored snapshot (`warren-20261122T053408Z`): `fundamentals ingest --all` (only MSFT gains facts); `fundamentals report --all`; `reproduce --all` to the cent and `reproduce --all --rebuild` with the same identical count as before. Then every stored run date built fresh in memory through main's map and the new one, with the same pinned market data and choices, none stored. List cost of debt, WACC, value per share and `below_risk_free` by year. Exit: only Microsoft moves, and only runs whose cost-of-debt year is FY2018 to FY2023 or FY2026; Walmart does not move (professor). Save a snapshot.
+**Step 2. Real data.** On the restored snapshot (`warren-20261122T053408Z`): `fundamentals ingest --all` (only MSFT gains facts); `fundamentals report --all`; `reproduce --all` to the cent and `reproduce --all --rebuild` with the same identical count as before. Then every stored run date built fresh in memory through main's map and the new one, with the same pinned market data and choices, none stored. List cost of debt, WACC, value per share and `below_risk_free` by year. Exit: only Microsoft moves, and only runs whose cost-of-debt year is FY2018 to FY2023 or FY2026 (on real data FY2018 and FY2020 do not move either; Results); Walmart does not move (professor). Save a snapshot.
 
 Expected from the filings (Microsoft, cost of debt today → new; every stored Microsoft run is dated 2019-04-01 or later, so reads FY2018 on):
 
@@ -100,3 +100,4 @@ Serves brief Q3 (line 87, Microsoft's value per share and its assumptions), the 
 - **Professor, GO, no blockers.** ASC 835-20: capitalised interest is interest incurred, moved into the asset's cost, so expensed interest over all debt understates the book rate; cash paid is the best tagged stand-in; Koller, Goedhart and Wessels and Damodaran prefer a market yield, rightly left to the owner. Taken: the method text says "cash, before capitalised interest"; why the lease interest stays accrual (Step 2's text); Step 2 shows Walmart does not move. XBRL US rule DQC.US.0065 treats `InterestPaid` as including capitalised interest and `InterestPaidNet` as excluding it (seen through search only); cited here and in the CHANGES.md line.
 - **Explainer.** Fifteen gaps; taken: the product impact's years now match the table, the neither-end and paper cases are spelled out, the yield and rounding sums are shown. The rest are pointers a reader of the code has (`OPTIONAL_ITEMS`, the map's priority).
 - **Product lead, no blocker.** Taken: Q4 and Q8 are Walmart's, so Q3 is the one Microsoft question; the two-runs case is "the reading rules changed", not "different map fingerprints" (the v0.10.29 team-sync entry made the same slip; the front-end team corrects the brief); both part codes need catalogue names, which the front-end team adds.
+- **Gatekeeper (PR #532), GO, no blockers.** 2,773 passed; reading-rules fingerprint and map copy match; `MSFT_2026-10-30_1` and `WMT_2026-10-30_1` rebuild identically through their own maps; Walmart's FY2026 still 5.55%; no test weakened (the fixture retag keeps its assertions; the ingest test is broader). Notes filed as #534 (the reading-rules row's "FY2018 on" wording, a short-term borrowings test, an empty-facts guard).
