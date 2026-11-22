@@ -151,7 +151,12 @@ ITEMS = sorted({n for chain in CHAINS.values() for alt in chain for n in alt})
 # Read only to check whether short-term borrowings already include the current portion of
 # long-term debt (backlog #408); never counted, so not a balance item.
 CHECK_ITEMS = ("debt_current_total",)
-ITEMS += [*BALANCE_ITEMS, *SHARE_ITEMS, *CHECK_ITEMS]
+# Added to interest in the cost of debt where the map reads it (backlog #497): Walmart's finance-
+# lease interest, which its debt-only interest line leaves out while its debt includes the leases.
+# Like a check item, read only when the map in force has it.
+LEASE_INTEREST = "finance_lease_interest"
+OPTIONAL_ITEMS = (*CHECK_ITEMS, LEASE_INTEREST)
+ITEMS += [*BALANCE_ITEMS, *SHARE_ITEMS, *OPTIONAL_ITEMS]
 
 
 class EngineError(ValueError):
@@ -390,10 +395,10 @@ class History:
 
 
 def load_history(conn: sqlite3.Connection, cik: str, as_of: date) -> History:
-    # a check item is read only when the map in force has it: a rebuild through a map made
-    # before the item existed reads what that map read (backlog #408)
+    # a check item (and the lease interest, #497) is read only when the map in force has it: a
+    # rebuild through a map made before the item existed reads what that map read (backlog #408)
     mapped = {r[0] for r in conn.execute("SELECT DISTINCT canonical_name FROM concepts")}
-    items = [i for i in ITEMS if i not in CHECK_ITEMS or i in mapped]
+    items = [i for i in ITEMS if i not in OPTIONAL_ITEMS or i in mapped]
     quarterly = get_facts(conn, cik, items, as_of, frequency="quarterly", one_basis=True)
     annual = get_facts(conn, cik, items, as_of, frequency="annual")
     instants: dict[str, list[Fact]] = defaultdict(list)
@@ -1721,10 +1726,38 @@ def cost_of_debt_year(history: History, year: int):
         return None
     end, end_used, _, _ = debt_parts(history.year(year))
     start, start_used, _, _ = debt_parts(history.year(year - 1))
+    interest = with_lease_interest(interest, history.year(year), start_used, end_used)
     average = (start + end) / 2 if start_used else end
     if average <= 0:
         return None
     return fm.cost_of_debt(interest.value, average), interest, (start, start_used), (end, end_used)
+
+
+def with_lease_interest(
+    interest: Resolved,
+    get: Callable[[str], Fact | None],
+    opening_debt: list[Fact],
+    closing_debt: list[Fact],
+) -> Resolved:
+    """D8's interest with the year's finance-lease interest added, where the map reads it apart
+    (backlog #497: Walmart, whose interest line is debt only while its debt includes finance
+    leases). Only when the average debt counted the finance-lease liability at both year ends (or
+    at the closing one, when the opening is not reported), so the interest follows the debt: not
+    when a debt tag already holds the leases, none is reported, or the year straddles the leases'
+    arrival on the balance sheet. Only on accrual interest: the cash `interest_paid` fallback is
+    left as it is."""
+    lease = get(LEASE_INTEREST)
+    if lease is None or interest.fallback:
+        return interest
+    for debt in (closing_debt, opening_debt) if opening_debt else (closing_debt,):
+        if not any(f.canonical_name == "finance_lease_liabilities" for f in debt):
+            return interest
+    return Resolved(
+        interest.value + lease.value,
+        f"{interest.method} + finance lease interest: {trace(lease)}",
+        interest.fallback,
+        (*interest.facts, lease),
+    )
 
 
 def _cost_of_debt(history: History, fiscal_years: list[int], result: EngineResult) -> None:
