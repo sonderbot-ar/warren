@@ -1776,7 +1776,8 @@ def d8_interest(
        keeps its interest: without leases the 10-Ks name no capitalising, and a cash figure that
        misses part of the debt would mix bases.
     2. Otherwise the year's finance-lease interest added to an interest line that is debt only
-       by its tag (backlog #497: Walmart), when the leases were counted at both year ends.
+       by its tag (backlog #497: Walmart), when the leases were counted at both year ends. An
+       interest with no facts is never debt only (backlog #534).
     3. Otherwise the interest as resolved."""
     if interest.fallback:
         return interest
@@ -1792,7 +1793,9 @@ def d8_interest(
                 (paid, lease),
             )
         return interest
-    debt_only = all(f.xbrl_concept in DEBT_ONLY_INTEREST_TAGS for f in interest.facts)
+    debt_only = bool(interest.facts) and all(
+        f.xbrl_concept in DEBT_ONLY_INTEREST_TAGS for f in interest.facts
+    )
     if lease is None or not debt_only or not all(leases):
         return interest
     return Resolved(

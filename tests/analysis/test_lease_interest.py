@@ -347,3 +347,38 @@ def test_the_lease_interest_is_added_only_to_a_debt_only_tag():
 
 def test_interest_paid_on_debt_is_read_only_when_the_map_has_it():
     assert me.PAID_ON_DEBT in me.ITEMS and me.PAID_ON_DEBT in me.OPTIONAL_ITEMS
+
+
+@pytest.mark.parametrize("year", [2025, 2026])
+def test_short_term_borrowings_at_either_year_end_keep_its_interest(year):
+    """Microsoft's FY2018: short-term borrowings (9,072M at 2017-06-30) are in the average debt,
+    and the cash paid for interest on debt need not cover them, so the year keeps its accrual
+    interest (backlog #534, from the #532 gatekeeper)."""
+    history = microsoft()
+    history.annual[("short_term_borrowings", year)] = msft_fact(
+        "short_term_borrowings", 9_072e6, year
+    )
+    _, interest, _, _ = cost_of_debt_year(history, 2026)
+    assert interest.value == pytest.approx(3_051e6)
+    assert [f.canonical_name for f in interest.facts] == ["interest_expense"]
+
+
+def test_short_term_borrowings_of_zero_do_not_count():
+    history = microsoft()
+    history.annual[("short_term_borrowings", 2025)] = msft_fact("short_term_borrowings", 0.0, 2025)
+    _, interest, _, _ = cost_of_debt_year(history, 2026)
+    assert interest.value == pytest.approx(4_047e6)
+
+
+def test_an_interest_with_no_facts_never_gets_lease_interest_added():
+    """`all()` of nothing is True, so an interest resolved without facts would have read as debt
+    only; it is not (backlog #534). Walmart's FY2026 leases and lease interest are in place."""
+    history = walmart()
+    lease = history.annual[("finance_lease_interest", 2026)]
+    opening = [history.annual[(i, 2025)] for i in ("debt_noncurrent", "finance_lease_liabilities")]
+    closing = [history.annual[(i, 2026)] for i in ("debt_noncurrent", "finance_lease_liabilities")]
+    bare = me.Resolved(2_318e6, "interest_expense", False, ())
+    got = me.d8_interest(
+        bare, lambda item: lease if item == me.LEASE_INTEREST else None, opening, closing
+    )
+    assert got is bare
