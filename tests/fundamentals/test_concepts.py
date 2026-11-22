@@ -301,7 +301,11 @@ def test_a_scoped_row_with_an_unknown_ticker_or_on_priority_1_is_refused(tmp_pat
     )
     with pytest.raises(ConceptMapError) as err:
         load_concept_map(path)
-    assert "can't be priority 1 beside a tag for every company" in str(err.value)
+    # the row's file and line are named, like the loader's other errors (backlog #528)
+    assert (
+        "scoped.csv line 2: debt_current: a tag limited to some companies can't be priority 1 "
+        "beside a tag for every company"
+    ) in str(err.value)
     assert "['ZZZZ'] are not in universe.csv" in str(err.value)
 
 

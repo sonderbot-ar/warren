@@ -9,6 +9,7 @@ import pytest
 from domains.analysis import math_engine as me
 from domains.analysis.math_engine import History, cost_of_debt_year
 from domains.fundamentals.schemas import Fact
+from tests.analysis.conftest import AS_OF
 
 TAGS = {
     "interest_expense": "InterestExpenseDebt",
@@ -136,3 +137,62 @@ def test_never_added_to_cash_interest():
 
 def test_the_lease_interest_is_read_only_when_the_map_has_it():
     assert me.LEASE_INTEREST in me.ITEMS and me.LEASE_INTEREST in me.OPTIONAL_ITEMS
+
+
+# -- through the database: the map in force decides (backlog #528) ----------------------------
+
+BEFORE_497 = "91c71ab5c1f89b7942d4d2674664ee591ef61d88a8cbf770cb1c234ae2a4c782"  # #522's map
+CIK = "0000000123"
+TEN_K = {2018: ("0000000123-19-000098", "2019-02-15"), 2019: ("0000000123-20-000099", "2020-02-15")}
+
+
+def store(conn, tag, value, end, start=None):
+    """A fact as ingest stores it for Walmart (the row is scoped to WMT, so Test Corp's ingest
+    would skip it; the gate under test is the map's, not the ingest's)."""
+    year = int(end[:4])
+    accn, filed = TEN_K[year]
+    conn.execute(
+        "INSERT INTO financial_facts (cik, xbrl_concept, period_start, period_end, fiscal_year, "
+        "fiscal_period, value, unit, form, accession_no, filed_at) "
+        "VALUES (?, ?, ?, ?, ?, 'FY', ?, 'USD', '10-K', ?, ?)",
+        (CIK, f"us-gaap:{tag}", start, end, year, value, accn, filed),
+    )
+
+
+def with_leases(conn):
+    store(conn, "FinanceLeaseLiability", 40, "2018-12-31")
+    store(conn, "FinanceLeaseLiability", 40, "2019-12-31")
+    store(conn, "FinanceLeaseInterestExpense", 3, "2019-12-31", "2019-01-01")
+    return conn
+
+
+def items(history):
+    return {k[0] for k in history.annual}
+
+
+def test_today_s_map_reads_the_lease_interest(company):
+    from domains.analysis.math_engine import load_history
+
+    history = load_history(with_leases(company), CIK, AS_OF)
+    assert history.annual[(me.LEASE_INTEREST, 2019)].value == 3
+    _, interest, _, _ = cost_of_debt_year(history, 2019)
+    assert interest.value == pytest.approx(8 + 3)  # Test Corp's 2 a quarter, plus the lease line
+
+
+def test_a_map_without_the_row_leaves_it_out(company):
+    """A rebuild through the map in force before #497 reads what that map read: the stored lease
+    interest is not in the history, every other item is, and the year keeps its own interest."""
+    from domains.analysis.math_engine import load_history
+    from domains.fundamentals.concepts import archived_concept_map, concept_map_in_force
+
+    assert me.LEASE_INTEREST not in {r.canonical_name for r in archived_concept_map(BEFORE_497)}
+    conn = with_leases(company)
+    today = load_history(conn, CIK, AS_OF)
+    with concept_map_in_force(conn, BEFORE_497, "TST"):
+        before = load_history(conn, CIK, AS_OF)
+    assert me.LEASE_INTEREST not in items(before)
+    assert items(before) == items(today) - {me.LEASE_INTEREST}
+    assert before.annual[("finance_lease_liabilities", 2019)].value == 40
+    _, interest, _, _ = cost_of_debt_year(before, 2019)
+    assert interest.value == pytest.approx(8)
+    assert [f.canonical_name for f in interest.facts] == ["interest_expense"]
