@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/534 (from the #532 gatekeeper) · Branch `backlog-534-cash-interest-tidy` · Version v0.10.32 when merged.
 
-Status: In progress.
+Status: Done (v0.10.32, nov.22.2026; PR #537, merge `4fb8548`, after CI green and a gatekeeper GO).
 
 ## Problem
 
@@ -19,7 +19,7 @@ Status: In progress.
 - Tests in `tests/analysis/test_lease_interest.py`: short-term borrowings above zero at either year end keep the accrual interest (FY2018's 9,072M); short-term borrowings of zero do not count; an interest resolved with no facts never gets the lease interest added (fails without the guard).
 - A reading-rules row under v13 for the new fingerprint that states the years that move correctly.
 
-Tests: the four above. Exit: full suite, `ruff check`, `ruff format --check` green; no number, field, code or text changes on any answer.
+Tests: the three above (the first runs for each year end). Exit: full suite, `ruff check`, `ruff format --check` green; no number, field, code or text changes on any answer.
 
 ## Alternatives considered
 
@@ -36,4 +36,4 @@ None. No output, code or English text a student sees is added, renamed or remove
 
 ## Review notes
 
-Explainer, analyst and professor not run: a guard and tests, with no method or number change (as for #519, #522 and #528).
+Explainer, analyst and professor not run: a guard and tests, with no method or number change (as for #519, #522 and #528). Gatekeeper GO on PR #537: ruff clean, 2777 passed, 10 skipped; the empty-facts test fails with main's `math_engine.py`; the short-term tests cover the existing guard (they pass without the change, as expected); version 13 is right (only `resolve` feeds `d8_interest`, always with facts); fingerprint `6a674a866fa1` matches its row. Non-blocking, fixed on record: "the four above" counted a parametrised test twice. The corrected Microsoft years in the row are #527's Step 2 results (`docs/designs/backlog-527-msft-capitalised-interest.md`, Results).
