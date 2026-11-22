@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/497 (from the #481 analyst review) · Branch `backlog-497-wmt-lease-interest` · Version v0.10.29 when merged.
 
-Status: In progress (nov.22.2026).
+Status: Done (v0.10.29, nov.22.2026; PR #526, merge `18eeb2e`, after CI green and a gatekeeper GO).
 
 ## Problem
 
@@ -84,4 +84,5 @@ Serves the questions of `docs/product/brief.md` that use the cost of debt, Q4 fi
 - **Analyst, GO after one fix.** Confirmed no double count at Walmart (income statement R3: "Debt" 2,318M under `InterestExpenseDebt`, a separate line), the liability on the same basis, Microsoft's total including lease interest (Item 7), and no other company filing the tag. Blocker taken: the doc called 383M the income-statement line; it is the lease note's figure, and the income statement's 481M line carries an extension tag that also holds financing-obligation interest (Problem, map note, `CHANGES.md`, reading-rules row). Idea taken: require the opening debt to count leases too, so FY2020 does not overshoot. Idea filed as a backlog issue: Microsoft's interest expense is net of capitalised interest, so its cost of debt reads low.
 - **Professor, GO, no blockers.** Same basis top and bottom is the textbook position (Koller, Goedhart and Wessels, *Valuation*, 7th ed.; Damodaran, *Applied Corporate Finance*, ch. 8; ASC 842 presents finance-lease interest as interest). Taken: the lease interest follows the counted lease liability, not the tag's presence; the loader rule change named in `CHANGES.md` and the reading-rules row. "D8" is the build plan's label (`docs/build-plan.md` line 214), not Structure Guide Decision 8.
 - **Explainer.** Twenty gaps; taken: how the fallback is detected, the method text, the commands, where results go, the snapshot directory, the version bump. The rest are pointers a reader of the code has (the run id is `WMT_2026-10-30_1`).
+- **Gatekeeper (PR #526), GO, no blockers.** 2,754 passed; reading-rules fingerprint and map copy match; `WMT_2026-10-30_1` rebuilds identically through its own map; the changed refusal test is stricter. Notes filed as #528 (a fixture test of the history read through a map without the item; the loader error's file line).
 - **Product lead.** Blocker taken: Q4 is the question this moves most, not Q5 (Product impact). Ideas taken: the reported interest *dato* does not change; FY2020; the method text is not shown.
