@@ -25,7 +25,7 @@ import re
 import sqlite3
 from dataclasses import asdict, dataclass, field, replace
 
-from domains.analysis.coded import SIMULATION_NOTE_CODES, Coded
+from domains.analysis.coded import SIMULATION_NOTE_CODES, Coded, require_code
 from domains.analysis.montecarlo import reproduce_simulation
 from domains.orchestration import graph
 from shared_kernel.config import DATA_DIR, REPORTS_DIR
@@ -120,7 +120,7 @@ NOTE_TEXT = {
 
 
 def _note(code: str, **params) -> Coded:
-    assert code in SIMULATION_NOTE_CODES, code
+    require_code(code, SIMULATION_NOTE_CODES, "simulation note")
     return Coded(code, params, NOTE_TEXT[code].format(**params))
 
 

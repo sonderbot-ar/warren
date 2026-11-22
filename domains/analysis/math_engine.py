@@ -28,12 +28,14 @@ from domains.analysis import financial_math as fm
 from domains.analysis import sources as src
 from domains.analysis.coded import (
     ENGINE_REFUSAL_CODES,
+    FILING_REFUSAL_CODES,
     ZERO_DIVISOR_ITEMS,
     ZERO_DIVISOR_PERIOD_KINDS,
     ZERO_DIVISOR_RATIOS,
     Coded,
     coded_warnings,
     pass_on,
+    require_code,
 )
 from domains.analysis.dcf import QUARTERS, SEED, YEARS
 from domains.analysis.reading_rules import READING_RULES_VERSION
@@ -149,19 +151,40 @@ ITEMS = sorted({n for chain in CHAINS.values() for alt in chain for n in alt})
 # Read only to check whether short-term borrowings already include the current portion of
 # long-term debt (backlog #408); never counted, so not a balance item.
 CHECK_ITEMS = ("debt_current_total",)
-ITEMS += [*BALANCE_ITEMS, *SHARE_ITEMS, *CHECK_ITEMS]
+# Added to interest in the cost of debt where the map reads it (backlog #497): Walmart's finance-
+# lease interest, which its debt-only interest line leaves out while its debt includes the leases.
+# Like a check item, read only when the map in force has it.
+LEASE_INTEREST = "finance_lease_interest"
+OPTIONAL_ITEMS = (*CHECK_ITEMS, LEASE_INTEREST)
+ITEMS += [*BALANCE_ITEMS, *SHARE_ITEMS, *OPTIONAL_ITEMS]
 
 
 class EngineError(ValueError):
     """A run can't be built: a required input is missing or the data breaks an invariant.
 
     A refusal a student's run can reach has a `code` from `coded.ENGINE_REFUSAL_CODES` and
-    `params` (backlog #376); every other one has `code` None and is text only."""
+    `params` (backlog #376); every other one has `code` None and is text only.
 
-    def __init__(self, text: str, code: str | None = None, params: dict | None = None):
+    `accessions` are the filings behind a refusal that names a filed figure (backlog #509): set
+    where the engine refuses, or for a missing line by `_build_inputs` from the run's history
+    (None until then), and turned into the `filings` param by `build_inputs`, which can look up
+    each filing's form and link. An attribute, not a param, so the callers that read `_balance`'s
+    or `_operating_nwc`'s params into chart notes see them unchanged. `cik` is the company's,
+    set by `_build_inputs` on every refusal out of its steps, so the filings are looked up for the
+    company the run read (backlog #513); internal too."""
+
+    def __init__(
+        self,
+        text: str,
+        code: str | None = None,
+        params: dict | None = None,
+        accessions: list[str] | None = None,
+    ):
         super().__init__(text)
-        assert code is None or code in ENGINE_REFUSAL_CODES, code
+        require_code(code, ENGINE_REFUSAL_CODES, "engine refusal")
         self.text, self.code, self.params = text, code, dict(params or {})
+        self.accessions = accessions
+        self.cik: str | None = None
 
     def coded(self) -> Coded | None:
         return None if self.code is None else Coded(self.code, self.params, self.text)
@@ -329,8 +352,22 @@ def where_params(where: str) -> dict:
     """A refusal's period as params (backlog #376): "FY2020" or "FY2020 Q3" gives `fiscal_year`
     and `quarter` (None for a year), so the app never translates the English label."""
     match = re.fullmatch(r"FY(\d{4})(?: Q([1-4]))?", where)
-    assert match, where
+    if not match:  # a slip in Warren's code, kept under python -O (backlog #522)
+        raise RuntimeError(f"unreadable refusal period {where!r}")
     return {"fiscal_year": int(match[1]), "quarter": int(match[2]) if match[2] else None}
+
+
+def fact_accessions(*facts: Fact | None) -> list[str]:
+    """The filings behind facts, each once in order (backlog #509): a reported fact's own, a
+    derived one's inputs (Q4 = year − nine months has no filing of its own)."""
+    out: list[str] = []
+    for fact in facts:
+        if fact is None:
+            continue
+        for accession in [fact.accession_no] if fact.accession_no else fact.inputs:
+            if accession not in out:
+                out.append(accession)
+    return out
 
 
 @dataclass
@@ -358,10 +395,10 @@ class History:
 
 
 def load_history(conn: sqlite3.Connection, cik: str, as_of: date) -> History:
-    # a check item is read only when the map in force has it: a rebuild through a map made
-    # before the item existed reads what that map read (backlog #408)
+    # a check item (and the lease interest, #497) is read only when the map in force has it: a
+    # rebuild through a map made before the item existed reads what that map read (backlog #408)
     mapped = {r[0] for r in conn.execute("SELECT DISTINCT canonical_name FROM concepts")}
-    items = [i for i in ITEMS if i not in CHECK_ITEMS or i in mapped]
+    items = [i for i in ITEMS if i not in OPTIONAL_ITEMS or i in mapped]
     quarterly = get_facts(conn, cik, items, as_of, frequency="quarterly", one_basis=True)
     annual = get_facts(conn, cik, items, as_of, frequency="annual")
     instants: dict[str, list[Fact]] = defaultdict(list)
@@ -461,6 +498,53 @@ def build_inputs(
             newest = run_covered_through(conn, ticker)
             e.params["all_covered_through"] = newest.isoformat() if newest else None
         raise
+    except EngineError as e:
+        if e.code in FILING_REFUSAL_CODES:
+            e.params["filings"] = refusal_filings(conn, e.cik, e.accessions or [])
+        raise
+
+
+def refusal_filings(conn: sqlite3.Connection, cik: str | None, accessions: list[str]) -> list[dict]:
+    """Each accession as the #140 filing shape, `{accession_no, form, filed_at, url}`, the same
+    as a run source's filing (backlog #509). A filing's form and date never change, so reading
+    them adds nothing that was not public when the accession was read. `cik` is the run's company
+    (backlog #513); accessions without one are a programming error, never an empty list."""
+    from domains.analysis.reported import _Filings
+    from domains.analysis.sources import _filing
+
+    if not accessions:
+        return []
+    if cik is None:  # not an assert: `python -O` would drop it and build wrong links
+        raise RuntimeError("a refusal with filings must carry the run's CIK")
+    filings = _Filings(conn, cik)
+    return [_filing(filings.get(a)) for a in accessions]
+
+
+def period_accessions(history: History, code: str, params: dict) -> list[str]:
+    """The newest filing Warren read for a missing line's period (backlog #509): the balance
+    sheet's date (`period_end`), else the fiscal year or quarter (`fiscal_year`, `quarter`), among
+    the reported facts of the run's point-in-time history (a derived quarter has no filing of its
+    own). A missing balance line looks among balances, a missing flow line among flows, so the
+    filing is one whose statement should have had the line (a 10-K's income statement covers three
+    years, its balance sheet two). Newest by filing date, then accession number; an empty list
+    when none was read."""
+    if params.get("fiscal_year") is None:
+        day = date.fromisoformat(params["period_end"])
+        facts = [f for fs in history.instants.values() for f in fs if f.period_end == day]
+    elif params["quarter"] is None:
+        facts = [f for (_n, y), f in history.annual.items() if y == params["fiscal_year"]]
+    else:
+        period = f"Q{params['quarter']}"
+        facts = [
+            f
+            for (_n, y, p), f in history.quarterly.items()
+            if (y, p) == (params["fiscal_year"], period)
+        ]
+    balance = code != "flow_item_not_reported"
+    reported = [f for f in facts if f.accession_no and (f.period_start is None) == balance]
+    if not reported:
+        return []
+    return [max(reported, key=lambda f: (f.filed_at, f.accession_no)).accession_no]
 
 
 def _build_inputs(
@@ -508,14 +592,20 @@ def _build_inputs(
     result.notes += coded_warnings(caught)  # one per text
     pass_on(caught)  # a library's warning goes to the log, never into the notes (#196)
 
-    last_year, last_quarter, base_date = _last_actual_quarter(history, result)
-    fiscal_years = _history_years(history, last_year, result)
-    _revenue_seed(history, last_year, last_quarter, result)
-    _history_rows(history, fiscal_years, result)
-    balance_date = _balance(history, base_date, result)
-    price = _market(conn, history, result, choices, balance_date)
-    _cost_of_debt(history, fiscal_years, result)
-    _drivers(history, comparisons, fiscal_years, last_year, last_quarter, result)
+    try:
+        last_year, last_quarter, base_date = _last_actual_quarter(history, result)
+        fiscal_years = _history_years(history, last_year, result)
+        _revenue_seed(history, last_year, last_quarter, result)
+        _history_rows(history, fiscal_years, result)
+        balance_date = _balance(history, base_date, result)
+        price = _market(conn, history, result, choices, balance_date)
+        _cost_of_debt(history, fiscal_years, result)
+        _drivers(history, comparisons, fiscal_years, last_year, last_quarter, result)
+    except EngineError as e:
+        if e.code in FILING_REFUSAL_CODES and e.accessions is None:
+            e.accessions = period_accessions(history, e.code, e.params)  # a missing line (#509)
+        e.cik = company["cik"]  # the filings are looked up for this company (#513)
+        raise
     if changes:
         _meaning_notes(result, changes, filing_dates(conn, company["cik"], as_of))
     last_seed = quarter_label(last_year, last_quarter)
@@ -1193,6 +1283,7 @@ def _balance(history: History, base_date: date, result: EngineResult) -> date:
             raise EngineError(
                 f"{result.ticker}: {trace(fact)} is negative",
                 code="balance_item_negative",
+                accessions=fact_accessions(fact),
                 params={
                     "ticker": result.ticker,
                     "item": item,
@@ -1258,12 +1349,14 @@ def _balance(history: History, base_date: date, result: EngineResult) -> date:
     short_term_investments = val("marketable_securities_current") + val(
         "other_short_term_investments"
     )
+    securities = (facts["marketable_securities_current"], facts["other_short_term_investments"])
     if short_term_investments > val("current_assets"):
         raise EngineError(
             f"{result.ticker}: current securities ({short_term_investments:,.0f}) exceed current "
             f"assets ({val('current_assets'):,.0f}) at {balance_date}: a tag picks up the wrong "
             "measure",
             code="securities_exceed_current_assets",
+            accessions=fact_accessions(facts["current_assets"], *securities),
             params={
                 "ticker": result.ticker,
                 "period_end": balance_date.isoformat(),
@@ -1277,6 +1370,7 @@ def _balance(history: History, base_date: date, result: EngineResult) -> date:
         raise EngineError(
             f"{result.ticker}: cash and current securities exceed current assets at {balance_date}",
             code="securities_exceed_current_assets",
+            accessions=fact_accessions(facts["current_assets"], facts["cash"], *securities),
             params={
                 "ticker": result.ticker,
                 "period_end": balance_date.isoformat(),
@@ -1450,19 +1544,24 @@ def _shares(
         method = f"fallback: weighted diluted shares {trace(counted)}"
     else:
         if cover_filed or any(n.code == "shares_not_positive" for n in result.notes):
+            skipped = [n.params for n in result.notes if n.code == "shares_not_positive"]
             raise EngineError(
                 f"{result.ticker}: no share count above zero reported",
                 code="no_share_count",
+                accessions=list(
+                    dict.fromkeys(s["accession_no"] for s in skipped if s["accession_no"])
+                ),
                 params={
                     "ticker": result.ticker,
                     "reason": "none_above_zero",
                     # the counts left out (their notes' params), since a refused run stores none
-                    "skipped": [n.params for n in result.notes if n.code == "shares_not_positive"],
+                    "skipped": skipped,
                 },
             )
         raise EngineError(
             f"{result.ticker}: neither shares_outstanding nor diluted_shares reported",
             code="no_share_count",
+            accessions=[],
             params={"ticker": result.ticker, "reason": "none_reported"},
         )
     if factor != 1:
@@ -1627,10 +1726,38 @@ def cost_of_debt_year(history: History, year: int):
         return None
     end, end_used, _, _ = debt_parts(history.year(year))
     start, start_used, _, _ = debt_parts(history.year(year - 1))
+    interest = with_lease_interest(interest, history.year(year), start_used, end_used)
     average = (start + end) / 2 if start_used else end
     if average <= 0:
         return None
     return fm.cost_of_debt(interest.value, average), interest, (start, start_used), (end, end_used)
+
+
+def with_lease_interest(
+    interest: Resolved,
+    get: Callable[[str], Fact | None],
+    opening_debt: list[Fact],
+    closing_debt: list[Fact],
+) -> Resolved:
+    """D8's interest with the year's finance-lease interest added, where the map reads it apart
+    (backlog #497: Walmart, whose interest line is debt only while its debt includes finance
+    leases). Only when the average debt counted the finance-lease liability at both year ends (or
+    at the closing one, when the opening is not reported), so the interest follows the debt: not
+    when a debt tag already holds the leases, none is reported, or the year straddles the leases'
+    arrival on the balance sheet. Only on accrual interest: the cash `interest_paid` fallback is
+    left as it is."""
+    lease = get(LEASE_INTEREST)
+    if lease is None or interest.fallback:
+        return interest
+    for debt in (closing_debt, opening_debt) if opening_debt else (closing_debt,):
+        if not any(f.canonical_name == "finance_lease_liabilities" for f in debt):
+            return interest
+    return Resolved(
+        interest.value + lease.value,
+        f"{interest.method} + finance lease interest: {trace(lease)}",
+        interest.fallback,
+        (*interest.facts, lease),
+    )
 
 
 def _cost_of_debt(history: History, fiscal_years: list[int], result: EngineResult) -> None:
@@ -1717,10 +1844,18 @@ def _nonzero(
     the filing that gives it (`accession_no`; None for a figure Warren derived, whose filings are
     `inputs`), so the app can show the date and link the report (backlog #381). A sum has no
     single filing and takes none."""
-    assert ratio in ZERO_DIVISOR_RATIOS, ratio
-    assert divisor_item in ZERO_DIVISOR_ITEMS, divisor_item
-    assert period_kind in ZERO_DIVISOR_PERIOD_KINDS, period_kind
-    assert (fact is not None) == (period_kind in ("quarter", "year")), period_kind
+    # closed sets, checked with a RuntimeError that python -O keeps (backlog #522); unlike
+    # `require_code`, None is refused too: every one of these params is required
+    for kind, value, allowed in (
+        ("ratio", ratio, ZERO_DIVISOR_RATIOS),
+        ("item", divisor_item, ZERO_DIVISOR_ITEMS),
+        ("period kind", period_kind, ZERO_DIVISOR_PERIOD_KINDS),
+    ):
+        if value not in allowed:
+            raise RuntimeError(f"unknown zero_divisor {kind} {value!r}")
+    if (fact is not None) != (period_kind in ("quarter", "year")):
+        # one quarter or year names its filing, a sum names none
+        raise RuntimeError(f"zero_divisor period kind {period_kind!r} with fact={fact is not None}")
     if divisor == 0:
         filing = (
             {
@@ -1734,6 +1869,7 @@ def _nonzero(
         raise EngineError(
             f"{result.ticker}: {divisor_item} is zero in {period}, so {ratio} can't be computed",
             code="zero_divisor",
+            accessions=fact_accessions(fact),
             params={
                 "ticker": result.ticker,
                 "ratio": ratio,

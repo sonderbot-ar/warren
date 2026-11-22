@@ -296,12 +296,29 @@ def test_a_scoped_row_with_an_unknown_ticker_or_on_priority_1_is_refused(tmp_pat
     path = write_scoped(
         tmp_path,
         DEBT.format(tag="LongTermDebtCurrent", p=1, companies="CAT"),
-        DEBT.format(tag="DebtFallback", p=2, companies="ZZZZ"),
+        DEBT.format(tag="DebtEveryone", p=2, companies=""),
+        DEBT.format(tag="DebtFallback", p=3, companies="ZZZZ"),
     )
     with pytest.raises(ConceptMapError) as err:
         load_concept_map(path)
-    assert "can't be priority 1" in str(err.value)
+    # the row's file and line are named, like the loader's other errors (backlog #528)
+    assert (
+        "scoped.csv line 2: debt_current: a tag limited to some companies can't be priority 1 "
+        "beside a tag for every company"
+    ) in str(err.value)
     assert "['ZZZZ'] are not in universe.csv" in str(err.value)
+
+
+def test_an_item_only_some_companies_read_may_start_with_a_scoped_row(tmp_path):
+    """Backlog #497: with no tag for every company, nobody else has a first tag to keep."""
+    path = write_scoped(
+        tmp_path,
+        DEBT.format(tag="LongTermDebtCurrent", p=1, companies="WMT"),
+        DEBT.format(tag="DebtFallback", p=2, companies="CAT"),
+    )
+    first, second = load_concept_map(path)
+    assert first.priority == 1 and first.companies == {"WMT"}
+    assert not first.applies_to("MSFT") and second.applies_to("CAT")
 
 
 def test_a_copy_without_the_companies_column_reads_as_unscoped(tmp_path):
@@ -309,7 +326,7 @@ def test_a_copy_without_the_companies_column_reads_as_unscoped(tmp_path):
     assert rows[0].companies == frozenset()
 
 
-def test_the_shipped_maps_scope_only_caterpillars_pgs_and_coca_colas_fallbacks():
+def test_the_shipped_maps_scope_only_caterpillars_pgs_coca_colas_and_walmarts_rows():
     scoped = [r for r in load_concept_map() if r.companies]
     assert [(r.canonical_name, r.tag, r.priority, r.companies) for r in scoped] == [
         (
@@ -323,6 +340,8 @@ def test_the_shipped_maps_scope_only_caterpillars_pgs_and_coca_colas_fallbacks()
         # backlog #432: Coca-Cola's "Loans and notes payable" line, under its two tags
         ("short_term_borrowings", "NotesAndLoansPayableCurrent", 4, {"KO"}),
         ("short_term_borrowings", "NotesAndLoansPayable", 5, {"KO"}),
+        # backlog #497: Walmart's finance-lease interest, an item only Walmart reads
+        ("finance_lease_interest", "FinanceLeaseInterestExpense", 1, {"WMT"}),
     ]
 
 

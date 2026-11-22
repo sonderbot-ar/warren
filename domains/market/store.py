@@ -15,7 +15,7 @@ from datetime import UTC, date, datetime
 from types import MappingProxyType
 from typing import Any
 
-from domains.analysis.coded import ENGINE_REFUSAL_CODES, Coded
+from domains.analysis.coded import ENGINE_REFUSAL_CODES, Coded, require_code
 from shared_kernel.calendar import known_by, last_ended_day
 
 ROWS_TABLE = {"yahoo": ("prices", "ticker"), "fred": ("yields", "series")}
@@ -34,7 +34,7 @@ class MarketDataError(RuntimeError):
 
     def __init__(self, text: str, code: str | None = None, params: dict | None = None):
         super().__init__(text)
-        assert code is None or code in ENGINE_REFUSAL_CODES, code
+        require_code(code, ENGINE_REFUSAL_CODES, "engine refusal")
         self.text, self.code, self.params = text, code, dict(params or {})
 
     def coded(self) -> Coded | None:

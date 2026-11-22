@@ -382,3 +382,9 @@ def test_the_sources_command(company, monkeypatch, capsys):
     assert "filled 1" in capsys.readouterr().out
     assert cli.main(["sources", "--backfill"]) == 2
     assert cli.main(["sources", "--run-id", "nope"]) == 1
+
+
+def test_the_wacc_formula_says_its_debt_weight_is_book_debt():
+    # the debt weight is the balance sheet's book debt, not the filed fair value the debt card
+    # shows beside it (backlog #507; report.py says "book debt" too)
+    assert src.FORMULAS["wacc"].endswith("weighted by market equity and book debt")

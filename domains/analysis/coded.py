@@ -17,6 +17,14 @@ class Coded:
     text: str
 
 
+def require_code(code: str | None, allowed: frozenset, kind: str) -> None:
+    """Refuse a code outside its set (backlog #519): a `RuntimeError`, never an `assert` (which
+    `python -O` drops) or a `ValueError` (which callers catch as a data refusal), because an
+    unknown code is a slip in Warren's code that the app's text catalogue can't cover."""
+    if code is not None and code not in allowed:
+        raise RuntimeError(f"unknown {kind} code {code!r}")
+
+
 # Every code a run's notes can carry (backlog #172): build warnings, post-checks, missing bounds,
 # and `note_text` for a stored line without one. The app's text catalogue covers this set.
 RUN_NOTE_CODES = frozenset(
@@ -63,6 +71,11 @@ SIMULATION_NOTE_CODES = frozenset(
 # Every code a refused simulation can carry (backlog #212, `montecarlo.SimulationError.code`); a
 # refusal without a code is text only. The app's text catalogue covers this set too.
 SIMULATION_REFUSAL_CODES = frozenset({"wacc_set_with_risk_premium_shock"})
+
+# Every code a refused range read can carry (backlog #495, `ranges.RangeError.code`): a stored
+# past miss marked ok that is empty or not finite means Warren's own store is damaged, not
+# anything the student asked. A refusal without a code is text only.
+RANGE_REFUSAL_CODES = frozenset({"stored_miss_not_finite"})
 
 # Every code a refused run can carry (backlog #376): `math_engine.EngineError.code` and
 # `market.store.MarketDataError.code`, raised on the way from a company and a date to a stored
@@ -112,6 +125,21 @@ REFUSAL_GROUP_ORDER = (
     "setup",
 )
 ENGINE_REFUSAL_CODES = frozenset(REFUSAL_GROUPS)
+
+# The refusals that name a filed figure, or a period whose figure is missing, and so carry a
+# `filings` param out of `math_engine.build_inputs` (backlog #509): a list of `{accession_no,
+# form, filed_at, url}`, the shape of a run source's filing, for the app's "Ver reporte" link; an
+# empty list when Warren found no filing (a sum, no count reported, nothing read for the period).
+FILING_REFUSAL_CODES = frozenset(
+    {
+        "zero_divisor",
+        "balance_item_negative",
+        "securities_exceed_current_assets",
+        "balance_item_not_reported",
+        "flow_item_not_reported",
+        "no_share_count",
+    }
+)
 
 # The closed value sets of `zero_divisor`'s params (backlog #383), so the app's text catalogue can
 # cover every value: `ratio` is the figure that couldn't be computed, `divisor` the filed figure

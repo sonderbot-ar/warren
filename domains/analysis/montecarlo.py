@@ -17,7 +17,7 @@ import numpy as np
 
 from domains.analysis import dcf, shocks
 from domains.analysis import financial_math as fm
-from domains.analysis.coded import SIMULATION_REFUSAL_CODES, Coded
+from domains.analysis.coded import SIMULATION_REFUSAL_CODES, Coded, require_code
 from domains.analysis.dcf import Inputs
 from domains.analysis.runs import CENT, code_version, load_assumptions
 from domains.analysis.schemas import SINGLE
@@ -37,7 +37,7 @@ class SimulationError(ValueError):
 
     def __init__(self, text: str, code: str | None = None, params: dict | None = None):
         super().__init__(text)
-        assert code is None or code in SIMULATION_REFUSAL_CODES, code
+        require_code(code, SIMULATION_REFUSAL_CODES, "simulation refusal")
         self.text, self.code, self.params = text, code, dict(params or {})
 
     def coded(self) -> Coded | None:

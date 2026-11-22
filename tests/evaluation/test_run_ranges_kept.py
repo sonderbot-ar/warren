@@ -129,21 +129,17 @@ def test_a_request_with_other_misses_waits_for_a_build_in_progress(company, monk
     assert RN._origin_rows(origin, moved, N) == mine(want_moved)  # what is kept is the second's
 
 
-def test_a_stored_nan_miss_never_comes_back_as_nan(company):
-    """The kept rows compare misses by equality, and NaN is never equal to itself, so a NaN miss
-    would rebuild on every call (gatekeeper on #491). SQLite stores NaN as NULL, so `load_pairs`
-    never yields one, and the same misses read twice compare equal."""
-    import math
-
+def test_a_stored_nan_miss_is_refused_not_passed_on(company):
+    """The kept rows compare misses by equality, and NaN is never equal to itself (gatekeeper on
+    #491). SQLite stores NaN as NULL, and since backlog #495 `load_pairs` refuses such a row
+    instead of yielding None (tests/evaluation/test_ranges_empty_miss.py has the rest)."""
     _origins(company)
     company.execute(
         "UPDATE baseline_errors SET error = ? WHERE origin_id = ("
         "SELECT MIN(origin_id) FROM baseline_errors) AND item = 'revenue'",
         (float("nan"),),
     )
-    pairs = R.load_pairs(company)
-    assert pairs
-    assert not any(
-        isinstance(v, float) and math.isnan(v) for p in pairs for v in (p.revenue, p.ebit)
-    )
-    assert tuple(pairs) == tuple(R.load_pairs(company))
+    with pytest.raises(R.RangeError) as e:
+        R.load_pairs(company)
+    assert e.value.code == "stored_miss_not_finite"
+    assert e.value.params["item"] == "revenue" and e.value.params["value"] is None
