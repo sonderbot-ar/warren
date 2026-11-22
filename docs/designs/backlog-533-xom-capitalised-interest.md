@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/533 (from the #527 analyst review) · Branch `backlog-533-xom-capitalised-interest` · Version v0.10.33 when merged.
 
-Status: In progress (Step 1 built; Step 2, real data, next).
+Status: In progress (Steps 1 and 2 done; PR review next).
 
 ## Problem
 
@@ -55,6 +55,29 @@ Against the 10-K's own debt table (analyst): the average effective rates at 2025
 - Exit: `python -m pytest -q`, `ruff check .`, `ruff format --check .` green.
 
 **Step 2. Real data.** On the restored snapshot (`warren-20261122T153927Z`): `fundamentals ingest --all` (only Exxon gains facts); `fundamentals report --all`; `reproduce --all` to the cent, and `reproduce --all --rebuild` with as many runs rebuilding to identical rows after the ingest as before (each stored run reads through its own map). Then every stored run date built fresh in memory through main's map and the new one, with the same pinned market data and choices, none stored; list cost of debt, WACC, value per share and `below_risk_free` by year. Exit: only Exxon moves, only its `cost_of_debt` row and what follows from it (WACC, value per share), and no run note is added or removed except `below_risk_free` on the cost-of-debt chart, listed by year. Save a snapshot.
+
+## Results (Step 2, nov.22.2026)
+
+On the restored snapshot `warren-20261122T153927Z`.
+
+- **Before anything changed.** `reproduce --all --rebuild`: 909 of 909 stored runs reproduced to the cent, 698 of 909 rebuilt to identical rows.
+- **Ingest.** `fundamentals ingest --all`: Exxon gains 152 facts (`InterestPaidCapitalized`, `InterestCostsCapitalized`, `InterestExpenseOther`, years and quarters, every filing's version); every other company gains none. `fundamentals report --all`: 0 unexplained gaps for all eight companies.
+- **Stored runs after the ingest.** 909 of 909 reproduced to the cent; 698 of 909 rebuilt to identical rows, the same count as before (each run reads through its own map, which has no such item).
+- **Fresh runs.** Every stored run date (899 company-dates) built twice in memory, pinned market data and choices, through #527's map (`2b1a44897d8f`; with it the code reads as main does) and today's; none stored, none refused. **The other seven companies do not move (799 dates, 0 moved).** Exxon moves on all 100 of its dates, and on each only the `cost_of_debt` row (no run note added or removed):
+
+| Runs dated | Moved | Cost of debt (last run of the year) | WACC | Value per share | Run's own `below_risk_free` (before → after) |
+|---|---|---|---|---|---|
+| 2019 | 12 of 12 | 1.94% → 3.38% (FY2018) | 5.03% → 5.17% | −1.8% to −3.0% | 6 → 0 of 12 |
+| 2020 | 16 of 16 | 1.96% → 3.44% (FY2019) | 4.34% → 4.66% | −2.9% to −9.3% | 0 → 0 |
+| 2021 | 14 of 14 | 2.02% → 2.92% (FY2020) | 5.33% → 5.45% | −3.1% to −10.0% | 0 → 0 |
+| 2022 | 14 of 14 | 1.64% → 2.60% (FY2021) | 6.99% → 7.05% | −0.7% to −3.2% | 11 → 9 of 14 |
+| 2023 | 15 of 15 | 1.80% → 3.42% (FY2022) | 7.23% → 7.34% | −0.7% to −1.5% | 15 → 15 |
+| 2024 | 14 of 14 | 2.05% → 4.27% (FY2023) | 6.91% → 7.03% | −1.4% to −2.0% | 14 → 7 of 14 |
+| 2025 | 14 of 14 | 2.39% → 4.41% (FY2024) | 6.86% → 6.97% | −1.5% to −1.9% | 14 → 4 of 14 |
+| 2026 | 1 of 1 | 1.41% → 4.31% (FY2025) | 6.45% → 6.57% | −2.0% | 1 → 1 |
+
+  FY2023 reads 4.27%, not the 4.35% above: as of 2024 and 2025 the non-debt figure is the first-reported 234M, not the restated 200M (point-in-time). The largest moves, −9% to −10% on some 2020 and 2021 runs, are where Exxon's share price had fallen, so debt was a larger part of its capital and the WACC sat close to the terminal growth. The newest run, as of 2026-10-30: cost of debt 1.41% → 4.31%, WACC 6.45% → 6.57%, value per share $115.35 → $113.05; 4.31% is still below that run's 4.98% risk-free rate, so its `below_risk_free` note stays and a debt what-if on it still floors at the risk-free rate. On the cost-of-debt chart, against each fiscal year's average 10-year yield (2.91%, 2.14%, 0.89%, 1.45%, 2.95%, 3.96%, 4.21%, 4.29% for FY2018 to FY2025), `below_risk_free` stops firing on FY2018, FY2019, FY2022, FY2023, FY2024 and FY2025 (FY2025 by 0.02 points) and fired on neither reading in FY2020 and FY2021. Revenue and EBIT forecasts do not read the cost of debt, so no forecast-error score moves.
+- Snapshot saved after the ingest.
 
 ## Alternatives considered
 
