@@ -63,3 +63,19 @@ def test_the_check_survives_python_dash_o():
         [sys.executable, "-O", "-c", code], capture_output=True, text=True, check=True
     )
     assert out.stdout.strip() == "refused"
+
+
+def test_the_zero_divisor_checks_survive_python_dash_o():
+    # backlog #522: `_nonzero`'s closed-set checks and `where_params` were asserts
+    code = (
+        "from domains.analysis.math_engine import _nonzero, where_params\n"
+        "for call in (lambda: _nonzero(None, 1.0, 'gross_margin', 'revenue', 'FY2018', 'year'),\n"
+        "             lambda: _nonzero(None, 1.0, 'nwc_pct', 'revenue', 'FY2018', 'year'),\n"
+        "             lambda: where_params('2019')):\n"
+        "    try:\n        call()\n"
+        "    except RuntimeError:\n        print('refused')\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-O", "-c", code], capture_output=True, text=True, check=True
+    )
+    assert out.stdout.split() == ["refused"] * 3
