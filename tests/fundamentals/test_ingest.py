@@ -621,32 +621,42 @@ def test_loans_and_notes_payable_are_stored_for_ko_only(tag, ticker):
     assert other.skipped["company_scope"] == 1
 
 
-@pytest.mark.parametrize("ticker", ["MSFT", "AAPL", "XOM"])
-def test_finance_lease_interest_is_stored_for_walmart_only(ticker):
-    """Backlog #497: the shipped row reads Walmart's finance-lease interest, which its debt-only
-    interest line leaves out; Microsoft files the tag too, but its interest total already holds
-    it, so Microsoft's (and anyone else's) is never stored."""
+def _scoped_tag_kept(tag, item, scope, ticker):
+    """Whether ingest keeps the shipped row of `tag` for `ticker`, after checking the row."""
     from domains.fundamentals.concepts import load_concept_map
     from domains.fundamentals.ingest import IngestResult, extract_facts
 
-    [row] = [
-        r for r in load_concept_map() if r.xbrl_concept == "us-gaap:FinanceLeaseInterestExpense"
-    ]
-    assert (row.canonical_name, row.priority, row.companies) == (
-        "finance_lease_interest",
-        1,
-        {"WMT"},
-    )
+    [row] = [r for r in load_concept_map() if r.xbrl_concept == f"us-gaap:{tag}"]
+    assert (row.canonical_name, row.priority, row.companies) == (item, 1, scope)
     assert (row.period_type, row.gate) == ("duration", "optional")
     facts = FakeEdgar().facts
     revenue = facts["facts"]["us-gaap"]["Revenues"]["units"]["USD"][0]
-    facts["facts"]["us-gaap"]["FinanceLeaseInterestExpense"] = {
-        "units": {"USD": [dict(revenue, val=383)]}
-    }
+    facts["facts"]["us-gaap"][tag] = {"units": {"USD": [dict(revenue, val=383)]}}
+    result = IngestResult(ticker=ticker, cik=TEST_CIK)
+    kept = extract_facts(TEST_CIK, facts, [row], result)
+    if kept:
+        [row_kept] = kept
+        assert f"us-gaap:{tag}" in row_kept and 383 in row_kept
+    else:
+        assert result.skipped["company_scope"] == 1
+    return bool(kept)
 
-    wmt = IngestResult(ticker="WMT", cik=TEST_CIK)
-    [kept] = extract_facts(TEST_CIK, facts, [row], wmt)
-    assert "us-gaap:FinanceLeaseInterestExpense" in kept and 383 in kept
-    other = IngestResult(ticker=ticker, cik=TEST_CIK)
-    assert extract_facts(TEST_CIK, facts, [row], other) == []
-    assert other.skipped["company_scope"] == 1
+
+@pytest.mark.parametrize("ticker", ["WMT", "MSFT", "AAPL", "XOM", "CAT"])
+def test_finance_lease_interest_is_stored_for_walmart_and_microsoft_only(ticker):
+    """Backlog #497: the shipped row reads Walmart's finance-lease interest, which its debt-only
+    interest line leaves out. Backlog #527: Microsoft's too, summed with its cash interest paid on
+    debt in place of its interest total (which holds the lease interest, so the engine never adds
+    it to that total). Anyone else's is never stored."""
+    kept = _scoped_tag_kept(
+        "FinanceLeaseInterestExpense", "finance_lease_interest", {"MSFT", "WMT"}, ticker
+    )
+    assert kept == (ticker in {"WMT", "MSFT"})
+
+
+@pytest.mark.parametrize("ticker", ["MSFT", "WMT", "AAPL", "CAT"])
+def test_interest_paid_on_debt_is_stored_for_microsoft_only(ticker):
+    """Backlog #527: `InterestPaid` is Microsoft's cash paid for interest on its debt, before
+    capitalising; another company's can hold lease interest or be net of capitalised interest."""
+    kept = _scoped_tag_kept("InterestPaid", "interest_paid_on_debt", {"MSFT"}, ticker)
+    assert kept == (ticker == "MSFT")
