@@ -133,9 +133,6 @@ def load_concept_map(
         unknown = sorted(row.companies - known)
         if unknown:
             errors.append(f"{line}: companies {unknown} are not in universe.csv")
-        if row.companies and row.priority == 1:
-            # a company-only tag is a fallback: every other company keeps the item's first tag
-            errors.append(f"{line}: a tag limited to some companies can't be priority 1")
         files.setdefault(row.canonical_name, set()).add(line.split(" line ")[0])
         rows.append(row)
 
@@ -148,6 +145,16 @@ def load_concept_map(
 
     for name in sorted({r.canonical_name for r in rows}):
         group = [r for r in rows if r.canonical_name == name]
+        # a company-only tag is a fallback, so every other company keeps the item's first tag;
+        # an item whose every tag is limited (one only some companies read, backlog #497) has
+        # no first tag for anyone else to keep
+        if any(not r.companies for r in group):
+            for r in group:
+                if r.companies and r.priority == 1:
+                    errors.append(
+                        f"{name}: a tag limited to some companies can't be priority 1 "
+                        "beside a tag for every company"
+                    )
         if sorted(r.priority for r in group) != list(range(1, len(group) + 1)):
             errors.append(f"{name}: priorities must be 1..{len(group)} with no gaps or repeats")
         for field in ("unit", "period_type", "definition", "gate"):
