@@ -5,7 +5,7 @@ import math
 from dataclasses import dataclass
 
 from domains.analysis import math_engine
-from domains.analysis.coded import REFUSAL_GROUPS
+from domains.analysis.coded import OTHER_REFUSAL_GROUPS, REFUSAL_GROUPS
 from domains.market import erp
 
 # Short cause of a missing value, per financial_math.REASONS code (backlog #9).
@@ -599,5 +599,7 @@ REFUSAL_LESSONS = {
 
 
 def refusal_lesson(code: str) -> Lesson:
-    """The lesson for a refusal code: its own when it has one, otherwise its group's."""
-    return REFUSAL_LESSONS.get(code) or REFUSAL_GROUP_LESSONS[REFUSAL_GROUPS[code]]
+    """The lesson for a refusal code: its own when it has one, otherwise its group's (a run's
+    refusal, or one in `OTHER_REFUSAL_GROUPS`)."""
+    group = REFUSAL_GROUPS.get(code) or OTHER_REFUSAL_GROUPS[code]
+    return REFUSAL_LESSONS.get(code) or REFUSAL_GROUP_LESSONS[group]

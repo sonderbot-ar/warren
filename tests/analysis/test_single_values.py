@@ -726,3 +726,87 @@ def test_hedge_note_codes_stay_in_the_closed_lists(make_company, monkeypatch):
         for series in cell.history:
             for p in series.points:
                 assert {n.code for n in p.notes} <= point_codes
+
+
+# -- a concepts table older than the map (backlog #548) ------------------------------------------
+
+
+def _unsync(conn, item):
+    """Drop an item's rows from the concepts table, as a database synced before it was added."""
+    conn.execute("PRAGMA foreign_keys=OFF")
+    conn.execute("DELETE FROM concepts WHERE canonical_name = ?", (item,))
+    conn.commit()
+
+
+def test_a_stale_table_refuses_the_hedge_years_with_one_code(make_company, monkeypatch):
+    from domains.analysis.inputs import InputsError
+
+    conn, run_id = _hedged(make_company, monkeypatch, {2018: 0.052})
+    _unsync(conn, "debt_effective_rate")
+    with pytest.raises(InputsError) as e:
+        inputs_behind(conn, run_id, VPS)
+    assert e.value.code == "concepts_not_synced"
+    assert e.value.params == {"missing": ["debt_effective_rate"]}
+    assert "ingest --all" in str(e.value)
+
+
+def test_a_stale_table_refuses_the_fair_value_series_with_one_code(run):
+    from domains.analysis.inputs import InputsError
+
+    conn, run_id = run
+    _unsync(conn, "debt_fair_value")
+    with pytest.raises(InputsError) as e:
+        inputs_behind(conn, run_id, VPS)
+    assert (e.value.code, e.value.params) == (
+        "concepts_not_synced",
+        {"missing": ["debt_fair_value"]},
+    )
+
+
+def test_the_stale_table_refusal_reads_as_setup():
+    from domains.analysis.coded import (
+        ENGINE_REFUSAL_CODES,
+        OTHER_REFUSAL_GROUPS,
+        REFUSAL_GROUP_ORDER,
+    )
+    from domains.analysis.text import REFUSAL_GROUP_LESSONS, refusal_lesson
+
+    assert not set(OTHER_REFUSAL_GROUPS) & ENGINE_REFUSAL_CODES
+    assert set(OTHER_REFUSAL_GROUPS.values()) <= set(REFUSAL_GROUP_ORDER)
+    assert refusal_lesson("concepts_not_synced") == REFUSAL_GROUP_LESSONS["setup"]
+
+
+# -- a company with no caveat row keeps its notes (backlog #549) ---------------------------------
+
+
+def _uncaveated_tickers():
+    from domains.analysis.interest_caveats import load_interest_caveats
+    from domains.fundamentals.universe import load_universe
+
+    caveated = {c.ticker for c in load_interest_caveats()}
+    return sorted(c.ticker for c in load_universe() if c.ticker not in caveated)
+
+
+def _cost_notes(conn, run_id):
+    cell = _cell(inputs_behind(conn, run_id, VPS, years=10), "cost_of_debt")
+    return [cell.notes, *([s.notes, *(p.notes for p in s.points)] for s in cell.history)]
+
+
+@pytest.mark.parametrize("ticker", _uncaveated_tickers())
+def test_a_company_with_no_caveat_row_gets_the_notes_it_had_before(
+    ticker, make_company, monkeypatch
+):
+    from domains.analysis import interest_caveats
+
+    def cheap(tag, row):  # a 2% book cost below the 3% yield, so the years carry notes
+        return {**row, "val": row["val"] / 2} if tag == "InterestExpense" else row
+
+    conn = make_company(cheap)
+    run_id = run_baseline(conn, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    shipped = interest_caveats.caveat_for
+    monkeypatch.setattr(interest_caveats, "caveat_for", lambda _t, year: shipped(ticker, year))
+    with_file = _cost_notes(conn, run_id)
+    monkeypatch.setattr(interest_caveats, "caveat_for", lambda _t, _year: None)
+    without = _cost_notes(conn, run_id)
+    assert with_file == without
+    assert any(n.code == "below_risk_free" for p in with_file[1][1:] for n in p)
