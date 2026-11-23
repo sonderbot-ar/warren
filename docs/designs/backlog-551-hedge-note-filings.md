@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/551 (from the #547 review, front-end ask) · Branch `backlog-551-hedge-note-filings` · Version v0.10.37 when merged.
 
-Status: In progress (nov.23.2026).
+Status: Done (v0.10.37, nov.23.2026; PR #557, merge `c6b1bc4`, after CI green and a gatekeeper GO).
 
 ## Problem
 
