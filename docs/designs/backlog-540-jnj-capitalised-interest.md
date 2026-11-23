@@ -1,0 +1,71 @@
+# Backlog #540: J&J's cost of debt counts the interest it capitalises, and a trace line for a left-out figure
+
+Issue: https://github.com/sonderbot-ar/warren/issues/540 (from the #533 review and gatekeeper) · Branch `backlog-540-jnj-capitalised-interest` · Version v0.10.34 when merged.
+
+Status: In progress (nov.23.2026).
+
+## Problem
+
+#533 (v0.10.33) made ExxonMobil's cost of debt (D8: a fiscal year's interest over the average of its two year-end debts, `math_engine.cost_of_debt_year`) read interest incurred on debt: the expense, less interest the filing says is not on debt, plus the interest capitalised (ASC 835-20, IAS 23). Its review left three follow-ups:
+
+1. **J&J and Apple** also tag something that looks like capitalised interest. Check each company's tag, its non-debt interest and its debt basis before extending the rule.
+2. **A trace line** when `_incurred` leaves out a non-debt figure (below zero, or not below the interest) or a negative capitalised figure: today it is dropped without a word.
+3. **The 10-K's own average rate beside D8**, as a plausibility check.
+
+### What the filings say (company facts, nov.23.2026; 10-K annual figures, millions of US$)
+
+**Apple: no change.** Apple's `InterestCostsIncurred` (2,200 to 3,700, FY2017 to FY2023, rounded to $0.1 billion) is not a capitalised amount: it is the interest it recognised on its term debt (the debt note), equal to its `InterestExpenseDebt` in every year both are filed (2,200, 3,000, 3,200, 2,800, 2,600 for FY2017 to FY2021). Apple tags no capitalised interest. Its D8 (interest expense over average debt, 2.29% to 3.37%) is unchanged.
+
+**J&J: capitalised interest, filed every year.** J&J's income statement line is "Interest expense, net of portion capitalized" (FY2021 10-K, 0000200406-22-000022), and its property note says "The Company capitalizes interest expense as part of the cost of construction of facilities and equipment. Interest expense capitalized in fiscal years 2021, 2020 and 2019 was $49 million, $63 million and $70 million". It is tagged `us-gaap:InterestCostsCapitalized` in every 10-K, and cash paid before and after capitalising differ by exactly it (`InterestPaid` − `InterestPaidNet`: 904 − 841 = 63 in FY2020, 1,977 − 1,863 = 114 in FY2025). J&J tags no `InterestPaidCapitalized` and no `InterestExpenseOther`. Its debt in Warren is long-term debt plus loans and notes payable (`debt_noncurrent`, `short_term_borrowings`); it counts no finance-lease liability and J&J tags no finance-lease interest, so the capitalised interest (on borrowings, ASC 835-20-30-2) is on the same basis as the debt it is divided by.
+
+| FY | Interest expense | Capitalised | Average debt | D8 today | Expense + capitalised | J&J's own weighted average effective rate on long-term debt, year end (`DebtInstrumentInterestRateEffectivePercentage`) |
+|---|---|---|---|---|---|---|
+| 2017 | 934 | 94 | 30,854 | 3.03% | 3.33% | 3.19% |
+| 2018 | 1,005 | 86 | 32,531 | 3.09% | 3.35% | 3.19% |
+| 2019 | 318 | 70 | 29,088 | 1.09% | 1.33% | 3.19% |
+| 2020 | 201 | 63 | 31,481 | 0.64% | 0.84% | 2.85% |
+| 2021 | 183 | 49 | 34,508 | 0.53% | 0.67% | 2.89% |
+| 2022 | 276 | 49 | 36,697 | 0.75% | 0.89% | 3.04% |
+| 2023 | 772 | 70 | 34,487 | 2.24% | 2.44% | 2.98% |
+| 2024 | 755 | 79 | 32,983 | 2.29% | 2.53% | 3.36% |
+| 2025 | 971 | 114 | 42,284 | 2.30% | 2.57% | not tagged |
+
+(Average debt and D8 today: `cost_of_debt_year` through today's map as known on 2026-10-30, in memory. FY2017 and FY2018 from the first 10-K that reported them.)
+
+**The bigger gap at J&J is not capitalising: it is hedge accounting.** From FY2019 J&J's interest line collapses (1,005 → 318) while its debt and its filed effective rate do not. The FY2021 10-K says why: for its cross-currency swaps designated as net investment hedges, "the portion excluded from effectiveness testing is recorded through interest (income) expense using the spot method" (ASU 2017-12, adopted 2019), and gains on cross-currency swaps designated as cash flow hedges are reclassified from other comprehensive income into interest (income) expense. Its derivatives table puts 174M (FY2021) and 153M (FY2020) of excluded-component gains, and 402M and 370M of cash-flow-hedge gains, in that line. So J&J's interest expense is net of about half a billion dollars a year of swap gains: in effect J&J borrows in dollars and swaps part of the debt into lower-rate currencies, and the line shows the swapped cost. For a valuation in dollars, that carry is pay for taking currency risk, not a cheaper cost of borrowing. Those amounts are tagged only with a dimension (the income-statement line), which the SEC's company facts file leaves out, so Warren cannot read them through its source today.
+
+So adding J&J's capitalised interest is right (it is interest incurred on J&J's debt, ASC 835-20, the same principle as #533), but it closes only 0.1 to 0.3 points of a gap of up to 2.4 points in FY2019 to FY2022 and about 1 point in FY2023 to FY2025. The rest needs either the swap amounts (a dimensional-facts source) or a different method (the company's filed effective rate, or a market rate): the first is item 3's plausibility check and a data source question, the second would change D8's method in the Structure Guide ("cost of debt from interest expense over average debt", Section on the DCF), a decision for the owner. This item does neither; it files both as a follow-up with this evidence (below).
+
+## Plan
+
+**Step 0. This doc.**
+
+**Step 1. J&J joins the interest-incurred rule; a trace line for a left-out figure.**
+
+- Map: `interest_capitalized`'s two rows (`InterestPaidCapitalized` priority 1, `InterestCostsCapitalized` priority 2) widen from `XOM` to `JNJ;XOM`. J&J files only the second today; if it ever files the cash-flow statement's figure, it is the same amount by meaning (as at Exxon). `interest_not_on_debt` stays XOM only: J&J tags none. Notes say why, with the filings. Map copy `concept_maps/<sha>.csv` and its `CHANGES.md` line.
+- `math_engine._incurred` is unchanged for a used figure. When it leaves one out, the method text says so, with the fact's trace: `<method> (interest not on debt left out, below zero: <trace>)`, `(… not below the interest: <trace>)`, `(interest capitalised left out, below zero: <trace>)`. A left-out fact is not added to the row's facts (its sources stay the figures used). Docstrings of `CAPITALISED`, `_incurred` and `d8_interest` name J&J.
+- `reading_rules.md` row and `READING_RULES_VERSION` 14 → 15 (a fresh J&J run reads a different figure).
+- Tests (`tests/analysis/test_capitalised_interest.py`, `tests/fundamentals/test_concepts.py`, `tests/fundamentals/test_ingest.py`): the shipped map scopes both capitalised rows to `{JNJ, XOM}` and the non-debt row to `{XOM}`; `extract_facts` keeps `InterestCostsCapitalized` for JNJ and XOM and skips it for the other six, and keeps `InterestExpenseOther` for XOM only; J&J's FY2021 figures give (183 + 49) / 34,508 = 0.67%; J&J's FY2025 (971 + 114) / 42,284 = 2.57%; each left-out case names the figure and the reason in the method and keeps it out of the facts; a used figure's method is unchanged; Exxon's, Microsoft's and Walmart's cases unchanged.
+- Exit: `python -m pytest -q`, `ruff check .`, `ruff format --check .` green.
+
+**Step 2. Real data.** On the restored snapshot (`warren-20261122T203459Z`): `reproduce --all` and `--rebuild` before; `fundamentals ingest --all` (only J&J should gain facts); `fundamentals report --all`; `reproduce --all` and `--rebuild` after, with as many identical rebuilds as before. Then every stored run date built fresh in memory through main's map and the new one, with the same pinned market data and choices, none stored; list cost of debt, WACC, value per share and `below_risk_free` by year. Exit: only J&J moves, only its `cost_of_debt` row and what follows (WACC, value per share); no run note added or removed except `below_risk_free`, listed. Check that no fresh run's method gains a "left out" clause (Exxon's only left-out figure is FY2013's −123M, older than any run's cost-of-debt year). Save a snapshot.
+
+## Alternatives considered
+
+- **J&J's cash paid before capitalising (`InterestPaid`), as #527 did for Microsoft.** It tracks J&J's filed rate in FY2019 to FY2022 (2.7% to 3.4%), but jumps to 4.7% to 6.0% in FY2023 to FY2025 (1,836 to 1,990 paid on about 33 to 42 billion of debt), above every rate in J&J's debt table, so it holds something that is not interest on this debt in those years. A rule that is right in some years and wrong in others mixes bases. Rejected.
+- **J&J's filed weighted average effective rate as its cost of debt.** Closest to the debt table by construction, but it is a year-end rate on long-term debt only (no commercial paper), not tagged for FY2025, and it changes D8's method (Structure Guide: interest expense over average debt). Owner decision; filed as a follow-up with this evidence, not done here.
+- **Add back the swap gains.** The right accrual fix, but the amounts are tagged only with a dimension that the company facts file drops. Needs a source for dimensional facts (the SEC's Financial Statement and Notes data sets, scout issue #536, are the free candidate). Follow-up.
+- **Leave J&J alone until the hedge question is settled.** Keeps a figure Warren knows leaves out interest J&J incurred and filed. Adding it is right on its own and does not stand in the way of either fix.
+- **Item 3 (the 10-K's average rate beside D8) in this item.** Only three of the eight companies tag a long-term rate without a dimension (J&J's effective rate, Coca-Cola's and P&G's `LongtermDebtWeightedAverageInterestRate`); Exxon's 3.43% is dimensional. It needs pure-unit map items, a new run note with its lesson and a front-end label. Its own track, with J&J as its first case; filed as a follow-up.
+
+## Files to change
+
+`domains/fundamentals/concept_map.csv`, `domains/fundamentals/concept_maps/<sha>.csv` and `CHANGES.md`, `domains/analysis/math_engine.py`, `domains/analysis/reading_rules.md`, `domains/analysis/reading_rules.py` (version 15), `tests/analysis/test_capitalised_interest.py`, `tests/fundamentals/test_concepts.py`, `tests/fundamentals/test_ingest.py`, this doc; on merge `docs/versions.md`, `docs/team-sync.md`, `docs/build-plan.md` is unchanged (no milestone). `docs/structure-guide.md` is unchanged: D8's method (interest over average book debt) is the same; only which filed lines make up J&J's interest, as in #497, #527 and #533.
+
+## Product impact
+
+J&J is in brief Q3, Q4, Q7, Q8 and Q9's kinds of screen (value per share, WACC and its parts, a rate shock, a margin what-if, the sensitivity grid) once a student can pick it. A fresh J&J run's cost-of-debt row reads interest incurred, slightly higher (FY2025 2.30% → 2.57%); WACC moves by a few basis points at most (J&J's debt is a small part of its capital) and value per share slightly down. No new part code: J&J's cost-of-debt chart gains the existing `interest_capitalized` part ("intereses capitalizados"). Stored runs keep their rows; beside an older J&J run of the same date the app shows the different-reading-rules case (14 vs 15) or the "either NULL" case for runs with no recorded rules. The trace line adds English text to a row's method only when a figure is left out; no code, param or output is added, renamed or removed. Not fixed and worth a sentence in the app's *Fuente* tab one day: J&J's interest line is net of swap gains since 2019, so its book cost of debt reads below its debt table's rates.
+
+## Design review
+
+(to fill)
