@@ -374,7 +374,7 @@
   "refusal.code.securities_exceed_current_assets.with_cash": "In {empresa}'s balance sheet at {period_end}, as Warren read it, cash and short-term securities exceed current assets, which they are part of.",
   "refusal.code.company_not_ingested": "Warren hasn't loaded {empresa}'s filings yet.",
   "refusal.code.no_ingest_run": "Warren has no record of loading {empresa}'s filings.",
-  "refusal.code.concepts_not_synced": "Warren hasn't yet updated its list of accounting concepts with the data this answer needs.",
+  "refusal.code.concepts_not_synced": "Warren hasn't yet updated its accounting data (the financial statement lines) for this answer.",
   "refusal.code.market_data_not_loaded": "Warren hasn't loaded the market prices this estimate uses yet.",
   "refusal.code.no_risk_free_rate": "Warren has no 10-year Treasury rate from before {fecha}.",
   "refusal.code.market_year_end_missing": "Warren is missing a market figure for the last week of {year}.",

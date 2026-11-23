@@ -374,7 +374,7 @@
   "refusal.code.securities_exceed_current_assets.with_cash": "En el balance de {empresa} del {period_end}, tal como Warren lo leyó, el efectivo y las inversiones de corto plazo superan al activo circulante, del que forman parte.",
   "refusal.code.company_not_ingested": "Warren todavía no cargó los reportes de {empresa}.",
   "refusal.code.no_ingest_run": "Warren no tiene registrada la carga de los reportes de {empresa}.",
-  "refusal.code.concepts_not_synced": "Warren todavía no actualizó su lista de conceptos contables con los datos que esta respuesta necesita.",
+  "refusal.code.concepts_not_synced": "Warren todavía no actualizó sus datos contables (las cuentas de los estados financieros) para esta respuesta.",
   "refusal.code.market_data_not_loaded": "Warren todavía no cargó los precios de mercado que usa esta estimación.",
   "refusal.code.no_risk_free_rate": "Warren no tiene la tasa del Tesoro a 10 años de antes del {fecha}.",
   "refusal.code.market_year_end_missing": "A Warren le falta un dato de mercado de la última semana de {year}.",
