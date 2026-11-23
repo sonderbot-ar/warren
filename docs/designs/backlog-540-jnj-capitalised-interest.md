@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/540 (from the #533 review and gatekeeper) · Branch `backlog-540-jnj-capitalised-interest` · Version v0.10.34 when merged.
 
-Status: In progress (nov.23.2026).
+Status: Done (nov.23.2026), v0.10.34, merged in PR #544 as `a39c0dc`. Gatekeeper GO.
 
 ## Problem
 
