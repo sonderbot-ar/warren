@@ -70,8 +70,10 @@ def companyfacts(edit=None) -> dict:
     return a list of (tag, row) pairs to file instead (adds a tag the fixture lacks)."""
     facts: dict[str, dict[str, list]] = {}
 
+    def unit_of(tag):  # a stated rate is a pure ratio (backlog #542)
+        return "shares" if "Shares" in tag else "pure" if tag.endswith("Percentage") else "USD"
+
     def put(tag, value, end, accn, fy, fp, form, filed, start=None):
-        unit = "shares" if "Shares" in tag else "USD"
         row = {"end": end, "val": value, "accn": accn, "fy": fy, "fp": fp, "form": form}
         row["filed"] = filed
         if start:
@@ -81,7 +83,7 @@ def companyfacts(edit=None) -> dict:
             row = edit(tag, row)
             pairs = row if isinstance(row, list) else [] if row is None else [(tag, row)]
         for tag, row in pairs:
-            facts.setdefault(tag, {}).setdefault(unit, []).append(row)
+            facts.setdefault(tag, {}).setdefault(unit_of(tag), []).append(row)
 
     filings = [(y, q) for y in range(2016, 2020) for q in (1, 2, 3, 4)] + [(2020, 1)]
     for n, (year, quarter) in enumerate(filings):

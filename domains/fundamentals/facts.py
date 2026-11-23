@@ -35,6 +35,34 @@ WHERE f.cik = ? AND f.filed_at <= ? AND c.canonical_name IN ({placeholders})
 """
 
 
+class ConceptsNotSyncedError(ValueError):
+    """Items the concept map files hold but the database's `concepts` table does not: the table
+    was synced before they were added (an older snapshot or a local database; backlog #548).
+    `code` and `params` say so for the callers whose refusals are coded (`inputs_behind`)."""
+
+    code = "concepts_not_synced"
+    SYNC_COMMAND = "python -m domains.fundamentals ingest --all"
+
+    def __init__(self, missing: list[str]):
+        self.params = {"missing": sorted(missing)}
+        super().__init__(
+            f"Not in the concept map: {self.params['missing']}. The database's concepts table is "
+            f"older than the concept map files: run `{self.SYNC_COMMAND}` to sync it and read "
+            "the new items"
+        )
+
+
+def _unknown_names(unknown: list[str]) -> ValueError:
+    """A stale table when every unknown name is in the map files, else a name that is in neither
+    (a caller's mistake), as before."""
+    from domains.fundamentals.concepts import load_concept_map
+
+    in_files = {r.canonical_name for r in load_concept_map()}
+    if set(unknown) <= in_files:
+        return ConceptsNotSyncedError(unknown)
+    return ValueError(f"Not in the concept map: {unknown}")
+
+
 def _as_date(value: date | str) -> date:
     return value if isinstance(value, date) else date.fromisoformat(value)
 
@@ -73,7 +101,7 @@ def _rows_by_period(
     known = {r[0] for r in conn.execute("SELECT DISTINCT canonical_name FROM concepts")}
     unknown = sorted(set(canonical_names) - known)
     if unknown:
-        raise ValueError(f"Not in the concept map: {unknown}")
+        raise _unknown_names(unknown)
     periods: dict[tuple, dict[str, list[sqlite3.Row]]] = defaultdict(lambda: defaultdict(list))
     if not canonical_names:
         return periods
