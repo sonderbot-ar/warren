@@ -155,7 +155,22 @@ CHECK_ITEMS = ("debt_current_total",)
 # lease interest, which its debt-only interest line leaves out while its debt includes the leases.
 # Like a check item, read only when the map in force has it.
 LEASE_INTEREST = "finance_lease_interest"
-OPTIONAL_ITEMS = (*CHECK_ITEMS, LEASE_INTEREST)
+# Cash paid for interest on debt, before any interest is capitalised (backlog #527): Microsoft's
+# interest expense is net of the interest it capitalises and it tags no capitalised amount, so its
+# cost of debt reads this, plus its finance-lease interest, in place of the expense.
+PAID_ON_DEBT = "interest_paid_on_debt"
+# Interest capitalised into assets under construction (backlog #533): ExxonMobil's interest expense
+# is net of it and it files the amount, so its cost of debt adds it back (interest incurred); J&J
+# too from backlog #540.
+CAPITALISED = "interest_capitalized"
+# Interest expense that is not on debt (backlog #533, analyst): ExxonMobil's interest expense holds
+# it (its segment note: "non-debt-related interest expense", 300M FY2025) and it files the amount,
+# so its cost of debt takes it out.
+NON_DEBT = "interest_not_on_debt"
+# Interest tags that by their GAAP definition hold debt interest only, so a finance-lease interest
+# read apart can be added to them without counting it twice (backlog #527)
+DEBT_ONLY_INTEREST_TAGS = frozenset({"us-gaap:InterestExpenseDebt"})
+OPTIONAL_ITEMS = (*CHECK_ITEMS, LEASE_INTEREST, PAID_ON_DEBT, CAPITALISED, NON_DEBT)
 ITEMS += [*BALANCE_ITEMS, *SHARE_ITEMS, *OPTIONAL_ITEMS]
 
 
@@ -1726,32 +1741,119 @@ def cost_of_debt_year(history: History, year: int):
         return None
     end, end_used, _, _ = debt_parts(history.year(year))
     start, start_used, _, _ = debt_parts(history.year(year - 1))
-    interest = with_lease_interest(interest, history.year(year), start_used, end_used)
+    interest = d8_interest(interest, history.year(year), start_used, end_used)
     average = (start + end) / 2 if start_used else end
     if average <= 0:
         return None
     return fm.cost_of_debt(interest.value, average), interest, (start, start_used), (end, end_used)
 
 
-def with_lease_interest(
+def _leases_at(opening_debt: list[Fact], closing_debt: list[Fact]) -> tuple[bool, ...]:
+    """Whether each year-end debt the average used counted the finance-lease liability (the
+    closing one alone when the opening is not reported)."""
+    return tuple(
+        any(f.canonical_name == "finance_lease_liabilities" for f in debt)
+        for debt in ((closing_debt, opening_debt) if opening_debt else (closing_debt,))
+    )
+
+
+def _short_term_at(opening_debt: list[Fact], closing_debt: list[Fact]) -> bool:
+    """Whether either year-end debt counted short-term borrowings or commercial paper above zero
+    (backlog #527: Microsoft's cash paid for interest on debt leaves out its paper's interest,
+    which is paid as a discount at maturity)."""
+    return any(
+        f.canonical_name in ("short_term_borrowings", "commercial_paper") and f.value
+        for f in (*opening_debt, *closing_debt)
+    )
+
+
+def _incurred(interest: Resolved, capitalised: Fact | None, non_debt: Fact | None) -> Resolved:
+    """The interest on debt incurred in the year (backlog #533; ExxonMobil, and J&J from #540): the
+    interest less the part the filing says is not on debt, plus the interest capitalised. A
+    non-debt figure below zero or not below the interest, or a negative capitalised figure, is
+    left out, and the method says so with the figure's trace (backlog #540); a left-out figure is
+    not one of the row's facts."""
+    if non_debt is not None:
+        if 0 <= non_debt.value < interest.value:
+            interest = Resolved(
+                interest.value - non_debt.value,
+                f"{interest.method} - interest not on debt: {trace(non_debt)}",
+                interest.fallback,
+                (*interest.facts, non_debt),
+            )
+        else:
+            why = "below zero" if non_debt.value < 0 else "not below the interest"
+            interest = Resolved(
+                interest.value,
+                f"{interest.method} (interest not on debt left out, {why}: {trace(non_debt)})",
+                interest.fallback,
+                interest.facts,
+            )
+    if capitalised is not None:
+        if capitalised.value >= 0:
+            interest = Resolved(
+                interest.value + capitalised.value,
+                f"{interest.method} + interest capitalised (interest incurred = expensed + "
+                f"capitalised, ASC 835-20): {trace(capitalised)}",
+                interest.fallback,
+                (*interest.facts, capitalised),
+            )
+        else:
+            interest = Resolved(
+                interest.value,
+                f"{interest.method} (interest capitalised left out, below zero: "
+                f"{trace(capitalised)})",
+                interest.fallback,
+                interest.facts,
+            )
+    return interest
+
+
+def d8_interest(
     interest: Resolved,
     get: Callable[[str], Fact | None],
     opening_debt: list[Fact],
     closing_debt: list[Fact],
 ) -> Resolved:
-    """D8's interest with the year's finance-lease interest added, where the map reads it apart
-    (backlog #497: Walmart, whose interest line is debt only while its debt includes finance
-    leases). Only when the average debt counted the finance-lease liability at both year ends (or
-    at the closing one, when the opening is not reported), so the interest follows the debt: not
-    when a debt tag already holds the leases, none is reported, or the year straddles the leases'
-    arrival on the balance sheet. Only on accrual interest: the cash `interest_paid` fallback is
-    left as it is."""
-    lease = get(LEASE_INTEREST)
-    if lease is None or interest.fallback:
+    """D8's interest on the same basis as the average debt it is divided by. Never on the cash
+    `interest_paid` fallback, and never mixing bases: a year whose average debt counted the
+    finance-lease liability at one year end only keeps its interest.
+
+    1. Interest paid on debt, where the map reads it (backlog #527: Microsoft, whose interest
+       expense is net of the interest it capitalises): summed with the year's finance-lease
+       interest, when the leases were counted at both year ends and no short-term borrowings or
+       commercial paper at either (the cash paid leaves out the paper's interest). Any other year
+       keeps its interest: without leases the 10-Ks name no capitalising, and a cash figure that
+       misses part of the debt would mix bases.
+    2. Otherwise, where the map reads them (backlog #533: ExxonMobil, whose interest expense is
+       net of the interest it capitalises and holds some that is not on debt; backlog #540: J&J,
+       capitalised interest only), the interest less
+       the part not on debt plus the interest capitalised: interest incurred on debt = expensed
+       on debt + capitalised (ASC 835-20), on the basis of its debt.
+    3. Then the year's finance-lease interest added to an interest line that is debt only by its
+       tag (backlog #497: Walmart), when the leases were counted at both year ends. An interest
+       with no facts is never debt only (backlog #534).
+    4. Otherwise the interest as resolved."""
+    if interest.fallback:
         return interest
-    for debt in (closing_debt, opening_debt) if opening_debt else (closing_debt,):
-        if not any(f.canonical_name == "finance_lease_liabilities" for f in debt):
-            return interest
+    leases = _leases_at(opening_debt, closing_debt)
+    lease, paid = get(LEASE_INTEREST), get(PAID_ON_DEBT)
+    if paid is not None:
+        if all(leases) and lease is not None and not _short_term_at(opening_debt, closing_debt):
+            return Resolved(
+                paid.value + lease.value,
+                f"interest paid on debt (cash, before capitalised interest): {trace(paid)} + "
+                f"finance lease interest: {trace(lease)} (in place of {interest.method})",
+                False,
+                (paid, lease),
+            )
+        return interest
+    debt_only = bool(interest.facts) and all(
+        f.xbrl_concept in DEBT_ONLY_INTEREST_TAGS for f in interest.facts
+    )
+    interest = _incurred(interest, get(CAPITALISED), get(NON_DEBT))
+    if lease is None or not debt_only or not all(leases):
+        return interest
     return Resolved(
         interest.value + lease.value,
         f"{interest.method} + finance lease interest: {trace(lease)}",

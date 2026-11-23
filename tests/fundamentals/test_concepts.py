@@ -326,7 +326,7 @@ def test_a_copy_without_the_companies_column_reads_as_unscoped(tmp_path):
     assert rows[0].companies == frozenset()
 
 
-def test_the_shipped_maps_scope_only_caterpillars_pgs_coca_colas_and_walmarts_rows():
+def test_the_shipped_maps_scope_only_the_rows_checked_for_each_company():
     scoped = [r for r in load_concept_map() if r.companies]
     assert [(r.canonical_name, r.tag, r.priority, r.companies) for r in scoped] == [
         (
@@ -340,8 +340,15 @@ def test_the_shipped_maps_scope_only_caterpillars_pgs_coca_colas_and_walmarts_ro
         # backlog #432: Coca-Cola's "Loans and notes payable" line, under its two tags
         ("short_term_borrowings", "NotesAndLoansPayableCurrent", 4, {"KO"}),
         ("short_term_borrowings", "NotesAndLoansPayable", 5, {"KO"}),
-        # backlog #497: Walmart's finance-lease interest, an item only Walmart reads
-        ("finance_lease_interest", "FinanceLeaseInterestExpense", 1, {"WMT"}),
+        # backlog #497: Walmart's finance-lease interest, an item only Walmart reads; backlog #527:
+        # Microsoft's too, summed with its cash interest paid on debt
+        ("finance_lease_interest", "FinanceLeaseInterestExpense", 1, {"MSFT", "WMT"}),
+        ("interest_paid_on_debt", "InterestPaid", 1, {"MSFT"}),
+        # backlog #533: ExxonMobil's interest capitalised, under its two tags, and its interest
+        # expense that is not on debt; backlog #540: J&J's interest capitalised too
+        ("interest_capitalized", "InterestPaidCapitalized", 1, {"JNJ", "XOM"}),
+        ("interest_capitalized", "InterestCostsCapitalized", 2, {"JNJ", "XOM"}),
+        ("interest_not_on_debt", "InterestExpenseOther", 1, {"XOM"}),
     ]
 
 
