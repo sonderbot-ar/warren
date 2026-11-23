@@ -26,6 +26,15 @@ The `interest_net_of_hedge_gains` note (backlog #542, v0.10.35) tells a student 
 
 **Step 2. Real data.** On the restored snapshot: the newest J&J run's cost-of-debt notes list all four 10-Ks with their dates; a J&J run as of 2020 lists only the two filed by then; `reproduce --all` unchanged (no stored number moves).
 
+Result (snapshot `warren-20261123T052122Z`, read on a copy): J&J as of 2019-04-01 lists the FY2018 10-K only; as of 2020-04-01 the FY2018 and FY2019 10-Ks; as of 2022-04-01 three; as of 2026-10-30 all four, on every covered year and on the cell. Each with form 10-K and its EDGAR date. No other company has the note.
+
+## Design review (nov.23.2026)
+
+- **Explainer:** restated it correctly; asked for the filing shape (`inputs._filing`: `accession_no`, `form`, `filed_at` as an ISO date string, `url` to the EDGAR filing index), where dates come from (`reported._Filings`, the earliest `filed_at` of each accession in `financial_facts`), and whether forms other than 10-K are listed (yes: any accession the evidence names; today all four are 10-Ks). `evidence_filings` may repeat `effective_rate_filing`'s accession; the app lists a filing once by `accession_no` (product lead). Step 2 builds no stored run.
+- **Analyst: GO.** Checked all four accessions on EDGAR: J&J 10-Ks for FY2018 (filed 2019-02-20), FY2019 (2020-02-18), FY2021 (2022-02-17) and FY2025 (2026-02-11). The `filed_at <= as_of` filter is required, since `_Filings` has no date filter (`reported.py:330`). Suggested a run just before 2019-02-20: not possible, Warren's dates start 2019-03-01 (`run_baseline` refuses 2019-02-01). Noted that the evidence prose quotes FY2020 figures beside the FY2019 10-K, which holds none of them: a data-file wording fix, filed as a backlog issue rather than added here.
+- **Product lead: GO**, no shape change. The app lists a filing once when it is also `effective_rate_filing`, and the brief gains a Spanish heading for the list after merge.
+- **Professor:** not run; the change adds no method, only links to filings already cited.
+
 ## Alternatives considered
 
 - **Split `evidence` into a separate `accessions` column.** Cleaner to read, but it changes the file's columns and every test fixture for no gain: the accession numbers are already in the text, in a fixed SEC format, and one regex reads them. Rejected for now; worth it if a second caveat row arrives with accessions that need no prose.

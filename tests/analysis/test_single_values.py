@@ -578,12 +578,17 @@ def test_a_fair_value_off_the_balance_dates_is_left_out_and_listed(make_company)
 
 RATE_TAG = "DebtInstrumentInterestRateEffectivePercentage"
 HEDGE = "interest_net_of_hedge_gains"
+LATE_ACCESSION = "0000000123-20-000099"  # filed 2020-08-01, after AS_OF
+FY2018_10K = "0000000123-19-000011"  # Test Corp's FY2018 10-K, filed 2019-02-15
 
 
-def _hedged(make_company, monkeypatch, rates, first=2017, cheap=False, late=()):
+def _hedged(
+    make_company, monkeypatch, rates, first=2017, cheap=False, late=(), evidence="test filings"
+):
     """Test Corp with a stated effective rate at each listed year end (filed in that year's
-    10-K, or after `AS_OF` for a year in `late`), the rate item read for TST and an interest
-    caveat for TST from `first`. `cheap` halves the interest (2% book cost, below the 3% yield)."""
+    10-K, or after `AS_OF` under its own accession `LATE_ACCESSION` for a year in `late`), the
+    rate item read for TST and an interest caveat for TST from `first` citing `evidence`.
+    `cheap` halves the interest (2% book cost, below the 3% yield)."""
     import dataclasses
 
     from domains.analysis import interest_caveats
@@ -601,7 +606,7 @@ def _hedged(make_company, monkeypatch, rates, first=2017, cheap=False, late=()):
 
     monkeypatch.setattr(ingest, "load_concept_map", with_tst)
     caveat = interest_caveats.InterestCaveat(
-        "TST", HEDGE, first, None, "debt_effective_rate", "test filings", ""
+        "TST", HEDGE, first, None, "debt_effective_rate", evidence, ""
     )
     monkeypatch.setattr(
         interest_caveats,
@@ -618,8 +623,10 @@ def _hedged(make_company, monkeypatch, rates, first=2017, cheap=False, late=()):
             and row["end"] == f"{row['fy']}-12-31"
             and row["fy"] in rates
         ):
-            filed = "2020-08-01" if row["fy"] in late else row["filed"]
-            return [(tag, row), (RATE_TAG, {**row, "val": rates[row["fy"]], "filed": filed})]
+            rate = {**row, "val": rates[row["fy"]]}
+            if row["fy"] in late:
+                rate |= {"filed": "2020-08-01", "accn": LATE_ACCESSION}
+            return [(tag, row), (RATE_TAG, rate)]
         return row
 
     conn = make_company(edit)
@@ -810,3 +817,37 @@ def test_a_company_with_no_caveat_row_gets_the_notes_it_had_before(
     without = _cost_notes(conn, run_id)
     assert with_file == without
     assert any(n.code == "below_risk_free" for p in with_file[1][1:] for n in p)
+
+
+# -- the hedge note's evidence filings (backlog #551) -----------------------------------------
+
+
+def _hedge_notes(conn, run_id):
+    cell, points = _cost_points(conn, run_id)
+    return [n for p in points for n in p.notes if n.code == HEDGE] + [
+        n for n in cell.notes if n.code == HEDGE
+    ]
+
+
+def test_the_hedge_note_lists_only_evidence_filings_known_on_the_run_date(
+    make_company, monkeypatch
+):
+    never = "0000000123-25-000001"  # an accession Warren has never ingested
+    evidence = f"FY2018 10-K ({FY2018_10K}); later 10-K ({LATE_ACCESSION}); {never}; {FY2018_10K}"
+    conn, run_id = _hedged(
+        make_company, monkeypatch, {2018: 0.052, 2019: 0.06}, late={2019}, evidence=evidence
+    )
+    notes = _hedge_notes(conn, run_id)
+    assert len(notes) >= 3  # FY2017–FY2019 points and the cell
+    for note in notes:
+        [filing] = note.params["evidence_filings"]  # the late and the unknown ones left out
+        assert filing["accession_no"] == FY2018_10K
+        assert (filing["form"], filing["filed_at"]) == ("10-K", "2019-02-15")
+        assert "000012319000011" in filing["url"]
+        assert date.fromisoformat(filing["filed_at"]) <= AS_OF
+
+
+def test_evidence_without_an_accession_lists_no_filing(make_company, monkeypatch):
+    conn, run_id = _hedged(make_company, monkeypatch, {2018: 0.052})
+    notes = _hedge_notes(conn, run_id)
+    assert notes and all(n.params["evidence_filings"] == [] for n in notes)

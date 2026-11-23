@@ -6,6 +6,7 @@ which year (backlog #542; Decision 11, companies as data).
 """
 
 import csv
+import re
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
@@ -14,6 +15,8 @@ INTEREST_CAVEATS_PATH = Path(__file__).parent / "interest_caveats.csv"
 COLUMNS = ["ticker", "code", "from_fiscal_year", "to_fiscal_year", "rate_item", "evidence", "note"]
 # A closed set, so the app's text catalogue covers every code.
 CAVEAT_CODES = ("interest_net_of_hedge_gains",)
+# An SEC accession number: filer id, two-digit year, sequence (backlog #551)
+ACCESSION = re.compile(r"\b\d{10}-\d{2}-\d{6}\b")
 
 
 class InterestCaveatError(ValueError):
@@ -29,6 +32,12 @@ class InterestCaveat:
     rate_item: str | None  # the reported-only item holding the company's own stated rate
     evidence: str
     note: str
+
+    @property
+    def accessions(self) -> tuple[str, ...]:
+        """Every SEC accession number `evidence` names, in the order written, each once
+        (backlog #551), so the app can link the filings behind the caveat."""
+        return tuple(dict.fromkeys(ACCESSION.findall(self.evidence)))
 
     def covers(self, fiscal_year: int) -> bool:
         return self.from_fiscal_year <= fiscal_year and (

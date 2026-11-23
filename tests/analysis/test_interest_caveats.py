@@ -78,3 +78,27 @@ def test_two_rows_for_one_company_and_code_may_not_overlap(tmp_path):
 def test_wrong_columns_are_refused(tmp_path):
     with pytest.raises(InterestCaveatError, match="expected columns"):
         load_interest_caveats(write(tmp_path, JNJ, header="ticker,code"))
+
+
+def test_the_shipped_rows_accessions_are_its_four_10ks_in_order():
+    [row] = load_interest_caveats()
+    assert row.accessions == (
+        "0000200406-19-000009",
+        "0000200406-20-000010",
+        "0000200406-22-000022",
+        "0000200406-26-000016",
+    )
+
+
+def test_accessions_are_read_from_the_evidence_once_each(tmp_path):
+    evidence = '"10-K 0000200406-19-000009, again 0000200406-19-000009; 10-Q 0000200406-20-000123"'
+    row_text = f"JNJ,interest_net_of_hedge_gains,2019,,debt_effective_rate,{evidence},why"
+    [row] = load_interest_caveats(write(tmp_path, row_text))
+    assert row.accessions == ("0000200406-19-000009", "0000200406-20-000123")
+    [plain] = load_interest_caveats(write(tmp_path, JNJ))
+    assert plain.accessions == ()  # free text with no accession: valid, lists none
+
+
+def test_evidence_with_only_spaces_is_still_refused(tmp_path):
+    with pytest.raises(InterestCaveatError, match="line 2: evidence is empty"):
+        load_interest_caveats(write(tmp_path, JNJ.replace("10-K tables", "  ")))
