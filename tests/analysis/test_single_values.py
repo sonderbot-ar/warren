@@ -726,3 +726,52 @@ def test_hedge_note_codes_stay_in_the_closed_lists(make_company, monkeypatch):
         for series in cell.history:
             for p in series.points:
                 assert {n.code for n in p.notes} <= point_codes
+
+
+# -- a concepts table older than the map (backlog #548) ------------------------------------------
+
+
+def _unsync(conn, item):
+    """Drop an item's rows from the concepts table, as a database synced before it was added."""
+    conn.execute("PRAGMA foreign_keys=OFF")
+    conn.execute("DELETE FROM concepts WHERE canonical_name = ?", (item,))
+    conn.commit()
+
+
+def test_a_stale_table_refuses_the_hedge_years_with_one_code(make_company, monkeypatch):
+    from domains.analysis.inputs import InputsError
+
+    conn, run_id = _hedged(make_company, monkeypatch, {2018: 0.052})
+    _unsync(conn, "debt_effective_rate")
+    with pytest.raises(InputsError) as e:
+        inputs_behind(conn, run_id, VPS)
+    assert e.value.code == "concepts_not_synced"
+    assert e.value.params == {"missing": ["debt_effective_rate"]}
+    assert "ingest --all" in str(e.value)
+
+
+def test_a_stale_table_refuses_the_fair_value_series_with_one_code(run):
+    from domains.analysis.inputs import InputsError
+
+    conn, run_id = run
+    _unsync(conn, "debt_fair_value")
+    with pytest.raises(InputsError) as e:
+        inputs_behind(conn, run_id, VPS)
+    assert (e.value.code, e.value.params) == (
+        "concepts_not_synced",
+        {"missing": ["debt_fair_value"]},
+    )
+
+
+def test_the_stale_table_refusal_reads_as_setup():
+    from domains.analysis.coded import (
+        ENGINE_REFUSAL_CODES,
+        OTHER_REFUSAL_GROUPS,
+        REFUSAL_GROUP_ORDER,
+    )
+    from domains.analysis.text import REFUSAL_GROUP_LESSONS, refusal_lesson
+
+    assert not set(OTHER_REFUSAL_GROUPS) & ENGINE_REFUSAL_CODES
+    assert set(OTHER_REFUSAL_GROUPS.values()) <= set(REFUSAL_GROUP_ORDER)
+    assert refusal_lesson("concepts_not_synced") == REFUSAL_GROUP_LESSONS["setup"]
+

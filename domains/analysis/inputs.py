@@ -922,6 +922,17 @@ def inputs_behind(
     Single values get their own history (backlog #476, `single_values.py`); owner choices come
     back with their rows and the gap `owner_choice`.
     """
+    from domains.fundamentals.facts import ConceptsNotSyncedError
+
+    try:
+        return _inputs_behind(conn, run_id, outputs, years)
+    except ConceptsNotSyncedError as e:  # one coded refusal, not a traceback (backlog #548)
+        raise InputsError(str(e), e.code, dict(e.params)) from e
+
+
+def _inputs_behind(
+    conn: sqlite3.Connection, run_id: str, outputs: list[tuple[str, str]], years: int
+) -> InputsBehind:
     from domains.analysis.runs import load_assumptions, load_outputs
 
     if not YEARS_RANGE[0] <= years <= YEARS_RANGE[1]:

@@ -336,3 +336,28 @@ def test_a_skipped_part_is_listed_with_what_was_used(ingested):
         (s.value, s.xbrl_concept, k.value, k.xbrl_concept, k.accession_no) for s, k in pairs
     ] == [(1010, "us-gaap:SalesRevenueNet", 400, "us-gaap:Revenues", "p-22-1")]
     assert not skipped_parts_as_whole(conn, TEST_CIK, ["revenue"], "2022-02-14")
+
+
+def test_an_item_the_map_files_hold_but_the_table_lacks_is_a_coded_refusal(ingested):
+    """A database synced before an item was added (backlog #548) says so and how to fix it."""
+    from domains.fundamentals.facts import ConceptsNotSyncedError
+
+    conn, _ = ingested
+    conn.execute("PRAGMA foreign_keys=OFF")
+    conn.execute("DELETE FROM concepts WHERE canonical_name = 'debt_effective_rate'")
+    with pytest.raises(ConceptsNotSyncedError) as e:
+        get_reported_facts(conn, TEST_CIK, ["debt_effective_rate", "revenue"], "2025-03-01")
+    assert isinstance(e.value, ValueError)
+    assert e.value.code == "concepts_not_synced"
+    assert e.value.params == {"missing": ["debt_effective_rate"]}
+    assert str(e.value).startswith("Not in the concept map")
+    assert ConceptsNotSyncedError.SYNC_COMMAND in str(e.value)
+
+
+def test_a_name_in_neither_the_files_nor_the_table_is_not_called_a_stale_table(ingested):
+    from domains.fundamentals.facts import ConceptsNotSyncedError
+
+    conn, _ = ingested
+    with pytest.raises(ValueError, match="Not in the concept map") as e:
+        get_reported_facts(conn, TEST_CIK, ["revenues"], "2025-03-01")
+    assert not isinstance(e.value, ConceptsNotSyncedError)

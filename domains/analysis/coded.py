@@ -126,6 +126,13 @@ REFUSAL_GROUP_ORDER = (
 )
 ENGINE_REFUSAL_CODES = frozenset(REFUSAL_GROUPS)
 
+# Refusals outside a run's build that the screen shows in a run refusal's group, in its words
+# (backlog #548, product lead): `concepts_not_synced` (`inputs.InputsError.code`, from
+# `facts.ConceptsNotSyncedError`) means Warren's own database is older than its concept map, so
+# it reads as `setup`. Kept apart from `REFUSAL_GROUPS`, whose codes are exactly the ones a run's
+# build raises. The app never names its `missing` items (engine item names, #297).
+OTHER_REFUSAL_GROUPS = {"concepts_not_synced": "setup"}
+
 # The refusals that name a filed figure, or a period whose figure is missing, and so carry a
 # `filings` param out of `math_engine.build_inputs` (backlog #509): a list of `{accession_no,
 # form, filed_at, url}`, the shape of a run source's filing, for the app's "Ver reporte" link; an
