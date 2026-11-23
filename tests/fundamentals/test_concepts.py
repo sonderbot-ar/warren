@@ -72,6 +72,26 @@ def test_unknown_unit_and_mixed_period_type_are_rejected(tmp_path):
     assert "period_type" in str(err.value)
 
 
+def test_a_pure_ratio_is_a_known_unit(tmp_path):
+    """Backlog #542: a stated rate is filed as `pure` (0.0319 = 3.19%)."""
+    path = write_map(
+        tmp_path,
+        "debt_effective_rate,us-gaap:DebtInstrumentInterestRateEffectivePercentage,1,pure,"
+        "instant,optional,A rate.,",
+    )
+    [row] = load_concept_map(path)
+    assert row.unit == "pure"
+
+
+def test_the_effective_rate_row_is_jnj_only_and_reported_only():
+    [row] = [r for r in load_concept_map() if r.canonical_name == "debt_effective_rate"]
+    assert (row.unit, row.period_type, row.gate) == ("pure", "instant", "optional")
+    assert row.companies == {"JNJ"}
+    assert "debt_effective_rate" not in {
+        r.canonical_name for r in load_concept_map(CONCEPT_MAP_PATH)
+    }
+
+
 def test_sync_is_idempotent(conn):
     rows = load_concept_map()
     first = sync_concepts(conn, rows)
@@ -148,7 +168,12 @@ def test_shipped_maps_load_together():
     names = {r.canonical_name for r in load_concept_map()}
     assert {"revenue", "net_income", "discontinued_operations"} <= names
     assert "net_income" not in {r.canonical_name for r in load_concept_map(CONCEPT_MAP_PATH)}
-    assert reported_only_names() == {"net_income", "discontinued_operations", "debt_fair_value"}
+    assert reported_only_names() == {
+        "net_income",
+        "discontinued_operations",
+        "debt_fair_value",
+        "debt_effective_rate",
+    }
 
 
 def test_the_fingerprint_is_the_valuation_map_alone():
@@ -349,6 +374,8 @@ def test_the_shipped_maps_scope_only_the_rows_checked_for_each_company():
         ("interest_capitalized", "InterestPaidCapitalized", 1, {"JNJ", "XOM"}),
         ("interest_capitalized", "InterestCostsCapitalized", 2, {"JNJ", "XOM"}),
         ("interest_not_on_debt", "InterestExpenseOther", 1, {"XOM"}),
+        # backlog #542 (reported-only file): J&J's stated effective rate on its long-term debt
+        ("debt_effective_rate", "DebtInstrumentInterestRateEffectivePercentage", 1, {"JNJ"}),
     ]
 
 

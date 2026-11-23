@@ -682,3 +682,28 @@ def test_interest_not_on_debt_is_stored_for_exxon_only(ticker):
     anything."""
     kept = _scoped_tag_kept("InterestExpenseOther", "interest_not_on_debt", {"XOM"}, ticker)
     assert kept == (ticker == "XOM")
+
+
+@pytest.mark.parametrize("ticker", ["JNJ", "KO", "PG", "XOM", "AAPL"])
+def test_the_effective_rate_is_stored_for_jnj_only_as_a_pure_ratio(ticker):
+    """Backlog #542: J&J's stated weighted average effective rate on its long-term debt is filed
+    as one undimensioned `pure` value per year end; other companies tag the concept per
+    instrument, so theirs are never stored."""
+    from domains.fundamentals.concepts import load_concept_map
+    from domains.fundamentals.ingest import IngestResult, extract_facts
+
+    tag = "DebtInstrumentInterestRateEffectivePercentage"
+    [row] = [r for r in load_concept_map() if r.xbrl_concept == f"us-gaap:{tag}"]
+    facts = FakeEdgar().facts
+    cash = facts["facts"]["us-gaap"]["CashAndCashEquivalentsAtCarryingValue"]["units"]["USD"][0]
+    facts["facts"]["us-gaap"][tag] = {
+        "units": {"pure": [dict(cash, val=0.0319)], "USD": [dict(cash, val=5)]}
+    }
+    result = IngestResult(ticker=ticker, cik=TEST_CIK)
+    kept = extract_facts(TEST_CIK, facts, [row], result)
+    if ticker == "JNJ":
+        [stored] = kept
+        assert 0.0319 in stored and "pure" in stored
+        assert result.skipped["unit"] == 1  # a USD figure under the tag is not the rate
+    else:
+        assert kept == [] and result.skipped["company_scope"] == 2
