@@ -345,9 +345,9 @@ def test_the_shipped_maps_scope_only_the_rows_checked_for_each_company():
         ("finance_lease_interest", "FinanceLeaseInterestExpense", 1, {"MSFT", "WMT"}),
         ("interest_paid_on_debt", "InterestPaid", 1, {"MSFT"}),
         # backlog #533: ExxonMobil's interest capitalised, under its two tags, and its interest
-        # expense that is not on debt
-        ("interest_capitalized", "InterestPaidCapitalized", 1, {"XOM"}),
-        ("interest_capitalized", "InterestCostsCapitalized", 2, {"XOM"}),
+        # expense that is not on debt; backlog #540: J&J's interest capitalised too
+        ("interest_capitalized", "InterestPaidCapitalized", 1, {"JNJ", "XOM"}),
+        ("interest_capitalized", "InterestCostsCapitalized", 2, {"JNJ", "XOM"}),
         ("interest_not_on_debt", "InterestExpenseOther", 1, {"XOM"}),
     ]
 

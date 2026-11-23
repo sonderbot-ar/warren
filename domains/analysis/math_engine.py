@@ -160,7 +160,8 @@ LEASE_INTEREST = "finance_lease_interest"
 # cost of debt reads this, plus its finance-lease interest, in place of the expense.
 PAID_ON_DEBT = "interest_paid_on_debt"
 # Interest capitalised into assets under construction (backlog #533): ExxonMobil's interest expense
-# is net of it and it files the amount, so its cost of debt adds it back (interest incurred).
+# is net of it and it files the amount, so its cost of debt adds it back (interest incurred); J&J
+# too from backlog #540.
 CAPITALISED = "interest_capitalized"
 # Interest expense that is not on debt (backlog #533, analyst): ExxonMobil's interest expense holds
 # it (its segment note: "non-debt-related interest expense", 300M FY2025) and it files the amount,
@@ -1767,24 +1768,44 @@ def _short_term_at(opening_debt: list[Fact], closing_debt: list[Fact]) -> bool:
 
 
 def _incurred(interest: Resolved, capitalised: Fact | None, non_debt: Fact | None) -> Resolved:
-    """The interest on debt incurred in the year (backlog #533): the interest less the part the
-    filing says is not on debt, plus the interest capitalised. A non-debt figure below zero or not
-    below the interest, or a negative capitalised figure, is left out."""
-    if non_debt is not None and 0 <= non_debt.value < interest.value:
-        interest = Resolved(
-            interest.value - non_debt.value,
-            f"{interest.method} - interest not on debt: {trace(non_debt)}",
-            interest.fallback,
-            (*interest.facts, non_debt),
-        )
-    if capitalised is not None and capitalised.value >= 0:
-        interest = Resolved(
-            interest.value + capitalised.value,
-            f"{interest.method} + interest capitalised (interest incurred = expensed + "
-            f"capitalised, ASC 835-20): {trace(capitalised)}",
-            interest.fallback,
-            (*interest.facts, capitalised),
-        )
+    """The interest on debt incurred in the year (backlog #533; ExxonMobil, and J&J from #540): the
+    interest less the part the filing says is not on debt, plus the interest capitalised. A
+    non-debt figure below zero or not below the interest, or a negative capitalised figure, is
+    left out, and the method says so with the figure's trace (backlog #540); a left-out figure is
+    not one of the row's facts."""
+    if non_debt is not None:
+        if 0 <= non_debt.value < interest.value:
+            interest = Resolved(
+                interest.value - non_debt.value,
+                f"{interest.method} - interest not on debt: {trace(non_debt)}",
+                interest.fallback,
+                (*interest.facts, non_debt),
+            )
+        else:
+            why = "below zero" if non_debt.value < 0 else "not below the interest"
+            interest = Resolved(
+                interest.value,
+                f"{interest.method} (interest not on debt left out, {why}: {trace(non_debt)})",
+                interest.fallback,
+                interest.facts,
+            )
+    if capitalised is not None:
+        if capitalised.value >= 0:
+            interest = Resolved(
+                interest.value + capitalised.value,
+                f"{interest.method} + interest capitalised (interest incurred = expensed + "
+                f"capitalised, ASC 835-20): {trace(capitalised)}",
+                interest.fallback,
+                (*interest.facts, capitalised),
+            )
+        else:
+            interest = Resolved(
+                interest.value,
+                f"{interest.method} (interest capitalised left out, below zero: "
+                f"{trace(capitalised)})",
+                interest.fallback,
+                interest.facts,
+            )
     return interest
 
 
@@ -1805,7 +1826,8 @@ def d8_interest(
        keeps its interest: without leases the 10-Ks name no capitalising, and a cash figure that
        misses part of the debt would mix bases.
     2. Otherwise, where the map reads them (backlog #533: ExxonMobil, whose interest expense is
-       net of the interest it capitalises and holds some that is not on debt), the interest less
+       net of the interest it capitalises and holds some that is not on debt; backlog #540: J&J,
+       capitalised interest only), the interest less
        the part not on debt plus the interest capitalised: interest incurred on debt = expensed
        on debt + capitalised (ASC 835-20), on the basis of its debt.
     3. Then the year's finance-lease interest added to an interest line that is debt only by its

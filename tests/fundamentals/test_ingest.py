@@ -662,19 +662,20 @@ def test_interest_paid_on_debt_is_stored_for_microsoft_only(ticker):
     assert kept == (ticker == "MSFT")
 
 
-@pytest.mark.parametrize("ticker", ["XOM", "MSFT", "WMT", "JNJ", "AAPL"])
+@pytest.mark.parametrize("ticker", ["XOM", "JNJ", "MSFT", "WMT", "AAPL", "KO", "PG", "CAT"])
 @pytest.mark.parametrize(
     ("tag", "priority"), [("InterestPaidCapitalized", 1), ("InterestCostsCapitalized", 2)]
 )
-def test_interest_capitalized_is_stored_for_exxon_only(tag, priority, ticker):
+def test_interest_capitalized_is_stored_for_exxon_and_jnj_only(tag, priority, ticker):
     """Backlog #533: ExxonMobil's interest expense is net of the interest it capitalises, which it
-    files under these two tags; another company's figure must be checked first (J&J and Apple
-    file one too)."""
-    kept = _scoped_tag_kept(tag, "interest_capitalized", {"XOM"}, ticker, priority)
-    assert kept == (ticker == "XOM")
+    files under these two tags. Backlog #540: J&J's too ("Interest expense, net of portion
+    capitalized"). Another company's figure must be checked first (Apple's InterestCostsIncurred
+    is its term debt's interest, not a capitalised amount)."""
+    kept = _scoped_tag_kept(tag, "interest_capitalized", {"JNJ", "XOM"}, ticker, priority)
+    assert kept == (ticker in {"XOM", "JNJ"})
 
 
-@pytest.mark.parametrize("ticker", ["XOM", "MSFT", "WMT", "AAPL"])
+@pytest.mark.parametrize("ticker", ["XOM", "JNJ", "MSFT", "WMT", "AAPL"])
 def test_interest_not_on_debt_is_stored_for_exxon_only(ticker):
     """Backlog #533 (analyst): ExxonMobil's interest expense holds non-debt-related interest,
     which it files as `InterestExpenseOther`; another company's "other" interest can mean
