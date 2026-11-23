@@ -775,3 +775,38 @@ def test_the_stale_table_refusal_reads_as_setup():
     assert set(OTHER_REFUSAL_GROUPS.values()) <= set(REFUSAL_GROUP_ORDER)
     assert refusal_lesson("concepts_not_synced") == REFUSAL_GROUP_LESSONS["setup"]
 
+
+# -- a company with no caveat row keeps its notes (backlog #549) ---------------------------------
+
+
+def _uncaveated_tickers():
+    from domains.analysis.interest_caveats import load_interest_caveats
+    from domains.fundamentals.universe import load_universe
+
+    caveated = {c.ticker for c in load_interest_caveats()}
+    return sorted(c.ticker for c in load_universe() if c.ticker not in caveated)
+
+
+def _cost_notes(conn, run_id):
+    cell = _cell(inputs_behind(conn, run_id, VPS, years=10), "cost_of_debt")
+    return [cell.notes, *([s.notes, *(p.notes for p in s.points)] for s in cell.history)]
+
+
+@pytest.mark.parametrize("ticker", _uncaveated_tickers())
+def test_a_company_with_no_caveat_row_gets_the_notes_it_had_before(
+    ticker, make_company, monkeypatch
+):
+    from domains.analysis import interest_caveats
+
+    def cheap(tag, row):  # a 2% book cost below the 3% yield, so the years carry notes
+        return {**row, "val": row["val"] / 2} if tag == "InterestExpense" else row
+
+    conn = make_company(cheap)
+    run_id = run_baseline(conn, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    shipped = interest_caveats.caveat_for
+    monkeypatch.setattr(interest_caveats, "caveat_for", lambda _t, year: shipped(ticker, year))
+    with_file = _cost_notes(conn, run_id)
+    monkeypatch.setattr(interest_caveats, "caveat_for", lambda _t, _year: None)
+    without = _cost_notes(conn, run_id)
+    assert with_file == without
+    assert any(n.code == "below_risk_free" for p in with_file[1][1:] for n in p)
