@@ -20,8 +20,15 @@ TAGS = {
     "short_term_borrowings": "ShortTermBorrowings",
     "finance_lease_liabilities": "FinanceLeaseLiability",
     "debt_current_with_leases": "LongTermDebtAndCapitalLeaseObligationsCurrent",
+    "commercial_paper": "CommercialPaper",
 }
-INSTANT = {"debt_noncurrent", "debt_current", "short_term_borrowings", "finance_lease_liabilities"}
+INSTANT = {
+    "debt_noncurrent",
+    "debt_current",
+    "short_term_borrowings",
+    "finance_lease_liabilities",
+    "commercial_paper",
+}
 
 
 def fact(item, value, year):
@@ -160,6 +167,13 @@ def store(conn, tag, value, end, start=None):
 
 
 def with_leases(conn):
+    # Test Corp's interest filed as Walmart's is, debt only (`InterestExpenseDebt`): the lease line
+    # is added only to a debt-only interest tag (backlog #527)
+    conn.execute(
+        "UPDATE financial_facts SET xbrl_concept = 'us-gaap:InterestExpenseDebt' "
+        "WHERE cik = ? AND xbrl_concept = 'us-gaap:InterestExpense'",
+        (CIK,),
+    )
     store(conn, "FinanceLeaseLiability", 40, "2018-12-31")
     store(conn, "FinanceLeaseLiability", 40, "2019-12-31")
     store(conn, "FinanceLeaseInterestExpense", 3, "2019-12-31", "2019-01-01")
@@ -196,3 +210,175 @@ def test_a_map_without_the_row_leaves_it_out(company):
     _, interest, _, _ = cost_of_debt_year(before, 2019)
     assert interest.value == pytest.approx(8)
     assert [f.canonical_name for f in interest.facts] == ["interest_expense"]
+
+
+# -- Microsoft: interest paid on debt in place of an expense net of capitalised interest (#527) --
+
+MSFT_TAGS = {
+    **TAGS,
+    "interest_expense": "InterestExpenseNonoperating",
+    "interest_paid_on_debt": "InterestPaid",
+}
+
+
+def msft_fact(item, value, year):
+    end = date(year, 6, 30)
+    return Fact(
+        canonical_name=item,
+        xbrl_concept=f"us-gaap:{MSFT_TAGS[item]}",
+        period_end=end,
+        period_start=None if item in INSTANT else date(year - 1, 7, 1),
+        value=value,
+        unit="USD",
+        accession_no=f"0000950170-{year % 100:02d}-000100",
+        filed_at=date(year, 7, 30),
+        fiscal_year=year,
+        fiscal_period="FY",
+    )
+
+
+def microsoft(paid=True, lease_interest=True, leases=(True, True)):
+    """Microsoft's FY2025 and FY2026 10-K figures (millions): debt, finance-lease liability,
+    interest expense (net of capitalised interest, lease interest inside), lease interest and
+    cash paid for interest on debt."""
+    rows = {
+        2025: {
+            "debt_noncurrent": 40_152,
+            "debt_current": 2_999,
+            "finance_lease_liabilities": 46_172,
+            "interest_expense": 2_385,
+            "finance_lease_interest": 1_417,
+            "interest_paid_on_debt": 1_600,
+        },
+        2026: {
+            "debt_noncurrent": 31_670,
+            "debt_current": 9_250,
+            "finance_lease_liabilities": 65_968,
+            "interest_expense": 3_051,
+            "finance_lease_interest": 2_547,
+            "interest_paid_on_debt": 1_500,
+        },
+    }
+    annual = {}
+    for (year, items), with_leases in zip(rows.items(), leases, strict=True):
+        for item, value in items.items():
+            if item == "interest_paid_on_debt" and not paid:
+                continue
+            if item == "finance_lease_interest" and not lease_interest:
+                continue
+            if item == "finance_lease_liabilities" and not with_leases:
+                continue
+            annual[(item, year)] = msft_fact(item, value * 1e6, year)
+    return History(quarterly={}, annual=annual, instants={})
+
+
+def test_microsoft_fy2026_reads_interest_paid_on_debt_plus_lease_interest():
+    kd, interest, (start, _), (end, _) = cost_of_debt_year(microsoft(), 2026)
+    assert start == pytest.approx(89_323e6) and end == pytest.approx(106_888e6)
+    assert interest.value == pytest.approx(4_047e6)  # 1,500 paid on debt + 2,547 lease interest
+    assert kd == pytest.approx(4_047 / 98_105.5)  # 4.13%, not 3.11%
+    assert [f.canonical_name for f in interest.facts] == [
+        "interest_paid_on_debt",
+        "finance_lease_interest",
+    ]
+    assert interest.method.startswith("interest paid on debt (cash, before capitalised interest): ")
+    assert "in place of interest_expense" in interest.method
+    assert not interest.fallback
+
+
+def test_no_leases_at_either_year_end_keeps_its_interest():
+    """Microsoft's FY2016 and earlier: the 10-Ks name no capitalising before the leases, so the
+    accrual interest stays (analyst, #527 design review)."""
+    _, interest, _, _ = cost_of_debt_year(microsoft(leases=(False, False)), 2026)
+    assert interest.value == pytest.approx(3_051e6)
+    assert [f.canonical_name for f in interest.facts] == ["interest_expense"]
+
+
+@pytest.mark.parametrize("year", [2025, 2026])
+def test_commercial_paper_at_either_year_end_keeps_its_interest(year):
+    """Microsoft's FY2024 and FY2025: commercial paper (6,693M at 2024-06-30) is in the average
+    debt, but its interest is paid as a discount at maturity, not in the cash paid for interest on
+    debt, so the year keeps its accrual interest (analyst, #527 design review)."""
+    history = microsoft()
+    history.annual[("commercial_paper", year)] = msft_fact("commercial_paper", 6_693e6, year)
+    _, interest, _, _ = cost_of_debt_year(history, 2026)
+    assert interest.value == pytest.approx(3_051e6)
+    assert [f.canonical_name for f in interest.facts] == ["interest_expense"]
+
+
+def test_commercial_paper_of_zero_does_not_count():
+    history = microsoft()
+    history.annual[("commercial_paper", 2025)] = msft_fact("commercial_paper", 0.0, 2025)
+    _, interest, _, _ = cost_of_debt_year(history, 2026)
+    assert interest.value == pytest.approx(4_047e6)
+
+
+@pytest.mark.parametrize("leases", [(False, True), (True, False)])
+def test_a_straddle_year_keeps_its_interest(leases):
+    """Microsoft's FY2017: the leases are in one year-end debt only, so no basis is mixed."""
+    _, interest, _, _ = cost_of_debt_year(microsoft(leases=leases), 2026)
+    assert interest.value == pytest.approx(3_051e6)
+    assert [f.canonical_name for f in interest.facts] == ["interest_expense"]
+
+
+def test_lease_debt_without_lease_interest_keeps_its_interest():
+    _, interest, _, _ = cost_of_debt_year(microsoft(lease_interest=False), 2026)
+    assert interest.value == pytest.approx(3_051e6)
+
+
+def test_a_total_that_holds_lease_interest_never_gets_it_added():
+    """A Microsoft year without interest paid on debt: its total already holds the lease interest
+    (10-K Item 7), so the Walmart rule does not add it again."""
+    _, interest, _, _ = cost_of_debt_year(microsoft(paid=False), 2026)
+    assert interest.value == pytest.approx(3_051e6)
+    assert [f.canonical_name for f in interest.facts] == ["interest_expense"]
+
+
+def test_the_lease_interest_is_added_only_to_a_debt_only_tag():
+    assert me.DEBT_ONLY_INTEREST_TAGS == {"us-gaap:InterestExpenseDebt"}
+    history = walmart()
+    interest = history.annual.pop(("interest_expense", 2026))
+    history.annual[("interest_expense", 2026)] = Fact(
+        **{**interest.__dict__, "xbrl_concept": "us-gaap:InterestExpenseNonoperating"}
+    )
+    _, resolved, _, _ = cost_of_debt_year(history, 2026)
+    assert resolved.value == pytest.approx(2_318e6)
+
+
+def test_interest_paid_on_debt_is_read_only_when_the_map_has_it():
+    assert me.PAID_ON_DEBT in me.ITEMS and me.PAID_ON_DEBT in me.OPTIONAL_ITEMS
+
+
+@pytest.mark.parametrize("year", [2025, 2026])
+def test_short_term_borrowings_at_either_year_end_keep_its_interest(year):
+    """Microsoft's FY2018: short-term borrowings (9,072M at 2017-06-30) are in the average debt,
+    and the cash paid for interest on debt need not cover them, so the year keeps its accrual
+    interest (backlog #534, from the #532 gatekeeper)."""
+    history = microsoft()
+    history.annual[("short_term_borrowings", year)] = msft_fact(
+        "short_term_borrowings", 9_072e6, year
+    )
+    _, interest, _, _ = cost_of_debt_year(history, 2026)
+    assert interest.value == pytest.approx(3_051e6)
+    assert [f.canonical_name for f in interest.facts] == ["interest_expense"]
+
+
+def test_short_term_borrowings_of_zero_do_not_count():
+    history = microsoft()
+    history.annual[("short_term_borrowings", 2025)] = msft_fact("short_term_borrowings", 0.0, 2025)
+    _, interest, _, _ = cost_of_debt_year(history, 2026)
+    assert interest.value == pytest.approx(4_047e6)
+
+
+def test_an_interest_with_no_facts_never_gets_lease_interest_added():
+    """`all()` of nothing is True, so an interest resolved without facts would have read as debt
+    only; it is not (backlog #534). Walmart's FY2026 leases and lease interest are in place."""
+    history = walmart()
+    lease = history.annual[("finance_lease_interest", 2026)]
+    opening = [history.annual[(i, 2025)] for i in ("debt_noncurrent", "finance_lease_liabilities")]
+    closing = [history.annual[(i, 2026)] for i in ("debt_noncurrent", "finance_lease_liabilities")]
+    bare = me.Resolved(2_318e6, "interest_expense", False, ())
+    got = me.d8_interest(
+        bare, lambda item: lease if item == me.LEASE_INTEREST else None, opening, closing
+    )
+    assert got is bare
