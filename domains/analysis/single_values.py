@@ -660,7 +660,8 @@ def _hedge_note(
     """`interest_net_of_hedge_gains` (backlog #542): the year's interest line is net of what the
     company's currency swaps earn (interest_caveats.csv), with the rate it states on its
     long-term debt beside. `below_risk_free` is not shown on its own here, since its cause (old,
-    lower rates) is the wrong one; its params stay inside, or None."""
+    lower rates) is the wrong one; its params stay inside, or None. `evidence_filings` lists the
+    data file's filings known on the run's date."""
     rate = (
         _effective_rate(singles, caveat.rate_item, period_end, year) if caveat.rate_item else None
     )
@@ -677,6 +678,13 @@ def _hedge_note(
         "effective_rate_filing": _filing_of(singles, rate.accession_no) if rate else None,
         "below_effective_rate": (kd < rate.value) if rate and kd is not None else None,
         "below_risk_free": dict(below[0].params) if below else None,
+        # the filings the data file cites for the caveat, each only when Warren knows it was
+        # filed on or before the run's date (backlog #551); an unknown accession is left out
+        "evidence_filings": [
+            _filing_of(singles, a)
+            for a in caveat.accessions
+            if (filed := singles.filings.get(a).filed_at) is not None and filed <= singles.as_of
+        ],
     }
     shown = "this cost of debt" if kd is None else f"this cost of debt ({kd:.2%})"
     if rate:
