@@ -25,18 +25,18 @@ def test_the_shipped_file_has_the_jnj_row_only():
     assert (row.ticker, row.code, row.from_fiscal_year, row.to_fiscal_year) == (
         "JNJ",
         "interest_net_of_hedge_gains",
-        2019,
+        2018,
         None,
     )
     assert row.rate_item == "debt_effective_rate"
-    assert "0000200406-22-000022" in row.evidence and "ASU 2017-12" in row.evidence
+    assert "0000200406-19-000009" in row.evidence and "ASU 2017-12" in row.evidence
     assert row.code in CAVEAT_CODES
 
 
 def test_caveat_for_covers_its_years_and_company_only():
-    assert caveat_for("JNJ", 2019).code == "interest_net_of_hedge_gains"
+    assert caveat_for("JNJ", 2018).code == "interest_net_of_hedge_gains"
     assert caveat_for("JNJ", 2025) is not None and caveat_for("JNJ", 2040) is not None
-    assert caveat_for("JNJ", 2018) is None
+    assert caveat_for("JNJ", 2017) is None
     for ticker in ("AAPL", "MSFT", "KO", "XOM", "PG", "CAT", "WMT"):
         assert caveat_for(ticker, 2021) is None
 

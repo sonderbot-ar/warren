@@ -59,6 +59,8 @@ BALANCE_NOTES = (
     "debt_current_within_rounding",
     "commercial_paper_beside_short_term",
 )
+# The cost-of-debt note for a company whose interest line is net of swap gains (backlog #542)
+HEDGE_NOTE = "interest_net_of_hedge_gains"
 # Notes of this module, a closed list
 POINT_NOTES = (
     "run_date",  # the run's own date (the last point of a monthly series), not a month start
@@ -70,8 +72,14 @@ POINT_NOTES = (
     # cost of debt: the book (embedded) rate is below the 10-year Treasury yield, params
     # cost_of_debt, risk_free, risk_free_date, against (backlog #481)
     "below_risk_free",
+    # cost of debt: the company's interest line is net of what its currency swaps earn
+    # (interest_caveats.csv), with its own stated effective rate beside; replaces
+    # below_risk_free on the years it covers, keeping its params inside (backlog #542)
+    HEDGE_NOTE,
 )
 CELL_NOTES = (
+    # the run's own cost-of-debt year is one an interest caveat covers (backlog #542)
+    HEDGE_NOTE,
     "follows_risk_free",  # terminal growth equals the risk-free rate by the owner's method
     "computed_from_other_cells",  # params inputs: the rows it is computed from
     # a what-if child's cost of debt is the risk-free rate, not a book year (backlog #481)
@@ -216,6 +224,9 @@ def single_cell(singles: Singles, name: str, cell_rows: list):
     notes = []
     if name == "cost_of_debt" and (floored := _floored_note(singles)) is not None:
         notes.append(floored)
+    elif name == "cost_of_debt" and singles.cache.get("hedge_note_used") is not None:
+        # the run's own year is covered: a screen showing only the run's figure has the note too
+        notes.append(singles.cache["hedge_note_used"])
     return Cell(name, cell_rows, history, None, notes)
 
 
@@ -558,6 +569,7 @@ def _debt_fair_value(singles: Singles):
 
 def _cost_of_debt(singles: Singles):
     from domains.analysis.inputs import Part, Point, Series, _year_labels
+    from domains.analysis.interest_caveats import caveat_for
     from domains.analysis.math_engine import EngineError, cost_of_debt_year, resolve
 
     sources = singles.stored.get(("cost_of_debt", SINGLE), [])
@@ -568,6 +580,7 @@ def _cost_of_debt(singles: Singles):
     last_year = max(singles.reader.latest(quarterly=False).fiscal_year, last_quarter.fiscal_year)
     labels = _year_labels(last_year, singles.years, {used_label} if used_label else set())
     points = []
+    singles.cache["hedge_note_used"] = None
     for label in labels:
         year = int(label[2:])
         used = label == used_label
@@ -595,8 +608,102 @@ def _cost_of_debt(singles: Singles):
         ]
         period_end = paid.facts[0].period_end if paid.facts else None
         notes = _below_risk_free(singles, kd, used, period_end)
+        caveat = caveat_for(singles.run["ticker"], year)
+        if caveat is not None and caveat.code == HEDGE_NOTE:
+            # the run's own row on the used year, as `below_risk_free` compares (product lead)
+            shown = _run_row(singles, "cost_of_debt") if used else kd
+            hedge = _hedge_note(singles, caveat, year, shown, period_end, notes)
+            notes = [hedge]  # `below_risk_free`'s sentence gives the wrong cause here (#542)
+            if used:
+                singles.cache["hedge_note_used"] = hedge
         points.append(Point(label, year, "FY", period_end, kd, used, parts, notes))
     return Series("cost_of_debt", "year", "latest", True, None, points)
+
+
+# How many fiscal years older than the point a stated rate may be and still stand beside it: a
+# company that stops stating the rate (J&J's FY2025 10-K) would otherwise show an old rate for good
+# (analyst, #542)
+RATE_MAX_YEARS_OLDER = 1
+
+
+def _effective_rate(singles: Singles, item: str, period_end: date | None, year: int):
+    """The company's stated rate at this year end as known on `as_of` (the newest filing's
+    version), else the newest one at an earlier year end at most `RATE_MAX_YEARS_OLDER` fiscal
+    years older; None when there is none."""
+    from domains.fundamentals.facts import get_facts
+
+    if period_end is None:
+        return None
+    newest = {}
+    for f in get_facts(singles.conn, singles.run["cik"], [item], singles.as_of):
+        if f.period_start is not None or f.period_end > period_end or f.filed_at > singles.as_of:
+            continue
+        kept = newest.get(f.period_end)
+        if kept is None or (f.filed_at, f.accession_no or "") > (
+            kept.filed_at,
+            kept.accession_no or "",
+        ):
+            newest[f.period_end] = f
+    if not newest:
+        return None
+    rate = newest[max(newest)]
+    if rate.period_end != period_end and (
+        rate.fiscal_year is None or year - rate.fiscal_year > RATE_MAX_YEARS_OLDER
+    ):
+        return None
+    return rate
+
+
+def _hedge_note(
+    singles: Singles, caveat, year: int, kd: float | None, period_end, below: list
+) -> Coded:
+    """`interest_net_of_hedge_gains` (backlog #542): the year's interest line is net of what the
+    company's currency swaps earn (interest_caveats.csv), with the rate it states on its
+    long-term debt beside. `below_risk_free` is not shown on its own here, since its cause (old,
+    lower rates) is the wrong one; its params stay inside, or None."""
+    rate = (
+        _effective_rate(singles, caveat.rate_item, period_end, year) if caveat.rate_item else None
+    )
+    params = {
+        "fiscal_year": year,
+        "from_fiscal_year": caveat.from_fiscal_year,
+        "to_fiscal_year": caveat.to_fiscal_year,
+        "cost_of_debt": kd,
+        "effective_rate": rate.value if rate else None,
+        "effective_rate_period": rate.period_end.isoformat() if rate else None,
+        "effective_rate_fiscal_year": rate.fiscal_year if rate else None,
+        # true when the rate is from an earlier year end than the point's (at most one year)
+        "effective_rate_older": (rate.period_end != period_end) if rate else None,
+        "effective_rate_filing": _filing_of(singles, rate.accession_no) if rate else None,
+        "below_effective_rate": (kd < rate.value) if rate and kd is not None else None,
+        "below_risk_free": dict(below[0].params) if below else None,
+    }
+    shown = "this cost of debt" if kd is None else f"this cost of debt ({kd:.2%})"
+    if rate:
+        when = (
+            f"at the {rate.period_end.isoformat()} year end; long-term debt only"
+            if rate.period_end == period_end
+            else f"at the {rate.period_end.isoformat()} year end, a year older, the newest it "
+            "states; long-term debt only"
+        )
+        beside = (
+            f"so {shown} reads below the {rate.value:.2%} weighted average "
+            f"effective rate it states on its long-term debt ({when})"
+            if params["below_effective_rate"]
+            else f"so {shown} is not like for like with the "
+            f"{rate.value:.2%} weighted average effective rate it states on its long-term debt "
+            f"({when})"
+        )
+    else:
+        beside = f"so {shown} reads lower than the dollar rate it pays on its debt"
+    return Coded(
+        HEDGE_NOTE,
+        params,
+        f"the interest expense is net of what the company's currency swaps earn (booked in its "
+        f"interest line since FY{caveat.from_fiscal_year}): the swaps turn part of its dollar "
+        f"debt into lower-rate foreign-currency debt, {beside}; a valuation in dollars needs a "
+        "dollar cost of debt, and Warren cannot yet separate the two",
+    )
 
 
 def _interest_source(sources: list) -> dict | None:
