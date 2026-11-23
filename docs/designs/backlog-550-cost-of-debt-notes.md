@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/550 (from the #547 review, front-end ask) · Branch `backlog-550-cost-of-debt-notes` · Version v0.10.38 when merged.
 
-Status: In progress (nov.23.2026).
+Status: Done (v0.10.38, nov.23.2026, PR #560, merge `2239e41`). Gatekeeper GO; follow-up #561.
 
 ## Problem
 
