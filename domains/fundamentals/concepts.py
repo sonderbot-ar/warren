@@ -45,7 +45,8 @@ COLUMNS = [
 # facts are read under, else the `;`-separated tickers it applies to (companies as data, Decision
 # 11). Copies in concept_maps/ made before it have the eight columns above and read as unscoped.
 SCOPED_COLUMNS = [*COLUMNS, "companies"]
-UNITS = {"USD", "shares", "USD/shares"}
+# `pure`: a ratio as filed (0.0319 = 3.19%), e.g. a stated interest rate (backlog #542)
+UNITS = {"USD", "shares", "USD/shares", "pure"}
 PERIOD_TYPES = {"duration", "instant"}
 # required: every gap must be explained (the quality gate). optional: fallbacks and items a company
 # may not hold (e.g. marketable securities); gaps are listed but never fail the gate.

@@ -572,3 +572,157 @@ def test_a_fair_value_off_the_balance_dates_is_left_out_and_listed(make_company)
     assert "2019-11-15" not in {p.period for p in fair.points}
     assert {p.period for p in fair.points} <= {p.period for p in book.points}
     assert fair.notes[0].params["left_out_dates"] == ["2019-11-15"]
+
+
+# -- an interest line net of swap gains (backlog #542) ----------------------------------------
+
+RATE_TAG = "DebtInstrumentInterestRateEffectivePercentage"
+HEDGE = "interest_net_of_hedge_gains"
+
+
+def _hedged(make_company, monkeypatch, rates, first=2017, cheap=False, late=()):
+    """Test Corp with a stated effective rate at each listed year end (filed in that year's
+    10-K, or after `AS_OF` for a year in `late`), the rate item read for TST and an interest
+    caveat for TST from `first`. `cheap` halves the interest (2% book cost, below the 3% yield)."""
+    import dataclasses
+
+    from domains.analysis import interest_caveats
+    from domains.fundamentals import ingest
+
+    real_map = ingest.load_concept_map
+
+    def with_tst():
+        return [
+            dataclasses.replace(r, companies=r.companies | {"TST"})
+            if r.canonical_name == "debt_effective_rate"
+            else r
+            for r in real_map()
+        ]
+
+    monkeypatch.setattr(ingest, "load_concept_map", with_tst)
+    caveat = interest_caveats.InterestCaveat(
+        "TST", HEDGE, first, None, "debt_effective_rate", "test filings", ""
+    )
+    monkeypatch.setattr(
+        interest_caveats,
+        "caveat_for",
+        lambda ticker, year: caveat if ticker == "TST" and caveat.covers(year) else None,
+    )
+
+    def edit(tag, row):
+        if cheap and tag == "InterestExpense":
+            row = {**row, "val": row["val"] / 2}
+        if (
+            tag == "LongTermDebtNoncurrent"
+            and row["form"] == "10-K"
+            and row["end"] == f"{row['fy']}-12-31"
+            and row["fy"] in rates
+        ):
+            filed = "2020-08-01" if row["fy"] in late else row["filed"]
+            return [(tag, row), (RATE_TAG, {**row, "val": rates[row["fy"]], "filed": filed})]
+        return row
+
+    conn = make_company(edit)
+    return conn, run_baseline(conn, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+
+
+def _cost_points(conn, run_id):
+    cell = _cell(inputs_behind(conn, run_id, VPS, years=5), "cost_of_debt")
+    return cell, [p for p in _primary(cell).points if p.value is not None]
+
+
+def test_covered_years_carry_the_hedge_note_with_their_own_stated_rate(make_company, monkeypatch):
+    conn, run_id = _hedged(make_company, monkeypatch, {2016: 0.05, 2017: 0.051, 2018: 0.052})
+    _, points = _cost_points(conn, run_id)
+    by_year = {p.fiscal_year: p for p in points}
+    assert not any(n.code == HEDGE for n in by_year[2016].notes)  # before the caveat's first year
+    for year in (2017, 2018):
+        (note,) = [n for n in by_year[year].notes if n.code == HEDGE]
+        params = note.params
+        assert (params["fiscal_year"], params["from_fiscal_year"]) == (year, 2017)
+        assert params["to_fiscal_year"] is None
+        assert params["cost_of_debt"] == by_year[year].value
+        assert params["effective_rate"] == {2017: 0.051, 2018: 0.052}[year]
+        assert params["effective_rate_period"] == f"{year}-12-31"
+        assert params["effective_rate_fiscal_year"] == year
+        assert params["effective_rate_older"] is False
+        assert params["effective_rate_filing"]["form"] == "10-K"
+        assert params["below_effective_rate"] is True  # 4% book cost against about 5%
+        assert params["below_risk_free"] is None  # 4% is above the 3% yield
+        assert "currency swaps" in note.text and "since FY2017" in note.text
+
+
+def test_a_missing_year_end_rate_falls_back_one_year_and_no_further(make_company, monkeypatch):
+    conn, run_id = _hedged(make_company, monkeypatch, {2016: 0.05, 2018: 0.052})
+    _, points = _cost_points(conn, run_id)
+    by_year = {p.fiscal_year: p for p in points}
+    (fy2019,) = [n for n in by_year[2019].notes if n.code == HEDGE]
+    assert fy2019.params["effective_rate"] == 0.052
+    assert fy2019.params["effective_rate_fiscal_year"] == 2018
+    assert fy2019.params["effective_rate_older"] is True and "a year older" in fy2019.text
+    (fy2017,) = [n for n in by_year[2017].notes if n.code == HEDGE]  # FY2016's rate is one older
+    assert fy2017.params["effective_rate_fiscal_year"] == 2016
+    conn, run_id = _hedged(make_company, monkeypatch, {2016: 0.05})
+    _, points = _cost_points(conn, run_id)
+    (fy2019,) = [n for p in points if p.fiscal_year == 2019 for n in p.notes if n.code == HEDGE]
+    for key in ("effective_rate", "effective_rate_period", "effective_rate_filing"):
+        assert fy2019.params[key] is None, key
+    assert fy2019.params["below_effective_rate"] is None
+
+
+def test_a_rate_filed_after_the_run_date_is_never_read(make_company, monkeypatch):
+    conn, run_id = _hedged(make_company, monkeypatch, {2018: 0.052, 2019: 0.06}, late={2019})
+    _, points = _cost_points(conn, run_id)
+    (fy2019,) = [n for p in points if p.fiscal_year == 2019 for n in p.notes if n.code == HEDGE]
+    assert fy2019.params["effective_rate"] == 0.052  # FY2018's, not the late-filed 6%
+    assert date.fromisoformat(fy2019.params["effective_rate_filing"]["filed_at"]) <= AS_OF
+
+
+def test_below_the_yield_the_comparison_moves_inside_the_hedge_note(make_company, monkeypatch):
+    conn, run_id = _hedged(make_company, monkeypatch, {2017: 0.05, 2018: 0.05}, cheap=True)
+    _, points = _cost_points(conn, run_id)
+    by_year = {p.fiscal_year: p for p in points}
+    # FY2016 is not covered: the generic note, as before
+    assert [n.code for n in by_year[2016].notes] == ["below_risk_free"]
+    for year in (2017, 2018, 2019):
+        p = by_year[year]
+        assert not any(n.code == "below_risk_free" for n in p.notes)
+        (note,) = [n for n in p.notes if n.code == HEDGE]
+        inner = note.params["below_risk_free"]
+        assert inner["cost_of_debt"] == p.value < inner["risk_free"]
+        assert inner["against"] == ("run_risk_free" if p.used else "year_average_yield")
+
+
+def test_the_cell_carries_the_note_when_the_runs_own_year_is_covered(make_company, monkeypatch):
+    conn, run_id = _hedged(make_company, monkeypatch, {2018: 0.052, 2019: 0.05})
+    cell, points = _cost_points(conn, run_id)
+    (used,) = [p for p in points if p.used]
+    (on_cell,) = [n for n in cell.notes if n.code == HEDGE]
+    (on_point,) = [n for n in used.notes if n.code == HEDGE]
+    assert on_cell == on_point
+    assert on_cell.params["cost_of_debt"] == cell.rows[0].value  # the run's own row
+    assert set(n.code for n in cell.notes) <= set(CELL_NOTES)
+    conn, run_id = _hedged(make_company, monkeypatch, {2019: 0.05}, first=2020)
+    cell = _cell(inputs_behind(conn, run_id, VPS), "cost_of_debt")
+    assert not any(n.code == HEDGE for n in cell.notes)
+
+
+def test_a_floored_what_if_has_no_hedge_note_on_its_cell(make_company, monkeypatch):
+    conn, parent = _hedged(make_company, monkeypatch, {2018: 0.052, 2019: 0.05})
+    child = _floored_child(conn, parent)
+    cell = _cell(inputs_behind(conn, child, VPS), "cost_of_debt")
+    assert [n.code for n in cell.notes] == ["floored_at_risk_free"]
+    assert any(n.code == HEDGE for p in _primary(cell).points for n in p.notes)
+
+
+def test_hedge_note_codes_stay_in_the_closed_lists(make_company, monkeypatch):
+    assert HEDGE in POINT_NOTES and HEDGE in CELL_NOTES
+    conn, run_id = _hedged(make_company, monkeypatch, {2018: 0.052}, cheap=True)
+    answer = inputs_behind(conn, run_id, VPS, years=10)
+    point_codes = {*BALANCE_NOTES, *POINT_NOTES}
+    for name in SINGLE_CELLS:
+        cell = _cell(answer, name)
+        assert {n.code for n in cell.notes} <= set(CELL_NOTES)
+        for series in cell.history:
+            for p in series.points:
+                assert {n.code for n in p.notes} <= point_codes
