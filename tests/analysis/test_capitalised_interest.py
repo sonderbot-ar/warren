@@ -98,9 +98,30 @@ def test_not_on_debt_alone():
 @pytest.mark.parametrize("non_debt", [-123, 603, 700])
 def test_a_non_debt_figure_below_zero_or_not_below_the_expense_is_left_out(non_debt):
     """Exxon's FY2013 filed -123M; a figure as large as the expense would leave no interest."""
-    _, interest, _, _ = cost_of_debt_year(exxon(capitalised=None, non_debt=non_debt), 2025)
+    history = exxon(capitalised=None, non_debt=non_debt)
+    nd = history.annual[("interest_not_on_debt", 2025)]
+    _, interest, _, _ = cost_of_debt_year(history, 2025)
     assert interest.value == pytest.approx(603e6)
     assert [f.canonical_name for f in interest.facts] == ["interest_expense"]
+    # backlog #540: the method says which figure was left out and why, with its trace
+    why = "below zero" if non_debt < 0 else "not below the interest"
+    assert interest.method.endswith(f"(interest not on debt left out, {why}: {me.trace(nd)})")
+
+
+def test_a_used_figure_has_no_left_out_clause():
+    _, interest, _, _ = cost_of_debt_year(exxon(), 2025)
+    assert "left out" not in interest.method
+
+
+def test_a_left_out_non_debt_figure_still_lets_the_capitalised_part_in():
+    _, interest, _, _ = cost_of_debt_year(exxon(non_debt=-123), 2025)
+    assert interest.value == pytest.approx(603e6 + 1_534e6)
+    assert "(interest not on debt left out, below zero: " in interest.method
+    assert interest.method.index("left out") < interest.method.index("+ interest capitalised")
+    assert [f.canonical_name for f in interest.facts] == [
+        "interest_expense",
+        "interest_capitalized",
+    ]
 
 
 def test_the_older_tag_reads_the_same():
@@ -122,9 +143,13 @@ def test_a_year_without_the_line_keeps_its_interest():
 def test_zero_adds_nothing_and_a_negative_figure_is_left_out():
     _, zero, _, _ = cost_of_debt_year(exxon(capitalised=0, non_debt=None), 2025)
     assert zero.value == pytest.approx(603e6)
-    _, negative, _, _ = cost_of_debt_year(exxon(capitalised=-5, non_debt=None), 2025)
+    assert "left out" not in zero.method
+    history = exxon(capitalised=-5, non_debt=None)
+    cap = history.annual[("interest_capitalized", 2025)]
+    _, negative, _, _ = cost_of_debt_year(history, 2025)
     assert negative.value == pytest.approx(603e6)
     assert [f.canonical_name for f in negative.facts] == ["interest_expense"]
+    assert negative.method.endswith(f"(interest capitalised left out, below zero: {me.trace(cap)})")
 
 
 def test_never_added_to_cash_interest():
@@ -192,3 +217,65 @@ def test_today_s_map_reads_it_and_the_map_before_leaves_it_out(company):
     assert (me.CAPITALISED, 2019) not in before.annual
     assert (me.NON_DEBT, 2019) not in before.annual
     assert cost_of_debt_year(before, 2019)[1].value == pytest.approx(8)
+
+
+def jnj(year, expense, capitalised, opening, closing):
+    """J&J-like figures (millions; backlog #540): its income statement's "Interest expense, net of
+    portion capitalized" and the capitalised interest of its property note, tagged
+    `InterestCostsCapitalized`; debt is long-term debt plus loans and notes payable, no leases."""
+
+    def f(item, value, y, tag):
+        return Fact(
+            canonical_name=item,
+            xbrl_concept=f"us-gaap:{tag}",
+            period_end=date(y, 12, 31),
+            period_start=None if item in INSTANT else date(y, 1, 1),
+            value=value * 1e6,
+            unit="USD",
+            accession_no=f"0000200406-{(y + 1) % 100:02d}-000016",
+            filed_at=date(y + 1, 2, 15),
+            fiscal_year=y,
+            fiscal_period="FY",
+        )
+
+    annual = {
+        ("debt_noncurrent", year - 1): f(
+            "debt_noncurrent", opening, year - 1, "LongTermDebtNoncurrent"
+        ),
+        ("debt_noncurrent", year): f("debt_noncurrent", closing, year, "LongTermDebtNoncurrent"),
+        ("interest_expense", year): f(
+            "interest_expense", expense, year, "InterestExpenseNonoperating"
+        ),
+    }
+    if capitalised is not None:
+        annual[("interest_capitalized", year)] = f(
+            "interest_capitalized", capitalised, year, "InterestCostsCapitalized"
+        )
+    return History(quarterly={}, annual=annual, instants={})
+
+
+@pytest.mark.parametrize(
+    ("year", "expense", "capitalised", "opening", "closing", "rate"),
+    [
+        (2021, 183, 49, 35_266, 33_751, (183 + 49) / 34_508.5),  # 0.67%, was 0.53%
+        (2025, 971, 114, 36_634, 47_933, (971 + 114) / 42_283.5),  # 2.57%, was 2.30%
+    ],
+)
+def test_jnj_reads_expense_plus_capitalised(year, expense, capitalised, opening, closing, rate):
+    kd, interest, _, _ = cost_of_debt_year(jnj(year, expense, capitalised, opening, closing), year)
+    assert kd == pytest.approx(rate)
+    assert interest.value == pytest.approx((expense + capitalised) * 1e6)
+    assert [f.xbrl_concept for f in interest.facts] == [
+        "us-gaap:InterestExpenseNonoperating",
+        "us-gaap:InterestCostsCapitalized",
+    ]
+    assert "+ interest capitalised (interest incurred = expensed + capitalised, ASC 835-20): " in (
+        interest.method
+    )
+    assert " - interest not on debt" not in interest.method
+
+
+def test_jnj_without_the_figure_keeps_its_expense():
+    kd, interest, _, _ = cost_of_debt_year(jnj(2021, 183, None, 35_266, 33_751), 2021)
+    assert kd == pytest.approx(183 / 34_508.5)
+    assert interest.method.startswith("interest_expense") and "capitalised" not in interest.method
