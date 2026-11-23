@@ -50,6 +50,29 @@ So adding J&J's capitalised interest is right (it is interest incurred on J&J's 
 
 **Step 2. Real data.** On the restored snapshot (`warren-20261122T203459Z`): `reproduce --all` and `--rebuild` before; `fundamentals ingest --all` (only J&J should gain facts); `fundamentals report --all`; `reproduce --all` and `--rebuild` after, with as many identical rebuilds as before. Then every stored run date built fresh in memory through main's map and the new one, with the same pinned market data and choices, none stored; list cost of debt, WACC, value per share and `below_risk_free` by year. Exit: only J&J moves, only its `cost_of_debt` row and what follows (WACC, value per share); no run note added or removed except `below_risk_free`, listed. Check that no fresh run's method gains a "left out" clause (Exxon's only left-out figure is FY2013's −123M, older than any run's cost-of-debt year). Save a snapshot.
 
+## Results (Step 2, nov.23.2026)
+
+On the restored snapshot `warren-20261122T203459Z`.
+
+- **Before anything changed.** `reproduce --all`: 909 of 909 stored runs reproduced to the cent; `--rebuild`: 698 of 909 rebuilt to identical rows.
+- **Ingest.** `fundamentals ingest --all`: J&J gains 48 facts (`InterestCostsCapitalized`, years and quarters, every filing's version); no other company gains any. `fundamentals report --all`: 0 unexplained gaps for all eight companies.
+- **Stored runs after the ingest.** 909 of 909 reproduced to the cent; 698 of 909 rebuilt to identical rows, the same as before.
+- **Fresh runs.** Every stored run date (899 company-dates) built twice in memory with today's code, pinned market data and choices, through #533's map (`e43ad83d2331`) and the new one (`43fc39b6929e`); none stored, none refused. **The other seven companies do not move (784 dates, 0 moved, no method text changed).** J&J moves on all 115 of its dates, and on each only the `cost_of_debt` row; no run note is added or removed:
+
+| Runs dated | Moved | Cost of debt (last run of the year) | WACC | Value per share (range over the year's runs; last run) |
+|---|---|---|---|---|
+| 2019 | 12 of 12 | 3.09% → 3.35% (FY2018) | 4.81% → 4.83% | −0.30% to −0.39%; $164.19 → $163.61 |
+| 2020 | 14 of 14 | 1.09% → 1.33% (FY2019) | 3.73% → 3.75% | −0.31% to −0.52%; $190.63 → $189.71 |
+| 2021 | 16 of 16 | 0.64% → 0.84% (FY2020) | 4.29% → 4.31% | −0.26% to −0.44%; $177.56 → $177.04 |
+| 2022 | 15 of 15 | 0.53% → 0.67% (FY2021) | 6.25% → 6.26% | −0.12% to −0.27%; $156.82 → $156.62 |
+| 2023 | 14 of 14 | 0.75% → 0.89% (FY2022) | 6.74% → 6.75% | −0.12% to −0.25%; $156.69 → $156.50 |
+| 2024 | 14 of 14 | 2.24% → 2.44% (FY2023) | 6.51% → 6.53% | −0.12% to −0.29%; $150.50 → $150.13 |
+| 2025 | 14 of 14 | 2.29% → 2.53% (FY2024) | 6.16% → 6.18% | −0.22% to −0.39%; $136.43 → $136.04 |
+| 2026 | 16 of 16 | 2.30% → 2.57% (FY2025) | 6.63% → 6.64% | −0.23% to −0.35%; $168.53 → $168.15 |
+
+  `below_risk_free` neither starts nor stops on any J&J run or chart year: FY2018 was above that year's average 10-year yield (2.91%) before and after, and FY2019 to FY2025 stay below theirs (2.14%, 0.89%, 1.45%, 2.95%, 3.96%, 4.21%, 4.29%). So a debt what-if on a J&J run floors at the risk-free rate as before. No fresh run's cost-of-debt method gains a "left out" clause: the only stored figure below zero or not below the interest is Exxon's FY2013 non-debt −123M, older than any run's cost-of-debt year. Revenue and EBIT forecasts do not read the cost of debt, so no forecast-error score moves.
+- Snapshot `warren-20261123T003850Z` saved after the ingest.
+
 ## Alternatives considered
 
 - **J&J's cash paid before capitalising (`InterestPaid`), as #527 did for Microsoft.** It tracks J&J's filed rate in FY2019 to FY2022 (2.7% to 3.4%), but jumps to 4.7% to 6.0% in FY2023 to FY2025 (1,836 to 1,990 paid on about 33 to 42 billion of debt), above every rate in J&J's debt table. The likelier cause (analyst) is borrowing during the year that the two year-end balances miss (the Shockwave deal, May 2024, and Intra-Cellular, April 2025, financed with commercial paper and new debt; 6.5 billion of paper at the FY2025 year end), and cash paid is gross of the swap gains. Either way, a cash figure over a year-end average that fits some years and not others mixes bases. Rejected.
@@ -64,7 +87,7 @@ So adding J&J's capitalised interest is right (it is interest incurred on J&J's 
 
 ## Product impact
 
-J&J is in brief Q3, Q4, Q7, Q8 and Q9's kinds of screen (value per share, WACC and its parts, a rate shock, a margin what-if, the sensitivity grid) once a student can pick it. A fresh J&J run's cost-of-debt row reads interest incurred, slightly higher (FY2025 2.30% → 2.57%); WACC moves by a few basis points at most (J&J's debt is a small part of its capital) and value per share slightly down. No new part code: J&J's cost-of-debt chart gains the existing `interest_capitalized` part ("intereses capitalizados", team-sync's v0.10.33 entry), and J&J's reported view (Q1 and Q2 shapes, brief lines 54 and 60) gains it as a line, since it lists every mapped item. Step 2 lists the J&J years where `below_risk_free` starts or stops firing (the analyst expects none: 0.67% is still below 2021's yield, 2.57% below 2025's). Stored runs keep their rows. The version goes to 15 for every company's fresh runs, so beside a stored run of the same date under 14 any company (not only J&J) shows the "reading rules changed" note (brief line 107) though only J&J's values differ, or the "either NULL" case (line 108) for runs with no recorded rules. The trace line adds English text to a row's method only when a figure is left out; no code, param or output is added, renamed or removed. Not fixed and worth a sentence in the app's *Fuente* tab one day: J&J's interest line is net of swap gains since 2019, so its book cost of debt reads below its debt table's rates.
+J&J is in brief Q3, Q4, Q7, Q8 and Q9's kinds of screen (value per share, WACC and its parts, a rate shock, a margin what-if, the sensitivity grid) once a student can pick it. A fresh J&J run's cost-of-debt row reads interest incurred, slightly higher (FY2025 2.30% → 2.57%); WACC moves by a few basis points at most (J&J's debt is a small part of its capital) and value per share slightly down. No new part code: J&J's cost-of-debt chart gains the existing `interest_capitalized` part ("intereses capitalizados", team-sync's v0.10.33 entry), and J&J's reported view (Q1 and Q2 shapes, brief lines 54 and 60) gains it as a line, since it lists every mapped item. `below_risk_free` neither starts nor stops on any J&J run or chart year (Step 2). WACC moves by 1 to 2 basis points and value per share by −0.1% to −0.5% (newest run $168.53 → $168.15). Stored runs keep their rows. The version goes to 15 for every company's fresh runs, so beside a stored run of the same date under 14 any company (not only J&J) shows the "reading rules changed" note (brief line 107) though only J&J's values differ, or the "either NULL" case (line 108) for runs with no recorded rules. The trace line adds English text to a row's method only when a figure is left out; no code, param or output is added, renamed or removed. Not fixed and worth a sentence in the app's *Fuente* tab one day: J&J's interest line is net of swap gains since 2019, so its book cost of debt reads below its debt table's rates.
 
 ## Follow-ups
 
