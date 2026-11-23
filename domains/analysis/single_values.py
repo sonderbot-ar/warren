@@ -695,7 +695,7 @@ def _hedge_note(
             f"({when})"
         )
     else:
-        beside = f"so {shown} reads lower than the dollar rate it pays on its debt"
+        beside = f"so {shown} mixes dollar and foreign-currency borrowing costs"
     return Coded(
         HEDGE_NOTE,
         params,
