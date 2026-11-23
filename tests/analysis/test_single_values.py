@@ -851,3 +851,172 @@ def test_evidence_without_an_accession_lists_no_filing(make_company, monkeypatch
     conn, run_id = _hedged(make_company, monkeypatch, {2018: 0.052})
     notes = _hedge_notes(conn, run_id)
     assert notes and all(n.params["evidence_filings"] == [] for n in notes)
+
+
+# -- one year's cost-of-debt notes without the whole answer (backlog #550) ---------------------
+
+
+def _same_as_chart(conn, run_id, years=5):
+    """Every chart year's point and the cell's notes, through the helper, equal the chart's."""
+    from domains.analysis.single_values import cost_of_debt_notes
+
+    cell = _cell(inputs_behind(conn, run_id, VPS, years=years), "cost_of_debt")
+    points = _primary(cell).points
+    assert points
+    for p in points:
+        got = cost_of_debt_notes(conn, run_id, p.fiscal_year)
+        assert got.run_id == run_id and got.fiscal_year == p.fiscal_year
+        assert got.point == p, p.period
+        assert got.cell_notes == cell.notes
+    return cell, points
+
+
+def test_each_years_notes_equal_the_charts(run):
+    conn, run_id = run
+    _same_as_chart(conn, run_id)
+
+
+def test_no_year_means_the_runs_own_year(run):
+    from domains.analysis.single_values import cost_of_debt_notes
+
+    conn, run_id = run
+    _, points = _same_as_chart(conn, run_id)
+    (used,) = [p for p in points if p.used]
+    got = cost_of_debt_notes(conn, run_id)
+    assert got.fiscal_year == used.fiscal_year == 2019 and got.point == used
+
+
+def test_below_the_yield_notes_equal_the_charts(make_company):
+    def cheap_interest(tag, row):
+        return {**row, "val": row["val"] / 2} if tag == "InterestExpense" else row
+
+    conn = make_company(cheap_interest)
+    run_id = run_baseline(conn, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    _, points = _same_as_chart(conn, run_id)
+    assert any(n.code == "below_risk_free" for p in points for n in p.notes)
+
+
+def test_hedge_notes_equal_the_charts_on_the_points_and_the_cell(make_company, monkeypatch):
+    for cheap in (False, True):
+        rates = {2017: 0.05, 2018: 0.052, 2019: 0.05}
+        conn, run_id = _hedged(make_company, monkeypatch, rates, cheap=cheap)
+        cell, points = _same_as_chart(conn, run_id)
+        assert any(n.code == HEDGE for n in cell.notes)
+        assert sum(any(n.code == HEDGE for n in p.notes) for p in points) == 3
+
+
+def test_a_year_the_run_read_differently_says_so_as_the_chart_does(run):
+    from domains.analysis.single_values import cost_of_debt_notes
+
+    conn, run_id = run
+    conn.execute(
+        "UPDATE assumptions SET value = 0.025 WHERE run_id = ? AND name = 'cost_of_debt'",
+        (run_id,),
+    )
+    _same_as_chart(conn, run_id)
+    codes = [n.code for n in cost_of_debt_notes(conn, run_id).point.notes]
+    assert codes == ["below_risk_free", "run_read_differently"]
+
+
+def test_a_floored_what_if_has_no_own_year_and_its_cell_notes_are_the_charts(run):
+    from domains.analysis.single_values import cost_of_debt_notes
+
+    conn, parent = run
+    child = _floored_child(conn, parent)
+    cell, _ = _same_as_chart(conn, child)
+    got = cost_of_debt_notes(conn, child)
+    assert got.fiscal_year is None and got.point is None
+    assert (
+        [n.code for n in got.cell_notes] == ["floored_at_risk_free"] == [n.code for n in cell.notes]
+    )
+
+
+def test_a_year_with_no_interest_gives_its_reason(run):
+    from domains.analysis.single_values import cost_of_debt_notes
+
+    conn, run_id = run
+    got = cost_of_debt_notes(conn, run_id, 1990)
+    assert got.point.value is None and got.point.notes == [] and not got.point.used
+    assert got.point.missing.code == NOT_COMPUTABLE
+    assert got.point.missing.params == {"reason": "no_interest_reported", "fiscal_year": 1990}
+
+
+def test_one_year_reads_no_fiscal_calendar_and_no_other_cell(run, monkeypatch):
+    from domains.analysis import inputs, single_values
+
+    conn, run_id = run
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("built more than the cost of debt")
+
+    builders = (
+        "_balances",
+        "_balance_series",
+        "_debt_fair_value",
+        "_derived_cell",
+        "_risk_free",
+        "_beta",
+        "_erp",
+        "_shares",
+        "_cost_of_debt",
+    )
+    for name in builders:
+        monkeypatch.setattr(single_values, name, refuse)
+    monkeypatch.setattr(inputs._Reader, "latest", refuse)
+    monkeypatch.setattr(inputs._Reader, "period", refuse)
+    got = single_values.cost_of_debt_notes(conn, run_id, 2018)
+    assert got.point.value is not None
+
+
+def test_an_unknown_run_is_refused_with_a_code(run):
+    from domains.analysis.inputs import InputsError
+    from domains.analysis.single_values import cost_of_debt_notes
+
+    conn, _ = run
+    with pytest.raises(InputsError) as e:
+        cost_of_debt_notes(conn, "no-such-run")
+    assert e.value.code == "run_not_found" and e.value.params == {"run_id": "no-such-run"}
+
+
+def test_a_stale_concepts_table_is_refused_with_one_code(run, monkeypatch):
+    from domains.analysis import math_engine
+    from domains.analysis.inputs import InputsError
+    from domains.analysis.single_values import cost_of_debt_notes
+    from domains.fundamentals.facts import ConceptsNotSyncedError
+
+    conn, run_id = run
+
+    def stale(*args, **kwargs):
+        raise ConceptsNotSyncedError(["debt_effective_rate"])
+
+    monkeypatch.setattr(math_engine, "load_history", stale)
+    with pytest.raises(InputsError) as e:
+        cost_of_debt_notes(conn, run_id)
+    assert e.value.code == "concepts_not_synced"
+
+
+def test_a_what_if_on_the_risk_free_rate_compares_with_its_own_row(run):
+    """A child that raises only the risk-free rate keeps the book cost of debt: its own year is
+    compared with the child's 5% row, below which the 4% book cost now sits (analyst, #550)."""
+    from domains.analysis.single_values import cost_of_debt_notes
+    from domains.analysis.whatif import Change, revalue
+
+    conn, parent = run
+    child = revalue(conn, parent, [Change("risk_free", value=0.05)]).run_id
+    _same_as_chart(conn, child)
+    got = cost_of_debt_notes(conn, child)
+    (note,) = [n for n in got.point.notes if n.code == "below_risk_free"]
+    assert note.params["risk_free"] == 0.05 and note.params["against"] == "run_risk_free"
+
+
+def test_the_answer_is_plain_json(make_company, monkeypatch):
+    import json
+
+    from domains.analysis.single_values import cost_of_debt_notes
+
+    conn, run_id = _hedged(make_company, monkeypatch, {2018: 0.052, 2019: 0.05})
+    plain = cost_of_debt_notes(conn, run_id).to_dict()
+    json.dumps(plain, allow_nan=False)
+    assert plain["fiscal_year"] == 2019 and plain["point"]["period"] == "FY2019"
+    assert [n["code"] for n in plain["cell_notes"]] == [HEDGE]
+    assert isinstance(plain["point"]["period_end"], str)
