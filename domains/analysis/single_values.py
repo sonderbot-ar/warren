@@ -222,12 +222,17 @@ def single_cell(singles: Singles, name: str, cell_rows: list):
         return None
     history = [_checked(s, cell_rows) for s in builders[name]()]
     notes = []
-    if name == "cost_of_debt" and (floored := _floored_note(singles)) is not None:
-        notes.append(floored)
-    elif name == "cost_of_debt" and singles.cache.get("hedge_note_used") is not None:
-        # the run's own year is covered: a screen showing only the run's figure has the note too
-        notes.append(singles.cache["hedge_note_used"])
+    if name == "cost_of_debt":
+        notes = _cost_of_debt_cell_notes(singles, singles.cache.get("hedge_note_used"))
     return Cell(name, cell_rows, history, None, notes)
+
+
+def _cost_of_debt_cell_notes(singles: Singles, used_hedge_note: Coded | None) -> list[Coded]:
+    """The `cost_of_debt` cell's notes: `floored_at_risk_free` on a floored what-if, else the
+    used year's caveat note, so a screen showing only the run's figure has it too."""
+    if (floored := _floored_note(singles)) is not None:
+        return [floored]
+    return [used_hedge_note] if used_hedge_note is not None else []
 
 
 def _cached(singles: Singles, key: str, build):
@@ -239,26 +244,32 @@ def _cached(singles: Singles, key: str, build):
 def _checked(series, cell_rows):
     """Mark the primary series' used point when its value differs from the run's row (a run
     stored before a filing or a download changed the figure): `run_read_differently`."""
-    from domains.analysis.inputs import Point, Series, _fields, _fields_of
+    from domains.analysis.inputs import Series, _fields_of
 
     if not series.primary or not cell_rows or cell_rows[0].value is None:
         return series
-    run_value = cell_rows[0].value
-    points = []
-    for p in series.points:
-        if (
-            p.used
-            and p.value is not None
-            and abs(p.value - run_value) > 1e-9 * max(1.0, abs(run_value))
-        ):
-            note = Coded(
-                "run_read_differently",
-                {"period": p.period, "run_value": run_value, "value": p.value},
-                f"the run read {p.period} as {run_value:.6g}, not {p.value:.6g}",
-            )
-            p = Point(**{**_fields(p), "notes": [*p.notes, note]})
-        points.append(p)
+    points = [_read_differently(p, cell_rows[0].value) for p in series.points]
     return Series(**{**_fields_of(series), "points": points})
+
+
+def _read_differently(p, run_value: float | None):
+    """The point with `run_read_differently` added when it is the used one and its value
+    differs from the run's row."""
+    from domains.analysis.inputs import Point, _fields
+
+    if (
+        p.used
+        and run_value is not None
+        and p.value is not None
+        and abs(p.value - run_value) > 1e-9 * max(1.0, abs(run_value))
+    ):
+        note = Coded(
+            "run_read_differently",
+            {"period": p.period, "run_value": run_value, "value": p.value},
+            f"the run read {p.period} as {run_value:.6g}, not {p.value:.6g}",
+        )
+        p = Point(**{**_fields(p), "notes": [*p.notes, note]})
+    return p
 
 
 # -- market cells -----------------------------------------------------------------------------
@@ -568,56 +579,139 @@ def _debt_fair_value(singles: Singles):
 
 
 def _cost_of_debt(singles: Singles):
-    from domains.analysis.inputs import Part, Point, Series, _year_labels
-    from domains.analysis.interest_caveats import caveat_for
-    from domains.analysis.math_engine import EngineError, cost_of_debt_year, resolve
+    from domains.analysis.inputs import Series, _year_labels
 
-    sources = singles.stored.get(("cost_of_debt", SINGLE), [])
-    interest = _interest_source(sources)
-    # a what-if child's changed cost of debt is not a book year: no point is used (backlog #481)
-    used_label = f"FY{interest['fiscal_year']}" if interest else None
+    used_year = _cost_of_debt_used_year(singles)
+    used_label = f"FY{used_year}" if used_year is not None else None
     last_quarter = singles.reader.latest(quarterly=True)
     last_year = max(singles.reader.latest(quarterly=False).fiscal_year, last_quarter.fiscal_year)
     labels = _year_labels(last_year, singles.years, {used_label} if used_label else set())
     points = []
     singles.cache["hedge_note_used"] = None
     for label in labels:
-        year = int(label[2:])
-        used = label == used_label
-        found = cost_of_debt_year(singles.history, year)
-        if found is None:
-            try:
-                resolve("interest", singles.history.year(year), label)
-                reason, why = "average_debt_not_positive", f"{label}'s average debt is zero"
-            except EngineError:
-                reason, why = "no_interest_reported", f"{label} reports no interest"
-            missing = Coded(NOT_COMPUTABLE, {"reason": reason, "fiscal_year": year}, why)
-            points.append(Point(label, year, "FY", None, None, used, missing=missing))
-            continue
-        kd, paid, (_start, opening), (_end, closing) = found
-        parts = [
-            Part(
-                f.canonical_name,
-                f.value,
-                f.period_end.isoformat(),
-                None if f.derived else _filing_of(singles, f.accession_no),
-                f.derived,
-                [_filing_of(singles, a) for a in f.inputs],
+        point = _cost_of_debt_point(singles, int(label[2:]), label == used_label)
+        if point.used:
+            # the run's own year is covered: a screen showing only the run's figure has the note
+            singles.cache["hedge_note_used"] = next(
+                (n for n in point.notes if n.code == HEDGE_NOTE), None
             )
-            for f in (*paid.facts, *opening, *closing)
-        ]
-        period_end = paid.facts[0].period_end if paid.facts else None
-        notes = _below_risk_free(singles, kd, used, period_end)
-        caveat = caveat_for(singles.run["ticker"], year)
-        if caveat is not None and caveat.code == HEDGE_NOTE:
-            # the run's own row on the used year, as `below_risk_free` compares (product lead)
-            shown = _run_row(singles, "cost_of_debt") if used else kd
-            hedge = _hedge_note(singles, caveat, year, shown, period_end, notes)
-            notes = [hedge]  # `below_risk_free`'s sentence gives the wrong cause here (#542)
-            if used:
-                singles.cache["hedge_note_used"] = hedge
-        points.append(Point(label, year, "FY", period_end, kd, used, parts, notes))
+        points.append(point)
     return Series("cost_of_debt", "year", "latest", True, None, points)
+
+
+def _cost_of_debt_used_year(singles: Singles) -> int | None:
+    """The fiscal year the run's cost of debt was read from; None on a what-if child whose
+    changed cost of debt is not a book year (backlog #481)."""
+    interest = _interest_source(singles.stored.get(("cost_of_debt", SINGLE), []))
+    return interest["fiscal_year"] if interest else None
+
+
+def _cost_of_debt_point(singles: Singles, year: int, used: bool):
+    """One fiscal year's cost-of-debt point with its parts and notes (`below_risk_free`, or the
+    caveat's note in its place), or its `not_computable` reason. The chart's series and
+    `cost_of_debt_notes` both build their points here, so the two cannot drift (backlog #550)."""
+    from domains.analysis.inputs import Part, Point
+    from domains.analysis.interest_caveats import caveat_for
+    from domains.analysis.math_engine import EngineError, cost_of_debt_year, resolve
+
+    label = f"FY{year}"
+    found = cost_of_debt_year(singles.history, year)
+    if found is None:
+        try:
+            resolve("interest", singles.history.year(year), label)
+            reason, why = "average_debt_not_positive", f"{label}'s average debt is zero"
+        except EngineError:
+            reason, why = "no_interest_reported", f"{label} reports no interest"
+        missing = Coded(NOT_COMPUTABLE, {"reason": reason, "fiscal_year": year}, why)
+        return Point(label, year, "FY", None, None, used, missing=missing)
+    kd, paid, (_start, opening), (_end, closing) = found
+    parts = [
+        Part(
+            f.canonical_name,
+            f.value,
+            f.period_end.isoformat(),
+            None if f.derived else _filing_of(singles, f.accession_no),
+            f.derived,
+            [_filing_of(singles, a) for a in f.inputs],
+        )
+        for f in (*paid.facts, *opening, *closing)
+    ]
+    period_end = paid.facts[0].period_end if paid.facts else None
+    notes = _below_risk_free(singles, kd, used, period_end)
+    caveat = caveat_for(singles.run["ticker"], year)
+    if caveat is not None and caveat.code == HEDGE_NOTE:
+        # the run's own row on the used year, as `below_risk_free` compares (product lead)
+        shown = _run_row(singles, "cost_of_debt") if used else kd
+        # `below_risk_free`'s sentence gives the wrong cause here (#542)
+        notes = [_hedge_note(singles, caveat, year, shown, period_end, notes)]
+    return Point(label, year, "FY", period_end, kd, used, parts, notes)
+
+
+@dataclass(frozen=True)
+class CostOfDebtNotes:
+    """One fiscal year's cost-of-debt point and the cell's notes, as `inputs_behind` gives them
+    (backlog #550)."""
+
+    run_id: str
+    fiscal_year: int | None  # the year asked, or the run's own; None when it has no book year
+    point: object | None  # inputs.Point, equal to the chart's point for that year; None as above
+    cell_notes: list[Coded]  # the `cost_of_debt` cell's notes
+
+    def to_dict(self) -> dict:
+        """Plain JSON types, as `InputsBehind.to_dict`: dates as ISO text, numbers unrounded."""
+        from dataclasses import asdict
+
+        from domains.analysis.reported import _plain
+
+        return _plain(asdict(self))
+
+
+def cost_of_debt_notes(
+    conn: sqlite3.Connection, run_id: str, fiscal_year: int | None = None
+) -> CostOfDebtNotes:
+    """The cost-of-debt notes for one fiscal year of a run, without building the rest of the
+    answer (backlog #550, for the app): the year's point (value, parts, `below_risk_free` or the
+    caveat's note, `run_read_differently` on the used year, or its `not_computable` reason) and
+    the cell's notes. `fiscal_year` None means the run's own year. Built by the same functions as
+    the chart's series, on the filings known on the run's date (and, for a year other than the
+    run's own, the 10-year yields over that year, as the chart reads them).
+
+    Ask only for a year the chart shows or the run's own: any other year is answered by the same
+    rule, so a year after the newest filing known on the run's date reads `no_interest_reported`
+    (not known yet, not "reported none"). The call assumes the run has a `cost_of_debt` row
+    (every run stores one) that is not an owner choice (`cost_of_debt` is not one today), where
+    `inputs_behind` would give no history. Refuses with `InputsError` (`run_not_found`,
+    `concepts_not_synced`) as `inputs_behind` does."""
+    from domains.analysis import sources as src
+    from domains.analysis.inputs import DEFAULT_YEARS, InputsError
+    from domains.analysis.reported import _Filings
+    from domains.fundamentals.facts import ConceptsNotSyncedError
+
+    run = conn.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+    if run is None:
+        raise InputsError(f"no run {run_id}", "run_not_found", {"run_id": run_id})
+    as_of = date.fromisoformat(run["as_of"])
+    stored = src.load(conn, run_id)
+    # no reader: one year's point needs no fiscal calendar, only the history and the filings
+    singles = Singles(conn, run, as_of, DEFAULT_YEARS, stored, None, _Filings(conn, run["cik"]))
+    try:
+        used_year = _cost_of_debt_used_year(singles)
+        run_value = _run_row(singles, "cost_of_debt")
+        used = None
+        if used_year is not None:
+            used = _read_differently(_cost_of_debt_point(singles, used_year, True), run_value)
+        year = used_year if fiscal_year is None else fiscal_year
+        if year is None:
+            point = None
+        elif year == used_year:
+            point = used
+        else:
+            point = _cost_of_debt_point(singles, year, False)
+        hedge = next((n for n in used.notes if n.code == HEDGE_NOTE), None) if used else None
+        cell_notes = _cost_of_debt_cell_notes(singles, hedge)
+    except ConceptsNotSyncedError as e:  # one coded refusal, as `inputs_behind` (backlog #548)
+        raise InputsError(str(e), e.code, dict(e.params)) from e
+    return CostOfDebtNotes(run_id, year, point, cell_notes)
 
 
 # How many fiscal years older than the point a stated rate may be and still stand beside it: a
