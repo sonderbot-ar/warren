@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/542 (from the #540 review; front-end ask in its first comment) · Branch `backlog-542-hedge-netted-interest` · Version v0.10.35 when merged.
 
-Status: In progress (nov.23.2026).
+Status: Done (nov.23.2026), v0.10.35, merge `bbe95f6` (PR #547).
 
 ## Problem
 
