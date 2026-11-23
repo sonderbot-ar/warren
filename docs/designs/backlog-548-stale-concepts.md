@@ -2,7 +2,7 @@
 
 Issues: https://github.com/sonderbot-ar/warren/issues/548 and https://github.com/sonderbot-ar/warren/issues/549 (both from the #547 review) · Branch `backlog-548-stale-concepts` · Version v0.10.36 when merged.
 
-Status: PR open (nov.23.2026).
+Status: Done (v0.10.36, nov.23.2026; PR #553, merge `8cce62d`, after CI green and a gatekeeper GO).
 
 ## Problem
 
@@ -39,6 +39,8 @@ Exit: full suite, `ruff check`, `ruff format --check` green. No number, note or 
 ## Review notes
 
 Product lead on *Product impact*: CHANGES, all accepted. (1) Put the code in the brief's `setup` group (`docs/product/brief.md`, "When an estimate can't be built"), not a generic text: done through `coded.OTHER_REFUSAL_GROUPS`, since adding it to `REFUSAL_GROUPS` would break `test_every_catalogued_code_is_raised_and_every_raised_code_is_catalogued` (a run's build never raises it). (2) The app never names the `missing` items (#297): said below. (3) Add the code to the Spanish catalogue list in the team-sync entry: done on record. Explainer, analyst and professor not run: an error path and a test, with no method or number change (as for #519, #522, #534).
+
+Gatekeeper GO on PR #553: ruff clean, 2851 passed, 10 skipped; the Step 1 tests fail with main's `domains/` (bare `ValueError` or ImportError); the #549 test passes on main, as it pins existing behaviour; reading rules v15 fingerprint `634d163e0264` matches its row. Non-blocking, left as is: (1) the #549 test catches a caveat lookup that wrongly matches an uncaveated company, not a change to the generic notes themselves (golden notes would pin those; the issue asked for this comparison); (2) on the error path `_unknown_names` loads the map files, so map files that fail validation give the concept-map error instead of the refusal, which is the more useful error in that case.
 
 ## Product impact
 
