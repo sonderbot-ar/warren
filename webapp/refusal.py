@@ -21,6 +21,7 @@ from datetime import date
 
 from domains.analysis.coded import (
     FILING_REFUSAL_CODES,
+    OTHER_REFUSAL_GROUPS,
     RANGE_REFUSAL_CODES,
     REFUSAL_GROUPS,
     Coded,
@@ -33,7 +34,12 @@ GENERIC = "generic"  # the "group" of a refusal with no code, or a code with no 
 # the student did, and no other date or company is sure to work, so no button and no lesson,
 # like `setup`; the screen says so plainly (#519 item 2).
 OUR_SIDE = "our_side"
-APP_REFUSAL_GROUPS = {code: OUR_SIDE for code in RANGE_REFUSAL_CODES}
+APP_REFUSAL_GROUPS = {
+    **{code: OUR_SIDE for code in RANGE_REFUSAL_CODES},
+    # refusals outside a run's build that the engine puts in a run refusal's group (#548): a
+    # database older than the concept map reads as `setup`
+    **OTHER_REFUSAL_GROUPS,
+}
 
 # Button kinds: compute again on another date (a form that posts to /calcular), change the
 # reading (a link to the card with its menus open), or open the lesson in place.

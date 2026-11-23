@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 
 from domains.analysis.coded import (
     ENGINE_REFUSAL_CODES,
+    OTHER_REFUSAL_GROUPS,
     RANGE_REFUSAL_CODES,
     REFUSAL_GROUP_ORDER,
     REFUSAL_GROUPS,
@@ -29,9 +30,11 @@ from domains.analysis.coded import (
     ZERO_DIVISOR_RATIOS,
     Coded,
 )
+from domains.analysis.inputs import InputsError
 from domains.analysis.math_engine import EngineError
 from domains.analysis.text import REFUSAL_LESSONS
 from domains.evaluation.ranges import RangeError
+from domains.fundamentals.facts import ConceptsNotSyncedError
 from domains.market.store import MarketDataError
 from webapp import formatting
 from webapp.answer import NoRun
@@ -654,3 +657,75 @@ def test_an_uncoded_range_error_gets_the_generic_sentence():
     page = answer(client)
     assert page.status_code == 200 and 'data-group="generic"' in page.text
     assert ES["refusal.generic.sentence"] in page.text
+
+
+# -- a database older than the concept map (#548) ------------------------------------------------
+
+STALE = {"missing": ["interest_capitalized"]}
+
+
+@pytest.mark.parametrize("language", LANGUAGES)
+@pytest.mark.parametrize("code", sorted(OTHER_REFUSAL_GROUPS))
+def test_every_other_refusal_has_its_own_sentence_in_its_engine_group(language, code):
+    v = view(code, STALE, language=language)
+    words = catalogue(language)
+    group = OTHER_REFUSAL_GROUPS[code]
+    assert v.group == group and v.code == code  # never the generic fallback
+    assert v.title == words[f"refusal.group.{group}.title"]
+    assert v.sentence == words[f"refusal.code.{code}"]
+    assert "interest_capitalized" not in v.sentence  # never an engine item name (#297)
+    assert v.setup_note == words["refusal.group.setup.note"]
+    assert v.button is None and v.lesson is None
+
+
+class StaleConcepts(FakeEngine):
+    """Every stored answer's cells refuse: the concepts table is older than the map, or (code
+    None in the app's sense) the app asked for an output the run lacks."""
+
+    def __init__(self, code="concepts_not_synced"):
+        super().__init__()
+        self.code = code
+
+    def load(self, ticker, corte):
+        super().load(ticker, corte)
+        if self.code == "concepts_not_synced":
+            raise InputsError("concepts table is stale", self.code, STALE)
+        raise InputsError("no such output", self.code, {"output": "revenue"})
+
+
+def test_a_stale_concepts_table_shows_the_setup_screen_not_a_server_error():
+    store = StaleConcepts()
+    store.stored.add(("AAPL", LATEST))
+    client = TestClient(create_app(clock=lambda: NOW, bundle_loader=store.load,
+                                   runner=store.run), follow_redirects=False)  # fmt: skip
+    page = answer(client)
+    assert page.status_code == 200 and 'data-group="setup"' in page.text
+    assert 'data-code="concepts_not_synced"' in page.text
+    assert ES["refusal.code.concepts_not_synced"] in page.text
+    assert "interest_capitalized" not in page.text
+    assert 'action="/calcular"' not in page.text
+
+
+def test_any_other_inputs_refusal_is_the_apps_bug_and_gets_the_generic_sentence():
+    store = StaleConcepts(code="output_not_in_run")
+    store.stored.add(("AAPL", LATEST))
+    client = TestClient(create_app(clock=lambda: NOW, bundle_loader=store.load,
+                                   runner=store.run), follow_redirects=False)  # fmt: skip
+    page = answer(client)
+    assert page.status_code == 200 and 'data-group="generic"' in page.text
+    assert ES["refusal.generic.sentence"] in page.text
+
+
+def test_a_run_refused_for_a_stale_concepts_table_lands_on_the_setup_screen():
+    engine = FakeEngine()
+
+    def stale_run(ticker, corte, today):
+        engine.runs.append((ticker, corte, today))
+        raise ConceptsNotSyncedError(["interest_capitalized"])
+
+    client = TestClient(create_app(clock=lambda: NOW, bundle_loader=engine.load,
+                                   runner=stale_run), follow_redirects=False)  # fmt: skip
+    done = post(client)
+    assert done.status_code == 204 and len(engine.runs) == 1
+    page = client.get(done.headers["HX-Redirect"])
+    assert 'data-code="concepts_not_synced"' in page.text and 'data-group="setup"' in page.text

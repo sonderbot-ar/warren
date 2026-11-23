@@ -30,10 +30,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
-from domains.analysis.coded import Coded, refusal
+from domains.analysis.coded import OTHER_REFUSAL_GROUPS, Coded, refusal
+from domains.analysis.inputs import InputsError
 from domains.analysis.math_engine import SUPPORTED_FROM, EngineError
 from domains.analysis.runs import run_baseline
 from domains.evaluation.ranges import RangeError
+from domains.fundamentals.facts import ConceptsNotSyncedError
 from domains.market.store import MarketDataError
 from shared_kernel.calendar import last_ended_day
 from shared_kernel.config import DB_PATH
@@ -122,6 +124,13 @@ def create_app(
                 log.exception("the answer for %s on %s failed to read its range", ticker, corte)
             refused[(ticker, corte)] = exc.coded()
             raise AnswerRefused(ticker, corte) from exc
+        except InputsError as exc:  # the cells behind the answer can't be read (#548)
+            if exc.code in OTHER_REFUSAL_GROUPS:  # Warren's database is older than its map
+                refused[(ticker, corte)] = refusal(exc)
+            else:  # a run or output the app asked for wrongly: our bug, the generic sentence
+                log.exception("the answer for %s on %s failed to read its cells", ticker, corte)
+                refused[(ticker, corte)] = None
+            raise AnswerRefused(ticker, corte) from exc
         loaded.add((ticker, corte))
         return bundle
 
@@ -167,7 +176,7 @@ def create_app(
                 return
             try:
                 run_or_test(ticker, corte, latest_corte())
-            except (EngineError, MarketDataError) as exc:
+            except (EngineError, MarketDataError, ConceptsNotSyncedError) as exc:
                 refused[key] = refusal(exc)
                 return
             except NoRun:
