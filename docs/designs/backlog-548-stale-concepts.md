@@ -2,7 +2,7 @@
 
 Issues: https://github.com/sonderbot-ar/warren/issues/548 and https://github.com/sonderbot-ar/warren/issues/549 (both from the #547 review) · Branch `backlog-548-stale-concepts` · Version v0.10.36 when merged.
 
-Status: In progress (nov.23.2026).
+Status: PR open (nov.23.2026).
 
 ## Problem
 
@@ -34,7 +34,7 @@ Exit: full suite, `ruff check`, `ruff format --check` green. No number, note or 
 
 ## Files to change
 
-`domains/fundamentals/facts.py`, `domains/analysis/inputs.py`, `tests/fundamentals/test_facts.py`, `tests/analysis/test_single_values.py`, this doc; on merge `docs/versions.md`, `docs/team-sync.md`.
+`domains/fundamentals/facts.py`, `domains/analysis/inputs.py`, `domains/analysis/coded.py`, `domains/analysis/text.py`, `domains/analysis/reading_rules.md` (a row under version 15: only the error path changes), `tests/fundamentals/test_facts.py`, `tests/analysis/test_single_values.py`, this doc; on merge `docs/versions.md`, `docs/team-sync.md`.
 
 ## Review notes
 
