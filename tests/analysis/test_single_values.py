@@ -1315,3 +1315,52 @@ def test_the_filed_years_and_the_newest_share_one_order():
     singles = SimpleNamespace(conn=conn, run={"cik": "1"}, as_of=AS_OF, history=history)
     assert _filed_years(history)[-1] == (date(2019, 7, 1), date(2019, 12, 31))
     assert _newest_filed_year(singles) == (2019, 2019)
+
+
+def _tagged_from_prior_end(ends, first_days=364):
+    """Filed years whose start is tagged as the previous year's end (365 or 372 days, counting
+    both ends), as some 52/53-week filers tag them (#569 item 2)."""
+    ends = [date.fromisoformat(e) for e in ends]
+    starts = [ends[0] - timedelta(days=first_days)] + ends[:-1]
+    return list(zip(starts, ends, strict=True))
+
+
+@pytest.mark.parametrize(
+    ("ends", "expected"),
+    [
+        (APPLE, "2026-09-26"),
+        (APPLE[:12], "2023-09-30"),
+        (APPLE[:13], "2024-09-28"),
+        (JNJ, "2027-01-03"),
+        (JNJ[:12], "2021-01-03"),
+    ],
+)
+def test_week_years_tagged_from_the_prior_end_read_as_week_years(ends, expected):
+    from domains.analysis.single_values import expected_year_end
+
+    filed = _tagged_from_prior_end(ends)
+    assert (filed[-1][1] - filed[-1][0]).days + 1 in (365, 372)
+    assert expected_year_end(filed, 1) == date.fromisoformat(expected)
+    # the same answer as with the start the day after the prior end
+    assert expected_year_end(filed, 1) == expected_year_end(_years(*ends), 1)
+
+
+def test_a_week_year_with_one_year_missing_between_still_reads_as_one():
+    from domains.analysis.single_values import expected_year_end
+
+    filed = _tagged_from_prior_end(APPLE)
+    del filed[-2]  # FY2024 not read: the gap is 728 days, still whole weeks
+    assert expected_year_end(filed, 1) == date(2026, 9, 26)
+
+
+def test_calendar_years_tagged_the_same_way_stay_calendar_years():
+    from domains.analysis.single_values import expected_year_end
+
+    # 1 January to 31 December, 365 days counting both ends, ends 365 or 366 days apart
+    filed = [(date(y, 1, 1), date(y, 12, 31)) for y in (2017, 2018, 2019)]
+    assert expected_year_end(filed, 1) == date(2020, 12, 31)
+    # one 365-day year alone has no previous end to compare: a calendar year
+    assert expected_year_end(filed[-1:], 1) == date(2020, 12, 31)
+    # ends tagged from the prior end, a leap year between (366 days apart)
+    filed = _tagged_from_prior_end(("2019-12-31", "2020-12-31"), first_days=365)
+    assert expected_year_end(filed, 1) == date(2021, 12, 31)

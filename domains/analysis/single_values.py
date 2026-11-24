@@ -659,6 +659,22 @@ WEEK_YEAR_DAYS = (364, 371)  # a 52 or 53-week fiscal year
 WEEK_YEAR_REACH = 3  # such a year ends on the weekday nearest its anchor date: at most 3 days off
 
 
+def _week_year(filed: list[tuple[date, date]]) -> bool:
+    """Whether the newest filed year is a 52 or 53-week year: 364 or 371 days long, counting
+    both ends; or 365 or 372 when its start is tagged as the previous year's end (#569 item 2),
+    and then only if the weekday repeats, its end a whole number of weeks after the previous
+    filed end. A calendar year tagged from 1 January is 365 days long too, but its ends are 365
+    or 366 days apart, never a whole number of weeks (over a year or two)."""
+    start, end = filed[-1]
+    days = (end - start).days + 1
+    if days in WEEK_YEAR_DAYS:
+        return True
+    if days - 1 not in WEEK_YEAR_DAYS or len(filed) < 2:
+        return False
+    gap = (end - filed[-2][1]).days
+    return 0 < gap <= 2 * max(WEEK_YEAR_DAYS) and gap % 7 == 0
+
+
 def _shifted(day: date, years: int) -> date:
     """`day` moved by whole years, kept at the month's end when it was one (29 February too)."""
     year = day.year + years
@@ -686,7 +702,7 @@ def expected_year_end(filed: list[tuple[date, date]], years_ahead: int) -> date:
         raise ValueError("no filed fiscal year to read forward from")
     start, end = filed[-1]
     target = _shifted(end, years_ahead)
-    if (end - start).days + 1 not in WEEK_YEAR_DAYS:
+    if not _week_year(filed):
         return target
     # each older end as days from the newest end's date in the same year (the nearest whole year)
     offsets = []
