@@ -629,7 +629,7 @@ def _filed_years(history) -> list[tuple[date, date]]:
     return sorted(
         {(f.period_start, f.period_end) for k, f in history.annual.items()
          if k[0] == "revenue" and f.period_start},
-        key=lambda p: p[1],
+        key=lambda p: (p[1], p[0]),  # by end, then start: two periods can share an end
     )  # fmt: skip
 
 

@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/564 (front-end ask, from the #563 review) · Branch `backlog-564-not-filed-yet` · Version v0.10.40 when merged.
 
-Status: In progress (nov.24.2026).
+Status: In progress (nov.24.2026); PR #568.
 
 ## Problem
 
@@ -34,7 +34,16 @@ The cost-of-debt chart (`inputs_behind`, and `single_values.cost_of_debt_notes`)
 
 Result (snapshot `warren-20261123T052122Z`, nov.24.2026):
 - All eight companies' newest runs (2026-10-30), at 5 and 10 years: the last chart year, and only it, reads `not_filed_yet`, and every chart year's point still equals `cost_of_debt_notes`. Apple's two years before keep `no_interest_reported` (it stopped reporting the line after FY2023), as they should. Expected ends: Apple FY2026 2026-09-26 (it has ended; the 10-K came out the day after the run date), Caterpillar, Coca-Cola and Exxon 2026-12-31, Johnson & Johnson 2027-01-03 (a 53-week year), Microsoft and P&G 2027-06-30, Walmart 2027-01-31.
-- Backtest: 142 of 143 filed years exact. The one miss is Johnson & Johnson's FY2009 read from FY2008 alone (one year gives no band), a week early.
+- Backtest, one year ahead (the chart's newest year is at most one past the newest filed year): 142 of 143 filed years exact. The one miss is Johnson & Johnson's FY2009 read from FY2008 alone (one year gives no band), a week early.
+
+## Review (nov.24.2026)
+
+- **Product lead: GO** on *Product impact*. `fiscal_year` and `period_end` fit the brief's two Spanish variants. Suggests "termina alrededor del {period_end}" for the in-progress variant, since the date is an estimate; the brief's other changes after merge (version in the heading, five chart reasons, the stopgap and the `due_date` sentence removed) are the front-end's to make.
+- **Analyst: GO.** On all 899 (company, run date) pairs in the database, the newest fiscal year with annual revenue known on the date equals the newest 10-K or 10-K/A fiscal year in `filing_labels` known on it: the rule never fires wrongly. 10-K/As restate filed years; comparatives arrive only after the year's own 10-K; no 10-KT. The anchor rule is how a practitioner reads these calendars. Follow-ups:
+  1. A company whose newest year's revenue is filed under an unmapped tag would read `not_filed_yet` on a filed year (Exxon's FY2009–2010 revenue appears only as 2012 comparatives; unreachable, runs start in 2019). A cross-check against the 10-K forms in `filing_labels` would close it. Filed as #569.
+  2. `_filed_years` sorted by end only, from a set (Caterpillar FY2009–2010 have two periods with one end). Fixed here: sorted by end, then start.
+  3. A filer that counts a 52/53-week year as 365 or 372 days would get the calendar rule. None of the eight does. In #569.
+  4. Two years ahead misses more often (Apple from FY2009). Unreachable today; the backtest figure now says "one year ahead".
 
 ## Alternatives considered
 
