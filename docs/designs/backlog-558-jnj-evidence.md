@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/558 (from the analyst's design review of #551) · Branch `backlog-558-jnj-evidence` · Version v0.10.42 when merged.
 
-Status: In progress (nov.24.2026).
+Status: Done (nov.24.2026): PR #578, merge commit `384f1b4`, v0.10.42. Gatekeeper GO; its two ideas (the filed-year-minus-one rule would break on a late 10-K/A or an early fiscal year end; the `159 + 292` check pins text) stay as they are while J&J is the only row, and are worth revisiting with the second company (see Alternatives).
 
 ## Problem
 
