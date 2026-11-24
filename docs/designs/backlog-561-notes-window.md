@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/561 (from the #560 review: product lead and gatekeeper) · Branch `backlog-561-notes-window` · Version v0.10.39 when merged.
 
-Status: In progress (nov.24.2026).
+Status: Done (v0.10.39, nov.24.2026, PR #563, merge `8637726`). Gatekeeper GO; follow-ups #564 (the year in progress, front-end ask) and #565.
 
 ## Problem
 
@@ -32,6 +32,12 @@ Status: In progress (nov.24.2026).
 
 Result (snapshot `warren-20261123T052122Z`, nov.24.2026): on all eight companies' newest runs (2026-10-30), at 5 and 10 years, the window read from the history equals the chart's years, every chart year's point and cell notes are equal, and the years on either side are refused with the chart's bounds. Said straight, as the last bullet of *Product impact* warns: every company's newest chart year (FY2026, or FY2027 for Microsoft, P&G and Walmart, whose fiscal years run ahead) is a year in progress and reads `no_interest_reported`.
 
+## Review (nov.24.2026)
+
+- **Product lead: GO** on *Product impact*. Agrees `year_outside_window` needs no group and no Spanish line: students reach only the codes in `coded.ENGINE_REFUSAL_CODES` by picking a company and a date, and the app asks only chart years; `years_out_of_range` has no group either. Confirmed the in-progress year is not handled by the brief or the first screen and asked for `not_filed_yet` (filed as #564) and for the issue number here (done).
+- **Gatekeeper: GO** (PR #563, head `b051f07`): the window's rule and data match `reported.latest_period` and `_views` (same `get_facts` calls, same keys, sorted output so ties resolve alike); the new tests fail on `main` (17 failed); the FY1990 test's replacement is stronger (both reasons, equal to the chart). Follow-ups in #565: an unmocked no-revenue test, and annual revenue with no quarter (no chart, but the window answers; unreachable in Phase 1).
+- **Explainer, analyst, professor:** not run; no method or number changes, and the window rule is checked against the chart on every company (Step 2).
+
 ## Alternatives considered
 
 - **Read the window from the fiscal-calendar reader**, as the chart does. Exact by construction, but it costs the call most of what #550 saved. The history gives the same two fiscal years (same revenue facts, same "latest period end" pick); Step 2 checks it on every company.
@@ -48,4 +54,5 @@ Result (snapshot `warren-20261123T052122Z`, nov.24.2026): on all eight companies
 
 - Serves brief Q3 (where a number comes from) on the cost of debt: the call can no longer say "reported no interest" for a year not filed yet.
 - Adds one refusal code on `cost_of_debt_notes`, `year_outside_window`, and one optional argument, `years`. Nothing in `inputs_behind` changes. The front-end needs no Spanish line unless it asks for years outside the chart; if it wants one, the brief's catalogue is its to write.
-- Not changed here, said straight: the chart itself shows the fiscal year in progress (the test company's FY2020) as `no_interest_reported` when its 10-K is not out yet. That is the same "not filed yet read as reported none" problem one level up; filed as a follow-up issue.
+- Not changed here, said straight: the chart itself shows the fiscal year in progress (the test company's FY2020) as `no_interest_reported` when its 10-K is not out yet. That is the same "not filed yet read as reported none" problem one level up; filed as #564 (`backlog`, `front-end`): a distinct reason, `not_filed_yet`, which the front-end asked for.
+- The app must pass `years` equal to the chart's 3, 5 or 10-year switch (`docs/designs/f2-input-charts.md`), or a longer chart's older years are refused (product lead).
