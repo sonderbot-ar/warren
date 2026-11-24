@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/575 (from the #571 gatekeeper) · Branch `backlog-575-newest-year-cache` · Version v0.10.43 when merged.
 
-Status: In progress (nov.24.2026).
+Status: Done (v0.10.43, nov.24.2026; PR #580, merge `eda10e5`, after CI green and a gatekeeper GO).
 
 ## Problem
 
@@ -36,3 +36,5 @@ None. No output, code or English text a student sees is added, renamed or remove
 ## Review notes
 
 Explainer, analyst and professor not run: a cache and a style change with no method or number change (as for #519, #522, #528 and #534).
+
+Gatekeeper GO on PR #580: ruff clean, 2910 passed, 10 skipped; the new test fails on main's `single_values.py` (3 calls, not 1); `Singles` is built per answer in `inputs.py` (`inputs_behind`) and `single_values.py` (`cost_of_debt_notes`) and never reused across runs or dates, so the cache scope is right. Non-blocking idea, not taken: pytest's `monkeypatch.setattr` in place of the hand-written swap in the new test.
