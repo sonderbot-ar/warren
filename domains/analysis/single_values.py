@@ -48,6 +48,10 @@ MISSING_REASONS = (
     # the cost of debt (D8)
     "no_interest_reported",  # the year's filings report no interest expense or interest paid
     "average_debt_not_positive",  # the year's average debt is zero: nothing to divide by
+    # the fiscal year is after the newest one with an annual figure known on the run's date (in
+    # progress, or ended with its 10-K not out); params fiscal_year, period_end (the year's
+    # expected end, ISO, `expected_year_end`) (backlog #564)
+    "not_filed_yet",
     # diluted shares by quarter: the fourth quarter has no count of its own (the 10-K files the
     # year's weighted count instead); params fiscal_year, annual_period (FY2024, the annual
     # series' point, or None when that year's count is not filed either) (backlog #481)
@@ -618,6 +622,68 @@ def _cost_of_debt_window(singles: Singles) -> tuple[int, int] | None:
     return None if last is None else (last - singles.years + 1, last)
 
 
+def _filed_years(history) -> list[tuple[date, date]]:
+    """The (start, end) of every fiscal year with an annual revenue figure known on the run's
+    date, oldest first; the last is the newest year whose 10-K is out (as the chart's window
+    reads it)."""
+    return sorted(
+        {(f.period_start, f.period_end) for k, f in history.annual.items()
+         if k[0] == "revenue" and f.period_start},
+        key=lambda p: p[1],
+    )  # fmt: skip
+
+
+def _filed_fiscal_year(history) -> int | None:
+    revenue = [f for k, f in history.annual.items() if k[0] == "revenue" and f.period_start]
+    return max(revenue, key=lambda f: f.period_end).fiscal_year if revenue else None
+
+
+WEEK_YEAR_DAYS = (364, 371)  # a 52 or 53-week fiscal year
+WEEK_YEAR_REACH = 3  # such a year ends on the weekday nearest its anchor date: at most 3 days off
+
+
+def _shifted(day: date, years: int) -> date:
+    """`day` moved by whole years, kept at the month's end when it was one (29 February too)."""
+    year = day.year + years
+    if (day + timedelta(days=1)).day == 1:
+        return date(year + (day.month == 12), day.month % 12 + 1, 1) - timedelta(days=1)
+    return day.replace(year=year)
+
+
+def expected_year_end(filed: list[tuple[date, date]], years_ahead: int) -> date:
+    """The expected end of the fiscal year `years_ahead` after the newest filed one, read only
+    from the filed years' own periods, `filed` as (start, end) oldest first (point-in-time;
+    backlog #564).
+
+    A calendar-month year ends on the same day, kept at the month's end when it ended on one
+    (Walmart's 31 January; 29 February falls to the 28th). A 52 or 53-week year (the newest is
+    364 or 371 days long) ends on the same weekday nearest a fixed date, its anchor (Apple: the
+    Saturday nearest 27 September; Johnson & Johnson: the Sunday nearest 31 December). Every
+    filed end is within three days of the anchor, so the anchor is the middle of the dates all
+    of them allow (the later of two middle days). With few years the band is wide and the middle
+    a guess; when no date fits every end (a changed calendar) the newest end alone is the
+    anchor, which is a week early before a 53-week year."""
+    if years_ahead < 1:
+        raise ValueError(f"years_ahead must be at least 1, got {years_ahead}")
+    if not filed:
+        raise ValueError("no filed fiscal year to read forward from")
+    start, end = filed[-1]
+    target = _shifted(end, years_ahead)
+    if (end - start).days + 1 not in WEEK_YEAR_DAYS:
+        return target
+    # each older end as days from the newest end's date in the same year (the nearest whole year)
+    offsets = []
+    for _, older in filed:
+        back = round((end - older).days / 365.2425)
+        offsets.append((older - _shifted(end, -back)).days)
+    low, high = max(offsets) - WEEK_YEAR_REACH, min(offsets) + WEEK_YEAR_REACH
+    # the middle of the band; of two middle days the later (Apple's FY2017 from 2009-2016)
+    middle = -((-low - high) // 2)
+    anchor = target + timedelta(days=middle if low <= high else 0)
+    shift = (end.weekday() - anchor.weekday()) % 7  # days forward to the same weekday
+    return anchor + timedelta(days=shift if shift <= 3 else shift - 7)
+
+
 def _cost_of_debt_used_year(singles: Singles) -> int | None:
     """The fiscal year the run's cost of debt was read from; None on a what-if child whose
     changed cost of debt is not a book year (backlog #481)."""
@@ -636,12 +702,20 @@ def _cost_of_debt_point(singles: Singles, year: int, used: bool):
     label = f"FY{year}"
     found = cost_of_debt_year(singles.history, year)
     if found is None:
-        try:
-            resolve("interest", singles.history.year(year), label)
-            reason, why = "average_debt_not_positive", f"{label}'s average debt is zero"
-        except EngineError:
-            reason, why = "no_interest_reported", f"{label} reports no interest"
-        missing = Coded(NOT_COMPUTABLE, {"reason": reason, "fiscal_year": year}, why)
+        params = {"fiscal_year": year}
+        filed_year = _filed_fiscal_year(singles.history)
+        if filed_year is not None and year > filed_year:
+            end = expected_year_end(_filed_years(singles.history), year - filed_year)
+            reason = "not_filed_yet"
+            params["period_end"] = end.isoformat()
+            why = f"{label}'s annual report was not filed by the run's date (expected end {end})"
+        else:
+            try:
+                resolve("interest", singles.history.year(year), label)
+                reason, why = "average_debt_not_positive", f"{label}'s average debt is zero"
+            except EngineError:
+                reason, why = "no_interest_reported", f"{label} reports no interest"
+        missing = Coded(NOT_COMPUTABLE, {"reason": reason, **params}, why)
         return Point(label, year, "FY", None, None, used, missing=missing)
     kd, paid, (_start, opening), (_end, closing) = found
     parts = [
