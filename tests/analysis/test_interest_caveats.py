@@ -1,8 +1,11 @@
 """Companies whose interest line is not the interest on their debt (backlog #542)."""
 
+import re
+
 import pytest
 
 from domains.analysis.interest_caveats import (
+    ACCESSION,
     CAVEAT_CODES,
     COLUMNS,
     InterestCaveatError,
@@ -88,6 +91,20 @@ def test_the_shipped_rows_accessions_are_its_four_10ks_in_order():
         "0000200406-22-000022",
         "0000200406-26-000016",
     )
+
+
+def test_each_named_filing_is_followed_by_figures_it_holds():
+    """Backlog #558: since #551 the app links every filing the evidence names, so each one
+    must be followed by figures from its own table, never by another filing's years. A 10-K
+    shows its own fiscal year and the one before (checked by hand on sec.gov, nov.24.2026)."""
+    [row] = load_interest_caveats()
+    pieces = ACCESSION.split(row.evidence)[1:]  # the text after each accession, up to the next
+    for accession, text in zip(row.accessions, pieces, strict=True):
+        years = [int(y) for y in re.findall(r"\(FY(\d{4})\)", text)]
+        own = 2000 + int(accession.split("-")[1]) - 1  # a 10-K is filed the year after
+        assert years, f"{accession} is named with no figure from it"
+        assert set(years) <= {own, own - 1}, f"{accession} quotes years {years}"
+    assert "159 + 292 (FY2019)" in row.evidence
 
 
 def test_accessions_are_read_from_the_evidence_once_each(tmp_path):
