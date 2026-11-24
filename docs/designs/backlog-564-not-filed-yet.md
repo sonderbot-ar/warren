@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/564 (front-end ask, from the #563 review) · Branch `backlog-564-not-filed-yet` · Version v0.10.40 when merged.
 
-Status: In progress (nov.24.2026); PR #568.
+Status: Done (v0.10.40, nov.24.2026, PR #568, merge `5caf5af`). Gatekeeper GO; follow-ups #569.
 
 ## Problem
 
@@ -44,6 +44,8 @@ Result (snapshot `warren-20261123T052122Z`, nov.24.2026):
   2. `_filed_years` sorted by end only, from a set (Caterpillar FY2009–2010 have two periods with one end). Fixed here: sorted by end, then start.
   3. A filer that counts a 52/53-week year as 365 or 372 days would get the calendar rule. None of the eight does. In #569.
   4. Two years ahead misses more often (Apple from FY2009). Unreachable today; the backtest figure now says "one year ahead".
+
+- **Gatekeeper: GO** (PR #568, head `7c44934`): full suite 2,894 passed, ruff clean; the new tests fail on `main` (18); the rule reads only the history loaded as of the run's date; the one changed assertion is stronger (full params, and no earlier year reads the reason). Follow-ups added to #569: one shared pick for the newest filed year (`_filed_fiscal_year` by end only, `_filed_years` by end then start), and a fixture for a run after the year's end but before its 10-K.
 
 ## Alternatives considered
 
