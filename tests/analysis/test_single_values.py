@@ -864,7 +864,7 @@ def _same_as_chart(conn, run_id, years=5):
     points = _primary(cell).points
     assert points
     for p in points:
-        got = cost_of_debt_notes(conn, run_id, p.fiscal_year)
+        got = cost_of_debt_notes(conn, run_id, p.fiscal_year, years=years)
         assert got.run_id == run_id and got.fiscal_year == p.fiscal_year
         assert got.point == p, p.period
         assert got.cell_notes == cell.notes
@@ -932,13 +932,83 @@ def test_a_floored_what_if_has_no_own_year_and_its_cell_notes_are_the_charts(run
 
 
 def test_a_year_with_no_interest_gives_its_reason(run):
+    """Chart years with no cost of debt give the chart's reason (an eight-year chart reaches back
+    to FY2013, with no interest, and FY2014, with no average debt)."""
     from domains.analysis.single_values import cost_of_debt_notes
 
     conn, run_id = run
-    got = cost_of_debt_notes(conn, run_id, 1990)
-    assert got.point.value is None and got.point.notes == [] and not got.point.used
-    assert got.point.missing.code == NOT_COMPUTABLE
-    assert got.point.missing.params == {"reason": "no_interest_reported", "fiscal_year": 1990}
+    _same_as_chart(conn, run_id, years=8)
+    for year, reason in ((2013, "no_interest_reported"), (2014, "average_debt_not_positive")):
+        got = cost_of_debt_notes(conn, run_id, year, years=8)
+        assert got.point.value is None and got.point.notes == [] and not got.point.used
+        assert got.point.missing.code == NOT_COMPUTABLE
+        assert got.point.missing.params == {"reason": reason, "fiscal_year": year}
+
+
+# -- a year outside the chart is refused (backlog #561) -----------------------------------------
+
+
+def _outside(conn, run_id, year, years=None):
+    from domains.analysis.inputs import InputsError
+    from domains.analysis.single_values import cost_of_debt_notes
+
+    with pytest.raises(InputsError) as e:
+        cost_of_debt_notes(conn, run_id, year, years=years)
+    assert e.value.code == "year_outside_window"
+    return e.value.params
+
+
+@pytest.mark.parametrize("years", [3, 5, 8, 10])
+def test_the_window_is_the_charts_and_the_years_on_either_side_are_refused(run, years):
+    conn, run_id = run
+    _, points = _same_as_chart(conn, run_id, years=years)
+    first, last = points[0].fiscal_year, points[-1].fiscal_year
+    assert [p.fiscal_year for p in points] == list(range(first, last + 1))
+    window = {"first_year": first, "last_year": last, "years": years}
+    assert _outside(conn, run_id, first - 1, years) == {"fiscal_year": first - 1, **window}
+    assert _outside(conn, run_id, last + 1, years) == {"fiscal_year": last + 1, **window}
+
+
+def test_a_year_after_the_newest_filing_is_refused_not_read_as_no_interest(run):
+    conn, run_id = run
+    params = _outside(conn, run_id, 2021)
+    assert params == {"fiscal_year": 2021, "first_year": 2016, "last_year": 2020, "years": 5}
+    assert _outside(conn, run_id, 1990)["fiscal_year"] == 1990
+
+
+def test_the_runs_own_year_is_answered_outside_the_window(run, monkeypatch):
+    """The chart adds the run's own year when it is older than the window, so the call does."""
+    from domains.analysis import single_values
+
+    conn, run_id = run
+    monkeypatch.setattr(single_values, "_cost_of_debt_used_year", lambda singles: 2015)
+    got = single_values.cost_of_debt_notes(conn, run_id, 2015, years=3)
+    assert got.fiscal_year == 2015 and got.point.used
+    assert _outside(conn, run_id, 2016, years=3)["first_year"] == 2018
+
+
+def test_a_history_with_no_revenue_has_no_window(run, monkeypatch):
+    from domains.analysis import single_values
+
+    conn, run_id = run
+    monkeypatch.setattr(single_values, "_cost_of_debt_window", lambda singles: None)
+    params = _outside(conn, run_id, 2018)
+    assert params == {"fiscal_year": 2018, "first_year": None, "last_year": None, "years": 5}
+    assert single_values.cost_of_debt_notes(conn, run_id).fiscal_year == 2019
+
+
+@pytest.mark.parametrize("years", [2, 11])
+def test_a_history_length_out_of_range_is_refused_as_inputs_behind_does(run, years):
+    from domains.analysis.inputs import InputsError
+    from domains.analysis.single_values import cost_of_debt_notes
+
+    conn, run_id = run
+    with pytest.raises(InputsError) as e:
+        cost_of_debt_notes(conn, run_id, years=years)
+    with pytest.raises(InputsError) as f:
+        inputs_behind(conn, run_id, VPS, years=years)
+    assert e.value.code == f.value.code == "years_out_of_range"
+    assert e.value.params == f.value.params
 
 
 def test_one_year_reads_no_fiscal_calendar_and_no_other_cell(run, monkeypatch):

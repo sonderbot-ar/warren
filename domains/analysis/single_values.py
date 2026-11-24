@@ -17,10 +17,14 @@ import warnings
 from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import date, timedelta
+from typing import TYPE_CHECKING
 
 from domains.analysis import financial_math as fm
 from domains.analysis.coded import Coded
 from domains.analysis.schemas import SINGLE
+
+if TYPE_CHECKING:  # `inputs` imports this module, so its types are read only by type checkers
+    from domains.analysis.inputs import Point
 
 # The `missing` code of a point the rule could not compute on that date, with the rule's own
 # refusal code in `params["reason"]`; a closed list the app words as a short chart note (not as a
@@ -599,6 +603,21 @@ def _cost_of_debt(singles: Singles):
     return Series("cost_of_debt", "year", "latest", True, None, points)
 
 
+def _cost_of_debt_window(singles: Singles) -> tuple[int, int] | None:
+    """The first and last fiscal year of the cost-of-debt chart's window, read from the history
+    alone (no fiscal calendar): the last year is the newer of the newest quarter's and the newest
+    year's fiscal year, each the revenue figure with the latest period end known on the run's
+    date, as the chart's reader takes them (`reported.latest_period`); None when the history has
+    no revenue figure, where the chart has no window either (backlog #561)."""
+    last = None
+    for facts in (singles.history.quarterly, singles.history.annual):
+        revenue = [f for k, f in facts.items() if k[0] == "revenue" and f.period_start is not None]
+        if revenue:
+            year = max(revenue, key=lambda f: f.period_end).fiscal_year
+            last = year if last is None else max(last, year)
+    return None if last is None else (last - singles.years + 1, last)
+
+
 def _cost_of_debt_used_year(singles: Singles) -> int | None:
     """The fiscal year the run's cost of debt was read from; None on a what-if child whose
     changed cost of debt is not a book year (backlog #481)."""
@@ -647,6 +666,27 @@ def _cost_of_debt_point(singles: Singles, year: int, used: bool):
     return Point(label, year, "FY", period_end, kd, used, parts, notes)
 
 
+def _refuse_outside_window(singles: Singles, fiscal_year: int) -> None:
+    """`year_outside_window` for a year the cost-of-debt chart does not show (backlog #561)."""
+    from domains.analysis.inputs import InputsError
+
+    window = _cost_of_debt_window(singles)
+    if window is not None and window[0] <= fiscal_year <= window[1]:
+        return
+    first, last = window or (None, None)
+    shown = f"FY{first} to FY{last}" if window else "none: no revenue filed"
+    raise InputsError(
+        f"FY{fiscal_year} is not on the cost-of-debt chart ({shown}) and is not the run's own year",
+        "year_outside_window",
+        {
+            "fiscal_year": fiscal_year,
+            "first_year": first,
+            "last_year": last,
+            "years": singles.years,
+        },
+    )
+
+
 @dataclass(frozen=True)
 class CostOfDebtNotes:
     """One fiscal year's cost-of-debt point and the cell's notes, as `inputs_behind` gives them
@@ -654,7 +694,7 @@ class CostOfDebtNotes:
 
     run_id: str
     fiscal_year: int | None  # the year asked, or the run's own; None when it has no book year
-    point: object | None  # inputs.Point, equal to the chart's point for that year; None as above
+    point: "Point | None"  # equal to the chart's point for that year; None as above
     cell_notes: list[Coded]  # the `cost_of_debt` cell's notes
 
     def to_dict(self) -> dict:
@@ -667,7 +707,10 @@ class CostOfDebtNotes:
 
 
 def cost_of_debt_notes(
-    conn: sqlite3.Connection, run_id: str, fiscal_year: int | None = None
+    conn: sqlite3.Connection,
+    run_id: str,
+    fiscal_year: int | None = None,
+    years: int | None = None,
 ) -> CostOfDebtNotes:
     """The cost-of-debt notes for one fiscal year of a run, without building the rest of the
     answer (backlog #550, for the app): the year's point (value, parts, `below_risk_free` or the
@@ -676,26 +719,34 @@ def cost_of_debt_notes(
     the chart's series, on the filings known on the run's date (and, for a year other than the
     run's own, the 10-year yields over that year, as the chart reads them).
 
-    Ask only for a year the chart shows or the run's own: any other year is answered by the same
-    rule, so a year after the newest filing known on the run's date reads `no_interest_reported`
-    (not known yet, not "reported none"). The call assumes the run has a `cost_of_debt` row
+    Only a year the chart shows (`years` fiscal years, as `inputs_behind`'s `years`, default
+    `inputs.DEFAULT_YEARS`) or the run's own is answered; any other is refused with `InputsError`
+    code `year_outside_window` (params `fiscal_year`, `first_year`, `last_year`, `years`; the
+    bounds are None when the history has no revenue figure), since a year after the newest
+    filing known on the run's date would read `no_interest_reported`, "not filed yet" shown as
+    "reported none" (backlog #561). The window is read from the history, not the fiscal
+    calendar, so the call stays cheap. The call assumes the run has a `cost_of_debt` row
     (every run stores one) that is not an owner choice (`cost_of_debt` is not one today), where
     `inputs_behind` would give no history. Refuses with `InputsError` (`run_not_found`,
-    `concepts_not_synced`) as `inputs_behind` does."""
+    `concepts_not_synced`, `years_out_of_range`) as `inputs_behind` does."""
     from domains.analysis import sources as src
-    from domains.analysis.inputs import DEFAULT_YEARS, InputsError
+    from domains.analysis.inputs import DEFAULT_YEARS, InputsError, check_years
     from domains.analysis.reported import _Filings
     from domains.fundamentals.facts import ConceptsNotSyncedError
 
+    years = DEFAULT_YEARS if years is None else years
+    check_years(years)
     run = conn.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
     if run is None:
         raise InputsError(f"no run {run_id}", "run_not_found", {"run_id": run_id})
     as_of = date.fromisoformat(run["as_of"])
     stored = src.load(conn, run_id)
     # no reader: one year's point needs no fiscal calendar, only the history and the filings
-    singles = Singles(conn, run, as_of, DEFAULT_YEARS, stored, None, _Filings(conn, run["cik"]))
+    singles = Singles(conn, run, as_of, years, stored, None, _Filings(conn, run["cik"]))
     try:
         used_year = _cost_of_debt_used_year(singles)
+        if fiscal_year is not None and fiscal_year != used_year:
+            _refuse_outside_window(singles, fiscal_year)
         run_value = _run_row(singles, "cost_of_debt")
         used = None
         if used_year is not None:
