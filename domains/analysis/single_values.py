@@ -611,15 +611,17 @@ def _cost_of_debt_window(singles: Singles) -> tuple[int, int] | None:
     """The first and last fiscal year of the cost-of-debt chart's window, read from the history
     alone (no fiscal calendar): the last year is the newer of the newest quarter's and the newest
     year's fiscal year, each the revenue figure with the latest period end known on the run's
-    date, as the chart's reader takes them (`reported.latest_period`); None when the history has
-    no revenue figure, where the chart has no window either (backlog #561)."""
+    date, as the chart's reader takes them (`reported.latest_period`). None when either the
+    quarterly or the annual facts hold no revenue figure, since the chart's reader then refuses
+    and the chart has no window either (backlog #561, #565)."""
     last = None
     for facts in (singles.history.quarterly, singles.history.annual):
         revenue = [f for k, f in facts.items() if k[0] == "revenue" and f.period_start is not None]
-        if revenue:
-            year = max(revenue, key=lambda f: f.period_end).fiscal_year
-            last = year if last is None else max(last, year)
-    return None if last is None else (last - singles.years + 1, last)
+        if not revenue:
+            return None
+        year = max(revenue, key=lambda f: f.period_end).fiscal_year
+        last = year if last is None else max(last, year)
+    return last - singles.years + 1, last
 
 
 def _filed_years(history) -> list[tuple[date, date]]:

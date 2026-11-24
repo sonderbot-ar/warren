@@ -1192,3 +1192,61 @@ def test_expected_year_end_needs_a_filed_year_and_a_year_ahead():
         expected_year_end(_years("2018-12-31", "2019-12-31"), 0)
     with pytest.raises(ValueError):
         expected_year_end([], 1)
+
+
+# -- the chart's edges: window, newest filed year, week years (backlog #565, #569) ---------------
+
+
+def _fact(name, start, end, fiscal_year, period="FY", value=100.0):
+    from domains.fundamentals.schemas import Fact
+
+    return Fact(
+        canonical_name=name,
+        xbrl_concept="Revenues",
+        period_start=None if start is None else date.fromisoformat(start),
+        period_end=date.fromisoformat(end),
+        fiscal_year=fiscal_year,
+        fiscal_period=period,
+        value=value,
+        unit="USD",
+        accession_no="0000000123-20-000001",
+        filed_at=date(2020, 2, 15),
+    )
+
+
+def _window(quarterly=(), annual=(), instants=None, years=5):
+    from types import SimpleNamespace
+
+    from domains.analysis.math_engine import History
+    from domains.analysis.single_values import _cost_of_debt_window
+
+    history = History(
+        {(f.canonical_name, f.fiscal_year, f.fiscal_period): f for f in quarterly},
+        {(f.canonical_name, f.fiscal_year): f for f in annual},
+        instants or {},
+    )
+    return _cost_of_debt_window(SimpleNamespace(history=history, years=years))
+
+
+QUARTER = _fact("revenue", "2020-01-01", "2020-03-31", 2020, "Q1")
+YEAR = _fact("revenue", "2019-01-01", "2019-12-31", 2019)
+
+
+def test_the_window_runs_on_a_real_history_with_no_mock():
+    assert _window() is None
+    assert _window([QUARTER], [YEAR]) == (2016, 2020)
+    assert _window([QUARTER], [YEAR], years=3) == (2018, 2020)
+    # the newer of the two frequencies' years sets the last year
+    older_quarter = _fact("revenue", "2019-07-01", "2019-09-30", 2019, "Q3")
+    assert _window([older_quarter], [YEAR]) == (2015, 2019)
+
+
+def test_the_window_needs_revenue_in_both_frequencies_as_the_chart_does():
+    """The chart's reader refuses when the quarters or the years have no revenue (#565)."""
+    assert _window(annual=[YEAR]) is None
+    assert _window(quarterly=[QUARTER]) is None
+    # other items or balance-sheet revenue do not count
+    interest = _fact("interest_expense", "2019-01-01", "2019-12-31", 2019)
+    assert _window([QUARTER], [interest]) is None
+    instant = _fact("revenue", None, "2019-12-31", 2019)
+    assert _window([QUARTER], annual=[], instants={"revenue": [instant]}) is None
