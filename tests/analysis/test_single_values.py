@@ -1364,3 +1364,29 @@ def test_calendar_years_tagged_the_same_way_stay_calendar_years():
     # ends tagged from the prior end, a leap year between (366 days apart)
     filed = _tagged_from_prior_end(("2019-12-31", "2020-12-31"), first_days=365)
     assert expected_year_end(filed, 1) == date(2021, 12, 31)
+
+
+def test_a_run_after_the_year_ends_and_before_its_10k_reads_not_filed_yet(company):
+    """FY2019 ended 2019-12-31 and its 10-K is filed 2020-02-15: a run on 2020-02-10 shows the
+    year as not filed, with the end it already had, and reads its own cost of debt from FY2018
+    (#569 item 4; Apple's 2026-10-30 run is the real case)."""
+    from domains.analysis.single_values import cost_of_debt_notes
+
+    as_of = date(2020, 2, 10)
+    run_id = run_baseline(company, "TST", as_of, choices=CHOICES, today=as_of)
+    for years in (3, 5):
+        answer = inputs_behind(company, run_id, VPS, years=years)
+        points = _primary(_cell(answer, "cost_of_debt")).points
+        last = points[-1]
+        assert last.period == "FY2019" and last.value is None
+        assert last.missing.params == {
+            "reason": "not_filed_yet",
+            "fiscal_year": 2019,
+            "period_end": "2019-12-31",
+        }
+        assert not any(p.missing and p.missing.params["reason"] == "not_filed_yet"
+                       for p in points[:-1])  # fmt: skip
+        (used,) = [p for p in points if p.used]
+        assert used.period == "FY2018"
+        got = cost_of_debt_notes(company, run_id, 2019, years=years)
+        assert got.point == last
