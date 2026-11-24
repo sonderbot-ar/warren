@@ -669,9 +669,10 @@ def _week_year(filed: list[tuple[date, date]]) -> bool:
     days = (end - start).days + 1
     if days in WEEK_YEAR_DAYS:
         return True
-    if days - 1 not in WEEK_YEAR_DAYS or len(filed) < 2:
+    earlier = [e for _, e in filed if e < end]  # the previous distinct end (two can share one)
+    if days - 1 not in WEEK_YEAR_DAYS or not earlier:
         return False
-    gap = (end - filed[-2][1]).days
+    gap = (end - max(earlier)).days
     return 0 < gap <= 2 * max(WEEK_YEAR_DAYS) and gap % 7 == 0
 
 

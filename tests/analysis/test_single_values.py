@@ -1390,3 +1390,13 @@ def test_a_run_after_the_year_ends_and_before_its_10k_reads_not_filed_yet(compan
         assert used.period == "FY2018"
         got = cost_of_debt_notes(company, run_id, 2019, years=years)
         assert got.point == last
+
+
+def test_the_week_year_gap_is_to_the_previous_distinct_end():
+    """Two periods can share an end (Caterpillar FY2009-2010): the gap skips the shorter one."""
+    from domains.analysis.single_values import expected_year_end
+
+    filed = _tagged_from_prior_end(APPLE)
+    end = filed[-1][1]
+    filed.insert(-1, (end - timedelta(days=90), end))  # another period ending on the same day
+    assert expected_year_end(filed, 1) == date(2026, 9, 26)
