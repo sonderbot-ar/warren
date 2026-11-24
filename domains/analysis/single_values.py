@@ -611,35 +611,69 @@ def _cost_of_debt_window(singles: Singles) -> tuple[int, int] | None:
     """The first and last fiscal year of the cost-of-debt chart's window, read from the history
     alone (no fiscal calendar): the last year is the newer of the newest quarter's and the newest
     year's fiscal year, each the revenue figure with the latest period end known on the run's
-    date, as the chart's reader takes them (`reported.latest_period`); None when the history has
-    no revenue figure, where the chart has no window either (backlog #561)."""
+    date, as the chart's reader takes them (`reported.latest_period`). None when either the
+    quarterly or the annual facts hold no revenue figure, since the chart's reader then refuses
+    and the chart has no window either (backlog #561, #565)."""
     last = None
     for facts in (singles.history.quarterly, singles.history.annual):
         revenue = [f for k, f in facts.items() if k[0] == "revenue" and f.period_start is not None]
-        if revenue:
-            year = max(revenue, key=lambda f: f.period_end).fiscal_year
-            last = year if last is None else max(last, year)
-    return None if last is None else (last - singles.years + 1, last)
+        if not revenue:
+            return None
+        year = max(revenue, key=lambda f: f.period_end).fiscal_year
+        last = year if last is None else max(last, year)
+    return last - singles.years + 1, last
+
+
+def _annual_revenue(history) -> list:
+    """Every annual revenue figure with a period known on the run's date, oldest first, by end
+    then start (two periods can share an end: Caterpillar FY2009-2010). The one order both
+    `_filed_years` and `_newest_filed_year` read (backlog #569)."""
+    revenue = [f for k, f in history.annual.items() if k[0] == "revenue" and f.period_start]
+    return sorted(revenue, key=lambda f: (f.period_end, f.period_start))
 
 
 def _filed_years(history) -> list[tuple[date, date]]:
     """The (start, end) of every fiscal year with an annual revenue figure known on the run's
     date, oldest first; the last is the newest year whose 10-K is out (as the chart's window
     reads it)."""
-    return sorted(
-        {(f.period_start, f.period_end) for k, f in history.annual.items()
-         if k[0] == "revenue" and f.period_start},
-        key=lambda p: (p[1], p[0]),  # by end, then start: two periods can share an end
-    )  # fmt: skip
+    return list(dict.fromkeys((f.period_start, f.period_end) for f in _annual_revenue(history)))
 
 
-def _filed_fiscal_year(history) -> int | None:
-    revenue = [f for k, f in history.annual.items() if k[0] == "revenue" and f.period_start]
-    return max(revenue, key=lambda f: f.period_end).fiscal_year if revenue else None
+def _newest_filed_year(singles: Singles) -> tuple[int | None, int | None]:
+    """(filed, read): `read` is the fiscal year of the newest annual revenue figure known on the
+    run's date; `filed` is the newer of it and the newest fiscal year of a 10-K or 10-K/A filed
+    on or before that date (`filing_labels`), so a 10-K whose revenue Warren does not read still
+    counts as filed (backlog #569). Either is None when nothing is known."""
+    revenue = _annual_revenue(singles.history)
+    read = revenue[-1].fiscal_year if revenue else None
+    row = singles.conn.execute(
+        "SELECT MAX(fiscal_year) FROM filing_labels WHERE cik = ? AND form IN ('10-K', '10-K/A') "
+        "AND fiscal_period = 'FY' AND filed_at <= ?",
+        (singles.run["cik"], singles.as_of.isoformat()),
+    ).fetchone()
+    years = [y for y in (read, row[0]) if y is not None]
+    return (max(years) if years else None), read
 
 
 WEEK_YEAR_DAYS = (364, 371)  # a 52 or 53-week fiscal year
 WEEK_YEAR_REACH = 3  # such a year ends on the weekday nearest its anchor date: at most 3 days off
+
+
+def _week_year(filed: list[tuple[date, date]]) -> bool:
+    """Whether the newest filed year is a 52 or 53-week year: 364 or 371 days long, counting
+    both ends; or 365 or 372 when its start is tagged as the previous year's end (#569 item 2),
+    and then only if the weekday repeats, its end a whole number of weeks after the previous
+    filed end. A calendar year tagged from 1 January is 365 days long too, but its ends are 365
+    or 366 days apart, never a whole number of weeks (over a year or two)."""
+    start, end = filed[-1]
+    days = (end - start).days + 1
+    if days in WEEK_YEAR_DAYS:
+        return True
+    earlier = [e for _, e in filed if e < end]  # the previous distinct end (two can share one)
+    if days - 1 not in WEEK_YEAR_DAYS or not earlier:
+        return False
+    gap = (end - max(earlier)).days
+    return 0 < gap <= 2 * max(WEEK_YEAR_DAYS) and gap % 7 == 0
 
 
 def _shifted(day: date, years: int) -> date:
@@ -669,7 +703,7 @@ def expected_year_end(filed: list[tuple[date, date]], years_ahead: int) -> date:
         raise ValueError("no filed fiscal year to read forward from")
     start, end = filed[-1]
     target = _shifted(end, years_ahead)
-    if (end - start).days + 1 not in WEEK_YEAR_DAYS:
+    if not _week_year(filed):
         return target
     # each older end as days from the newest end's date in the same year (the nearest whole year)
     offsets = []
@@ -703,9 +737,10 @@ def _cost_of_debt_point(singles: Singles, year: int, used: bool):
     found = cost_of_debt_year(singles.history, year)
     if found is None:
         params = {"fiscal_year": year}
-        filed_year = _filed_fiscal_year(singles.history)
-        if filed_year is not None and year > filed_year:
-            end = expected_year_end(_filed_years(singles.history), year - filed_year)
+        filed_year, read_year = _newest_filed_year(singles)
+        if read_year is not None and year > filed_year:  # read_year set: filed_year is too
+            # the expected end reads forward from the years whose periods Warren has
+            end = expected_year_end(_filed_years(singles.history), year - read_year)
             reason = "not_filed_yet"
             params["period_end"] = end.isoformat()
             why = f"{label}'s annual report was not filed by the run's date (expected end {end})"

@@ -1192,3 +1192,211 @@ def test_expected_year_end_needs_a_filed_year_and_a_year_ahead():
         expected_year_end(_years("2018-12-31", "2019-12-31"), 0)
     with pytest.raises(ValueError):
         expected_year_end([], 1)
+
+
+# -- the chart's edges: window, newest filed year, week years (backlog #565, #569) ---------------
+
+
+def _fact(name, start, end, fiscal_year, period="FY", value=100.0):
+    from domains.fundamentals.schemas import Fact
+
+    return Fact(
+        canonical_name=name,
+        xbrl_concept="Revenues",
+        period_start=None if start is None else date.fromisoformat(start),
+        period_end=date.fromisoformat(end),
+        fiscal_year=fiscal_year,
+        fiscal_period=period,
+        value=value,
+        unit="USD",
+        accession_no="0000000123-20-000001",
+        filed_at=date(2020, 2, 15),
+    )
+
+
+def _window(quarterly=(), annual=(), instants=None, years=5):
+    from types import SimpleNamespace
+
+    from domains.analysis.math_engine import History
+    from domains.analysis.single_values import _cost_of_debt_window
+
+    history = History(
+        {(f.canonical_name, f.fiscal_year, f.fiscal_period): f for f in quarterly},
+        {(f.canonical_name, f.fiscal_year): f for f in annual},
+        instants or {},
+    )
+    return _cost_of_debt_window(SimpleNamespace(history=history, years=years))
+
+
+QUARTER = _fact("revenue", "2020-01-01", "2020-03-31", 2020, "Q1")
+YEAR = _fact("revenue", "2019-01-01", "2019-12-31", 2019)
+
+
+def test_the_window_runs_on_a_real_history_with_no_mock():
+    assert _window() is None
+    assert _window([QUARTER], [YEAR]) == (2016, 2020)
+    assert _window([QUARTER], [YEAR], years=3) == (2018, 2020)
+    # the newer of the two frequencies' years sets the last year
+    older_quarter = _fact("revenue", "2019-07-01", "2019-09-30", 2019, "Q3")
+    assert _window([older_quarter], [YEAR]) == (2015, 2019)
+
+
+def test_the_window_needs_revenue_in_both_frequencies_as_the_chart_does():
+    """The chart's reader refuses when the quarters or the years have no revenue (#565)."""
+    assert _window(annual=[YEAR]) is None
+    assert _window(quarterly=[QUARTER]) is None
+    # other items or balance-sheet revenue do not count
+    interest = _fact("interest_expense", "2019-01-01", "2019-12-31", 2019)
+    assert _window([QUARTER], [interest]) is None
+    instant = _fact("revenue", None, "2019-12-31", 2019)
+    assert _window([QUARTER], annual=[], instants={"revenue": [instant]}) is None
+
+
+def _singles_on(conn, as_of):
+    from types import SimpleNamespace
+
+    from domains.analysis.math_engine import load_history
+
+    cik = conn.execute("SELECT cik FROM companies WHERE ticker = 'TST'").fetchone()[0]
+    history = load_history(conn, cik, as_of)
+    return SimpleNamespace(conn=conn, run={"cik": cik}, as_of=as_of, history=history, years=5)
+
+
+def _drop_fy2019_annual(*tags):
+    """An edit dropping the FY2019 annual figure of each tag from every filing (the 10-K's own
+    and its later comparatives): as if Warren could not read that tag for the year."""
+
+    def edit(tag, row):
+        whole_2019 = row.get("start") == "2019-01-01" and row["end"] == "2019-12-31"
+        return None if tag in tags and whole_2019 else row
+
+    return edit
+
+
+def test_a_10k_whose_revenue_warren_does_not_read_still_counts_as_filed(make_company):
+    """Exxon's FY2009-2010 revenue arrives only as later comparatives (#569 item 1): the 10-K
+    forms known on the date say the year is filed, so it is never `not_filed_yet`."""
+    from domains.analysis.single_values import _cost_of_debt_point, _newest_filed_year
+
+    conn = make_company(_drop_fy2019_annual("Revenues", "InterestExpense"))
+    singles = _singles_on(conn, AS_OF)
+    assert _newest_filed_year(singles) == (2019, 2018)
+    point = _cost_of_debt_point(singles, 2019, False)
+    assert point.missing.params == {"reason": "no_interest_reported", "fiscal_year": 2019}
+    # the year after is still not filed, its end read forward from the revenue years
+    point = _cost_of_debt_point(singles, 2020, False)
+    assert point.missing.params == {
+        "reason": "not_filed_yet",
+        "fiscal_year": 2020,
+        "period_end": "2020-12-31",
+    }
+
+
+def test_only_10ks_filed_by_the_run_date_count(company):
+    from domains.analysis.single_values import _newest_filed_year
+
+    # the FY2019 10-K is filed 2020-02-15; the Q1 2020 10-Q (2020-04-30) never counts
+    assert _newest_filed_year(_singles_on(company, AS_OF)) == (2019, 2019)
+    assert _newest_filed_year(_singles_on(company, date(2020, 2, 15))) == (2019, 2019)
+    assert _newest_filed_year(_singles_on(company, date(2020, 2, 14))) == (2018, 2018)
+
+
+def test_the_filed_years_and_the_newest_share_one_order():
+    """Two periods with one end (Caterpillar FY2009-2010): one sort, end then start (#569)."""
+    from types import SimpleNamespace
+
+    from domains.analysis.math_engine import History
+    from domains.analysis.single_values import _filed_years, _newest_filed_year
+
+    short = _fact("revenue", "2019-07-01", "2019-12-31", 2019)
+    full = _fact("revenue", "2019-01-01", "2019-12-31", 2020)
+    history = History({}, {("revenue", 2019): short, ("revenue", 2020): full}, {})
+    conn = SimpleNamespace(execute=lambda *a: SimpleNamespace(fetchone=lambda: (None,)))
+    singles = SimpleNamespace(conn=conn, run={"cik": "1"}, as_of=AS_OF, history=history)
+    assert _filed_years(history)[-1] == (date(2019, 7, 1), date(2019, 12, 31))
+    assert _newest_filed_year(singles) == (2019, 2019)
+
+
+def _tagged_from_prior_end(ends, first_days=364):
+    """Filed years whose start is tagged as the previous year's end (365 or 372 days, counting
+    both ends), as some 52/53-week filers tag them (#569 item 2)."""
+    ends = [date.fromisoformat(e) for e in ends]
+    starts = [ends[0] - timedelta(days=first_days)] + ends[:-1]
+    return list(zip(starts, ends, strict=True))
+
+
+@pytest.mark.parametrize(
+    ("ends", "expected"),
+    [
+        (APPLE, "2026-09-26"),
+        (APPLE[:12], "2023-09-30"),
+        (APPLE[:13], "2024-09-28"),
+        (JNJ, "2027-01-03"),
+        (JNJ[:12], "2021-01-03"),
+    ],
+)
+def test_week_years_tagged_from_the_prior_end_read_as_week_years(ends, expected):
+    from domains.analysis.single_values import expected_year_end
+
+    filed = _tagged_from_prior_end(ends)
+    assert (filed[-1][1] - filed[-1][0]).days + 1 in (365, 372)
+    assert expected_year_end(filed, 1) == date.fromisoformat(expected)
+    # the same answer as with the start the day after the prior end
+    assert expected_year_end(filed, 1) == expected_year_end(_years(*ends), 1)
+
+
+def test_a_week_year_with_one_year_missing_between_still_reads_as_one():
+    from domains.analysis.single_values import expected_year_end
+
+    filed = _tagged_from_prior_end(APPLE)
+    del filed[-2]  # FY2024 not read: the gap is 728 days, still whole weeks
+    assert expected_year_end(filed, 1) == date(2026, 9, 26)
+
+
+def test_calendar_years_tagged_the_same_way_stay_calendar_years():
+    from domains.analysis.single_values import expected_year_end
+
+    # 1 January to 31 December, 365 days counting both ends, ends 365 or 366 days apart
+    filed = [(date(y, 1, 1), date(y, 12, 31)) for y in (2017, 2018, 2019)]
+    assert expected_year_end(filed, 1) == date(2020, 12, 31)
+    # one 365-day year alone has no previous end to compare: a calendar year
+    assert expected_year_end(filed[-1:], 1) == date(2020, 12, 31)
+    # ends tagged from the prior end, a leap year between (366 days apart)
+    filed = _tagged_from_prior_end(("2019-12-31", "2020-12-31"), first_days=365)
+    assert expected_year_end(filed, 1) == date(2021, 12, 31)
+
+
+def test_a_run_after_the_year_ends_and_before_its_10k_reads_not_filed_yet(company):
+    """FY2019 ended 2019-12-31 and its 10-K is filed 2020-02-15: a run on 2020-02-10 shows the
+    year as not filed, with the end it already had, and reads its own cost of debt from FY2018
+    (#569 item 4; Apple's 2026-10-30 run is the real case)."""
+    from domains.analysis.single_values import cost_of_debt_notes
+
+    as_of = date(2020, 2, 10)
+    run_id = run_baseline(company, "TST", as_of, choices=CHOICES, today=as_of)
+    for years in (3, 5):
+        answer = inputs_behind(company, run_id, VPS, years=years)
+        points = _primary(_cell(answer, "cost_of_debt")).points
+        last = points[-1]
+        assert last.period == "FY2019" and last.value is None
+        assert last.missing.params == {
+            "reason": "not_filed_yet",
+            "fiscal_year": 2019,
+            "period_end": "2019-12-31",
+        }
+        assert not any(p.missing and p.missing.params["reason"] == "not_filed_yet"
+                       for p in points[:-1])  # fmt: skip
+        (used,) = [p for p in points if p.used]
+        assert used.period == "FY2018"
+        got = cost_of_debt_notes(company, run_id, 2019, years=years)
+        assert got.point == last
+
+
+def test_the_week_year_gap_is_to_the_previous_distinct_end():
+    """Two periods can share an end (Caterpillar FY2009-2010): the gap skips the shorter one."""
+    from domains.analysis.single_values import expected_year_end
+
+    filed = _tagged_from_prior_end(APPLE)
+    end = filed[-1][1]
+    filed.insert(-1, (end - timedelta(days=90), end))  # another period ending on the same day
+    assert expected_year_end(filed, 1) == date(2026, 9, 26)
