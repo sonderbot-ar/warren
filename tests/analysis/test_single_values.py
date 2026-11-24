@@ -160,7 +160,15 @@ def test_cost_of_debt_by_year_with_its_parts(run):
     }
     last = points[-1]
     assert last.period == "FY2020" and last.value is None
-    assert last.missing.params["reason"] == "no_interest_reported"  # not filed yet
+    # FY2020 is in progress on 2020-06-30: its 10-K is not filed yet, not "reports no interest"
+    assert last.missing.params == {
+        "reason": "not_filed_yet",
+        "fiscal_year": 2020,
+        "period_end": "2020-12-31",
+    }
+    assert all(
+        p.missing is None or p.missing.params["reason"] != "not_filed_yet" for p in points[:-1]
+    )
 
 
 def test_shares_are_split_adjusted_to_the_run_price_date(make_company):
@@ -1090,3 +1098,97 @@ def test_the_answer_is_plain_json(make_company, monkeypatch):
     assert plain["fiscal_year"] == 2019 and plain["point"]["period"] == "FY2019"
     assert [n["code"] for n in plain["cell_notes"]] == [HEDGE]
     assert isinstance(plain["point"]["period_end"], str)
+
+
+# -- a year whose 10-K is not filed yet (backlog #564) -------------------------------------------
+
+
+def test_the_year_in_progress_reads_not_filed_yet_on_the_notes_call_too(run):
+    from domains.analysis.single_values import cost_of_debt_notes
+
+    conn, run_id = run
+    for years in (3, 5, 10):
+        _, points = _same_as_chart(conn, run_id, years=years)
+        reasons = [p.missing.params["reason"] for p in points if p.missing is not None]
+        assert reasons.count("not_filed_yet") == 1 and points[-1].period == "FY2020"
+    got = cost_of_debt_notes(conn, run_id, 2020)
+    assert got.point.value is None and got.point.notes == [] and not got.point.used
+    assert got.point.missing.code == NOT_COMPUTABLE
+    assert got.point.missing.params["reason"] == "not_filed_yet"
+    assert got.point.missing.params["period_end"] == "2020-12-31"
+    assert "not filed" in got.point.missing.text
+
+
+def _years(*ends, days=None):
+    """(start, end) filed years from their end dates; a year starts the day after the one before
+    (the first is given `days` days, as long as the second)."""
+    ends = [date.fromisoformat(e) for e in ends]
+    first = (ends[1] - ends[0]).days if days is None else days
+    starts = [ends[0] - timedelta(days=first - 1)] + [e + timedelta(days=1) for e in ends[:-1]]
+    return list(zip(starts, ends, strict=True))
+
+
+# Apple's filed ends (the Saturday nearest 27 September) and Johnson & Johnson's (the Sunday
+# nearest 31 December), from their 10-Ks
+APPLE = ("2011-09-24", "2012-09-29", "2013-09-28", "2014-09-27", "2015-09-26", "2016-09-24",
+         "2017-09-30", "2018-09-29", "2019-09-28", "2020-09-26", "2021-09-25", "2022-09-24",
+         "2023-09-30", "2024-09-28", "2025-09-27")  # fmt: skip
+JNJ = ("2008-12-28", "2010-01-03", "2011-01-02", "2012-01-01", "2012-12-30", "2013-12-29",
+       "2014-12-28", "2016-01-03", "2017-01-01", "2017-12-31", "2018-12-30", "2019-12-29",
+       "2021-01-03", "2022-01-02", "2023-01-01", "2023-12-31", "2024-12-29",
+       "2025-12-28")  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("ends", "ahead", "expected"),
+    [
+        # Apple, a 52-week FY2026, then a 53-week FY2023 seen from FY2022 and the year after it
+        (APPLE, 1, "2026-09-26"),
+        (APPLE[:12], 1, "2023-09-30"),
+        (APPLE[:13], 1, "2024-09-28"),
+        # Johnson & Johnson: FY2026 has 53 weeks and ends 3 January 2027; FY2020 too
+        (JNJ, 1, "2027-01-03"),
+        (JNJ[:12], 1, "2021-01-03"),
+        (JNJ, 2, "2028-01-02"),
+        # calendar years, two years ahead, June years, Walmart's 31 January, a mid-month end
+        (("2018-12-31", "2019-12-31"), 1, "2020-12-31"),
+        (("2018-12-31", "2019-12-31"), 2, "2021-12-31"),
+        (("2025-06-30", "2026-06-30"), 1, "2027-06-30"),
+        (("2025-01-31", "2026-01-31"), 1, "2027-01-31"),
+        (("2024-10-15", "2025-10-15"), 1, "2026-10-15"),
+        # a month's end stays one: 29 February then 28 February, and back
+        (("2023-02-28", "2024-02-29"), 1, "2025-02-28"),
+        (("2022-02-28", "2023-02-28"), 1, "2024-02-29"),
+    ],
+)
+def test_expected_year_end(ends, ahead, expected):
+    from domains.analysis.single_values import expected_year_end
+
+    assert expected_year_end(_years(*ends), ahead) == date.fromisoformat(expected)
+
+
+def test_one_52_week_year_alone_reads_forward_a_year():
+    """With one filed year the anchor is a guess: the newest end, a week early if the next year
+    has 53 weeks (Apple's FY2022 alone gives 23 September 2023; it filed 30 September)."""
+    from domains.analysis.single_values import expected_year_end
+
+    assert expected_year_end(_years("2022-09-24", days=364), 1) == date(2023, 9, 23)
+    assert expected_year_end(_years("2025-09-27", days=364), 1) == date(2026, 9, 26)
+
+
+def test_a_changed_calendar_falls_back_to_the_newest_end():
+    """Ends no single anchor allows (a company that moved its year end) read from the newest."""
+    from domains.analysis.single_values import expected_year_end
+
+    filed = _years("2019-06-29", "2020-06-27", "2020-12-26", "2021-12-25")
+    filed[-1] = (filed[-1][1] - timedelta(days=363), filed[-1][1])  # a 52-week year
+    assert expected_year_end(filed, 1) == date(2022, 12, 24)
+
+
+def test_expected_year_end_needs_a_filed_year_and_a_year_ahead():
+    from domains.analysis.single_values import expected_year_end
+
+    with pytest.raises(ValueError):
+        expected_year_end(_years("2018-12-31", "2019-12-31"), 0)
+    with pytest.raises(ValueError):
+        expected_year_end([], 1)
