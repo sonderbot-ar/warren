@@ -628,7 +628,9 @@ def _annual_revenue(history) -> list:
     """Every annual revenue figure with a period known on the run's date, oldest first, by end
     then start (two periods can share an end: Caterpillar FY2009-2010). The one order both
     `_filed_years` and `_newest_filed_year` read (backlog #569)."""
-    revenue = [f for k, f in history.annual.items() if k[0] == "revenue" and f.period_start]
+    revenue = [
+        f for k, f in history.annual.items() if k[0] == "revenue" and f.period_start is not None
+    ]
     return sorted(revenue, key=lambda f: (f.period_end, f.period_start))
 
 
@@ -737,7 +739,10 @@ def _cost_of_debt_point(singles: Singles, year: int, used: bool):
     found = cost_of_debt_year(singles.history, year)
     if found is None:
         params = {"fiscal_year": year}
-        filed_year, read_year = _newest_filed_year(singles)
+        # fixed for a run (its CIK and date), so read once per answer, not per year (#575)
+        filed_year, read_year = _cached(
+            singles, "newest_filed_year", lambda: _newest_filed_year(singles)
+        )
         if read_year is not None and year > filed_year:  # read_year set: filed_year is too
             # the expected end reads forward from the years whose periods Warren has
             end = expected_year_end(_filed_years(singles.history), year - read_year)

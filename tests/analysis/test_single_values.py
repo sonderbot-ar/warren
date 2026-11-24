@@ -1259,7 +1259,9 @@ def _singles_on(conn, as_of):
 
     cik = conn.execute("SELECT cik FROM companies WHERE ticker = 'TST'").fetchone()[0]
     history = load_history(conn, cik, as_of)
-    return SimpleNamespace(conn=conn, run={"cik": cik}, as_of=as_of, history=history, years=5)
+    return SimpleNamespace(
+        conn=conn, run={"cik": cik}, as_of=as_of, history=history, years=5, cache={}
+    )
 
 
 def _drop_fy2019_annual(*tags):
@@ -1290,6 +1292,35 @@ def test_a_10k_whose_revenue_warren_does_not_read_still_counts_as_filed(make_com
         "fiscal_year": 2020,
         "period_end": "2020-12-31",
     }
+
+
+def test_the_newest_filed_year_is_read_once_per_answer(make_company):
+    """`_newest_filed_year` queries `filing_labels`; its answer is fixed for a run, so several
+    refused years read it once and share it (#575)."""
+    from domains.analysis import single_values
+    from domains.analysis.single_values import _cost_of_debt_point
+
+    conn = make_company(_drop_fy2019_annual("Revenues", "InterestExpense"))
+    singles = _singles_on(conn, AS_OF)
+    calls = []
+    real = single_values._newest_filed_year
+
+    def counted(s):
+        calls.append(s)
+        return real(s)
+
+    single_values._newest_filed_year = counted
+    try:
+        points = [_cost_of_debt_point(singles, y, False) for y in (2019, 2020, 2021)]
+    finally:
+        single_values._newest_filed_year = real
+    assert len(calls) == 1
+    assert [p.missing.params["reason"] for p in points] == [
+        "no_interest_reported",
+        "not_filed_yet",
+        "not_filed_yet",
+    ]
+    assert singles.cache["newest_filed_year"] == (2019, 2018)
 
 
 def test_only_10ks_filed_by_the_run_date_count(company):
