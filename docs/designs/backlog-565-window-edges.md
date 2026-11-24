@@ -2,7 +2,7 @@
 
 Issues: https://github.com/sonderbot-ar/warren/issues/565 (from the #563 gatekeeper) and https://github.com/sonderbot-ar/warren/issues/569 (from the #568 analyst and gatekeeper) · Branch `backlog-565-window-edges` · Version v0.10.41 when merged.
 
-Status: PR open (nov.24.2026).
+Status: Done, merged as v0.10.41 (nov.24.2026, merge `2dd3808`).
 
 ## Problem
 
@@ -47,7 +47,7 @@ Two follow-up issues on the same few functions in `domains/analysis/single_value
 
 **Step 5. Real data, read-only.** On the restored snapshot, for all eight companies' newest runs at 5 and 10 years, every chart point and `cost_of_debt_notes` point equals what `main` gives (no change expected), and on every stored run's (company, date) the revenue year and the 10-K forms' year agree (the analyst's 899 pairs), so the cross-check changes nothing today.
 
-Result (snapshot `warren-20261123T052122Z`, nov.24.2026): all eight companies' newest runs (2026-10-30), at 5 and 10 years, give byte-identical chart points and notes-call points on `main` and on this branch, and every notes-call point equals the chart's; each last year reads `not_filed_yet` as in v0.10.40. The analyst scanned every filing date of the eight companies (and the day before): the revenue year and the 10-K forms' year agree everywhere except Exxon from 2010-02-26 to 2012-02-23 (no annual revenue read, forms' year 2009 then 2010), a span with no stored run. Full suite: 2,907 passed, 10 skipped.
+Result (snapshot `warren-20261123T052122Z`, nov.24.2026): all eight companies' newest runs (2026-10-30), at 5 and 10 years, give byte-identical chart points and notes-call points on `main` and on this branch, and every notes-call point equals the chart's; each last year reads `not_filed_yet` as in v0.10.40. The analyst scanned every filing date of the eight companies (and the day before): the revenue year and the 10-K forms' year agree everywhere except Exxon from 2010-02-26 to 2012-02-23 (no annual revenue read, forms' year 2009 then 2010), a span with no stored run. Full suite: 2,908 passed, 10 skipped (gatekeeper, at the merged head).
 
 ## Review (nov.24.2026)
 
