@@ -930,11 +930,9 @@ def inputs_behind(
         raise InputsError(str(e), e.code, dict(e.params)) from e
 
 
-def _inputs_behind(
-    conn: sqlite3.Connection, run_id: str, outputs: list[tuple[str, str]], years: int
-) -> InputsBehind:
-    from domains.analysis.runs import load_assumptions, load_outputs
-
+def check_years(years: int) -> None:
+    """Refuse a history length outside `YEARS_RANGE` (`years_out_of_range`), for `inputs_behind`
+    and `single_values.cost_of_debt_notes` alike (backlog #561)."""
     if not YEARS_RANGE[0] <= years <= YEARS_RANGE[1]:
         low, high = YEARS_RANGE
         raise InputsError(
@@ -942,6 +940,14 @@ def _inputs_behind(
             "years_out_of_range",
             {"years": years, "low": low, "high": high},
         )
+
+
+def _inputs_behind(
+    conn: sqlite3.Connection, run_id: str, outputs: list[tuple[str, str]], years: int
+) -> InputsBehind:
+    from domains.analysis.runs import load_assumptions, load_outputs
+
+    check_years(years)
     run = conn.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
     if run is None:
         raise InputsError(f"no run {run_id}", "run_not_found", {"run_id": run_id})
