@@ -1250,3 +1250,68 @@ def test_the_window_needs_revenue_in_both_frequencies_as_the_chart_does():
     assert _window([QUARTER], [interest]) is None
     instant = _fact("revenue", None, "2019-12-31", 2019)
     assert _window([QUARTER], annual=[], instants={"revenue": [instant]}) is None
+
+
+def _singles_on(conn, as_of):
+    from types import SimpleNamespace
+
+    from domains.analysis.math_engine import load_history
+
+    cik = conn.execute("SELECT cik FROM companies WHERE ticker = 'TST'").fetchone()[0]
+    history = load_history(conn, cik, as_of)
+    return SimpleNamespace(conn=conn, run={"cik": cik}, as_of=as_of, history=history, years=5)
+
+
+def _drop_fy2019_annual(*tags):
+    """An edit dropping the FY2019 annual figure of each tag from every filing (the 10-K's own
+    and its later comparatives): as if Warren could not read that tag for the year."""
+
+    def edit(tag, row):
+        whole_2019 = row.get("start") == "2019-01-01" and row["end"] == "2019-12-31"
+        return None if tag in tags and whole_2019 else row
+
+    return edit
+
+
+def test_a_10k_whose_revenue_warren_does_not_read_still_counts_as_filed(make_company):
+    """Exxon's FY2009-2010 revenue arrives only as later comparatives (#569 item 1): the 10-K
+    forms known on the date say the year is filed, so it is never `not_filed_yet`."""
+    from domains.analysis.single_values import _cost_of_debt_point, _newest_filed_year
+
+    conn = make_company(_drop_fy2019_annual("Revenues", "InterestExpense"))
+    singles = _singles_on(conn, AS_OF)
+    assert _newest_filed_year(singles) == (2019, 2018)
+    point = _cost_of_debt_point(singles, 2019, False)
+    assert point.missing.params == {"reason": "no_interest_reported", "fiscal_year": 2019}
+    # the year after is still not filed, its end read forward from the revenue years
+    point = _cost_of_debt_point(singles, 2020, False)
+    assert point.missing.params == {
+        "reason": "not_filed_yet",
+        "fiscal_year": 2020,
+        "period_end": "2020-12-31",
+    }
+
+
+def test_only_10ks_filed_by_the_run_date_count(company):
+    from domains.analysis.single_values import _newest_filed_year
+
+    # the FY2019 10-K is filed 2020-02-15; the Q1 2020 10-Q (2020-04-30) never counts
+    assert _newest_filed_year(_singles_on(company, AS_OF)) == (2019, 2019)
+    assert _newest_filed_year(_singles_on(company, date(2020, 2, 15))) == (2019, 2019)
+    assert _newest_filed_year(_singles_on(company, date(2020, 2, 14))) == (2018, 2018)
+
+
+def test_the_filed_years_and_the_newest_share_one_order():
+    """Two periods with one end (Caterpillar FY2009-2010): one sort, end then start (#569)."""
+    from types import SimpleNamespace
+
+    from domains.analysis.math_engine import History
+    from domains.analysis.single_values import _filed_years, _newest_filed_year
+
+    short = _fact("revenue", "2019-07-01", "2019-12-31", 2019)
+    full = _fact("revenue", "2019-01-01", "2019-12-31", 2020)
+    history = History({}, {("revenue", 2019): short, ("revenue", 2020): full}, {})
+    conn = SimpleNamespace(execute=lambda *a: SimpleNamespace(fetchone=lambda: (None,)))
+    singles = SimpleNamespace(conn=conn, run={"cik": "1"}, as_of=AS_OF, history=history)
+    assert _filed_years(history)[-1] == (date(2019, 7, 1), date(2019, 12, 31))
+    assert _newest_filed_year(singles) == (2019, 2019)

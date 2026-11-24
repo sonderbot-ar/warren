@@ -624,20 +624,35 @@ def _cost_of_debt_window(singles: Singles) -> tuple[int, int] | None:
     return last - singles.years + 1, last
 
 
+def _annual_revenue(history) -> list:
+    """Every annual revenue figure with a period known on the run's date, oldest first, by end
+    then start (two periods can share an end: Caterpillar FY2009-2010). The one order both
+    `_filed_years` and `_newest_filed_year` read (backlog #569)."""
+    revenue = [f for k, f in history.annual.items() if k[0] == "revenue" and f.period_start]
+    return sorted(revenue, key=lambda f: (f.period_end, f.period_start))
+
+
 def _filed_years(history) -> list[tuple[date, date]]:
     """The (start, end) of every fiscal year with an annual revenue figure known on the run's
     date, oldest first; the last is the newest year whose 10-K is out (as the chart's window
     reads it)."""
-    return sorted(
-        {(f.period_start, f.period_end) for k, f in history.annual.items()
-         if k[0] == "revenue" and f.period_start},
-        key=lambda p: (p[1], p[0]),  # by end, then start: two periods can share an end
-    )  # fmt: skip
+    return list(dict.fromkeys((f.period_start, f.period_end) for f in _annual_revenue(history)))
 
 
-def _filed_fiscal_year(history) -> int | None:
-    revenue = [f for k, f in history.annual.items() if k[0] == "revenue" and f.period_start]
-    return max(revenue, key=lambda f: f.period_end).fiscal_year if revenue else None
+def _newest_filed_year(singles: Singles) -> tuple[int | None, int | None]:
+    """(filed, read): `read` is the fiscal year of the newest annual revenue figure known on the
+    run's date; `filed` is the newer of it and the newest fiscal year of a 10-K or 10-K/A filed
+    on or before that date (`filing_labels`), so a 10-K whose revenue Warren does not read still
+    counts as filed (backlog #569). Either is None when nothing is known."""
+    revenue = _annual_revenue(singles.history)
+    read = revenue[-1].fiscal_year if revenue else None
+    row = singles.conn.execute(
+        "SELECT MAX(fiscal_year) FROM filing_labels WHERE cik = ? AND form IN ('10-K', '10-K/A') "
+        "AND fiscal_period = 'FY' AND filed_at <= ?",
+        (singles.run["cik"], singles.as_of.isoformat()),
+    ).fetchone()
+    years = [y for y in (read, row[0]) if y is not None]
+    return (max(years) if years else None), read
 
 
 WEEK_YEAR_DAYS = (364, 371)  # a 52 or 53-week fiscal year
@@ -705,9 +720,10 @@ def _cost_of_debt_point(singles: Singles, year: int, used: bool):
     found = cost_of_debt_year(singles.history, year)
     if found is None:
         params = {"fiscal_year": year}
-        filed_year = _filed_fiscal_year(singles.history)
-        if filed_year is not None and year > filed_year:
-            end = expected_year_end(_filed_years(singles.history), year - filed_year)
+        filed_year, read_year = _newest_filed_year(singles)
+        if read_year is not None and year > filed_year:  # read_year set: filed_year is too
+            # the expected end reads forward from the years whose periods Warren has
+            end = expected_year_end(_filed_years(singles.history), year - read_year)
             reason = "not_filed_yet"
             params["period_end"] = end.isoformat()
             why = f"{label}'s annual report was not filed by the run's date (expected end {end})"
