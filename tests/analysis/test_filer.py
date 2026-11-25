@@ -13,18 +13,30 @@ import pytest
 
 from domains.analysis.math_engine import refusal_filings
 from domains.analysis.reported import _Filings, reported_period, successor_filer
+from domains.analysis.runs import run_baseline
+from domains.analysis.sources import run_sources
 from domains.fundamentals.universe import PHASE1_UNIVERSE, UniverseCompany
-from tests.analysis.conftest import AS_OF
+from tests.analysis.conftest import AS_OF, CHOICES
 
 XOM_CIK = "0000034088"
-EXXON_HOLDINGS = {"cik": "0002115436", "name": "ExxonMobil Holdings Corp", "successor": True}
+EXXON_HOLDINGS = {
+    "cik": "0002115436",
+    "name": "ExxonMobil Holdings Corp",
+    "successor": True,
+    "since": "2026-08-03",
+}
 TST_CIK = "0000000123"
 CUT = date(2020, 1, 1)  # the test company's made-up reorganisation
 TST_10Q_2019Q3 = "0000000123-19-000014"  # filed 2019-10-30, before the cut
 TST_10K_2019 = "0000000123-20-000015"  # filed 2020-02-15, after it
 TST_10Q_2020Q1 = "0000000123-20-000016"  # filed 2020-04-30
 PERIODS = ("FY2019", "FY2019Q3", "FY2020Q1")
-SUCCESSOR = {"cik": "0000000999", "name": "Test Holdings Corp", "successor": True}
+SUCCESSOR = {
+    "cik": "0000000999",
+    "name": "Test Holdings Corp",
+    "successor": True,
+    "since": "2020-01-01",
+}
 
 
 @pytest.fixture
@@ -110,3 +122,23 @@ def test_a_reported_period_names_the_filer_of_each_figure(company, linked_tst):
         return value
 
     assert without_filer(linked) == without_filer(plain)
+
+
+def test_a_run_s_sources_name_the_filer(company, linked_tst):
+    """Run sources (brief Q3, Q5) read the same filings: the Q1 2020 10-Q behind the seed is the
+    successor's, an older filing behind a past quarter is not."""
+    run_id = run_baseline(company, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+    answer = run_sources(company, run_id).to_dict()
+    seen = {}
+    for row in answer["rows"]:
+        for source in row["sources"]:
+            if source.get("kind") != "filing":
+                continue
+            for filing in [source["filing"], *source["input_filings"]]:
+                if filing is not None:
+                    seen[filing["accession_no"]] = filing["filer"]
+    assert seen[TST_10Q_2020Q1] == SUCCESSOR
+    assert any(filer is None for filer in seen.values())
+    assert all(
+        (filer == SUCCESSOR) == (accession >= "0000000123-20-") for accession, filer in seen.items()
+    )

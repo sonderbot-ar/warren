@@ -135,8 +135,8 @@ class Filing:
     form: str | None
     filed_at: date
     url: str
-    # who filed it, when not the company's own CIK: `{"cik", "name", "successor": True}` for a
-    # filing read from a linked successor's CIK (backlog #586), else None
+    # who filed it, when not the company's own CIK: `{"cik", "name", "successor": True, "since"}`
+    # for a filing read from a linked successor's CIK (backlog #586), else None
     filer: dict | None = None
 
 
@@ -160,6 +160,8 @@ def successor_filer(cik: str, filed_at: date | None) -> dict | None:
                 "cik": company.successor_cik,
                 "name": company.successor_name,
                 "successor": True,
+                # the day the successor's filings start, so the app can date it (product lead)
+                "since": company.history_ends.isoformat(),
             }
     return None
 
