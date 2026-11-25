@@ -220,7 +220,9 @@ class ReportedPeriod:
     cik: str
     company_name: str
     fiscal_year_end: str | None  # MMDD as SEC reports it
-    history_ends: date | None  # where this CIK's filings stop (universe.csv), if they do
+    history_ends: (
+        date | None
+    )  # where the filings read stop (universe.csv, coverage_ends), if they do
     period: str
     fiscal_year: int
     fiscal_period: str
@@ -882,7 +884,7 @@ def reported_period(
         cik=cik,
         company_name=company["name"],
         fiscal_year_end=company["fiscal_year_end"],
-        history_ends=universe.history_ends if universe else None,
+        history_ends=universe.coverage_ends if universe else None,
         period=resolved.label,
         fiscal_year=resolved.fiscal_year,
         fiscal_period=resolved.fiscal_period,

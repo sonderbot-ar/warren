@@ -819,3 +819,58 @@ def test_a_copy_with_filings_but_no_revenue_quarter_says_so():
          "last_filed": "2020-04-30", "last_quarter": None}  # fmt: skip
     note = P.freshness_note("TST", "1", "question", ASOF, f, [{"case_id": "c", "period": "p"}])
     assert "it has no quarter with revenue" in note.text and "none" not in note.text
+
+
+# -- backlog #573: a company read on through its successor keeps the scored cut, not "missing" --
+
+
+def _linked_ends(company, monkeypatch, ends="2020-12-31"):
+    from domains.fundamentals import universe as U
+
+    cik = company.execute("SELECT cik FROM companies WHERE ticker = 'TST'").fetchone()[0]
+    row = U.UniverseCompany(
+        "TST", cik, "Test Corp moved to a new CIK.", date.fromisoformat(ends),
+        "holding_company_reorganisation", "0000000002", "Test Holdings", successor_linked=True,
+    )  # fmt: skip
+    monkeypatch.setattr(U, "PHASE1_UNIVERSE", [*U.PHASE1_UNIVERSE, row])
+    return cik
+
+
+def test_a_linked_company_keeps_the_cut_on_its_typical_errors_without_saying_filings_are_missing(
+    company, monkeypatch
+):
+    _linked_ends(company, monkeypatch)
+    c = case("TST_c", when="2020-03-01")
+    rid = store_case(company, c, ["FY2031Q1", "FY2031Q2"], batch="eval_b_c")
+    rec = call(company, [c], {rid: seen(rid, [("FY2021Q1", 90.0), ("FY2021Q2", None)])})
+    cov = [n for n in rec.notes if n.code == "beyond_history"][0]
+    assert cov.params["successor_linked"] is True and cov.params["role"] == "question"
+    flag = _by_id(rec)["TST_c"].history_cut
+    assert flag.params["successor_linked"] is True
+    assert flag.params["quarters_missing"] == ["FY2021Q2"]
+    note = _thin_note(rec)
+    assert note.params["cut"][0]["successor_linked"] is True
+    for text in (cov.text.removesuffix("Test Corp moved to a new CIK."), flag.text, note.text):
+        assert "missing" not in text, text
+    assert "scored track record has not been re-run" in flag.text
+    assert "is not filed by the question's date, so they can't be compared yet" in flag.text
+    json.dumps(rec.to_dict())
+
+
+def test_a_linked_case_company_is_said_to_be_a_case_without_missing_filings(monkeypatch):
+    from domains.fundamentals import universe as U
+
+    rows = [
+        U.UniverseCompany("AAA", "0000000101", "moved.", date(2020, 12, 31),
+                          "holding_company_reorganisation", "0000000201", "New",
+                          successor_linked=True),
+        U.UniverseCompany("ZZZ", "0000000102", "", None),
+    ]  # fmt: skip
+    monkeypatch.setattr(U, "PHASE1_UNIVERSE", [*U.PHASE1_UNIVERSE, *rows])
+    monkeypatch.setattr(P, "get_universe_company", lambda t: {r.ticker: r for r in rows}[t])
+    [note] = P.coverage_notes("ZZZ", {"AAA", "ZZZ"}, ASOF)
+    assert note.params["role"] == "case"
+    assert note.text.startswith(
+        "AAA is in this answer as a past case, not the question's company. "
+    )
+    assert "missing" not in note.text.removesuffix("moved.")

@@ -29,3 +29,21 @@ def _no_kept_track_record():
     forget_kept_rows()
     yield
     forget_kept_rows()
+
+
+@pytest.fixture
+def unlinked_xom():
+    """Exxon as it was before backlog #573: its successor's filings not read, so a date from
+    `history_ends` on warns (`beyond_history`). Patched in the shared list, so every module that
+    imported PHASE1_UNIVERSE sees it."""
+    from dataclasses import replace
+
+    from domains.fundamentals.universe import PHASE1_UNIVERSE
+
+    i = next(i for i, c in enumerate(PHASE1_UNIVERSE) if c.ticker == "XOM")
+    linked = PHASE1_UNIVERSE[i]
+    PHASE1_UNIVERSE[i] = replace(linked, successor_linked=False)
+    try:
+        yield PHASE1_UNIVERSE[i]
+    finally:
+        PHASE1_UNIVERSE[i] = linked

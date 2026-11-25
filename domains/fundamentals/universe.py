@@ -14,7 +14,10 @@ FISCAL_YEARS = range(2016, 2026)
 
 # universe.csv is the editable company list (Decision 11: companies are data, not code)
 UNIVERSE_PATH = Path(__file__).parent / "universe.csv"
-COLUMNS = ["ticker", "cik", "history_ends", "reason", "successor_cik", "successor_name", "note"]
+COLUMNS = [
+    "ticker", "cik", "history_ends", "reason", "successor_cik", "successor_name", "note",
+    "successor_linked",
+]  # fmt: skip
 
 # Why a CIK's history ends (backlog #196): a closed set, so the app's text catalogue covers it.
 COVERAGE_REASONS = frozenset({"holding_company_reorganisation"})
@@ -43,6 +46,15 @@ class UniverseCompany:
     reason: str | None = None  # why the history ends, one of COVERAGE_REASONS (backlog #196)
     successor_cik: str | None = None  # the CIK whose filings carry on, when known
     successor_name: str | None = None  # that registrant's name, as EDGAR gives it
+    # Warren reads the successor's 10-Q and 10-K facts into this CIK's history (backlog #573)
+    successor_linked: bool = False
+
+    @property
+    def coverage_ends(self) -> date | None:
+        """Where the filings Warren reads for this company stop: `history_ends`, or None when
+        the successor's filings are read into the same history (backlog #573). The evaluation
+        grid and its coverage guard keep using `history_ends` until the grid is re-run."""
+        return None if self.successor_linked else self.history_ends
 
 
 class UniverseError(ValueError):
@@ -112,6 +124,7 @@ def load_universe(path: Path = UNIVERSE_PATH) -> list[UniverseCompany]:
         ticker, cik, ends = r["ticker"].strip(), r["cik"].strip(), r["history_ends"].strip()
         reason, successor = r["reason"].strip(), r["successor_cik"].strip()
         successor_name = r["successor_name"].strip()
+        linked = r["successor_linked"].strip()
         if not ticker or ticker != ticker.upper():
             errors.append(f"line {line}: ticker must be non-empty and upper case, got {ticker!r}")
         elif ticker in seen:
@@ -149,6 +162,10 @@ def load_universe(path: Path = UNIVERSE_PATH) -> list[UniverseCompany]:
             errors.append(f"line {line}: reason {reason} needs successor_cik and successor_name")
         if bool(successor) != bool(successor_name):
             errors.append(f"line {line}: successor_cik and successor_name go together")
+        if linked not in ("", "yes"):
+            errors.append(f"line {line}: successor_linked must be empty or yes, got {linked!r}")
+        elif linked and not successor:
+            errors.append(f"line {line}: successor_linked needs a successor_cik")
         if cik and cik in pinned:
             errors.append(f"line {line}: cik {cik} is pinned twice")
         pinned.add(cik)
@@ -161,6 +178,7 @@ def load_universe(path: Path = UNIVERSE_PATH) -> list[UniverseCompany]:
                 reason or None,
                 successor or None,
                 successor_name or None,
+                linked == "yes",
             )
         )
     if errors:
@@ -171,21 +189,29 @@ def load_universe(path: Path = UNIVERSE_PATH) -> list[UniverseCompany]:
 PHASE1_UNIVERSE = load_universe()
 
 
-def coverage_gap(cik: str | None, as_of: date) -> tuple[str, dict] | None:
+def coverage_gap(cik: str | None, as_of: date, scored: bool = False) -> tuple[str, dict] | None:
     """The coverage warning's text and fields when `as_of` is on or after the date this pinned
-    CIK's filings stop, else None (backlog #252: the past-events call states it as a note)."""
+    CIK's filings stop, else None (backlog #252: the past-events call states it as a note). A
+    company whose successor is linked has no gap (`coverage_ends`, backlog #573), unless `scored`:
+    the evaluation's scored history (the grid and its coverage guard) still stops at
+    `history_ends`, so the past-events notes about typical errors keep the cut until the grid is
+    re-run."""
     for company in PHASE1_UNIVERSE:
-        if (
-            cik is not None
-            and company.cik == cik
-            and company.history_ends
-            and as_of >= company.history_ends
-        ):
-            text = (
-                f"{company.ticker} (CIK {cik}) as of {as_of.isoformat()}: filings from "
-                f"{company.history_ends.isoformat()} onward are on another CIK and are missing "
-                f"here, so recent periods will be absent. {company.note}"
-            )
+        ends = company.history_ends if scored else company.coverage_ends
+        if cik is not None and company.cik == cik and ends and as_of >= ends:
+            if company.successor_linked:  # only reached when `scored` (backlog #573)
+                text = (
+                    f"{company.ticker} (CIK {cik}) as of {as_of.isoformat()}: Warren reads the "
+                    f"filings from {company.history_ends.isoformat()} onward from the "
+                    "successor's CIK, but its scored forecast track record has not been re-run "
+                    f"past that date, so its typical forecast errors stop there. {company.note}"
+                )
+            else:
+                text = (
+                    f"{company.ticker} (CIK {cik}) as of {as_of.isoformat()}: filings from "
+                    f"{company.history_ends.isoformat()} onward are on another CIK and are "
+                    f"missing here, so recent periods will be absent. {company.note}"
+                )
             fields = {
                 "ticker": company.ticker,
                 "cik": cik,
@@ -196,6 +222,8 @@ def coverage_gap(cik: str | None, as_of: date) -> tuple[str, dict] | None:
                 "successor_name": company.successor_name,
                 "note": company.note,
             }
+            if company.successor_linked:
+                fields["successor_linked"] = True
             return text, fields
     return None
 
