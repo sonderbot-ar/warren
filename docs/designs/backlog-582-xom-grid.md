@@ -9,7 +9,8 @@ Status: In progress (nov.25.2026).
 Since v0.10.44 (#573) Warren reads ExxonMobil's 10-Q and 10-K filings on its new CIK (ExxonMobil Holdings Corp, 0002115436) into the old CIK's history, so answers dated from 2026-08-03 see FY2026 Q2 and Q3. The evaluation did not follow: the grid (`grid._horizon`) and the harness's coverage guard (`harness.guard_coverage`) still cut Exxon at `history_ends` (2026-08-03). So:
 
 - the grid file left out 8 Exxon dates (2026-02-15 and the seven post-cutoff dates) and shortened two (2025-05-15 to 3 quarters, 2025-11-15 to 1);
-- Exxon's scored track record, and the typical forecast errors the past-events answer quotes, stop at 2026-08-03, and the past-events notes say so (`beyond_history`, `history_cut` and `thin_evidence`'s `cut` with `successor_linked: true`), although the filings are now there.
+- the monthly forecasts (M9's origins, `ranges.origin_case`) take their horizon from the same guard: Exxon's ten 2026 origins are stored as failed ("coverage: XOM's filings here stop on 2026-08-03") and its 2025-04 to 2025-12 origins are cut to 3, 2 and 1 quarters, so its last scored quarter is FY2025Q4 while the other companies run into 2026;
+- so Exxon's typical forecast errors (the past-events answer's usual miss and the track record's monthly section, both read from `baseline_errors`) and its grid record stop early, and the past-events notes say so (`beyond_history`, `history_cut` and `thin_evidence`'s `cut` with `successor_linked: true`), although the filings are now there.
 
 ## Plan
 
@@ -26,7 +27,9 @@ Exit: full suite, `ruff check`, `ruff format --check` green.
 
 **Step 2. The AI run for the 8 new Exxon dates.** Snapshot restored; `run-grid --ticker XOM --from 2026-01-01 --max-usd 10 --since 2026-11-03T00:00:00Z`, so the owner's $10 M10 cap counts everything spent since the grid run began ($5.70 so far). The two lengthened cases need no AI call: a pipeline is stored per company and date, and the horizon only sets how many quarters are scored. XOM_2023-11-15 (the impossible-capex sample) is left as it failed.
 
-**Step 3. A new grid batch, before and after.** Filings refreshed, then `backtest --cases-file domains/evaluation/grid_cases.csv --actuals-as-of 2026-11-24` (the last ended New York day, fixed before the run), `reproduce --batch`, `ranges test --batch`, `ranges reproduce`. M10's pre-registered result (`eval_2026-11-17_1`, 168 cases) stays as recorded; the new batch is a later grid batch under the same rule, and the app's track record reads it (`track_record.grid_batch`, the newest clean grid batch). Recorded below: counts, the headline table beside M10's, Exxon's own record, and `analysis reproduce --all`.
+**Step 2b. Exxon's monthly forecasts rebuilt** (from the analyst's and product lead's review). `ranges origins --ticker XOM --from 2025-04-01 --to 2026-10-01`, with actuals as of the last ended New York day (2026-11-24, the command's default): the ten failed 2026 origins are built and the nine cut ones are rebuilt at 4 quarters (an origin stored under another code version is rebuilt; the baseline is deterministic, so no AI call). Recorded: Exxon's origins and scored errors before and after.
+
+**Step 3. A new grid batch, before and after.** Filings refreshed, then `backtest --cases-file domains/evaluation/grid_cases.csv --actuals-as-of 2026-11-24` (the last ended New York day, fixed before the run), `reproduce --batch`, `ranges test --batch`, `ranges reproduce`. M10's pre-registered result (`eval_2026-11-17_1`, 168 cases) stays as recorded; the new batch is a later grid batch under the same rule, and the app's track record reads it (`track_record.grid_batch`, the newest clean grid batch). Then `ranges test` builds a new range build (the stored `ranges_2026-11-17_1` is the "before"; the new build reads Exxon's new errors, so it is not expected to match it). Recorded below: counts, the headline table beside M10's, Exxon's own record (including its +36% revenue step from FY2026 Q1 to Q2, real in both filings), whether the other seven companies' grid figures move, and `analysis reproduce --all`.
 
 ## Alternatives considered
 
@@ -37,17 +40,21 @@ Exit: full suite, `ruff check`, `ruff format --check` green.
 
 ## Files to change
 
-`domains/evaluation/grid.py`, `domains/evaluation/harness.py`, `domains/evaluation/grid_cases.csv`, `domains/evaluation/past_events.py`, `domains/fundamentals/universe.py`, `domains/analysis/reading_rules.md`, `tests/evaluation/test_grid.py`, `tests/evaluation/test_harness.py`, `tests/evaluation/test_past_events.py`, `tests/fundamentals/test_universe.py`, this doc; on merge `docs/versions.md`, `docs/build-plan.md` (no status change), `docs/team-sync.md`.
+`domains/evaluation/grid.py`, `domains/evaluation/harness.py` (its guard also sets `ranges.origin_case`'s horizon, no code change there), `domains/evaluation/grid_cases.csv`, `domains/evaluation/past_events.py`, `domains/fundamentals/universe.py`, `domains/analysis/reading_rules.md`, `tests/evaluation/test_grid.py`, `tests/evaluation/test_harness.py`, `tests/evaluation/test_ranges.py`, `tests/evaluation/test_past_events.py`, `tests/fundamentals/test_universe.py`, this doc; on merge `docs/versions.md`, `docs/build-plan.md` (no status change), `docs/team-sync.md`.
 
 ## Product impact
 
-- Serves Q10 and Q14 (past events and the company's track record) on Exxon: its typical forecast errors and its scored cases now run past 2026-08-03, like the other seven companies.
-- Removes, for Exxon only, the `beyond_history` note on past-events answers dated from 2026-08-03, the `history_cut` flag on its cases and its entries in `thin_evidence`'s `cut`; the `successor_linked` param those notes carried since v0.10.44 is gone. For an unlinked company the notes are unchanged. No field is renamed; no Spanish text changes (the app shows none of these codes today). The brief's Q10 and Q14 *Hoy* lines that name `successor_linked: true` need a one-line edit by the front-end team.
+- Serves Q6 (the company's track record: its monthly section and its grid section), Q10 and Q14 (past events, whose usual miss is the monthly forecasts' typical error) on Exxon: once Step 2b rebuilds its monthly forecasts, its typical errors run into 2026 like the other seven companies', and its grid record has 21 of 22 dates scored (XOM_2023-11-15 still fails, as in M10). The track record's "monthly forecasts could not be made" note for Exxon's 2026 dates goes away.
+- Q6's grid section reads the newest clean grid batch, so its figures move for all eight companies (actuals now as of 2026-11-24, 176 cases). Results below say how much. Exxon's honest ranges (the own-company pool) move with its new errors.
+- Removes, for Exxon only, the `beyond_history` note on past-events answers dated from 2026-08-03, the `history_cut` flag on its cases and its entries in `thin_evidence`'s `cut`; the `successor_linked` param those notes carried since v0.10.44 is gone. For an unlinked company the notes are unchanged. No field is renamed; no Spanish text changes (the app shows none of these codes today). Brief lines to edit after merge (front-end team): line 16 (section 1, the scored record stops at 3 August 2026 until #582), line 279 (Q10 *Hoy*), line 302 (Q14 *Returns*, a change in what students see: the stop goes away), line 303 (Q14 *Hoy*), and the grid figures quoted on line 118 (Q6), which the new batch moves.
 - The track record's numbers move: a new grid batch with 8 more Exxon cases and two longer ones, and actuals as of 2026-11-24.
 
 ## Review notes
 
-(to come)
+Analyst and product lead in parallel on the Step 0 doc and Step 1 code (nov.25.2026). Explainer and professor not run: no method changes, the rule is M10's.
+
+- **Analyst: NO-GO, one blocker, taken.** The guard also sets the monthly origins' horizon (`ranges.py:83-93`), which is where the typical errors come from (`past_events.usual_misses` through `track_record._group_rows`); the plan never rebuilt them, so removing the notes would have hidden a cut that stays. Taken as Step 2b, with tests that `origin_case` gives Exxon 4 quarters when linked and keeps the cut when not. Same basis checked: the successor's 10-Q says the reorganisation did not change the consolidated business; 48 shared facts agree to the dollar; FY2026 quarters tie to year-to-date. Point-in-time holds (Q3 2026 filed 2026-11-02, after the last grid date). Ideas taken: the left-out label says `coverage_ends`; the FY2026 Q2 revenue step is named in Results.
+- **Product lead: NO-GO, same blocker, taken** (Step 2b); also taken: Q6 named, the "Q14 = track record" label fixed, brief lines 16, 279, 302, 303 and 118 listed, Exxon's 21 of 22 grid dates stated, and a word on whether the other companies' grid figures move. Confirmed: nothing in `webapp/` reads `successor_linked` or these notes.
 
 ## Results on real data
 

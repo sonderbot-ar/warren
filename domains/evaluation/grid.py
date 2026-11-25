@@ -133,7 +133,7 @@ def grid_cases(
             horizon = _horizon(company, g.day)
             if horizon == 0:
                 left_out.append(
-                    (case_id, f"no quarter fits before history_ends {company.coverage_ends}")
+                    (case_id, f"no quarter fits before coverage_ends {company.coverage_ends}")
                 )
                 continue
             cases.append(
