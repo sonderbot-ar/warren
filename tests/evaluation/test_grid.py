@@ -163,6 +163,19 @@ def test_storing_a_grid_case_never_overwrites_a_hand_picked_one(company, tmp_pat
     assert company.execute("SELECT COUNT(*) FROM eval_cases").fetchone()[0] == 1
 
 
+def test_storing_a_grid_case_again_updates_its_horizon(company):
+    # #591: the grid rule lengthened Exxon's cases (#582); the stored row follows the rule
+    from domains.evaluation.cases import Case, store_cases
+
+    ticker = company.execute("SELECT ticker FROM companies LIMIT 1").fetchone()[0]
+    first = Case(f"{ticker}_2025-05-15", ticker, date(2025, 5, 15), "grid", grid.DESCRIPTION, 3,
+                 grid.PRE, "", "")  # fmt: skip
+    store_cases(company, [first])
+    store_cases(company, [dataclasses.replace(first, horizon_quarters=4)])
+    rows = company.execute("SELECT event_type, horizon_quarters FROM eval_cases").fetchall()
+    assert [tuple(r) for r in rows] == [("grid", 4)]
+
+
 def test_a_grid_row_needs_the_grid_rule(tmp_path):
     path = tmp_path / "cases.csv"
     row = "AAPL_2020-04-01,AAPL,2020-04-01,grid,Grid date,4,picked by me,,\n"
