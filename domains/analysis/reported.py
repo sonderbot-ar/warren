@@ -135,6 +135,33 @@ class Filing:
     form: str | None
     filed_at: date
     url: str
+    # who filed it, when not the company's own CIK: `{"cik", "name", "successor": True}` for a
+    # filing read from a linked successor's CIK (backlog #586), else None
+    filer: dict | None = None
+
+
+def successor_filer(cik: str, filed_at: date | None) -> dict | None:
+    """The registrant of a filing Warren read from a linked successor's CIK (backlog #586), or
+    None for the company's own filings. Since #573 a linked company's history holds only the
+    successor's 10-Q and 10-K facts filed on or after `history_ends` (`merge_company_facts`
+    drops the predecessor's own from that day), so the filing date alone says whose it is. The
+    name is the successor's as EDGAR gives it in the universe file; a fact about the filer, not
+    a figure, and it was public on the filing's own date."""
+    if filed_at is None:
+        return None
+    for company in PHASE1_UNIVERSE:
+        if (
+            company.cik == cik
+            and company.successor_linked
+            and company.history_ends is not None
+            and filed_at >= company.history_ends
+        ):
+            return {
+                "cik": company.successor_cik,
+                "name": company.successor_name,
+                "successor": True,
+            }
+    return None
 
 
 @dataclass(frozen=True)
@@ -343,11 +370,13 @@ class _Filings:
 
     def get(self, accession_no: str) -> Filing:
         form, filed_at = self.rows.get(accession_no, (None, None))
+        filed = date.fromisoformat(filed_at) if filed_at else None
         return Filing(
             accession_no,
             form,
-            date.fromisoformat(filed_at) if filed_at else None,
+            filed,
             filing_url(self.cik, accession_no),
+            successor_filer(self.cik, filed),
         )
 
     def version(self, fact: Fact) -> Version:
