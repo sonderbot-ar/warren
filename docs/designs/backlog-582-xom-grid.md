@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/582 (from the #573 review: analyst and product lead) · Branch `backlog-582-xom-grid` · Version v0.10.46 when merged.
 
-Status: In progress (nov.25.2026): results recorded; gatekeeper next.
+Status: Done (v0.10.46, nov.25.2026; PR #589, merge `a5144f2`, after CI green and a gatekeeper GO).
 
 ## Problem
 
@@ -54,11 +54,12 @@ Exit: full suite, `ruff check`, `ruff format --check` green.
 Analyst and product lead in parallel on the Step 0 doc and Step 1 code (nov.25.2026). Explainer and professor not run: no method changes, the rule is M10's.
 
 - **Analyst: NO-GO, one blocker, taken.** The guard also sets the monthly origins' horizon (`ranges.py:83-93`), which is where the typical errors come from (`past_events.usual_misses` through `track_record._group_rows`); the plan never rebuilt them, so removing the notes would have hidden a cut that stays. Taken as Step 2b, with tests that `origin_case` gives Exxon 4 quarters when linked and keeps the cut when not. Same basis checked: the successor's 10-Q says the reorganisation did not change the consolidated business; 48 shared facts agree to the dollar; FY2026 quarters tie to year-to-date. Point-in-time holds (Q3 2026 filed 2026-11-02, after the last grid date). Ideas taken: the left-out label says `coverage_ends`; the FY2026 Q2 revenue step is named in Results.
+- **Gatekeeper: GO** on PR #589 (head 2cd7567): CI green, 2,938 tests passed, ruff clean; no test weakened (each changed test follows the changed rule, the cut keeps its tests on an unlinked Exxon); point-in-time holds (no actual in the batch or Exxon's errors filed after 2026-11-24); the reading-rules row is honest; every result above matches the database. Non-blocking, taken in the record PR: the build plan's Exxon line, the code-version sentence above. Filed as backlog: the stored case table keeps a grid case's first horizon (`store_cases` does nothing on conflict; nothing reads it today), and the backtest report's limitations count 175 grid cases where it has 176.
 - **Product lead: NO-GO, same blocker, taken** (Step 2b); also taken: Q6 named, the "Q14 = track record" label fixed, brief lines 16, 279, 302, 303 and 118 listed, Exxon's 21 of 22 grid dates stated, and a word on whether the other companies' grid figures move. Confirmed: nothing in `webapp/` reads `successor_linked` or these notes.
 
 ## Results on real data
 
-Snapshot `warren-20261125T002136Z` restored (schema 23); filings refreshed (`fundamentals ingest --all --refresh`: no new facts for any company). Code `c178da8` (clean) for every stored output below.
+Snapshot `warren-20261125T002136Z` restored (schema 23); filings refreshed (`fundamentals ingest --all --refresh`: no new facts for any company). Code `c178da8` (clean) for every stored output below, except three of the eight Exxon pipeline runs (2026-09-15, 10-01, 10-15), stored under `422e242`, whose only difference is the grid's left-out label text.
 
 **Step 2, the AI run.** `run-grid --ticker XOM --from 2026-01-01 --max-usd 10 --since 2026-11-03T00:00:00Z`: all 8 new Exxon dates done, none failed; $0.20 of AI calls, so the M10 cap stands at $5.90 of $10. The two lengthened cases ran nothing new, as designed.
 
