@@ -69,7 +69,7 @@ def test_an_end_date_cuts_the_grid():
     assert days(date(2019, 8, 14)) == [date(2019, 5, 15)]
 
 
-def test_a_company_gets_the_horizon_the_coverage_guard_accepts():
+def test_a_company_gets_the_horizon_the_coverage_guard_accepts(unlinked_xom):
     cases, left_out = grid.grid_cases(UNIVERSE)
     xom = {c.event_date: c.horizon_quarters for c in cases if c.ticker == "XOM"}
     assert xom[date(2024, 8, 15)] == 4
@@ -85,6 +85,17 @@ def test_a_company_gets_the_horizon_the_coverage_guard_accepts():
             longer = dataclasses.replace(case, horizon_quarters=case.horizon_quarters + 1)
             with pytest.raises(EvaluationError, match="coverage"):
                 guard_coverage(longer)
+
+
+def test_a_linked_successor_puts_exxon_on_every_date_at_the_full_horizon():
+    """Backlog #582: with its successor's filings read (`coverage_ends` None), Exxon is on all
+    22 dates at 4 quarters, like the other seven companies, and the grid has 8 x 22 cases."""
+    cases, left_out = grid.grid_cases()
+    xom = {c.event_date: c.horizon_quarters for c in cases if c.ticker == "XOM"}
+    assert sorted(xom) == days() and set(xom.values()) == {4}
+    assert left_out == [] and len(cases) == 8 * 22
+    for c in cases:
+        guard_coverage(c)
 
 
 def test_a_new_company_is_on_every_date_with_no_code_change():

@@ -10,7 +10,8 @@ The rule is fixed in docs/designs/m10-more-dates.md before any result is seen:
   starts after the latest model cutoff month has ended;
 - up to an end date (GRID_END), so a later run extends the grid under the same rule.
 
-A company whose filings stop here (`history_ends`, universe.csv) gets the longest horizon, up to
+A company whose filings stop here (`coverage_ends`, universe.csv: its `history_ends`, unless its
+successor's filings are read into the same history, backlog #582) gets the longest horizon, up to
 4 quarters, that the coverage guard accepts (`harness.guard_coverage`, as M9's origins), and is
 left out on a date where not even one quarter fits. The grid file is
 written by `write_grid` and checked by `load_grid`, which regenerates it from the rule and fails
@@ -110,11 +111,12 @@ def grid_dates(end: date = GRID_END) -> list[GridDate]:
 
 def _horizon(company: UniverseCompany, day: date) -> int:
     """The longest horizon (up to 4) the coverage guard accepts on this date; 0 if none."""
-    if company.history_ends is None:
+    ends = company.coverage_ends  # backlog #582: a linked successor's filings count
+    if ends is None:
         return HORIZON
     for h in range(HORIZON, 0, -1):
         reach = day + timedelta(days=QUARTER_DAYS * (h + 1) + FILING_LAG_DAYS)
-        if reach < company.history_ends:
+        if reach < ends:
             return h
     return 0
 
@@ -131,7 +133,7 @@ def grid_cases(
             horizon = _horizon(company, g.day)
             if horizon == 0:
                 left_out.append(
-                    (case_id, f"no quarter fits before history_ends {company.history_ends}")
+                    (case_id, f"no quarter fits before coverage_ends {company.coverage_ends}")
                 )
                 continue
             cases.append(

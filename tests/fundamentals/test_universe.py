@@ -88,22 +88,21 @@ def test_linked_xom_reads_on_and_never_warns():
         warn_if_beyond_history(XOM_CIK, date(2030, 1, 1))
 
 
-def test_the_scored_history_of_a_linked_company_still_stops_and_says_why():
-    """The evaluation grid still cuts at history_ends (#573 follow-up): the past-events note
-    keeps the cut, and its text no longer says the filings are missing."""
-    text, fields = coverage_gap(XOM_CIK, date(2026, 9, 30), scored=True)
-    assert fields["successor_linked"] is True and fields["history_ends"] == "2026-08-03"
-    own = text.removesuffix(get_universe_company("XOM").note)  # the note is the file's prose
-    assert "missing" not in own and "scored forecast track record" in own
-    assert coverage_gap(XOM_CIK, date(2026, 8, 2), scored=True) is None
+def test_a_linked_company_has_no_scored_cut_either():
+    """Backlog #582: the evaluation grid and its coverage guard follow the link too, so there
+    is no separate scored cut left to report."""
+    import inspect
+
+    assert "scored" not in inspect.signature(coverage_gap).parameters
+    for day in (date(2026, 8, 3), date(2026, 9, 30), date(2030, 1, 1)):
+        assert coverage_gap(XOM_CIK, day) is None
 
 
-def test_an_unlinked_company_is_cut_the_same_scored_or_not(unlinked_xom):
+def test_an_unlinked_company_is_still_cut_and_says_its_filings_are_missing(unlinked_xom):
     assert unlinked_xom.coverage_ends == date(2026, 8, 3)
-    assert coverage_gap(XOM_CIK, date(2026, 9, 30), scored=True) == coverage_gap(
-        XOM_CIK, date(2026, 9, 30)
-    )
-    assert "successor_linked" not in coverage_gap(XOM_CIK, date(2026, 9, 30))[1]
+    assert coverage_gap(XOM_CIK, date(2026, 8, 2)) is None
+    text, fields = coverage_gap(XOM_CIK, date(2026, 9, 30))
+    assert "missing here" in text and "successor_linked" not in fields
 
 
 def test_query_before_the_history_end_is_silent():

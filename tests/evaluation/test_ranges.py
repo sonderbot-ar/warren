@@ -164,3 +164,15 @@ def test_shocked_samples_carry_the_error_on_top_of_the_shock():
 def test_range_seed_is_fixed_and_differs_by_pool():
     assert R.range_seed("KO_2021-01-01", "pooled") == R.range_seed("KO_2021-01-01", "pooled")
     assert R.range_seed("KO_2021-01-01", "pooled") != R.range_seed("KO_2021-01-01", "own")
+
+
+def test_a_linked_successor_gives_exxons_monthly_origins_the_full_horizon():
+    """Backlog #582: the monthly origins take their horizon from the same coverage guard, so
+    Exxon's 2025-2026 origins reach 4 quarters once its successor's filings are read."""
+    for d in (date(2025, 4, 1), date(2025, 12, 1), date(2026, 1, 1), date(2026, 10, 1)):
+        assert R.origin_case("XOM", d).horizon_quarters == 4
+
+
+def test_an_unlinked_company_keeps_the_cut_horizon_on_its_origins(unlinked_xom):
+    assert R.origin_case("XOM", date(2025, 4, 1)).horizon_quarters == 3
+    assert R.origin_case("XOM", date(2025, 12, 1)).horizon_quarters == 1
