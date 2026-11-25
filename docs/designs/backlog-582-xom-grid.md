@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/582 (from the #573 review: analyst and product lead) · Branch `backlog-582-xom-grid` · Version v0.10.46 when merged.
 
-Status: In progress (nov.25.2026).
+Status: In progress (nov.25.2026): results recorded; gatekeeper next.
 
 ## Problem
 
@@ -58,4 +58,25 @@ Analyst and product lead in parallel on the Step 0 doc and Step 1 code (nov.25.2
 
 ## Results on real data
 
-(to come)
+Snapshot `warren-20261125T002136Z` restored (schema 23); filings refreshed (`fundamentals ingest --all --refresh`: no new facts for any company). Code `c178da8` (clean) for every stored output below.
+
+**Step 2, the AI run.** `run-grid --ticker XOM --from 2026-01-01 --max-usd 10 --since 2026-11-03T00:00:00Z`: all 8 new Exxon dates done, none failed; $0.20 of AI calls, so the M10 cap stands at $5.90 of $10. The two lengthened cases ran nothing new, as designed.
+
+**Step 2b, Exxon's monthly forecasts.** `ranges origins --ticker XOM --from 2025-04-01 --to 2026-10-01`: 19 built (actuals as of 2026-11-24). Before: the ten 2026 origins failed on coverage, the nine 2025-04 to 2025-12 origins were cut to 3, 2 and 1 quarters, 612 scored errors ending at FY2025Q4. After: all 19 at 4 quarters, 698 scored errors (30 still waiting for quarters not yet reported) ending at FY2026Q3. The new quarters carry large misses: Exxon's revenue stepped from $85.1bn in FY2026 Q1 to $116.0bn in Q2 and $113.2bn in Q3 (real in both registrants' filings, analyst checked), so the 2026-04-01 origin missed Q2 revenue by 42% (log ratio) and Q3 by 35%. Exxon's typical errors grow; that is the honest yardstick, not a bug.
+
+**Step 3, the new grid batch.** `backtest --cases-file domains/evaluation/grid_cases.csv --actuals-as-of 2026-11-24` → `eval_2026-11-25_1`: 176 cases, 171 scored, 4 not yet scorable (Walmart's four latest dates, as in M10), 1 failed (XOM_2023-11-15, as in M10). `reproduce --batch --cases-file …grid_cases.csv`: 3,408 rows and 76 simulations OK. `ranges test --batch` → `ranges_2026-11-25_1`; `ranges reproduce`: 5,496 errors and 15,664 ranges OK. `analysis reproduce --all`: 936 of 936 runs to the cent.
+
+The other seven companies' 2,976 grid rows are identical to M10's batch (no new actuals between 2026-11-16 and 11-24), so every change below is Exxon's 8 new and 2 longer cases. Of those, the AI moved a forecast on one (XOM_2026-08-01, masked: revenue d −0.06, EBIT −0.03, both closer); the rest are ties.
+
+| Variant | Item | M10 (`eval_2026-11-17_1`, 163 scored) mean d, dates b/w/t, p, date interval | Now (`eval_2026-11-25_1`, 171 scored) | Gain |
+|---|---|---|---|---|
+| masked | revenue | −0.11, 8/6/8, 0.79, −0.27 to +0.04 | −0.14, 8/6/8, 0.79, −0.32 to +0.03 | not shown (both) |
+| masked | EBIT | −0.08, 10/7/5, 0.63, −0.18 to +0.00 | −0.09, 10/7/5, 0.63, −0.21 to +0.00 | not shown (both) |
+| named | revenue | −0.09, 6/4/12, 0.75, −0.23 to +0.05 | −0.16, 6/4/12, 0.75, −0.36 to +0.02 | not shown (both) |
+| named | EBIT | −0.02, 7/6/9, 1.00, −0.06 to +0.02 | −0.04, 7/6/9, 1.00, −0.11 to +0.01 | not shown (both) |
+
+Mean d is a mean over cases, so adding Exxon's ties and its one gain moves it a little; the date counts don't move. After the cutoff: 52 cases on 7 dates (was 45), masked revenue d −0.38, EBIT −0.27 (was −0.31, −0.25), still not shown. **The answer is unchanged: a gain from the news shocks is not shown.** M10's pre-registered result stays as recorded.
+
+Ranges: the baseline's honest range holds 81.1% of revenue and 82.6% of EBIT actuals on 476 grid quarters (M10: 83.2% and 84.7% on 459). On the monthly forecasts, pooled ranges hold 79.8% revenue and 81.7% EBIT over 2,476 quarters (M10's build: 80.4% and 82.7% over 2,433). Exxon's own pooled coverage stays poor (revenue 26.3%, EBIT 34.9%, was 23.2% and 37.1%): its swings are far larger than the pooled errors of the other seven, as before (#125).
+
+Track record (Q6) for Exxon as of 2026-11-24: monthly rows run to FY2026Q3 (were FY2025Q4); no "could not be made" dates; grid section on `eval_2026-11-25_1`, `grid_repeats_monthly` 65 of 65, `grid_cases_failed` XOM_2023-11-15 only. Data saved as a new snapshot.
