@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/573 (from the #571 analyst) · Branch `backlog-573-xom-successor-link` · Version v0.10.44 when merged.
 
-Status: In review (nov.25.2026; Steps 0–3 built).
+Status: Done (v0.10.44, nov.25.2026; PR #583, merge `e6e6a12`, after CI green and a gatekeeper GO).
 
 ## Problem
 
@@ -71,3 +71,7 @@ nov.25.2026, snapshot `warren-20261123T052122Z` (schema 23), Exxon ingested agai
 - `reproduce --all`: 909 of 909 runs reproduced to the cent.
 - `rebuild`, 11 baselines with seed 573 plus `XOM_2026-10-30_1` and `_2`, against the pre-ingest database: the 11 give the same result on both (9 match; `XOM_2019-06-01_1` and `XOM_2023-04-01_1` differ by 24 rows on both, made under older reading rules); the two late Exxon runs matched before and now differ (44 and 47 rows: balance sheet and the two new quarters), as expected.
 - EDGAR archive under CIK 34088: HTTP 200 for 000003408826000093 and 000211543626000020.
+
+## Gatekeeper
+
+GO on PR #583: 2926 passed, ruff clean; point-in-time holds (only the two successor accessions after 2026-07-01, 110 facts); no test weakened (the moved tests only gained the `unlinked_xom` fixture); the fixture restores the shared list; unlinked texts and params unchanged; the reading-rules row and the real-data results match the database. Non-blocking ideas, not taken: a test pinning the freshness change for an unlinked company; filter the predecessor's non-10-Q/10-K facts in the merge too (`extract_facts` drops them already).
