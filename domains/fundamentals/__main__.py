@@ -32,8 +32,15 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     with get_db_connection() as conn:
         apply_migrations(conn)
         for company in _companies(args):
+            linked = company.successor_linked  # read the successor's filings too (#573)
             result = ingest_company(
-                conn, company.ticker, client=client, cik=company.cik, refresh=args.refresh
+                conn,
+                company.ticker,
+                client=client,
+                cik=company.cik,
+                refresh=args.refresh,
+                successor_cik=company.successor_cik if linked else None,
+                successor_since=company.history_ends if linked else None,
             )
             skipped = ", ".join(f"{k} {v}" for k, v in sorted(result.skipped.items())) or "none"
             print(
