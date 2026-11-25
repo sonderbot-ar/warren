@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/594 (from the #593 gatekeeper) · Branch `backlog-594-grid-followups` · Version v0.10.48 when merged.
 
-Status: PR open.
+Status: Done (v0.10.48, nov.25.2026; PR #596, merge `586f17e`, after CI green and a gatekeeper GO).
 
 ## Problem
 
@@ -18,7 +18,7 @@ Status: PR open.
 - `tests/evaluation/test_backtest_batch.py::test_a_grid_batch_whose_every_case_failed_is_still_read_as_a_grid_batch` (one grid case that fails: the grid section says 1 case, 0 scored, 1 failed, and the Limitations line counts it) fails on `main`; `test_an_all_failed_event_batch_gets_no_grid_sections` keeps the other side.
 - `tests/evaluation/test_grid.py::test_storing_a_grid_case_never_overwrites_a_hand_picked_one`: the grid copy now has horizon 2 against the hand-picked 4, and the test asserts both columns. Checked by removing the guard: the test fails.
 
-Exit: full suite, `ruff check`, `ruff format --check` green. No forecast, error, score or reproduce result changes; only the report of a batch with no result rows can differ.
+Exit: full suite, `ruff check`, `ruff format --check` green. No forecast, error, score or reproduce result changes; only the report of a batch with no result rows can differ, and a batch mixing scored grid cases with a failed non-grid case (none is built today) is no longer read as grid.
 
 ## Alternatives considered
 
@@ -36,3 +36,5 @@ None. No output a student sees; no field, code or name changes. Brief questions 
 ## Review notes
 
 Explainer, analyst and professor not run: a report switch and a test, with no method or number change (as for #591).
+
+Gatekeeper GO on PR #596: ruff clean, 2942 passed, 10 skipped; the new grid test fails with main's `backtest_report.py`; the hand-picked test fails when the `WHERE eval_cases.event_type = 'grid'` guard is removed; failed cases always have an `eval_cases` row (`store_cases` runs before `record_failure` in `harness.py`). Non-blocking notes taken here: the mixed-batch case is now named in the exit line above. Not filed: a grid case sharing an id with a hand-picked one would keep the hand-picked type and take the batch's grid sections away, as before this change; checked, no grid case id in `grid_cases.csv` (176) matches one in `cases.csv` (26), and `grid.shared_with_hand_picked` lists any that would.
