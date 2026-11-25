@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/586 (front-end request, from the v0.10.44 brief update) · Branch `backlog-586-filer-name` · Version v0.10.45 when merged.
 
-Status: In progress (nov.25.2026).
+Status: Done (v0.10.45, nov.25.2026; PR #587, merge `c307762`, after CI green and a gatekeeper GO).
 
 ## Problem
 
@@ -48,6 +48,7 @@ Exit: full suite, `ruff check`, `ruff format --check` green.
 Analyst and the front-end product lead, in parallel, on the Step 0 doc and Step 1 code (nov.25.2026). Explainer and professor not run: one field, no method or number change.
 
 - **Analyst: GO.** The date rule is exact on real data: from 2026-07-01 only two Exxon filings are stored (0000034088-26-000093, 10-Q, 2026-08-03, 55 facts; 0002115436-26-000020, 10-Q, 2026-11-02, 55 facts), and the last one before the cut (0000034088-26-000067) gets no filer; the merge and the rule read the same `history_ends` (`domains/fundamentals/__main__.py:43`) and the same `FORMS`; no other company is linked; no #140 filing is built outside `_Filings.get`, and none is stored, so stored runs gain `filer` when read and `reproduce` is untouched. Taken: the Product impact note now says FY2024 and FY2025. Not taken: a `joint: true` mark on the 2026-08-03 10-Q. companyfacts does not list a filing's registrants, so it would be a hand-kept list for one filing; the label stays true of it, and the product lead will word *Fuente* so it does not say the old company stopped filing.
+- **Gatekeeper: GO** on PR #587 (head 764c895): 1209 analysis tests passed, ruff clean, CI green; no test weakened (`test_refusal_codes.py` only gains `"filer": None` in the expected shape); point-in-time holds (the universe row and the filing's own date); nothing stored, no migration; the real-data claims match the database. Non-blocking ideas, not taken: a CIK-keyed lookup instead of a loop over the eight-row universe; a test pinning that the merge and `successor_filer` read the same date (both read the universe row's `history_ends`). Taken: the PR body now lists `since`.
 - **Product lead: GO.** Taken: `since` in `filer` (dates on screen come from the engine); a `run_sources` test; the line cited to #586, not the brief. The joint 10-Q and the restated comparatives go into the brief after merge.
 
 ## Results on real data (Step 2)
