@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/591 (from the #589 gatekeeper) · Branch `backlog-591-grid-tidy` · Version v0.10.47 when merged.
 
-Status: In progress (nov.25.2026).
+Status: Done (v0.10.47, nov.25.2026; PR #593, merge `aa15ee2`, after CI green and a gatekeeper GO).
 
 ## Problem
 
@@ -40,3 +40,5 @@ None. No output a student sees, no field, code or name is added, renamed or remo
 ## Review notes
 
 Explainer, analyst and professor not run: a storage clause and a count line, with no method or number change (as for #519, #522, #575).
+
+Gatekeeper GO on PR #593: ruff clean, 2940 passed, 10 skipped; both new tests fail with main's `cases.py` and `backtest_report.py`; an upsert whose WHERE is false changes nothing, so a hand-picked row is never touched and `event_type` is not in the SET list; no reader of `eval_cases` uses `horizon_quarters`, and the reproduce paths rebuild cases from the CSV. Non-blocking notes filed as #594: an all-failed grid batch is not read as a grid batch (`is_grid` comes from rows only, pre-existing), and the hand-picked test could pin the horizon too. Not taken: moving two in-function imports in the new report test (style only).
