@@ -27,9 +27,13 @@ TST_10Q_2020Q1 = "0000000123-20-000016"
 
 
 def filing(accession_no: str, form: str, filed_at: str) -> dict:
-    """A refusal's filing (backlog #509): the #140 shape, with the EDGAR folder of the test CIK."""
+    """A refusal's filing (backlog #509): the #140 shape, with the EDGAR folder of the test CIK,
+    and no `filer`, since Test Corp's filings are its own (backlog #586)."""
     url = f"https://www.sec.gov/Archives/edgar/data/123/{accession_no.replace('-', '')}/"
-    return {"accession_no": accession_no, "form": form, "filed_at": filed_at, "url": url}
+    return {
+        "accession_no": accession_no, "form": form, "filed_at": filed_at, "url": url,
+        "filer": None,
+    }  # fmt: skip
 
 
 SCANNED = (
