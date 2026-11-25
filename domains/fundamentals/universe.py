@@ -53,7 +53,7 @@ class UniverseCompany:
     def coverage_ends(self) -> date | None:
         """Where the filings Warren reads for this company stop: `history_ends`, or None when
         the successor's filings are read into the same history (backlog #573). The evaluation
-        grid and its coverage guard keep using `history_ends` until the grid is re-run."""
+        grid and its coverage guard use it too, so the scored track record runs on (#582)."""
         return None if self.successor_linked else self.history_ends
 
 
@@ -189,29 +189,19 @@ def load_universe(path: Path = UNIVERSE_PATH) -> list[UniverseCompany]:
 PHASE1_UNIVERSE = load_universe()
 
 
-def coverage_gap(cik: str | None, as_of: date, scored: bool = False) -> tuple[str, dict] | None:
+def coverage_gap(cik: str | None, as_of: date) -> tuple[str, dict] | None:
     """The coverage warning's text and fields when `as_of` is on or after the date this pinned
     CIK's filings stop, else None (backlog #252: the past-events call states it as a note). A
-    company whose successor is linked has no gap (`coverage_ends`, backlog #573), unless `scored`:
-    the evaluation's scored history (the grid and its coverage guard) still stops at
-    `history_ends`, so the past-events notes about typical errors keep the cut until the grid is
-    re-run."""
+    company whose successor is linked has no gap (`coverage_ends`, backlog #573), in its answers
+    and in its scored track record (the grid and its coverage guard, backlog #582)."""
     for company in PHASE1_UNIVERSE:
-        ends = company.history_ends if scored else company.coverage_ends
+        ends = company.coverage_ends
         if cik is not None and company.cik == cik and ends and as_of >= ends:
-            if company.successor_linked:  # only reached when `scored` (backlog #573)
-                text = (
-                    f"{company.ticker} (CIK {cik}) as of {as_of.isoformat()}: Warren reads the "
-                    f"filings from {company.history_ends.isoformat()} onward from the "
-                    "successor's CIK, but its scored forecast track record has not been re-run "
-                    f"past that date, so its typical forecast errors stop there. {company.note}"
-                )
-            else:
-                text = (
-                    f"{company.ticker} (CIK {cik}) as of {as_of.isoformat()}: filings from "
-                    f"{company.history_ends.isoformat()} onward are on another CIK and are "
-                    f"missing here, so recent periods will be absent. {company.note}"
-                )
+            text = (
+                f"{company.ticker} (CIK {cik}) as of {as_of.isoformat()}: filings from "
+                f"{company.history_ends.isoformat()} onward are on another CIK and are "
+                f"missing here, so recent periods will be absent. {company.note}"
+            )
             fields = {
                 "ticker": company.ticker,
                 "cik": cik,
@@ -222,8 +212,6 @@ def coverage_gap(cik: str | None, as_of: date, scored: bool = False) -> tuple[st
                 "successor_name": company.successor_name,
                 "note": company.note,
             }
-            if company.successor_linked:
-                fields["successor_linked"] = True
             return text, fields
     return None
 

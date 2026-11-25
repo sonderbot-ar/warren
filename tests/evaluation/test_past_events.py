@@ -821,7 +821,7 @@ def test_a_copy_with_filings_but_no_revenue_quarter_says_so():
     assert "it has no quarter with revenue" in note.text and "none" not in note.text
 
 
-# -- backlog #573: a company read on through its successor keeps the scored cut, not "missing" --
+# -- backlog #582: a company read on through its successor has no cut, scored or not -----------
 
 
 def _linked_ends(company, monkeypatch, ends="2020-12-31"):
@@ -836,28 +836,20 @@ def _linked_ends(company, monkeypatch, ends="2020-12-31"):
     return cik
 
 
-def test_a_linked_company_keeps_the_cut_on_its_typical_errors_without_saying_filings_are_missing(
+def test_a_linked_company_gets_no_coverage_note_no_cut_flag_and_no_cut_in_thin_evidence(
     company, monkeypatch
 ):
     _linked_ends(company, monkeypatch)
     c = case("TST_c", when="2020-03-01")
     rid = store_case(company, c, ["FY2031Q1", "FY2031Q2"], batch="eval_b_c")
     rec = call(company, [c], {rid: seen(rid, [("FY2021Q1", 90.0), ("FY2021Q2", None)])})
-    cov = [n for n in rec.notes if n.code == "beyond_history"][0]
-    assert cov.params["successor_linked"] is True and cov.params["role"] == "question"
-    flag = _by_id(rec)["TST_c"].history_cut
-    assert flag.params["successor_linked"] is True
-    assert flag.params["quarters_missing"] == ["FY2021Q2"]
-    note = _thin_note(rec)
-    assert note.params["cut"][0]["successor_linked"] is True
-    for text in (cov.text.removesuffix("Test Corp moved to a new CIK."), flag.text, note.text):
-        assert "missing" not in text, text
-    assert "scored track record has not been re-run" in flag.text
-    assert "is not filed by the question's date, so they can't be compared yet" in flag.text
+    assert not any(n.code == "beyond_history" for n in rec.notes)
+    assert _by_id(rec)["TST_c"].history_cut is None
+    assert _thin_note(rec).params["cut"] == []
     json.dumps(rec.to_dict())
 
 
-def test_a_linked_case_company_is_said_to_be_a_case_without_missing_filings(monkeypatch):
+def test_a_linked_case_company_gets_no_coverage_note(monkeypatch):
     from domains.fundamentals import universe as U
 
     rows = [
@@ -868,9 +860,4 @@ def test_a_linked_case_company_is_said_to_be_a_case_without_missing_filings(monk
     ]  # fmt: skip
     monkeypatch.setattr(U, "PHASE1_UNIVERSE", [*U.PHASE1_UNIVERSE, *rows])
     monkeypatch.setattr(P, "get_universe_company", lambda t: {r.ticker: r for r in rows}[t])
-    [note] = P.coverage_notes("ZZZ", {"AAA", "ZZZ"}, ASOF)
-    assert note.params["role"] == "case"
-    assert note.text.startswith(
-        "AAA is in this answer as a past case, not the question's company. "
-    )
-    assert "missing" not in note.text.removesuffix("moved.")
+    assert P.coverage_notes("ZZZ", {"AAA", "ZZZ"}, ASOF) == []

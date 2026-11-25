@@ -126,8 +126,9 @@ def guard_control_date(conn: sqlite3.Connection, cik: str, case: Case) -> None:
 
 
 def guard_coverage(case: Case) -> None:
-    """Fail when the horizon reaches past the point where the company's filings stop here."""
-    ends = get_universe_company(case.ticker).history_ends
+    """Fail when the horizon reaches past the point where the company's filings stop here
+    (`coverage_ends`: none for a company whose successor's filings are read, backlog #582)."""
+    ends = get_universe_company(case.ticker).coverage_ends
     if ends is None:
         return
     reach = case.event_date + timedelta(
