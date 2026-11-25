@@ -151,14 +151,16 @@ def test_storing_a_grid_case_never_overwrites_a_hand_picked_one(company, tmp_pat
     ticker = company.execute("SELECT ticker FROM companies LIMIT 1").fetchone()[0]
     hand = Case(f"{ticker}_2020-05-15", ticker, date(2020, 5, 15), "guidance", "Hand", 4,
                 "event rule: company announcement", "https://example.com/", "")  # fmt: skip
+    # a different horizon too, so the guard is pinned on the column #591 made updatable (#594)
     gridded = dataclasses.replace(hand, event_type="grid", description=grid.DESCRIPTION,
-                                  selected_because=grid.PRE, source_url="")  # fmt: skip
+                                  selected_because=grid.PRE, source_url="",
+                                  horizon_quarters=2)  # fmt: skip
     store_cases(company, [hand])
     store_cases(company, [gridded])
     row = company.execute(
-        "SELECT event_type FROM eval_cases WHERE case_id = ?", (hand.case_id,)
+        "SELECT event_type, horizon_quarters FROM eval_cases WHERE case_id = ?", (hand.case_id,)
     ).fetchone()
-    assert row[0] == "guidance"
+    assert tuple(row) == ("guidance", 4)
     store_cases(company, [hand])  # and the hand-picked row still updates
     assert company.execute("SELECT COUNT(*) FROM eval_cases").fetchone()[0] == 1
 
