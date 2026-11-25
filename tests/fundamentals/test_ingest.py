@@ -707,3 +707,125 @@ def test_the_effective_rate_is_stored_for_jnj_only_as_a_pure_ratio(ticker):
         assert result.skipped["unit"] == 1  # a USD figure under the tag is not the rate
     else:
         assert kept == [] and result.skipped["company_scope"] == 2
+
+
+# -- backlog #573: a successor CIK's filings read into the predecessor's history -----------------
+
+SUCCESSOR_CIK = "0000000456"
+CUT = date(2026, 4, 1)
+
+
+def _q(val, start, end, accn, filed, fy=2026, fp="Q1"):
+    return {"start": start, "end": end, "val": val, "accn": accn, "fy": fy, "fp": fp,
+            "form": "10-Q", "filed": filed}  # fmt: skip
+
+
+class LinkedEdgar(FakeEdgar):
+    """The fixture company as the predecessor, plus a successor with one 10-Q after the cut."""
+
+    def __init__(self, predecessor_after_cut=False):
+        super().__init__()
+        succ_q = "0000000456-26-000001"
+        self.successor = {
+            "cik": int(SUCCESSOR_CIK),
+            "entityName": "Test Holdings",
+            "facts": {"us-gaap": {"Revenues": {"units": {"USD": [
+                _q(130, "2026-01-01", "2026-03-31", succ_q, "2026-05-01"),
+                _q(120, "2025-01-01", "2025-03-31", succ_q, "2026-05-01", fp="Q1"),  # comparative
+                # a successor filing before the cut (a registration-era 10-Q): left out
+                _q(999, "2025-10-01", "2025-12-31", "0000000456-26-000000", "2026-03-15",
+                   fy=2025, fp="Q4"),
+            ]}}}},
+        }  # fmt: skip
+        self.asked = []
+        if predecessor_after_cut:
+            rows = self.facts["facts"]["us-gaap"]["Revenues"]["units"]["USD"]
+            rows.append(_q(777, "2026-01-01", "2026-03-31", "0000000123-26-000009", "2026-05-02"))
+
+    def get_company_facts(self, cik, refresh=False):
+        self.asked.append(cik)
+        return self.successor if cik == SUCCESSOR_CIK else self.facts
+
+    def company_facts_fetched_at(self, cik):
+        return "2026-09-01T00:00:00Z" if cik == SUCCESSOR_CIK else "2026-10-26T12:00:00Z"
+
+
+def _linked(conn, client):
+    return ingest_company(
+        conn, "TST", client=client, successor_cik=SUCCESSOR_CIK, successor_since=CUT
+    )
+
+
+def test_a_successor_quarter_lands_in_the_predecessors_history_with_its_own_filing(conn):
+    client = LinkedEdgar()
+    result = _linked(conn, client)
+    assert client.asked == [TEST_CIK, SUCCESSOR_CIK]
+    rows = conn.execute(
+        "SELECT cik, value, fiscal_year, fiscal_period, accession_no, filed_at "
+        "FROM financial_facts WHERE xbrl_concept = 'us-gaap:Revenues' AND period_end = "
+        "'2026-03-31' AND period_start = '2026-01-01'"
+    ).fetchall()
+    assert [tuple(r) for r in rows] == [
+        (TEST_CIK, 130.0, 2026, "Q1", "0000000456-26-000001", "2026-05-01")
+    ]
+    assert result.cik == TEST_CIK
+    labels = conn.execute(
+        "SELECT cik, fiscal_year, fiscal_period FROM filing_labels WHERE accession_no = ?",
+        ("0000000456-26-000001",),
+    ).fetchone()
+    assert tuple(labels) == (TEST_CIK, 2026, "Q1")
+
+
+def test_a_successor_filing_before_the_cut_is_left_out(conn):
+    _linked(conn, LinkedEdgar())
+    n = conn.execute(
+        "SELECT COUNT(*) FROM financial_facts WHERE accession_no = '0000000456-26-000000'"
+    ).fetchone()[0]
+    assert n == 0
+
+
+def test_the_predecessors_own_filing_after_the_cut_is_left_out_and_counted(conn):
+    """Rule 12g-3: the predecessor may keep filing; from the cut on only the successor counts."""
+    result = _linked(conn, LinkedEdgar(predecessor_after_cut=True))
+    assert result.skipped["predecessor_after_cut"] == 1
+    assert conn.execute(
+        "SELECT COUNT(*) FROM financial_facts WHERE accession_no = '0000000123-26-000009'"
+    ).fetchone()[0] == 0  # fmt: skip
+
+
+def test_the_successors_comparative_is_a_later_version_of_the_predecessors_period(conn):
+    _linked(conn, LinkedEdgar())
+    versions = conn.execute(
+        "SELECT accession_no FROM financial_facts WHERE xbrl_concept = 'us-gaap:Revenues' "
+        "AND period_start = '2025-01-01' AND period_end = '2025-03-31' ORDER BY filed_at"
+    ).fetchall()
+    assert versions[-1][0] == "0000000456-26-000001"
+
+
+def test_a_linked_ingest_records_the_older_download(conn):
+    _linked(conn, LinkedEdgar())
+    fetched = conn.execute(
+        "SELECT companyfacts_fetched_at FROM ingest_runs ORDER BY run_id DESC LIMIT 1"
+    ).fetchone()[0]
+    assert fetched == "2026-09-01T00:00:00Z"
+
+
+def test_an_unlinked_ingest_asks_for_one_document(conn):
+    client = LinkedEdgar()
+    ingest_company(conn, "TST", client=client)
+    assert client.asked == [TEST_CIK]
+
+
+def test_a_successor_without_its_cut_is_refused(conn):
+    with pytest.raises(ValueError, match="go together"):
+        ingest_company(conn, "TST", client=LinkedEdgar(), successor_cik=SUCCESSOR_CIK)
+
+
+def test_a_successor_quarter_is_invisible_before_its_filing_date(conn):
+    from domains.fundamentals.facts import get_facts
+
+    _linked(conn, LinkedEdgar())
+    before = get_facts(conn, TEST_CIK, ["revenue"], "2026-04-30", frequency="quarterly")
+    after = get_facts(conn, TEST_CIK, ["revenue"], "2026-05-01", frequency="quarterly")
+    assert date(2026, 3, 31) not in {f.period_end for f in before}
+    assert any(f.period_end == date(2026, 3, 31) and f.value == 130.0 for f in after)

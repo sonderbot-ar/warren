@@ -355,9 +355,13 @@ def _thin(n: int, reason: str, cut: list[dict] | None = None) -> Coded:
             parts.append(f"{c['case_id']} ({c['ticker']}{own}, from {c['history_ends']} on{gone})")
         one = len(cut) == 1
         whose, their = ("its company's", "Its") if one else ("their companies'", "Their")
-        text += (f". Counted, though {whose} filings are missing in Warren's data from a date "
-                 f"before this question: {'; '.join(parts)}. {their} typical forecast errors stop "
-                 "at that date (see the coverage note)")  # fmt: skip
+        if any(c.get("successor_linked") for c in cut):  # filings read on, scores not (#573)
+            text += (f". Counted, though {whose} typical forecast errors stop at a date before "
+                     f"this question: {'; '.join(parts)} (see the coverage note)")  # fmt: skip
+        else:
+            text += (f". Counted, though {whose} filings are missing in Warren's data from a "
+                     f"date before this question: {'; '.join(parts)}. {their} typical forecast "
+                     "errors stop at that date (see the coverage note)")  # fmt: skip
     params = {"n": n, "threshold": THIN_BELOW, "reason": reason, "cut_cases": len(cut),
               "cut_case_ids": [c["case_id"] for c in cut], "cut": cut}  # fmt: skip
     return Coded("thin_evidence", params, text)
@@ -409,12 +413,14 @@ def coverage_notes(question: str, cases: set[str], on: date) -> list[Coded]:
     question's company first, then the case companies by ticker."""
     out = []
     for t in [question, *sorted(cases - {question})]:
-        gap = coverage_gap(get_universe_company(t).cik, on)
+        gap = coverage_gap(get_universe_company(t).cik, on, scored=True)  # #573: grid still cut
         if gap is None:
             continue
         text, params = gap
         role = "question" if t == question else "case"
-        if role == "case":  # said first, so the rest is not read as about the question
+        if role == "case" and params.get("successor_linked"):  # #573: filings not missing
+            text = f"{t} is in this answer as a past case, not the question's company. {text}"
+        elif role == "case":  # said first, so the rest is not read as about the question
             text = (
                 f"{t} is in this answer as a past case, not the question's company: its filings "
                 f"from {params['history_ends']} on are missing here, so its typical forecast "
@@ -439,24 +445,37 @@ def history_cut(c: PastCase, stopped: dict, last_filed: str | None = None) -> Co
     10-Q or 10-K stored by D, beside `history_ends` (backlog #272)."""
     ends = stopped["history_ends"]
     lost = [q.period for q in c.quarters if _not_reported(q.items["revenue"])]
-    text = (f"{c.ticker}'s filings from {ends} on are missing in Warren's data, so its typical "
-            "forecast errors stop at that date")  # fmt: skip
+    linked = bool(stopped.get("successor_linked"))  # filings read on, track record not (#573)
+    if linked:
+        text = (f"{c.ticker}'s typical forecast errors stop at {ends}: Warren reads its later "
+                "filings from the successor's CIK, but its scored track record has not been "
+                "re-run past that date")  # fmt: skip
+    else:
+        text = (f"{c.ticker}'s filings from {ends} on are missing in Warren's data, so its "
+                "typical forecast errors stop at that date")  # fmt: skip
     if c.missing is not None:
         effect = "no_stored_run"
         text += "; this case has no stored forecast, so none of its own quarters are compared"
     elif lost:
         effect = "own_quarters_missing"
         one = len(lost) == 1
-        text += (f"; this case's {'quarter' if one else 'quarters'} {', '.join(lost)} "
-                 f"{'is' if one else 'are'} not in the data by the question's date either (not "
-                 "yet filed, or filed after that date), so they can't be compared while its "
-                 "filings stop there")  # fmt: skip
+        if linked:
+            text += (f"; this case's {'quarter' if one else 'quarters'} {', '.join(lost)} "
+                     f"{'is' if one else 'are'} not filed by the question's date, so they "
+                     "can't be compared yet")  # fmt: skip
+        else:
+            text += (f"; this case's {'quarter' if one else 'quarters'} {', '.join(lost)} "
+                     f"{'is' if one else 'are'} not in the data by the question's date either "
+                     "(not yet filed, or filed after that date), so they can't be compared "
+                     "while its filings stop there")  # fmt: skip
     else:
         effect = "usual_only"
         text += ("; every quarter of this case is in the data, only the yardstick it is "
                  "compared with is shorter")  # fmt: skip
     params = {"ticker": c.ticker, "role": stopped["role"], "history_ends": ends,
               "effect": effect, "quarters_missing": lost, "last_filed": last_filed}  # fmt: skip
+    if linked:
+        params["successor_linked"] = True
     return Coded("history_cut", params, text)
 
 
@@ -482,9 +501,10 @@ _QUARTER = {"Q1": 1, "Q2": 2, "H1": 2, "Q3": 3, "M9": 3, "Q4": 4, "FY": 4}
 def fundamentals_freshness(conn: sqlite3.Connection, cik: str | None, on: date) -> dict:
     """How far Warren's copy of a CIK's SEC company facts reaches, for a question dated `on`.
 
-    `downloaded_at`: when the copy was downloaded from EDGAR, the newest `companyfacts_fetched_at`
-    over the CIK's ingests (facts are upserted, never removed, so the copy is at least that
-    fresh); None when no ingest has one. It is a fact about Warren's copy, not about
+    `downloaded_at`: when the copy was downloaded from EDGAR, the newest dated ingest's
+    `companyfacts_fetched_at` (for a company read with its successor, the older of the two
+    downloads, backlog #573, so an old successor copy is never hidden by a newer predecessor-only
+    ingest); None when no ingest has one. It is a fact about Warren's copy, not about
     the company, so it is read whatever its date: it never changes a number, only whether the
     copy can hold everything filed by `on`. `downloaded_on`: its date in New York.
     `fresh`: downloaded at or after the instant `on` ends in New York (`known_by`, the pipeline's
@@ -493,7 +513,9 @@ def fundamentals_freshness(conn: sqlite3.Connection, cik: str | None, on: date) 
     in such a filing (a year's or year-to-date figure counts for the quarter it ends). Nothing
     filed after `on` is read."""
     run = conn.execute(
-        "SELECT MAX(companyfacts_fetched_at) FROM ingest_runs WHERE cik = ?", (cik,)
+        "SELECT companyfacts_fetched_at FROM ingest_runs WHERE cik = ? "
+        "AND companyfacts_fetched_at IS NOT NULL ORDER BY run_id DESC LIMIT 1",
+        (cik,),
     ).fetchone()
     filed = conn.execute(
         "SELECT MAX(filed_at) FROM financial_facts WHERE cik = ? AND filed_at <= ? "
@@ -692,7 +714,8 @@ def past_events(
         {"case_id": c.case_id, "ticker": c.ticker, "role": c.history_cut.params["role"],
          "history_ends": c.history_cut.params["history_ends"],
          "effect": c.history_cut.params["effect"],
-         "quarters_missing": c.history_cut.params["quarters_missing"]}
+         "quarters_missing": c.history_cut.params["quarters_missing"],
+         **({"successor_linked": True} if c.history_cut.params.get("successor_linked") else {})}
         for c in built if c.reported_quarters > 0 and c.history_cut is not None
     ]  # fmt: skip
     notes.append(_thin(n, "few_cases" if n < THIN_BELOW else "direction_not_recorded", cut))
