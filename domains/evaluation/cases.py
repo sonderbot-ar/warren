@@ -137,7 +137,8 @@ def load_cases(path: Path = CASES_PATH, tickers: set[str] | None = None) -> list
 
 
 def store_cases(conn: sqlite3.Connection, cases: list[Case]) -> None:
-    """Write the cases to eval_cases (replacing earlier versions of the same case ids)."""
+    """Write the cases to eval_cases (replacing earlier versions of the same case ids; a grid case
+    replaces only an earlier grid row, never a hand-picked one)."""
     rows = []
     for case in cases:
         company = conn.execute(
@@ -159,13 +160,19 @@ def store_cases(conn: sqlite3.Connection, cases: list[Case]) -> None:
                 case.scope_change,
             )
         )
-    # a grid case never overwrites a hand-picked case with the same id (M10, grid.py)
+    # a grid case never overwrites a hand-picked case with the same id (M10, grid.py), but it
+    # does update an earlier grid row of its own id: the grid rule can change a case's horizon
+    # (#582 lengthened Exxon's cases when its successor's filings were read; #591)
     grid_rows = [r for r, c in zip(rows, cases, strict=True) if c.is_grid]
     rows = [r for r, c in zip(rows, cases, strict=True) if not c.is_grid]
     with conn:
         conn.executemany(
             "INSERT INTO eval_cases VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT (case_id) DO NOTHING",
+            "ON CONFLICT (case_id) DO UPDATE SET ticker = excluded.ticker, cik = excluded.cik, "
+            "event_date = excluded.event_date, description = excluded.description, "
+            "horizon_quarters = excluded.horizon_quarters, "
+            "selected_because = excluded.selected_because, source_url = excluded.source_url, "
+            "scope_change = excluded.scope_change WHERE eval_cases.event_type = 'grid'",
             grid_rows,
         )
         conn.executemany(

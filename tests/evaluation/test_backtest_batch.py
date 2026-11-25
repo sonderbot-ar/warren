@@ -171,6 +171,23 @@ def test_a_grid_batch_gets_the_grid_sections_and_an_event_batch_does_not(company
     assert "events were chosen in hindsight as notable; 26 cases is few" in plain
 
 
+def test_the_grid_limitations_line_counts_failed_cases_too(company):
+    # #591: the line said 175 of 176 because it counted only the cases with result rows
+    import dataclasses
+    from datetime import date
+
+    two_sets(company)
+    gridded = dataclasses.replace(case(), event_type="grid", selected_because="grid rule: test",
+                                  source_url="")  # fmt: skip
+    failing = dataclasses.replace(gridded, case_id="TST_2019-09-30", event_date=date(2019, 9, 30))
+    batch = run_backtest(company, [gridded, failing], "sha", actuals_as_of=TODAY, today=TODAY,
+                         n_samples=N)  # fmt: skip
+    assert company.execute("SELECT case_id FROM eval_failures").fetchone()[0] == failing.case_id
+    text = backtest_report.render(company, batch)
+    assert "2 grid cases in the batch" in text and "1 failed" in text
+    assert "2 grid cases on rule-chosen dates" in text
+
+
 def _quiet(conn, variant, run="run_quiet"):
     """The case classified in `variant` with no event left to propose from (an empty week)."""
     from tests.evaluation.test_llm_variants import CASE_DATE, company_of

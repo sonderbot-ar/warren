@@ -168,7 +168,8 @@ def shared_with_hand_picked(cases: list[Case], events_path: Path = CASES_PATH) -
 
     They stay in the grid (dropping them would be a choice made after looking) and share the
     hand-picked case's run and AI answers, which are keyed by company and date; storing the grid
-    never overwrites the hand-picked row (`cases.store_cases`).
+    never overwrites the hand-picked row (`cases.store_cases`); it does update its own earlier
+    grid row, so a stored horizon follows the rule.
     """
     hand_cases = load_cases(events_path)
     if any(c.is_grid for c in hand_cases):

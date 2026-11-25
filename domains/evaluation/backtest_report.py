@@ -218,7 +218,10 @@ def render(conn: sqlite3.Connection, batch_id: str) -> str:
     out += _per_case(rows, info, shocks)
     if failures:
         out += ["", "## Failed cases", ""] + [f"- {f['case_id']}: {f['reason']}" for f in failures]
-    out += _glossary(len(info) if is_grid else None)
+    # every grid case in the batch, scored, not yet scorable or failed, as grid_sections counts
+    # them (`info` holds only the cases with result rows; #591)
+    n_grid = len({r["case_id"] for r in rows} | {f["case_id"] for f in failures})
+    out += _glossary(n_grid if is_grid else None)
     return "\n".join(out) + "\n"
 
 
