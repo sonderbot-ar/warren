@@ -188,6 +188,34 @@ def test_the_grid_limitations_line_counts_failed_cases_too(company):
     assert "2 grid cases on rule-chosen dates" in text
 
 
+def test_a_grid_batch_whose_every_case_failed_is_still_read_as_a_grid_batch(company):
+    # #594: the grid check read only the cases with result rows, so with none it saw no grid
+    import dataclasses
+    from datetime import date
+
+    two_sets(company)
+    failing = dataclasses.replace(case(), case_id="TST_2019-09-30", event_date=date(2019, 9, 30),
+                                  event_type="grid", selected_because="grid rule: test",
+                                  source_url="")  # fmt: skip
+    batch = run_backtest(company, [failing], "sha", actuals_as_of=TODAY, today=TODAY, n_samples=N)
+    n_rows = "SELECT COUNT(*) FROM eval_results WHERE batch_id = ?"
+    assert company.execute(n_rows, (batch,)).fetchone()[0] == 0
+    text = backtest_report.render(company, batch)
+    assert "## Grid cases: the test read for the answer" in text
+    assert "1 grid cases in the batch" in text and "0 scored" in text and "1 failed" in text
+    assert "1 grid cases on rule-chosen dates" in text
+    assert "events were chosen in hindsight" not in text
+
+
+def test_an_all_failed_event_batch_gets_no_grid_sections(company):
+    batch = run_backtest(company, [case()], "sha", actuals_as_of=TODAY, today=TODAY, n_samples=N)
+    n_rows = "SELECT COUNT(*) FROM eval_results WHERE batch_id = ?"
+    # no proposal sets stored, so the hand-picked case fails
+    assert company.execute(n_rows, (batch,)).fetchone()[0] == 0
+    text = backtest_report.render(company, batch)
+    assert "## Grid cases" not in text and "1 failed" in text
+
+
 def _quiet(conn, variant, run="run_quiet"):
     """The case classified in `variant` with no event left to propose from (an empty week)."""
     from tests.evaluation.test_llm_variants import CASE_DATE, company_of

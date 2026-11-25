@@ -55,6 +55,20 @@ def case_info(conn: sqlite3.Connection, batch_id: str) -> dict[str, sqlite3.Row]
     }
 
 
+def batch_event_types(conn: sqlite3.Connection, batch_id: str) -> set[str]:
+    """The event types of every case in the batch: scored, not yet scorable or failed. `case_info`
+    holds only the cases with result rows, so a batch whose every case failed has none (#594)."""
+    return {
+        r[0]
+        for r in conn.execute(
+            "SELECT DISTINCT c.event_type FROM eval_cases c WHERE c.case_id IN "
+            "(SELECT case_id FROM eval_results WHERE batch_id = ? "
+            "UNION SELECT case_id FROM eval_failures WHERE batch_id = ?)",
+            (batch_id, batch_id),
+        )
+    }
+
+
 def drivers(conn: sqlite3.Connection, notes: dict) -> dict[tuple[str, str], list]:
     """(case, llm variant) → the shocks applied, in stored order."""
     out = {}
@@ -208,7 +222,7 @@ def render(conn: sqlite3.Connection, batch_id: str) -> str:
             h = bt.by_horizon(ps)
             cells = [f"{_pts(h[k][0])} (n={h[k][1]})" if k in h else "n/a" for k in (1, 2, 3, 4)]
             out.append(f"| {NAMES[v]} | {ITEM_NAMES[item]} | {' | '.join(cells)} |")
-    is_grid = bool(info) and all(r["event_type"] == "grid" for r in info.values())
+    is_grid = batch_event_types(conn, batch_id) == {"grid"}
     if is_grid:
         out += grid_sections(conn, rows, {f["case_id"]: f["reason"] for f in failures})
     out += _direction(rows)
@@ -219,7 +233,7 @@ def render(conn: sqlite3.Connection, batch_id: str) -> str:
     if failures:
         out += ["", "## Failed cases", ""] + [f"- {f['case_id']}: {f['reason']}" for f in failures]
     # every grid case in the batch, scored, not yet scorable or failed, as grid_sections counts
-    # them (`info` holds only the cases with result rows; #591)
+    # them (`info` holds only the cases with result rows; #591, #594)
     n_grid = len({r["case_id"] for r in rows} | {f["case_id"] for f in failures})
     out += _glossary(n_grid if is_grid else None)
     return "\n".join(out) + "\n"
