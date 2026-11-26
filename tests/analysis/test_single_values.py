@@ -1642,3 +1642,100 @@ def test_a_floored_child_of_a_parent_without_sources_has_no_floor_note(run):
     cell = _cell(answer, "cost_of_debt")
     assert cell.rows[0].value == _cell(answer, "risk_free").rows[0].value == 0.05
     assert not any(n.code == "floored_at_risk_free" for n in cell.notes)
+
+
+# -- downloads that are not the run's own (backlog #601) ---------------------------------------
+
+UNPINNED_SERIES = ("risk_free", "terminal_growth", "beta", "erp", "shares")
+
+
+def _unpinned_by_cell(conn, run_id):
+    """{cell: [the `download_not_pinned` notes' roles, one list per series]}."""
+    answer = inputs_behind(conn, run_id, VPS, years=5)
+    out = {}
+    for name in UNPINNED_SERIES:
+        out[name] = [
+            sorted(d["role"] for n in s.notes if n.code == "download_not_pinned"
+                   for d in n.params["downloads"])
+            for s in _cell(answer, name).history
+        ]  # fmt: skip
+    return answer, out
+
+
+def _newest_fetch_time(conn, source):
+    from domains.market.store import fetch_time
+
+    row = conn.execute(
+        "SELECT * FROM market_fetches WHERE source = ? ORDER BY fetch_id DESC LIMIT 1", (source,)
+    ).fetchone()
+    return fetch_time(row).isoformat()
+
+
+def _no_market_date_after_the_run(answer):
+    for name in ("risk_free", "beta"):
+        for p in _primary(_cell(answer, name)).points:
+            assert p.period_end is None or p.period_end <= AS_OF
+
+
+def test_no_download_note_when_every_download_is_the_runs_own(run):
+    _answer, by_cell = _unpinned_by_cell(*run)
+    assert all(roles == [] for series in by_cell.values() for roles in series)
+
+
+def test_a_replaced_yield_download_is_named_on_the_yield_series_only(run):
+    conn, run_id = run
+    conn.execute("UPDATE runs SET yield_fetch_sha256 = ? WHERE run_id = ?", ("0" * 64, run_id))
+    answer, by_cell = _unpinned_by_cell(conn, run_id)
+    assert by_cell["risk_free"] == [["yield"]]
+    assert by_cell["terminal_growth"] == [["yield"]]  # the same series, shown on that card too
+    assert by_cell["erp"] == [["yield"]]
+    assert by_cell["beta"] == [[]]
+    assert all(roles == [] for roles in by_cell["shares"])
+    note = next(n for n in _primary(_cell(answer, "risk_free")).notes
+                if n.code == "download_not_pinned")  # fmt: skip
+    (d,) = note.params["downloads"]
+    assert d["source"] == "fred" and d["covers_run_date"] is True
+    assert d["read_fetched_at"] == _newest_fetch_time(conn, "fred")
+    _no_market_date_after_the_run(answer)
+
+
+def test_a_replaced_price_download_is_named_on_beta_and_the_share_series(run):
+    conn, run_id = run
+    conn.execute("UPDATE runs SET price_fetch_sha256 = ? WHERE run_id = ?", ("0" * 64, run_id))
+    answer, by_cell = _unpinned_by_cell(conn, run_id)
+    assert by_cell["beta"] == [["price"]]
+    assert by_cell["shares"] == [["price"], ["price"], ["price"]]
+    assert by_cell["risk_free"] == [[]] and by_cell["erp"] == [[]]
+    (d,) = next(n for n in _primary(_cell(answer, "beta")).notes
+                if n.code == "download_not_pinned").params["downloads"]  # fmt: skip
+    assert (d["source"], d["symbol"], d["covers_run_date"]) == ("yahoo", "TST", True)
+    _no_market_date_after_the_run(answer)
+
+
+def test_a_price_download_made_before_the_run_date_ended_says_so(run):
+    """`split_factor` reads the newest price download without a coverage check, so a download
+    that stops before the run's date could miss a split: the note says it does not cover the
+    run's date (analyst, backlog #601)."""
+    conn, run_id = run
+    conn.execute("UPDATE runs SET price_fetch_sha256 = ? WHERE run_id = ?", ("0" * 64, run_id))
+    conn.execute(
+        "UPDATE market_fetches SET fetched_at = ? WHERE source = 'yahoo' AND symbol = 'TST'",
+        ((AS_OF - timedelta(days=30)).isoformat() + "T22:00:00+00:00",),
+    )
+    answer, by_cell = _unpinned_by_cell(conn, run_id)
+    assert by_cell["beta"] == [["price"]]
+    for s in _cell(answer, "shares").history:
+        (d,) = next(n for n in s.notes if n.code == "download_not_pinned").params["downloads"]
+        assert d["covers_run_date"] is False
+    _no_market_date_after_the_run(answer)
+
+
+def test_two_replaced_downloads_are_both_named_on_a_series_reading_both(run):
+    conn, run_id = run
+    conn.execute(
+        "UPDATE runs SET price_fetch_sha256 = ?, index_fetch_sha256 = ? WHERE run_id = ?",
+        ("0" * 64, "1" * 64, run_id),
+    )
+    _answer, by_cell = _unpinned_by_cell(conn, run_id)
+    assert by_cell["beta"] == [["index", "price"]]
+    assert by_cell["erp"] == [["index"]]
