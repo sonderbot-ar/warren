@@ -173,6 +173,8 @@ def test_shipped_maps_load_together():
         "discontinued_operations",
         "debt_fair_value",
         "debt_effective_rate",
+        "debt_average_rate_long_term",
+        "debt_average_rate_short_term",
     }
 
 
@@ -376,6 +378,20 @@ def test_the_shipped_maps_scope_only_the_rows_checked_for_each_company():
         ("interest_not_on_debt", "InterestExpenseOther", 1, {"XOM"}),
         # backlog #542 (reported-only file): J&J's stated effective rate on its long-term debt
         ("debt_effective_rate", "DebtInstrumentInterestRateEffectivePercentage", 1, {"JNJ"}),
+        # backlog #543 (reported-only file): Coca-Cola's and P&G's stated average rates on their
+        # long-term and short-term debt, to check the cost of debt
+        (
+            "debt_average_rate_long_term",
+            "LongtermDebtWeightedAverageInterestRate",
+            1,
+            {"KO", "PG"},
+        ),
+        (
+            "debt_average_rate_short_term",
+            "ShortTermDebtWeightedAverageInterestRate",
+            1,
+            {"KO", "PG"},
+        ),
     ]
 
 

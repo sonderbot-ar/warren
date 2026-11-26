@@ -6,7 +6,7 @@ happens to cover it.
 """
 
 import pytest
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 
 from domains.analysis import financial_math as fm
@@ -296,3 +296,40 @@ def test_beta_std_error_refuses_what_ols_beta_refuses():
         fm.ols_beta_std_error([0.1, 0.2], [0.1, 0.2])
     with pytest.raises(fm.FinancialMathError):
         fm.ols_beta_std_error([0.1, 0.2, 0.3], [0.0, 0.0, 0.0])
+
+
+# -- a blend of two stated rates (backlog #543) ---------------------------------------------------
+
+_stated = st.floats(min_value=0.0, max_value=0.15)
+_amount = st.floats(min_value=0.0, max_value=1e6)
+
+
+@given(_stated, _amount, _stated, _amount)
+@example(0.125, 5e-324, 0.125, 0.0)  # rate × amount underflows to zero (CI, PR #609)
+def test_a_blended_rate_lies_between_its_two_rates(long_rate, long_amount, short_rate, short):
+    if long_amount + short <= 0:
+        with pytest.raises(fm.FinancialMathError):
+            fm.blended_rate(long_rate, long_amount, short_rate, short)
+        return
+    got = fm.blended_rate(long_rate, long_amount, short_rate, short)
+    assert min(long_rate, short_rate) - 1e-12 <= got <= max(long_rate, short_rate) + 1e-12
+
+
+@given(_stated, st.floats(min_value=1.0, max_value=1e6), _stated)
+def test_a_blend_with_one_amount_zero_is_the_other_rate(long_rate, amount, short_rate):
+    assert fm.blended_rate(long_rate, amount, short_rate, 0.0) == pytest.approx(long_rate)
+    assert fm.blended_rate(long_rate, 0.0, short_rate, amount) == pytest.approx(short_rate)
+
+
+@given(_stated, _amount, _stated, _amount, st.floats(min_value=0.001, max_value=1000))
+def test_a_blend_does_not_depend_on_the_unit(long_rate, long_amount, short_rate, short, scale):
+    if long_amount + short < 1.0:
+        return
+    assert fm.blended_rate(
+        long_rate, long_amount * scale, short_rate, short * scale
+    ) == pytest.approx(fm.blended_rate(long_rate, long_amount, short_rate, short), abs=1e-12)
+
+
+def test_a_blend_refuses_a_negative_amount():
+    with pytest.raises(fm.FinancialMathError):
+        fm.blended_rate(0.03, -1.0, 0.01, 5.0)
