@@ -147,25 +147,42 @@ class Singles:
                 self._history = load_history(self.conn, self.run["cik"], self.as_of)
         return self._history
 
+    def _pin_map(self) -> dict:
+        """The run's own downloads still stored, by (source, symbol); read once per answer."""
+        if "pin_map" not in self.cache:
+            from domains.market.prices import MARKET_INDEX
+            from domains.market.store import MarketDataError, fetch_with_hash
+            from domains.market.yields import RISK_FREE_SERIES
+
+            pins = {}
+            for source, symbol, column in (
+                ("yahoo", self.run["ticker"], "price_fetch_sha256"),
+                ("yahoo", MARKET_INDEX, "index_fetch_sha256"),
+                ("fred", RISK_FREE_SERIES, "yield_fetch_sha256"),
+            ):
+                try:  # pin each download the run names that is still stored
+                    pins[(source, symbol)] = fetch_with_hash(
+                        self.conn, source, symbol, self.run[column]
+                    )["fetch_id"]
+                except (MarketDataError, KeyError, IndexError, TypeError):
+                    continue
+            self.cache["pin_map"] = pins
+        return self.cache["pin_map"]
+
     def pins(self):
         """The run's own downloads, as `reproduce` pins them; none if one is no longer stored."""
-        from domains.market.prices import MARKET_INDEX
-        from domains.market.store import MarketDataError, fetch_with_hash, pin_fetches
+        from domains.market.store import pin_fetches
+
+        pins = self._pin_map()
+        return pin_fetches(pins) if pins else nullcontext()
+
+    def yield_pinned(self) -> bool:
+        """Whether the run's own 10-year yield download is still stored, so a yield read inside
+        `pins()` is the run's; otherwise it is the newest download (backlog #499). The yield's
+        own pin, never "any pin"."""
         from domains.market.yields import RISK_FREE_SERIES
 
-        pins = {}
-        for source, symbol, column in (
-            ("yahoo", self.run["ticker"], "price_fetch_sha256"),
-            ("yahoo", MARKET_INDEX, "index_fetch_sha256"),
-            ("fred", RISK_FREE_SERIES, "yield_fetch_sha256"),
-        ):
-            try:  # pin each download the run names that is still stored
-                pins[(source, symbol)] = fetch_with_hash(
-                    self.conn, source, symbol, self.run[column]
-                )["fetch_id"]
-            except (MarketDataError, KeyError, IndexError, TypeError):
-                continue
-        return pin_fetches(pins) if pins else nullcontext()
+        return ("fred", RISK_FREE_SERIES) in self._pin_map()
 
     def months(self) -> list[date]:
         """The first of each month, `years` × 12 of them, before the run's date."""
@@ -816,7 +833,8 @@ def _cost_of_debt_point(singles: Singles, year: int, used: bool):
         for f in (*paid.facts, *opening, *closing)
     ]
     period_end = paid.facts[0].period_end if paid.facts else None
-    notes = _below_risk_free(singles, kd, used, period_end)
+    period_start = paid.facts[0].period_start if paid.facts else None
+    notes = _below_risk_free(singles, kd, used, period_end, period_start)
     caveat = caveat_for(singles.run["ticker"], year)
     if caveat is not None and caveat.code == HEDGE_NOTE:
         # the run's own row on the used year, as `below_risk_free` compares (product lead)
@@ -1030,7 +1048,9 @@ def _floored_note(singles: Singles):
     the child's own risk-free row (`whatif._leverage_rows`; backlog #481): the value is that row
     (itself a what-if value when `risk_free_changed`), and the parent's book cost of debt and
     its fiscal year (None when the parent's sources name no interest filing) say what it
-    replaced."""
+    replaced. A child of a parent stored before sources were recorded has no sources at all
+    (`whatif.revalue`), so it gets no note, not one with `book_year` None; its cell still shows
+    the floor, its own row (backlog #499)."""
     sources = singles.stored.get(("cost_of_debt", SINGLE), [])
     floored = next(
         (s for s in sources if s["kind"] == "what_if" and s.get("how") == "floored_at_risk_free"),
@@ -1079,12 +1099,22 @@ def _run_risk_free(singles: Singles):
     return value, source["end"] if source else None
 
 
-def _below_risk_free(singles: Singles, kd: float, used: bool, period_end: date | None) -> list:
+def _below_risk_free(
+    singles: Singles,
+    kd: float,
+    used: bool,
+    period_end: date | None,
+    period_start: date | None = None,
+) -> list:
     """`below_risk_free` when a year's book (embedded) cost of debt is strictly below the 10-year
     Treasury yield (backlog #481): the used year against the run's own risk-free row (the rate
     in the same WACC, and the row `whatif._would_floor` compares with), every other year against
     the average 10-year yield over that fiscal year (interest over average debt is a flow over
-    the year, so one day's yield is not like for like; analyst, #481). Nothing after `as_of`."""
+    the year, so one day's yield is not like for like; analyst, #481). Nothing after `as_of`.
+
+    The fiscal year is the interest fact's own period, `period_start` to `period_end`, so a
+    53-week year reads its first week and a 52-week year reads no day of the year before
+    (backlog #499); 364 days before the end only when the fact has no start."""
     from domains.market.store import MarketDataError
     from domains.market.yields import yields_through
 
@@ -1104,7 +1134,8 @@ def _below_risk_free(singles: Singles, kd: float, used: bool, period_end: date |
             return []
         try:
             with singles.pins():
-                obs = yields_through(singles.conn, period_end - timedelta(days=364), period_end)
+                first = period_start or period_end - timedelta(days=364)
+                obs = yields_through(singles.conn, first, period_end)
         except MarketDataError:
             return []
         if not obs:
@@ -1114,6 +1145,8 @@ def _below_risk_free(singles: Singles, kd: float, used: bool, period_end: date |
             "against": "year_average_yield",
             "risk_free_from": obs[0].date.isoformat(),
             "observations": len(obs),
+            # false: the run's yield download is no longer stored, so the newest was read
+            "yield_fetch_pinned": singles.yield_pinned(),
         }
         benchmark = f"its average from {obs[0].date.isoformat()} to {rf_date}"
     if kd is None or not kd < rf:

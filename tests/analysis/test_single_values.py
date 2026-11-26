@@ -280,7 +280,8 @@ def test_a_book_cost_of_debt_below_the_yield_says_so(make_company):
             assert note.params["against"] == "year_average_yield"
             first = date.fromisoformat(note.params["risk_free_from"])
             last = date.fromisoformat(note.params["risk_free_date"])
-            assert p.period_end - timedelta(days=364) <= first <= last <= p.period_end
+            # the fiscal year's own dates: Test Corp's calendar years start on 1 January (#499)
+            assert date(p.period_end.year, 1, 1) <= first <= last <= p.period_end
             assert note.params["observations"] >= 50  # weekly yields over a year
             assert note.params["risk_free"] == pytest.approx(0.03)
 
@@ -1507,3 +1508,137 @@ def test_the_week_year_gap_is_to_the_previous_distinct_end():
     end = filed[-1][1]
     filed.insert(-1, (end - timedelta(days=90), end))  # another period ending on the same day
     assert expected_year_end(filed, 1) == date(2026, 9, 26)
+
+
+# -- backlog #499: the year-average yield over the fiscal year's own dates -----------------------
+
+
+@pytest.fixture
+def yields_db(db_path):
+    """Make a fresh database holding one 10-year yield download, `rates` mapping each weekday
+    to a percent; returns what `_below_risk_free` reads of a `Singles`."""
+    from contextlib import nullcontext
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    from domains.market.yields import load_yields
+    from shared_kernel.database import apply_migrations, get_db_connection
+
+    managers = []
+
+    def make(rates):
+        cm = get_db_connection(db_path)
+        managers.append(cm)
+        conn = cm.__enter__()
+        apply_migrations(conn)
+        rows = [{"date": d.isoformat(), "value": v} for d, v in sorted(rates.items())]
+        load_yields(conn, download=lambda s: rows, now=lambda: datetime(2024, 1, 2, tzinfo=UTC))
+        return SimpleNamespace(
+            conn=conn, as_of=date(2024, 1, 2), pins=nullcontext, yield_pinned=lambda: True
+        )
+
+    yield make
+    for cm in managers:
+        cm.__exit__(None, None, None)
+
+
+def _weekdays(first, last):
+    days = (first + timedelta(days=k) for k in range((last - first).days + 1))
+    return [d for d in days if d.weekday() < 5]
+
+
+@pytest.mark.parametrize(
+    "start, end, first_trading_day",
+    [
+        # Apple's 53-week FY2023: Sunday 25 September 2022 to Saturday 30 September 2023
+        (date(2022, 9, 25), date(2023, 9, 30), date(2022, 9, 26)),
+        # Johnson & Johnson's 53-week FY2020: Monday 30 December 2019 to Sunday 3 January 2021
+        (date(2019, 12, 30), date(2021, 1, 3), date(2019, 12, 30)),
+    ],
+)
+def test_the_year_average_yield_covers_a_53_week_year(yields_db, start, end, first_trading_day):
+    from domains.analysis.single_values import _below_risk_free
+
+    days = _weekdays(start, end)
+    first_week = [d for d in days if d < start + timedelta(days=7)]
+    singles = yields_db({d: 5.0 if d in first_week else 2.0 for d in days})
+    (note,) = _below_risk_free(singles, 0.01, False, end, start)
+    # on main the window began 364 days before the end and left the first week out
+    assert note.params["risk_free_from"] == first_trading_day.isoformat()
+    assert note.params["observations"] == len(days)
+    expected = (len(first_week) * 0.05 + (len(days) - len(first_week)) * 0.02) / len(days)
+    assert note.params["risk_free"] == pytest.approx(expected)
+
+
+def test_the_year_average_yield_reads_no_day_before_the_year(yields_db):
+    from domains.analysis.single_values import _below_risk_free
+
+    # a 52-week year on made-up dates (a real one starts on a weekend, so 364 days before
+    # its end has no yield): Thursday 2 January 2020 to Wednesday 30 December 2020
+    start, end = date(2020, 1, 2), date(2020, 12, 30)
+    rates = {d: 2.0 for d in _weekdays(start, end)}
+    rates[start - timedelta(days=1)] = 10.0  # the year before's last day
+    singles = yields_db(rates)
+    (note,) = _below_risk_free(singles, 0.01, False, end, start)
+    assert note.params["risk_free_from"] == start.isoformat()
+    assert note.params["risk_free"] == pytest.approx(0.02)
+
+
+def _year_average_notes(conn, run_id):
+    points = _primary(_cell(inputs_behind(conn, run_id, VPS, years=5), "cost_of_debt")).points
+    return [
+        n
+        for p in points
+        for n in p.notes
+        if n.code == "below_risk_free" and n.params["against"] == "year_average_yield"
+    ]
+
+
+@pytest.fixture
+def cheap_run(make_company):
+    def cheap_interest(tag, row):  # a 1% book cost against a 3% yield: every year has the note
+        if tag == "InterestExpense":
+            return {**row, "val": row["val"] / 4}
+        return row
+
+    conn = make_company(cheap_interest)
+    return conn, run_baseline(conn, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+
+
+def test_the_year_average_yield_says_it_read_the_runs_own_download(cheap_run):
+    notes = _year_average_notes(*cheap_run)
+    assert notes and all(n.params["yield_fetch_pinned"] is True for n in notes)
+
+
+def test_a_replaced_yield_download_is_flagged_and_still_point_in_time(cheap_run):
+    conn, run_id = cheap_run
+    before = _year_average_notes(conn, run_id)
+    # the run names a yield download that is no longer stored (replaced before migration 0006)
+    conn.execute("UPDATE runs SET yield_fetch_sha256 = ? WHERE run_id = ?", ("0" * 64, run_id))
+    after = _year_average_notes(conn, run_id)
+    assert len(after) == len(before) > 0
+    for n in after:
+        assert n.params["yield_fetch_pinned"] is False
+        assert date.fromisoformat(n.params["risk_free_date"]) < AS_OF
+
+
+def test_a_replaced_price_download_leaves_the_yield_flag_true(cheap_run):
+    conn, run_id = cheap_run
+    conn.execute("UPDATE runs SET price_fetch_sha256 = ? WHERE run_id = ?", ("0" * 64, run_id))
+    notes = _year_average_notes(conn, run_id)
+    assert notes and all(n.params["yield_fetch_pinned"] is True for n in notes)
+
+
+def test_a_floored_child_of_a_parent_without_sources_has_no_floor_note(run):
+    """A parent stored before sources were recorded gives a child with none, so the floor note
+    cannot be written; the cell still shows the floor, the child's own row (backlog #499)."""
+    conn, parent = run
+    conn.execute("DELETE FROM assumption_sources WHERE run_id = ?", (parent,))
+    child = _floored_child(conn, parent)
+    assert not conn.execute(
+        "SELECT 1 FROM assumption_sources WHERE run_id = ?", (child,)
+    ).fetchone()
+    answer = inputs_behind(conn, child, VPS)
+    cell = _cell(answer, "cost_of_debt")
+    assert cell.rows[0].value == _cell(answer, "risk_free").rows[0].value == 0.05
+    assert not any(n.code == "floored_at_risk_free" for n in cell.notes)
