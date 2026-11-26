@@ -337,6 +337,22 @@ def cost_of_debt(interest: Number, average_debt: Number) -> Number:
     return interest / average_debt
 
 
+def blended_rate(
+    long_rate: Number, long_amount: Number, short_rate: Number, short_amount: Number
+) -> Number:
+    """Two rates weighted by the amounts they apply to (backlog #543: a company's stated rates
+    on its long-term and short-term debt, by the debt each covers at a year end). The amounts
+    must be zero or above and add up to more than zero."""
+    if _any(long_amount < 0) or _any(short_amount < 0):
+        raise FinancialMathError(
+            f"amounts must be zero or above, got {long_amount} and {short_amount}"
+        )
+    total = long_amount + short_amount
+    if _any(total <= 0):
+        raise FinancialMathError(f"the amounts must add up to more than zero, got {total}")
+    return (long_rate * long_amount + short_rate * short_amount) / total
+
+
 def ols_beta(stock_returns: Sequence[float], market_returns: Sequence[float]) -> float:
     """Slope of stock returns on market returns: cov(stock, market) / var(market)."""
     n = len(stock_returns)

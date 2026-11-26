@@ -71,7 +71,13 @@ def companyfacts(edit=None) -> dict:
     facts: dict[str, dict[str, list]] = {}
 
     def unit_of(tag):  # a stated rate is a pure ratio (backlog #542)
-        return "shares" if "Shares" in tag else "pure" if tag.endswith("Percentage") else "USD"
+        return (
+            "shares"
+            if "Shares" in tag
+            else "pure"
+            if tag.endswith(("Percentage", "InterestRate"))
+            else "USD"
+        )
 
     def put(tag, value, end, accn, fy, fp, form, filed, start=None):
         row = {"end": end, "val": value, "accn": accn, "fy": fy, "fp": fp, "form": form}

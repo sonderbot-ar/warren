@@ -69,6 +69,8 @@ BALANCE_NOTES = (
 )
 # The cost-of-debt note for a company whose interest line is net of swap gains (backlog #542)
 HEDGE_NOTE = "interest_net_of_hedge_gains"
+# The cost-of-debt note for a book rate far from the company's own stated rate (backlog #543)
+STATED_NOTE = "far_from_stated_rate"
 # Notes of this module, a closed list
 POINT_NOTES = (
     "run_date",  # the run's own date (the last point of a monthly series), not a month start
@@ -84,10 +86,16 @@ POINT_NOTES = (
     # (interest_caveats.csv), with its own stated effective rate beside; replaces
     # below_risk_free on the years it covers, keeping its params inside (backlog #542)
     HEDGE_NOTE,
+    # cost of debt: the book rate is more than STATED_RATE_GAP from the rate the company states
+    # on its own debt (stated_debt_rates.csv), averaged over the year's two year ends; never on
+    # a year an interest caveat covers, whose note already compares the two (backlog #543)
+    STATED_NOTE,
 )
 CELL_NOTES = (
     # the run's own cost-of-debt year is one an interest caveat covers (backlog #542)
     HEDGE_NOTE,
+    # the run's own cost-of-debt year is far from the company's stated rate (backlog #543)
+    STATED_NOTE,
     "follows_risk_free",  # terminal growth equals the risk-free rate by the owner's method
     "computed_from_other_cells",  # params inputs: the rows it is computed from
     # a what-if child's cost of debt is the risk-free rate, not a book year (backlog #481)
@@ -315,16 +323,19 @@ def single_cell(singles: Singles, name: str, cell_rows: list):
     history = [_checked(s, cell_rows) for s in builders[name]()]
     notes = []
     if name == "cost_of_debt":
-        notes = _cost_of_debt_cell_notes(singles, singles.cache.get("hedge_note_used"))
+        notes = _cost_of_debt_cell_notes(singles, singles.cache.get("cost_of_debt_used_notes"))
     return Cell(name, cell_rows, history, None, notes)
 
 
-def _cost_of_debt_cell_notes(singles: Singles, used_hedge_note: Coded | None) -> list[Coded]:
+def _cost_of_debt_cell_notes(singles: Singles, used_point) -> list[Coded]:
     """The `cost_of_debt` cell's notes: `floored_at_risk_free` on a floored what-if, else the
-    used year's caveat note, so a screen showing only the run's figure has it too."""
+    used year's caveat note or its `far_from_stated_rate` (never both), so a screen showing only
+    the run's figure has it too. `used_point` is the used year's point, or None."""
     if (floored := _floored_note(singles)) is not None:
         return [floored]
-    return [used_hedge_note] if used_hedge_note is not None else []
+    if used_point is None:
+        return []
+    return [n for n in used_point.notes if n.code in (HEDGE_NOTE, STATED_NOTE)]
 
 
 def _cached(singles: Singles, key: str, build):
@@ -680,14 +691,12 @@ def _cost_of_debt(singles: Singles):
     last_year = max(singles.reader.latest(quarterly=False).fiscal_year, last_quarter.fiscal_year)
     labels = _year_labels(last_year, singles.years, {used_label} if used_label else set())
     points = []
-    singles.cache["hedge_note_used"] = None
+    singles.cache["cost_of_debt_used_notes"] = None
     for label in labels:
         point = _cost_of_debt_point(singles, int(label[2:]), label == used_label)
         if point.used:
-            # the run's own year is covered: a screen showing only the run's figure has the note
-            singles.cache["hedge_note_used"] = next(
-                (n for n in point.notes if n.code == HEDGE_NOTE), None
-            )
+            # a screen showing only the run's figure has the used year's notes too
+            singles.cache["cost_of_debt_used_notes"] = point
         points.append(point)
     return Series("cost_of_debt", "year", "latest", True, None, points)
 
@@ -909,6 +918,10 @@ def _cost_of_debt_point(singles: Singles, year: int, used: bool):
         shown = _run_row(singles, "cost_of_debt") if used else kd
         # `below_risk_free`'s sentence gives the wrong cause here (#542)
         notes = [_hedge_note(singles, caveat, year, shown, period_end, notes)]
+    else:
+        # the run's own row on the used year, as `below_risk_free` compares (product lead, #542)
+        shown = _run_row(singles, "cost_of_debt") if used else kd
+        notes += _stated_rate_note(singles, year, shown, opening, closing)
     return Point(label, year, "FY", period_end, kd, used, parts, notes)
 
 
@@ -1004,8 +1017,7 @@ def cost_of_debt_notes(
             point = used
         else:
             point = _cost_of_debt_point(singles, year, False)
-        hedge = next((n for n in used.notes if n.code == HEDGE_NOTE), None) if used else None
-        cell_notes = _cost_of_debt_cell_notes(singles, hedge)
+        cell_notes = _cost_of_debt_cell_notes(singles, used)
     except ConceptsNotSyncedError as e:  # one coded refusal, as `inputs_behind` (backlog #548)
         raise InputsError(str(e), e.code, dict(e.params)) from e
     return CostOfDebtNotes(run_id, year, point, cell_notes)
@@ -1103,6 +1115,131 @@ def _hedge_note(
         f"debt into lower-rate foreign-currency debt, {beside}; a valuation in dollars needs a "
         "dollar cost of debt, and Warren cannot yet separate the two",
     )
+
+
+# How far a year's book cost of debt may sit from the rate the company states on its own debt
+# before the chart says so: one percentage point, a Warren working rule chosen from Coca-Cola's,
+# P&G's and J&J's years (backlog #543 design doc): P&G's quiet years stay within 0.65 points of
+# their two-year-end average, while J&J's hedge-netted years and Coca-Cola's FY2020 and FY2021,
+# whose interest line holds charges for repaying debt early, are 1.4 points or more away. Stated
+# rates are rounded (Coca-Cola's to 0.1%), so a gap of a few tenths says nothing.
+STATED_RATE_GAP = 0.01
+
+
+def _stated_rate_on(singles: Singles, item: str, day: date):
+    """The company's stated rate dated exactly `day` (a year end), as known on `as_of` (the
+    newest filing's version); None when there is none. Each item's facts are read once per
+    answer."""
+    from domains.fundamentals.facts import get_facts
+
+    def read():
+        newest = {}
+        for f in get_facts(singles.conn, singles.run["cik"], [item], singles.as_of):
+            if f.period_start is not None or f.filed_at > singles.as_of:
+                continue
+            kept = newest.get(f.period_end)
+            if kept is None or (f.filed_at, f.accession_no or "") > (
+                kept.filed_at,
+                kept.accession_no or "",
+            ):
+                newest[f.period_end] = f
+        return newest
+
+    return _cached(singles, f"stated_rate:{item}", read).get(day)
+
+
+def _stated_year_end(singles: Singles, rates, total: float, debt: list) -> dict | None:
+    """One year end's stated rate, blended by the debt Warren counted there (`debt`, whose
+    values add up to `total`): the short-term rate on the part `rates.short_rate_covers` names,
+    the long-term rate on the rest, or the long-term rate on all of it when the company states
+    no short-term rate Warren reads. None when the year end has no long-term rate, its debt is
+    not above zero, or a short-term rate is stated for it but not at this year end."""
+    from domains.analysis.stated_debt_rates import SHORT_RATE_COVERS
+
+    if not debt or total <= 0:
+        return None
+    day = max(f.period_end for f in debt)
+    long_rate = _stated_rate_on(singles, rates.long_rate_item, day)
+    if long_rate is None:
+        return None
+    short_rate, short = None, 0.0
+    if rates.short_rate_item is not None:
+        covered = SHORT_RATE_COVERS[rates.short_rate_covers]
+        short = sum(f.value for f in debt if f.canonical_name in covered and f.value > 0)
+        if short > 0:
+            short_rate = _stated_rate_on(singles, rates.short_rate_item, day)
+            if short_rate is None:
+                return None
+    short = min(short, total)
+    rate = fm.blended_rate(
+        long_rate.value,
+        total - short,
+        short_rate.value if short_rate is not None else long_rate.value,
+        short,
+    )
+    return {
+        "period_end": day.isoformat(),
+        "stated_rate": rate,
+        "long_term_rate": long_rate.value,
+        # None: no short-term debt at this year end, or no short-term rate stated (then the
+        # long-term rate stands for all the debt; `short_rate_covers` None says which)
+        "short_term_rate": short_rate.value if short_rate is not None else None,
+        # the share of this year end's debt the short-term rate covers (0 when it covers none)
+        "short_term_share": short / total if short_rate is not None else 0.0,
+        "long_term_rate_filing": _filing_of(singles, long_rate.accession_no),
+        "short_term_rate_filing": (
+            _filing_of(singles, short_rate.accession_no) if short_rate is not None else None
+        ),
+    }
+
+
+def _stated_rate_note(
+    singles: Singles, year: int, kd: float | None, opening: list, closing: list
+) -> list[Coded]:
+    """`far_from_stated_rate` (backlog #543): a year's book cost of debt more than
+    `STATED_RATE_GAP` from the rate the company states on its own debt, averaged over the
+    year's two year ends (the closing one alone when the opening has no stated rate or no debt),
+    each blended by the debt Warren counted there (`_stated_year_end`). Interest over average
+    debt is a flow over the year and a stated rate is a year end's, so the average of both ends
+    is the fairer comparison (analyst, #543). Nothing filed after `as_of`; no number changes."""
+    from domains.analysis.stated_debt_rates import stated_rates_for
+
+    rates = stated_rates_for(singles.run["ticker"])
+    if rates is None or kd is None:
+        return []
+    ends = []
+    for debt in (opening, closing):
+        found = _stated_year_end(singles, rates, sum(f.value for f in debt), debt)
+        if found is not None:
+            ends.append(found)
+    closing_day = max((f.period_end for f in closing), default=None)
+    if not ends or ends[-1]["period_end"] != (closing_day.isoformat() if closing_day else None):
+        return []  # the closing year end is the one the check needs
+    stated = fm.mean([e["stated_rate"] for e in ends])
+    gap = kd - stated
+    if abs(gap) <= STATED_RATE_GAP:
+        return []
+    side = "below" if gap < 0 else "above"
+    return [
+        Coded(
+            STATED_NOTE,
+            {
+                "fiscal_year": year,
+                "cost_of_debt": kd,
+                "stated_rate": stated,
+                "gap": gap,  # cost_of_debt − stated_rate: below zero when the book rate is lower
+                "threshold": STATED_RATE_GAP,
+                "short_rate_covers": rates.short_rate_covers,
+                "year_ends": ends,  # oldest first; one when only the closing year end has a rate
+            },
+            f"the book cost of debt ({kd:.2%}, interest over average book debt) is "
+            f"{abs(gap) * 100:.2f} percentage points {side} the {stated:.2%} the company states "
+            f"on its own debt (weighted average rates, the mean of {len(ends)} year end"
+            f"{'s' if len(ends) > 1 else ''}, blended by the debt Warren counted there): "
+            "something besides interest on the debt is likely inside the interest line, such as "
+            "hedge gains or charges for repaying debt early",
+        )
+    ]
 
 
 def _interest_source(sources: list) -> dict | None:
