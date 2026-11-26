@@ -1048,7 +1048,9 @@ def _floored_note(singles: Singles):
     the child's own risk-free row (`whatif._leverage_rows`; backlog #481): the value is that row
     (itself a what-if value when `risk_free_changed`), and the parent's book cost of debt and
     its fiscal year (None when the parent's sources name no interest filing) say what it
-    replaced."""
+    replaced. A child of a parent stored before sources were recorded has no sources at all
+    (`whatif.revalue`), so it gets no note, not one with `book_year` None; its cell still shows
+    the floor, its own row (backlog #499)."""
     sources = singles.stored.get(("cost_of_debt", SINGLE), [])
     floored = next(
         (s for s in sources if s["kind"] == "what_if" and s.get("how") == "floored_at_risk_free"),

@@ -1627,3 +1627,18 @@ def test_a_replaced_price_download_leaves_the_yield_flag_true(cheap_run):
     conn.execute("UPDATE runs SET price_fetch_sha256 = ? WHERE run_id = ?", ("0" * 64, run_id))
     notes = _year_average_notes(conn, run_id)
     assert notes and all(n.params["yield_fetch_pinned"] is True for n in notes)
+
+
+def test_a_floored_child_of_a_parent_without_sources_has_no_floor_note(run):
+    """A parent stored before sources were recorded gives a child with none, so the floor note
+    cannot be written; the cell still shows the floor, the child's own row (backlog #499)."""
+    conn, parent = run
+    conn.execute("DELETE FROM assumption_sources WHERE run_id = ?", (parent,))
+    child = _floored_child(conn, parent)
+    assert not conn.execute(
+        "SELECT 1 FROM assumption_sources WHERE run_id = ?", (child,)
+    ).fetchone()
+    answer = inputs_behind(conn, child, VPS)
+    cell = _cell(answer, "cost_of_debt")
+    assert cell.rows[0].value == _cell(answer, "risk_free").rows[0].value == 0.05
+    assert not any(n.code == "floored_at_risk_free" for n in cell.notes)
