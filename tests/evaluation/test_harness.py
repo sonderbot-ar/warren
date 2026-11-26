@@ -151,10 +151,16 @@ def test_a_control_must_sit_50_days_after_one_of_its_quarter_ends(company):
     guard_control_date(company, cik, case(date(2019, 8, 20)))  # events are dated by the news
 
 
-def test_coverage_is_a_hard_error_past_a_companys_history():
+def test_coverage_is_a_hard_error_past_a_companys_history(unlinked_xom):
     with pytest.raises(EvaluationError, match="coverage"):
         guard_coverage(case(event_date=date(2026, 3, 31), ticker="XOM"))
     guard_coverage(case(event_date=date(2024, 3, 31), ticker="XOM"))  # ends well before
+
+
+def test_a_linked_successor_lifts_the_coverage_guard():
+    """Backlog #582: Exxon's successor's filings are read, so its horizons run past 2026-08-03."""
+    guard_coverage(case(event_date=date(2026, 3, 31), ticker="XOM"))
+    guard_coverage(case(event_date=date(2026, 10, 15), ticker="XOM", horizon=4))
 
 
 def test_ebit_error_is_in_margin_points_even_when_ebit_is_negative():

@@ -135,6 +135,35 @@ class Filing:
     form: str | None
     filed_at: date
     url: str
+    # who filed it, when not the company's own CIK: `{"cik", "name", "successor": True, "since"}`
+    # for a filing read from a linked successor's CIK (backlog #586), else None
+    filer: dict | None = None
+
+
+def successor_filer(cik: str, filed_at: date | None) -> dict | None:
+    """The registrant of a filing Warren read from a linked successor's CIK (backlog #586), or
+    None for the company's own filings. Since #573 a linked company's history holds only the
+    successor's 10-Q and 10-K facts filed on or after `history_ends` (`merge_company_facts`
+    drops the predecessor's own from that day), so the filing date alone says whose it is. The
+    name is the successor's as EDGAR gives it in the universe file; a fact about the filer, not
+    a figure, and it was public on the filing's own date."""
+    if filed_at is None:
+        return None
+    for company in PHASE1_UNIVERSE:
+        if (
+            company.cik == cik
+            and company.successor_linked
+            and company.history_ends is not None
+            and filed_at >= company.history_ends
+        ):
+            return {
+                "cik": company.successor_cik,
+                "name": company.successor_name,
+                "successor": True,
+                # the day the successor's filings start, so the app can date it (product lead)
+                "since": company.history_ends.isoformat(),
+            }
+    return None
 
 
 @dataclass(frozen=True)
@@ -220,7 +249,9 @@ class ReportedPeriod:
     cik: str
     company_name: str
     fiscal_year_end: str | None  # MMDD as SEC reports it
-    history_ends: date | None  # where this CIK's filings stop (universe.csv), if they do
+    history_ends: (
+        date | None
+    )  # where the filings read stop (universe.csv, coverage_ends), if they do
     period: str
     fiscal_year: int
     fiscal_period: str
@@ -341,11 +372,13 @@ class _Filings:
 
     def get(self, accession_no: str) -> Filing:
         form, filed_at = self.rows.get(accession_no, (None, None))
+        filed = date.fromisoformat(filed_at) if filed_at else None
         return Filing(
             accession_no,
             form,
-            date.fromisoformat(filed_at) if filed_at else None,
+            filed,
             filing_url(self.cik, accession_no),
+            successor_filer(self.cik, filed),
         )
 
     def version(self, fact: Fact) -> Version:
@@ -882,7 +915,7 @@ def reported_period(
         cik=cik,
         company_name=company["name"],
         fiscal_year_end=company["fiscal_year_end"],
-        history_ends=universe.history_ends if universe else None,
+        history_ends=universe.coverage_ends if universe else None,
         period=resolved.label,
         fiscal_year=resolved.fiscal_year,
         fiscal_period=resolved.fiscal_period,

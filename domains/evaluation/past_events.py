@@ -355,9 +355,9 @@ def _thin(n: int, reason: str, cut: list[dict] | None = None) -> Coded:
             parts.append(f"{c['case_id']} ({c['ticker']}{own}, from {c['history_ends']} on{gone})")
         one = len(cut) == 1
         whose, their = ("its company's", "Its") if one else ("their companies'", "Their")
-        text += (f". Counted, though {whose} filings are missing in Warren's data from a date "
-                 f"before this question: {'; '.join(parts)}. {their} typical forecast errors stop "
-                 "at that date (see the coverage note)")  # fmt: skip
+        text += (f". Counted, though {whose} filings are missing in Warren's data from a "
+                 f"date before this question: {'; '.join(parts)}. {their} typical forecast "
+                 "errors stop at that date (see the coverage note)")  # fmt: skip
     params = {"n": n, "threshold": THIN_BELOW, "reason": reason, "cut_cases": len(cut),
               "cut_case_ids": [c["case_id"] for c in cut], "cut": cut}  # fmt: skip
     return Coded("thin_evidence", params, text)
@@ -439,8 +439,8 @@ def history_cut(c: PastCase, stopped: dict, last_filed: str | None = None) -> Co
     10-Q or 10-K stored by D, beside `history_ends` (backlog #272)."""
     ends = stopped["history_ends"]
     lost = [q.period for q in c.quarters if _not_reported(q.items["revenue"])]
-    text = (f"{c.ticker}'s filings from {ends} on are missing in Warren's data, so its typical "
-            "forecast errors stop at that date")  # fmt: skip
+    text = (f"{c.ticker}'s filings from {ends} on are missing in Warren's data, so its "
+            "typical forecast errors stop at that date")  # fmt: skip
     if c.missing is not None:
         effect = "no_stored_run"
         text += "; this case has no stored forecast, so none of its own quarters are compared"
@@ -448,9 +448,9 @@ def history_cut(c: PastCase, stopped: dict, last_filed: str | None = None) -> Co
         effect = "own_quarters_missing"
         one = len(lost) == 1
         text += (f"; this case's {'quarter' if one else 'quarters'} {', '.join(lost)} "
-                 f"{'is' if one else 'are'} not in the data by the question's date either (not "
-                 "yet filed, or filed after that date), so they can't be compared while its "
-                 "filings stop there")  # fmt: skip
+                 f"{'is' if one else 'are'} not in the data by the question's date either "
+                 "(not yet filed, or filed after that date), so they can't be compared "
+                 "while its filings stop there")  # fmt: skip
     else:
         effect = "usual_only"
         text += ("; every quarter of this case is in the data, only the yardstick it is "
@@ -482,9 +482,10 @@ _QUARTER = {"Q1": 1, "Q2": 2, "H1": 2, "Q3": 3, "M9": 3, "Q4": 4, "FY": 4}
 def fundamentals_freshness(conn: sqlite3.Connection, cik: str | None, on: date) -> dict:
     """How far Warren's copy of a CIK's SEC company facts reaches, for a question dated `on`.
 
-    `downloaded_at`: when the copy was downloaded from EDGAR, the newest `companyfacts_fetched_at`
-    over the CIK's ingests (facts are upserted, never removed, so the copy is at least that
-    fresh); None when no ingest has one. It is a fact about Warren's copy, not about
+    `downloaded_at`: when the copy was downloaded from EDGAR, the newest dated ingest's
+    `companyfacts_fetched_at` (for a company read with its successor, the older of the two
+    downloads, backlog #573, so an old successor copy is never hidden by a newer predecessor-only
+    ingest); None when no ingest has one. It is a fact about Warren's copy, not about
     the company, so it is read whatever its date: it never changes a number, only whether the
     copy can hold everything filed by `on`. `downloaded_on`: its date in New York.
     `fresh`: downloaded at or after the instant `on` ends in New York (`known_by`, the pipeline's
@@ -493,7 +494,9 @@ def fundamentals_freshness(conn: sqlite3.Connection, cik: str | None, on: date) 
     in such a filing (a year's or year-to-date figure counts for the quarter it ends). Nothing
     filed after `on` is read."""
     run = conn.execute(
-        "SELECT MAX(companyfacts_fetched_at) FROM ingest_runs WHERE cik = ?", (cik,)
+        "SELECT companyfacts_fetched_at FROM ingest_runs WHERE cik = ? "
+        "AND companyfacts_fetched_at IS NOT NULL ORDER BY run_id DESC LIMIT 1",
+        (cik,),
     ).fetchone()
     filed = conn.execute(
         "SELECT MAX(filed_at) FROM financial_facts WHERE cik = ? AND filed_at <= ? "

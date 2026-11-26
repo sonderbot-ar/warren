@@ -819,3 +819,45 @@ def test_a_copy_with_filings_but_no_revenue_quarter_says_so():
          "last_filed": "2020-04-30", "last_quarter": None}  # fmt: skip
     note = P.freshness_note("TST", "1", "question", ASOF, f, [{"case_id": "c", "period": "p"}])
     assert "it has no quarter with revenue" in note.text and "none" not in note.text
+
+
+# -- backlog #582: a company read on through its successor has no cut, scored or not -----------
+
+
+def _linked_ends(company, monkeypatch, ends="2020-12-31"):
+    from domains.fundamentals import universe as U
+
+    cik = company.execute("SELECT cik FROM companies WHERE ticker = 'TST'").fetchone()[0]
+    row = U.UniverseCompany(
+        "TST", cik, "Test Corp moved to a new CIK.", date.fromisoformat(ends),
+        "holding_company_reorganisation", "0000000002", "Test Holdings", successor_linked=True,
+    )  # fmt: skip
+    monkeypatch.setattr(U, "PHASE1_UNIVERSE", [*U.PHASE1_UNIVERSE, row])
+    return cik
+
+
+def test_a_linked_company_gets_no_coverage_note_no_cut_flag_and_no_cut_in_thin_evidence(
+    company, monkeypatch
+):
+    _linked_ends(company, monkeypatch)
+    c = case("TST_c", when="2020-03-01")
+    rid = store_case(company, c, ["FY2031Q1", "FY2031Q2"], batch="eval_b_c")
+    rec = call(company, [c], {rid: seen(rid, [("FY2021Q1", 90.0), ("FY2021Q2", None)])})
+    assert not any(n.code == "beyond_history" for n in rec.notes)
+    assert _by_id(rec)["TST_c"].history_cut is None
+    assert _thin_note(rec).params["cut"] == []
+    json.dumps(rec.to_dict())
+
+
+def test_a_linked_case_company_gets_no_coverage_note(monkeypatch):
+    from domains.fundamentals import universe as U
+
+    rows = [
+        U.UniverseCompany("AAA", "0000000101", "moved.", date(2020, 12, 31),
+                          "holding_company_reorganisation", "0000000201", "New",
+                          successor_linked=True),
+        U.UniverseCompany("ZZZ", "0000000102", "", None),
+    ]  # fmt: skip
+    monkeypatch.setattr(U, "PHASE1_UNIVERSE", [*U.PHASE1_UNIVERSE, *rows])
+    monkeypatch.setattr(P, "get_universe_company", lambda t: {r.ticker: r for r in rows}[t])
+    assert P.coverage_notes("ZZZ", {"AAA", "ZZZ"}, ASOF) == []

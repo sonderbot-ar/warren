@@ -69,7 +69,7 @@ def test_an_end_date_cuts_the_grid():
     assert days(date(2019, 8, 14)) == [date(2019, 5, 15)]
 
 
-def test_a_company_gets_the_horizon_the_coverage_guard_accepts():
+def test_a_company_gets_the_horizon_the_coverage_guard_accepts(unlinked_xom):
     cases, left_out = grid.grid_cases(UNIVERSE)
     xom = {c.event_date: c.horizon_quarters for c in cases if c.ticker == "XOM"}
     assert xom[date(2024, 8, 15)] == 4
@@ -85,6 +85,17 @@ def test_a_company_gets_the_horizon_the_coverage_guard_accepts():
             longer = dataclasses.replace(case, horizon_quarters=case.horizon_quarters + 1)
             with pytest.raises(EvaluationError, match="coverage"):
                 guard_coverage(longer)
+
+
+def test_a_linked_successor_puts_exxon_on_every_date_at_the_full_horizon():
+    """Backlog #582: with its successor's filings read (`coverage_ends` None), Exxon is on all
+    22 dates at 4 quarters, like the other seven companies, and the grid has 8 x 22 cases."""
+    cases, left_out = grid.grid_cases()
+    xom = {c.event_date: c.horizon_quarters for c in cases if c.ticker == "XOM"}
+    assert sorted(xom) == days() and set(xom.values()) == {4}
+    assert left_out == [] and len(cases) == 8 * 22
+    for c in cases:
+        guard_coverage(c)
 
 
 def test_a_new_company_is_on_every_date_with_no_code_change():
@@ -140,16 +151,31 @@ def test_storing_a_grid_case_never_overwrites_a_hand_picked_one(company, tmp_pat
     ticker = company.execute("SELECT ticker FROM companies LIMIT 1").fetchone()[0]
     hand = Case(f"{ticker}_2020-05-15", ticker, date(2020, 5, 15), "guidance", "Hand", 4,
                 "event rule: company announcement", "https://example.com/", "")  # fmt: skip
+    # a different horizon too, so the guard is pinned on the column #591 made updatable (#594)
     gridded = dataclasses.replace(hand, event_type="grid", description=grid.DESCRIPTION,
-                                  selected_because=grid.PRE, source_url="")  # fmt: skip
+                                  selected_because=grid.PRE, source_url="",
+                                  horizon_quarters=2)  # fmt: skip
     store_cases(company, [hand])
     store_cases(company, [gridded])
     row = company.execute(
-        "SELECT event_type FROM eval_cases WHERE case_id = ?", (hand.case_id,)
+        "SELECT event_type, horizon_quarters FROM eval_cases WHERE case_id = ?", (hand.case_id,)
     ).fetchone()
-    assert row[0] == "guidance"
+    assert tuple(row) == ("guidance", 4)
     store_cases(company, [hand])  # and the hand-picked row still updates
     assert company.execute("SELECT COUNT(*) FROM eval_cases").fetchone()[0] == 1
+
+
+def test_storing_a_grid_case_again_updates_its_horizon(company):
+    # #591: the grid rule lengthened Exxon's cases (#582); the stored row follows the rule
+    from domains.evaluation.cases import Case, store_cases
+
+    ticker = company.execute("SELECT ticker FROM companies LIMIT 1").fetchone()[0]
+    first = Case(f"{ticker}_2025-05-15", ticker, date(2025, 5, 15), "grid", grid.DESCRIPTION, 3,
+                 grid.PRE, "", "")  # fmt: skip
+    store_cases(company, [first])
+    store_cases(company, [dataclasses.replace(first, horizon_quarters=4)])
+    rows = company.execute("SELECT event_type, horizon_quarters FROM eval_cases").fetchall()
+    assert [tuple(r) for r in rows] == [("grid", 4)]
 
 
 def test_a_grid_row_needs_the_grid_rule(tmp_path):

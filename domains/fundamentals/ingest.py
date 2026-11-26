@@ -500,6 +500,36 @@ def extract_facts(
     return list(rows.values())
 
 
+def merge_company_facts(
+    predecessor: dict[str, Any], successor: dict[str, Any], since: date, result: IngestResult
+) -> dict[str, Any]:
+    """One companyfacts document for a company whose filings moved to a successor CIK (backlog
+    #573): the predecessor's facts filed before `since` (its `history_ends`), then the
+    successor's 10-Q and 10-K facts filed on or after it. From `since` on only the successor
+    speaks, so a later filing of the predecessor's own (it may keep filing for its registered
+    debt, Rule 12g-3) can't put a second value on a period; such facts are counted in
+    `result.skipped["predecessor_after_cut"]`. A filing in both (a joint one) is the same
+    accession, kept once by `extract_facts`. The documents are not changed."""
+    cut = since.isoformat()
+    merged: dict[str, Any] = {k: v for k, v in predecessor.items() if k != "facts"}
+    facts: dict[str, dict[str, Any]] = {}
+
+    def add(taxonomy: str, tag: str, unit: str, row: dict[str, Any]) -> None:
+        concept = facts.setdefault(taxonomy, {}).setdefault(tag, {"units": {}})
+        concept["units"].setdefault(unit, []).append(row)
+
+    for taxonomy, tag, unit, row in _iter_facts(predecessor):
+        if row.get("form") in FORMS and row["filed"] >= cut:
+            result.skipped["predecessor_after_cut"] += 1
+            continue
+        add(taxonomy, tag, unit, row)
+    for taxonomy, tag, unit, row in _iter_facts(successor):
+        if row.get("form") in FORMS and row["filed"] >= cut:
+            add(taxonomy, tag, unit, row)
+    merged["facts"] = facts
+    return merged
+
+
 def ingest_company(
     conn: sqlite3.Connection,
     ticker: str,
@@ -507,8 +537,16 @@ def ingest_company(
     cik: str | None = None,
     refresh: bool = False,
     allow_financial: bool = False,
+    successor_cik: str | None = None,
+    successor_since: date | None = None,
 ) -> IngestResult:
-    """Load one company's facts. Re-running adds nothing new unless EDGAR has new filings."""
+    """Load one company's facts. Re-running adds nothing new unless EDGAR has new filings.
+
+    With `successor_cik` (and `successor_since`, the predecessor's `history_ends`), the
+    successor's 10-Q and 10-K facts are read into this CIK's history (backlog #573): one filing
+    calendar, every fact with its own accession and filing date, so queries stay point-in-time."""
+    if (successor_cik is None) != (successor_since is None):
+        raise ValueError("successor_cik and successor_since go together")
     client = client or EdgarClient()
     cik = cik or client.lookup_cik(ticker, refresh=refresh)
     company = parse_company(client.get_submissions(cik, refresh=refresh), ticker)
@@ -518,10 +556,17 @@ def ingest_company(
             "outside the Phase 1 universe."
         )
     facts_json = client.get_company_facts(cik, refresh=refresh)
+    fetched_at = client.company_facts_fetched_at(cik)
 
     concepts = load_concept_map()
     sync_concepts(conn, concepts)
     result = IngestResult(ticker=company["ticker"], cik=company["cik"])
+    if successor_cik is not None:
+        successor_json = client.get_company_facts(successor_cik, refresh=refresh)
+        facts_json = merge_company_facts(facts_json, successor_json, successor_since, result)
+        # the older download, so a stale copy of either document shows (backlog #573)
+        times = [fetched_at, client.company_facts_fetched_at(successor_cik)]
+        fetched_at = min((t for t in times if t is not None), default=None)
     rows = extract_facts(company["cik"], facts_json, concepts, result)
     result.facts_kept = len(rows)
 
@@ -554,7 +599,7 @@ def ingest_company(
             (
                 company["cik"],
                 content_sha256(facts_json),
-                client.company_facts_fetched_at(cik),
+                fetched_at,
                 concept_map_sha256(),
                 result.facts_kept,
                 result.facts_new,

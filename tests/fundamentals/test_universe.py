@@ -49,12 +49,12 @@ def test_every_reason_in_the_file_is_in_the_closed_set():
     assert reasons and reasons <= COVERAGE_REASONS
 
 
-def test_query_past_the_history_end_warns():
+def test_query_past_the_history_end_warns(unlinked_xom):
     with pytest.warns(CoverageWarning, match="XOM"):
         warn_if_beyond_history(XOM_CIK, date(2026, 8, 3))
 
 
-def test_the_warning_carries_reason_and_successor_and_keeps_its_text():
+def test_the_warning_carries_reason_and_successor_and_keeps_its_text(unlinked_xom):
     with pytest.warns(CoverageWarning) as caught:
         warn_if_beyond_history(XOM_CIK, date(2026, 9, 30))
     w = caught[0].message
@@ -77,6 +77,34 @@ def test_the_warning_carries_reason_and_successor_and_keeps_its_text():
     )
 
 
+def test_linked_xom_reads_on_and_never_warns():
+    """Backlog #573: the successor's filings are read into the predecessor's history."""
+    xom = get_universe_company("XOM")
+    assert xom.successor_linked and xom.coverage_ends is None
+    assert xom.history_ends == date(2026, 8, 3)  # still where the predecessor's own filings stop
+    assert coverage_gap(XOM_CIK, date(2026, 9, 30)) is None
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        warn_if_beyond_history(XOM_CIK, date(2030, 1, 1))
+
+
+def test_a_linked_company_has_no_scored_cut_either():
+    """Backlog #582: the evaluation grid and its coverage guard follow the link too, so there
+    is no separate scored cut left to report."""
+    import inspect
+
+    assert "scored" not in inspect.signature(coverage_gap).parameters
+    for day in (date(2026, 8, 3), date(2026, 9, 30), date(2030, 1, 1)):
+        assert coverage_gap(XOM_CIK, day) is None
+
+
+def test_an_unlinked_company_is_still_cut_and_says_its_filings_are_missing(unlinked_xom):
+    assert unlinked_xom.coverage_ends == date(2026, 8, 3)
+    assert coverage_gap(XOM_CIK, date(2026, 8, 2)) is None
+    text, fields = coverage_gap(XOM_CIK, date(2026, 9, 30))
+    assert "missing here" in text and "successor_linked" not in fields
+
+
 def test_query_before_the_history_end_is_silent():
     with warnings.catch_warnings():
         warnings.simplefilter("error")
@@ -84,7 +112,7 @@ def test_query_before_the_history_end_is_silent():
         warn_if_beyond_history("0000320193", date(2030, 1, 1))  # AAPL has no history end
 
 
-def test_get_facts_carries_the_warning(ingested):
+def test_get_facts_carries_the_warning(ingested, unlinked_xom):
     conn, _ = ingested
     with pytest.warns(CoverageWarning):
         get_facts(conn, XOM_CIK, ["revenue"], "2027-01-01")
@@ -107,12 +135,14 @@ def test_csv_holds_the_phase1_list_in_order():
 
 def _write(tmp_path, body):
     path = tmp_path / "universe.csv"
-    path.write_text("ticker,cik,history_ends,reason,successor_cik,successor_name,note\n" + body)
+    path.write_text(
+        "ticker,cik,history_ends,reason,successor_cik,successor_name,note,successor_linked\n" + body
+    )
     return path
 
 
 def test_a_new_company_is_one_row(tmp_path):
-    path = _write(tmp_path, "AAPL,,,,,,\nAMXB,0001129137,,,,,a new company needs no code\n")
+    path = _write(tmp_path, "AAPL,,,,,,,\nAMXB,0001129137,,,,,a new company needs no code,\n")
     new = load_universe(path)[1]
     assert (new.ticker, new.cik, new.note) == ("AMXB", "0001129137", "a new company needs no code")
 
@@ -124,28 +154,36 @@ NEW = "0002115436,ExxonMobil Holdings Corp"
 @pytest.mark.parametrize(
     "body, message",
     [
-        ("aapl,,,,,,\n", "line 2: ticker must be non-empty and upper case"),
-        (",,,,,,\n", "line 2: ticker must be non-empty"),
-        ("AAPL,,,,,,\nAAPL,,,,,,\n", "line 3: duplicate ticker AAPL"),
-        ("AAPL,34088,,,,,\n", "line 2: cik must be empty or ten digits"),
-        (f"XOM,0000034088,2026-13-01,{REORG},{NEW},\n", "line 2: history_ends must be an ISO date"),
-        (f"XOM,,2026-08-03,{REORG},{NEW},\n", "line 2: history_ends needs a pinned cik"),
-        ("XOM,0000034088,2026-08-03,,,,\n", "line 2: history_ends needs a reason"),
-        ("XOM,0000034088,2026-08-03,merged,,,\n", "line 2: reason must be one of"),
-        (f"XOM,0000034088,,{REORG},,,\n", "line 2: reason needs a history_ends"),
+        ("aapl,,,,,,,\n", "line 2: ticker must be non-empty and upper case"),
+        (",,,,,,,\n", "line 2: ticker must be non-empty"),
+        ("AAPL,,,,,,,\nAAPL,,,,,,,\n", "line 3: duplicate ticker AAPL"),
+        ("AAPL,34088,,,,,,\n", "line 2: cik must be empty or ten digits"),
         (
-            f"XOM,0000034088,2026-08-03,{REORG},2115436,Holdings,\n",
+            f"XOM,0000034088,2026-13-01,{REORG},{NEW},,\n",
+            "line 2: history_ends must be an ISO date",
+        ),
+        (f"XOM,,2026-08-03,{REORG},{NEW},,\n", "line 2: history_ends needs a pinned cik"),
+        ("XOM,0000034088,2026-08-03,,,,,\n", "line 2: history_ends needs a reason"),
+        ("XOM,0000034088,2026-08-03,merged,,,,\n", "line 2: reason must be one of"),
+        (f"XOM,0000034088,,{REORG},,,,\n", "line 2: reason needs a history_ends"),
+        (
+            f"XOM,0000034088,2026-08-03,{REORG},2115436,Holdings,,\n",
             "successor_cik must be empty or ten",
         ),
-        (f"XOM,0000034088,2026-08-03,{REORG},0000034088,Holdings,\n", "successor_cik must differ"),
-        ("XOM,0000034088,,,0002115436,Holdings,\n", "line 2: successor_cik needs a history_ends"),
-        (f"XOM,0000034088,2026-08-03,{REORG},,,\n", "needs successor_cik and successor_name"),
-        ("XOM,0000034088,2026-08-03,,,Holdings,\n", "successor_cik and successor_name go together"),
+        (f"XOM,0000034088,2026-08-03,{REORG},0000034088,Holdings,,\n", "successor_cik must differ"),
+        ("XOM,0000034088,,,0002115436,Holdings,,\n", "line 2: successor_cik needs a history_ends"),
+        (f"XOM,0000034088,2026-08-03,{REORG},,,,\n", "needs successor_cik and successor_name"),
         (
-            f"XOM,0000034088,2026-08-03,{REORG},{NEW},\nCVX,0000034088,,,,,\n",
+            "XOM,0000034088,2026-08-03,,,Holdings,,\n",
+            "successor_cik and successor_name go together",
+        ),
+        (
+            f"XOM,0000034088,2026-08-03,{REORG},{NEW},,\nCVX,0000034088,,,,,,\n",
             "line 3: cik 0000034088 is pinned twice",
         ),
-        ("AAPL,,,,,,a, b\n", "line 2: wrong number of fields"),
+        ("AAPL,,,,,,,a, b\n", "line 2: wrong number of fields"),
+        (f"XOM,0000034088,2026-08-03,{REORG},{NEW},,no\n", "successor_linked must be empty or yes"),
+        ("AAPL,,,,,,,yes\n", "line 2: successor_linked needs a successor_cik"),
         ("AAPL,,\n", "line 2: wrong number of fields"),
     ],
 )
@@ -156,13 +194,22 @@ def test_bad_rows_are_named_by_line(tmp_path, body, message):
 
 def test_every_problem_is_reported_at_once(tmp_path):
     with pytest.raises(UniverseError, match="line 2.*line 3"):
-        load_universe(_write(tmp_path, "aapl,,,,,,\nMSFT,123,,,,,\n"))
+        load_universe(_write(tmp_path, "aapl,,,,,,,\nMSFT,123,,,,,,\n"))
 
 
 def test_the_old_four_columns_are_refused(tmp_path):
     path = tmp_path / "universe.csv"
     path.write_text("ticker,cik,history_ends,note\nAAPL,,,\n")
     with pytest.raises(UniverseError, match="reason"):
+        load_universe(path)
+
+
+def test_the_seven_columns_before_573_are_refused(tmp_path):
+    path = tmp_path / "universe.csv"
+    path.write_text(
+        "ticker,cik,history_ends,reason,successor_cik,successor_name,note\nAAPL,,,,,,\n"
+    )
+    with pytest.raises(UniverseError, match="successor_linked"):
         load_universe(path)
 
 
@@ -173,7 +220,7 @@ def test_wrong_columns_are_refused(tmp_path):
         load_universe(path)
 
 
-def test_coverage_gap_gives_the_warnings_own_text_and_fields_and_none_before_the_end():
+def test_coverage_gap_gives_the_warnings_own_text_and_fields_and_none_before_the_end(unlinked_xom):
     """Backlog #252: the past-events call states the coverage warning as a note."""
     assert coverage_gap(XOM_CIK, date(2026, 8, 2)) is None
     assert coverage_gap("0000320193", date(2030, 1, 1)) is None
@@ -189,7 +236,7 @@ def test_coverage_gap_gives_the_warnings_own_text_and_fields_and_none_before_the
 
 
 def _xom_with_note(tmp_path, note, ends="2026-08-03"):
-    return _write(tmp_path, f'XOM,0000034088,{ends},{REORG},{NEW},"{note}"\n')
+    return _write(tmp_path, f'XOM,0000034088,{ends},{REORG},{NEW},"{note}",\n')
 
 
 @pytest.mark.parametrize(
@@ -228,7 +275,7 @@ def test_a_note_naming_the_cut_off_or_earlier_loads(tmp_path, note):
 
 
 def test_a_note_on_a_row_without_a_cut_off_is_not_checked(tmp_path):
-    path = _write(tmp_path, "AMXB,0001129137,,,,,listed again in 2031\n")
+    path = _write(tmp_path, "AMXB,0001129137,,,,,listed again in 2031,\n")
     assert load_universe(path)[0].note == "listed again in 2031"
 
 
