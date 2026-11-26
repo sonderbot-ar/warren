@@ -350,7 +350,10 @@ def blended_rate(
     total = long_amount + short_amount
     if _any(total <= 0):
         raise FinancialMathError(f"the amounts must add up to more than zero, got {total}")
-    return (long_rate * long_amount + short_rate * short_amount) / total
+    # the long-term rate moved toward the short-term one by the short-term share: the same
+    # weighted mean, but it stays between the two rates even for amounts so small that
+    # rate × amount underflows to zero (Hypothesis, 5e-324)
+    return long_rate + (short_rate - long_rate) * (short_amount / total)
 
 
 def ols_beta(stock_returns: Sequence[float], market_returns: Sequence[float]) -> float:

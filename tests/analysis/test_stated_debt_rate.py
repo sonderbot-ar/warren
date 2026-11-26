@@ -133,6 +133,15 @@ def test_a_stated_rate_within_a_point_gives_no_note(make_company, monkeypatch):
     assert STATED_RATE_GAP == 0.01
 
 
+@pytest.mark.parametrize(("stated", "fires"), [(0.0499, False), (0.0501, True)])
+def test_the_line_sits_at_one_point(make_company, monkeypatch, stated, fires):
+    # 4% book against 4.99% (0.99 points) and 5.01% (1.01 points), at every year end
+    rates = {y: stated for y in range(2015, 2020)}
+    conn, run_id = _stated(make_company, monkeypatch, long=rates, short_item=False)
+    _, by_year = _by_year(conn, run_id)
+    assert bool(_stated_notes(by_year[2019])) is fires
+
+
 def test_a_rate_beyond_a_point_gives_the_note_with_its_params(make_company, monkeypatch):
     rates = {2018: 0.06, 2019: 0.07}
     conn, run_id = _stated(make_company, monkeypatch, long=rates, short_item=False)

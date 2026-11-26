@@ -6,7 +6,7 @@ happens to cover it.
 """
 
 import pytest
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 
 from domains.analysis import financial_math as fm
@@ -305,6 +305,7 @@ _amount = st.floats(min_value=0.0, max_value=1e6)
 
 
 @given(_stated, _amount, _stated, _amount)
+@example(0.125, 5e-324, 0.125, 0.0)  # rate × amount underflows to zero (CI, PR #609)
 def test_a_blended_rate_lies_between_its_two_rates(long_rate, long_amount, short_rate, short):
     if long_amount + short <= 0:
         with pytest.raises(fm.FinancialMathError):
