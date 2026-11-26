@@ -280,7 +280,8 @@ def test_a_book_cost_of_debt_below_the_yield_says_so(make_company):
             assert note.params["against"] == "year_average_yield"
             first = date.fromisoformat(note.params["risk_free_from"])
             last = date.fromisoformat(note.params["risk_free_date"])
-            assert p.period_end - timedelta(days=364) <= first <= last <= p.period_end
+            # the fiscal year's own dates: Test Corp's calendar years start on 1 January (#499)
+            assert date(p.period_end.year, 1, 1) <= first <= last <= p.period_end
             assert note.params["observations"] >= 50  # weekly yields over a year
             assert note.params["risk_free"] == pytest.approx(0.03)
 
@@ -1507,3 +1508,75 @@ def test_the_week_year_gap_is_to_the_previous_distinct_end():
     end = filed[-1][1]
     filed.insert(-1, (end - timedelta(days=90), end))  # another period ending on the same day
     assert expected_year_end(filed, 1) == date(2026, 9, 26)
+
+
+# -- backlog #499: the year-average yield over the fiscal year's own dates -----------------------
+
+
+@pytest.fixture
+def yields_db(db_path):
+    """Make a fresh database holding one 10-year yield download, `rates` mapping each weekday
+    to a percent; returns what `_below_risk_free` reads of a `Singles`."""
+    from contextlib import nullcontext
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    from domains.market.yields import load_yields
+    from shared_kernel.database import apply_migrations, get_db_connection
+
+    managers = []
+
+    def make(rates):
+        cm = get_db_connection(db_path)
+        managers.append(cm)
+        conn = cm.__enter__()
+        apply_migrations(conn)
+        rows = [{"date": d.isoformat(), "value": v} for d, v in sorted(rates.items())]
+        load_yields(conn, download=lambda s: rows, now=lambda: datetime(2024, 1, 2, tzinfo=UTC))
+        return SimpleNamespace(conn=conn, as_of=date(2024, 1, 2), pins=nullcontext)
+
+    yield make
+    for cm in managers:
+        cm.__exit__(None, None, None)
+
+
+def _weekdays(first, last):
+    days = (first + timedelta(days=k) for k in range((last - first).days + 1))
+    return [d for d in days if d.weekday() < 5]
+
+
+@pytest.mark.parametrize(
+    "start, end, first_trading_day",
+    [
+        # Apple's 53-week FY2023: Sunday 25 September 2022 to Saturday 30 September 2023
+        (date(2022, 9, 25), date(2023, 9, 30), date(2022, 9, 26)),
+        # Johnson & Johnson's 53-week FY2020: Monday 30 December 2019 to Sunday 3 January 2021
+        (date(2019, 12, 30), date(2021, 1, 3), date(2019, 12, 30)),
+    ],
+)
+def test_the_year_average_yield_covers_a_53_week_year(yields_db, start, end, first_trading_day):
+    from domains.analysis.single_values import _below_risk_free
+
+    days = _weekdays(start, end)
+    first_week = [d for d in days if d < start + timedelta(days=7)]
+    singles = yields_db({d: 5.0 if d in first_week else 2.0 for d in days})
+    (note,) = _below_risk_free(singles, 0.01, False, end, start)
+    # on main the window began 364 days before the end and left the first week out
+    assert note.params["risk_free_from"] == first_trading_day.isoformat()
+    assert note.params["observations"] == len(days)
+    expected = (len(first_week) * 0.05 + (len(days) - len(first_week)) * 0.02) / len(days)
+    assert note.params["risk_free"] == pytest.approx(expected)
+
+
+def test_the_year_average_yield_reads_no_day_before_the_year(yields_db):
+    from domains.analysis.single_values import _below_risk_free
+
+    # a 52-week year on made-up dates (a real one starts on a weekend, so 364 days before
+    # its end has no yield): Thursday 2 January 2020 to Wednesday 30 December 2020
+    start, end = date(2020, 1, 2), date(2020, 12, 30)
+    rates = {d: 2.0 for d in _weekdays(start, end)}
+    rates[start - timedelta(days=1)] = 10.0  # the year before's last day
+    singles = yields_db(rates)
+    (note,) = _below_risk_free(singles, 0.01, False, end, start)
+    assert note.params["risk_free_from"] == start.isoformat()
+    assert note.params["risk_free"] == pytest.approx(0.02)

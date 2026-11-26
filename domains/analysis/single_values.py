@@ -816,7 +816,8 @@ def _cost_of_debt_point(singles: Singles, year: int, used: bool):
         for f in (*paid.facts, *opening, *closing)
     ]
     period_end = paid.facts[0].period_end if paid.facts else None
-    notes = _below_risk_free(singles, kd, used, period_end)
+    period_start = paid.facts[0].period_start if paid.facts else None
+    notes = _below_risk_free(singles, kd, used, period_end, period_start)
     caveat = caveat_for(singles.run["ticker"], year)
     if caveat is not None and caveat.code == HEDGE_NOTE:
         # the run's own row on the used year, as `below_risk_free` compares (product lead)
@@ -1079,12 +1080,22 @@ def _run_risk_free(singles: Singles):
     return value, source["end"] if source else None
 
 
-def _below_risk_free(singles: Singles, kd: float, used: bool, period_end: date | None) -> list:
+def _below_risk_free(
+    singles: Singles,
+    kd: float,
+    used: bool,
+    period_end: date | None,
+    period_start: date | None = None,
+) -> list:
     """`below_risk_free` when a year's book (embedded) cost of debt is strictly below the 10-year
     Treasury yield (backlog #481): the used year against the run's own risk-free row (the rate
     in the same WACC, and the row `whatif._would_floor` compares with), every other year against
     the average 10-year yield over that fiscal year (interest over average debt is a flow over
-    the year, so one day's yield is not like for like; analyst, #481). Nothing after `as_of`."""
+    the year, so one day's yield is not like for like; analyst, #481). Nothing after `as_of`.
+
+    The fiscal year is the interest fact's own period, `period_start` to `period_end`, so a
+    53-week year reads its first week and a 52-week year reads no day of the year before
+    (backlog #499); 364 days before the end only when the fact has no start."""
     from domains.market.store import MarketDataError
     from domains.market.yields import yields_through
 
@@ -1104,7 +1115,8 @@ def _below_risk_free(singles: Singles, kd: float, used: bool, period_end: date |
             return []
         try:
             with singles.pins():
-                obs = yields_through(singles.conn, period_end - timedelta(days=364), period_end)
+                first = period_start or period_end - timedelta(days=364)
+                obs = yields_through(singles.conn, first, period_end)
         except MarketDataError:
             return []
         if not obs:
