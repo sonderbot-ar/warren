@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/601 (from the #499 analyst) · Branch `backlog-601-unpinned-downloads` · Version v0.10.51 when merged.
 
-Status: In progress (nov.26.2026).
+Status: Done (v0.10.51, nov.26.2026; PR #603, merge `1a2f495`, after CI green and a gatekeeper GO).
 
 ## Problem
 
@@ -49,5 +49,7 @@ Analyst: GO with changes. Roles confirmed (risk-free: yield; beta: price and ind
 Product lead: changes needed, all taken: above the chart, not under it; the terminal-growth card gets it; one sentence per case (now one reason plus `covers_run_date`); an entry with no stored download is left out (the points already say `market_data_not_loaded`); date only, no time or UTC.
 
 Real-data check (Step 2, snapshot `warren-20261125T103202Z`): all 936 stored runs (every company's newest is dated 2026-10-30) can pin all three of their downloads, so no answer carries `download_not_pinned` today and none has a price download that stops before its date. The note is a guard for a download replaced or pruned later.
+
+Gatekeeper GO on PR #603: 2962 passed, 10 skipped, ruff clean; with `main`'s `single_values.py` the four note tests fail and the no-note test passes, as expected; no test lines removed. Non-blocking, filed as #604: the no-later-date helper checks only risk-free and beta points; `_newest_fetch_time` filters by source, not symbol.
 
 Professor: not run. No method, formula or estimate changes; the item only says which stored download a chart was drawn on.
