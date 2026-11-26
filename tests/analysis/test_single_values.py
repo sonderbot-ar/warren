@@ -1168,12 +1168,88 @@ def test_expected_year_end(ends, ahead, expected):
 
 
 def test_one_52_week_year_alone_reads_forward_a_year():
-    """With one filed year the anchor is a guess: the newest end, a week early if the next year
-    has 53 weeks (Apple's FY2022 alone gives 23 September 2023; it filed 30 September)."""
+    """One filed year on the last weekday of a month, and not in its last four days, reads that
+    rule (backlog #574): Apple's FY2022 alone gives 30 September 2023, the date it filed (before
+    #574, a week early). An end both rules fit (27 September) or neither (a Saturday near 15
+    October) still reads from the newest end alone, a week early if the next year has 53 weeks."""
     from domains.analysis.single_values import expected_year_end
 
-    assert expected_year_end(_years("2022-09-24", days=364), 1) == date(2023, 9, 23)
+    assert expected_year_end(_years("2022-09-24", days=364), 1) == date(2023, 9, 30)
     assert expected_year_end(_years("2025-09-27", days=364), 1) == date(2026, 9, 26)
+    assert expected_year_end(_years("2022-10-15", days=364), 1) == date(2023, 10, 14)
+
+
+@pytest.mark.parametrize("ends", [APPLE, JNJ])
+def test_every_filed_apple_and_jnj_end_is_expected_from_the_years_before_it(ends):
+    """From every run of two or more filed years, one year and two years ahead (backlog #574).
+    One year alone is a guess where both rules fit: Johnson & Johnson's 28 December 2008 sits in
+    December's last four days, and reads 27 December 2009 for an end of 3 January 2010."""
+    from domains.analysis.single_values import expected_year_end
+
+    for k in range(2, len(ends)):
+        filed = _years(*ends[:k])
+        for ahead in (1, 2):
+            if k - 1 + ahead < len(ends):
+                assert expected_year_end(filed, ahead).isoformat() == ends[k - 1 + ahead]
+
+
+@pytest.mark.parametrize(
+    ("ends", "ahead", "expected"),
+    [
+        # the last Saturday of January, six days before the month's end (pandas FY5253 "last")
+        (("2024-01-27", "2025-01-25"), 1, "2026-01-31"),
+        (("2024-01-27", "2025-01-25"), 2, "2027-01-30"),
+        # the last Friday of February, in and out of a leap year
+        (("2022-02-25", "2023-02-24"), 1, "2024-02-23"),
+        (("2023-02-24", "2024-02-23"), 1, "2025-02-28"),
+    ],
+)
+def test_a_year_on_the_last_weekday_of_a_month(ends, ahead, expected):
+    """The last given weekday of a month (26 U.S.C. §441(f)) can end a year six days before
+    the month's end: read exactly, not from a band three days either side (backlog #574)."""
+    from domains.analysis.single_values import expected_year_end
+
+    assert expected_year_end(_years(*ends), ahead) == date.fromisoformat(expected)
+
+
+def _fy5253(weekday, month, variation, first_year, n):
+    """n consecutive fiscal year ends under pandas' 52/53-week rule, an independent oracle."""
+    import pandas as pd
+    from pandas.tseries.offsets import FY5253
+
+    step = FY5253(weekday=weekday, startingMonth=month, variation=variation)
+    ends, day = [], pd.Timestamp(first_year, 1, 1)
+    for _ in range(n):
+        day = day + step
+        ends.append(day.date())
+    return ends
+
+
+@pytest.mark.parametrize("variation", ["nearest", "last"])
+def test_week_years_against_pandas_once_the_rule_shows(variation):
+    """Against pandas' FY5253 on every weekday, month and start year 1995-2029, with one, two
+    and six filed years (backlog #574): a wrong answer only where every filed end sits in its
+    month's last four days, so both rules fit, or, for the weekday nearest the end of February,
+    whose leap days shift the band; the last weekday of a month is right from six years."""
+    from domains.analysis.single_values import expected_year_end
+
+    wrong = []
+    for k in (1, 2, 6):
+        for weekday in range(7):
+            for month in range(1, 13):
+                for first in range(1995, 2030):
+                    ends = _fy5253(weekday, month, variation, first, k + 2)
+                    filed = [(ends[0] - timedelta(days=363), ends[0])] + [
+                        (ends[i - 1] + timedelta(days=1), ends[i]) for i in range(1, k)
+                    ]
+                    for ahead in (1, 2):
+                        if expected_year_end(filed, ahead) != ends[k - 1 + ahead]:
+                            wrong.append((k, month, ends[:k]))
+    for k, month, filed_ends in wrong:
+        both_fit = all((e + timedelta(days=4)).month != e.month for e in filed_ends)
+        february = variation == "nearest" and month == 2
+        assert both_fit or february, (k, month, filed_ends)
+        assert variation == "nearest" or k < 6, (k, month, filed_ends)
 
 
 def test_a_changed_calendar_falls_back_to_the_newest_end():

@@ -682,8 +682,31 @@ def _shifted(day: date, years: int) -> date:
     """`day` moved by whole years, kept at the month's end when it was one (29 February too)."""
     year = day.year + years
     if (day + timedelta(days=1)).day == 1:
-        return date(year + (day.month == 12), day.month % 12 + 1, 1) - timedelta(days=1)
+        return _month_end(date(year, day.month, 1))
     return day.replace(year=year)
+
+
+def _month_end(day: date) -> date:
+    """The last day of `day`'s month."""
+    return date(day.year + (day.month == 12), day.month % 12 + 1, 1) - timedelta(days=1)
+
+
+def _last_weekday_of_month(day: date) -> bool:
+    """Whether `day` is the last of its weekday in its month (a week later is the next month)."""
+    return (day + timedelta(days=7)).month != day.month
+
+
+def _last_weekday_rule(filed: list[tuple[date, date]]) -> bool:
+    """Whether every filed end is the last of its weekday in one and the same month."""
+    return len({e.month for _, e in filed}) == 1 and all(
+        _last_weekday_of_month(e) for _, e in filed
+    )
+
+
+def _nearest_month_end_offset(day: date) -> int:
+    """Days from `day` to the month end nearest it (its own month's, or the month before's)."""
+    own, before = _month_end(day), day.replace(day=1) - timedelta(days=1)
+    return min(((own - day).days, (before - day).days), key=abs)
 
 
 def expected_year_end(filed: list[tuple[date, date]], years_ahead: int) -> date:
@@ -692,13 +715,25 @@ def expected_year_end(filed: list[tuple[date, date]], years_ahead: int) -> date:
     backlog #564).
 
     A calendar-month year ends on the same day, kept at the month's end when it ended on one
-    (Walmart's 31 January; 29 February falls to the 28th). A 52 or 53-week year (the newest is
-    364 or 371 days long) ends on the same weekday nearest a fixed date, its anchor (Apple: the
-    Saturday nearest 27 September; Johnson & Johnson: the Sunday nearest 31 December). Every
-    filed end is within three days of the anchor, so the anchor is the middle of the dates all
-    of them allow (the later of two middle days). With few years the band is wide and the middle
-    a guess; when no date fits every end (a changed calendar) the newest end alone is the
-    anchor, which is a week early before a 53-week year."""
+    (Walmart's 31 January; 29 February falls to the 28th).
+
+    A 52 or 53-week year (the newest is 364 or 371 days long) ends, under 26 U.S.C. §441(f) and
+    Treas. Reg. §1.441-2(a)(1), on a given weekday either (i) the last time it occurs in a
+    calendar month (Apple: the last Saturday of September), which can be six days before the
+    month's end, or (ii) nearest the last day of a calendar month (Johnson & Johnson: the Sunday
+    nearest 31 December, which can fall in January). Both are tried first (backlog #574):
+    - (ii) fits when the month end nearest the newest end lies within three days of every filed
+      end; the expected end is then the weekday nearest that month end in the target year, so
+      February's follows leap years;
+    - (i) fits when every filed end is the last of its weekday in one and the same month; the
+      expected end is that weekday's last day in the target month.
+    Both fit only when every filed end sits in its month's last four days, and then nothing in
+    the filings tells them apart yet. That case, and a calendar that fits neither form (not a
+    §441(f) year as filed: a changed calendar, or a tag Warren misread), fall back to a band: an
+    anchor date within three days of every filed end, taken as the middle of the dates all of
+    them allow (the later of two middle days). With few years the band is wide and its middle a
+    guess, and when no date fits every end the newest end alone is the anchor, a week early
+    before a 53-week year. Either way the answer is an estimate until the 10-K is filed."""
     if years_ahead < 1:
         raise ValueError(f"years_ahead must be at least 1, got {years_ahead}")
     if not filed:
@@ -713,9 +748,20 @@ def expected_year_end(filed: list[tuple[date, date]], years_ahead: int) -> date:
         back = round((end - older).days / 365.2425)
         offsets.append((older - _shifted(end, -back)).days)
     low, high = max(offsets) - WEEK_YEAR_REACH, min(offsets) + WEEK_YEAR_REACH
-    # the middle of the band; of two middle days the later (Apple's FY2017 from 2009-2016)
-    middle = -((-low - high) // 2)
-    anchor = target + timedelta(days=middle if low <= high else 0)
+    nearest_fits = low <= _nearest_month_end_offset(end) <= high
+    last_fits = _last_weekday_rule(filed)
+    if nearest_fits and not last_fits:
+        # the weekday nearest a month's end, and only it, fits every filed end: that month end,
+        # in the target year (so February's moves with leap years), is the anchor
+        anchor = target + timedelta(days=_nearest_month_end_offset(target))
+    elif last_fits and not nearest_fits:
+        last = _month_end(target)  # the last weekday of the target month, read exactly
+        return last - timedelta(days=(last.weekday() - end.weekday()) % 7)
+    elif low <= high:
+        # the middle of the band; of two middle days the later (Apple's FY2017 from 2009-2016)
+        anchor = target + timedelta(days=-((-low - high) // 2))
+    else:
+        anchor = target
     shift = (end.weekday() - anchor.weekday()) % 7  # days forward to the same weekday
     return anchor + timedelta(days=shift if shift <= 3 else shift - 7)
 
