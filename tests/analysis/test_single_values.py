@@ -1662,19 +1662,36 @@ def _unpinned_by_cell(conn, run_id):
     return answer, out
 
 
-def _newest_fetch_time(conn, source):
+def _newest_fetch_time(conn, source, symbol):
+    """The newest download of one series, as `selected_fetch` reads it: by source and symbol, so a
+    second series from the same source cannot stand in for it (#604)."""
     from domains.market.store import fetch_time
 
     row = conn.execute(
-        "SELECT * FROM market_fetches WHERE source = ? ORDER BY fetch_id DESC LIMIT 1", (source,)
+        "SELECT * FROM market_fetches WHERE source = ? AND symbol = ?"
+        " ORDER BY fetch_id DESC LIMIT 1",
+        (source, symbol),
     ).fetchone()
     return fetch_time(row).isoformat()
 
 
+MARKET_CELLS = ("risk_free", "beta", "erp", "shares")
+
+
 def _no_market_date_after_the_run(answer):
-    for name in ("risk_free", "beta"):
-        for p in _primary(_cell(answer, name)).points:
-            assert p.period_end is None or p.period_end <= AS_OF
+    """No point of any series on the market cards (risk-free, beta, ERP by year end, the three
+    share series) is dated after the run's date, and each card has at least one point with a
+    value, so the check never passes on a chart that is wholly refused (#604)."""
+    for name in MARKET_CELLS:
+        valued = 0
+        for s in _cell(answer, name).history:
+            for p in s.points:
+                if p.period_end is None:
+                    assert p.value is None, (name, s.primary, p.period)  # refused: no date read
+                    continue
+                assert p.period_end <= AS_OF, (name, s.primary, p.period)
+                valued += p.value is not None
+        assert valued > 0, name
 
 
 def test_no_download_note_when_every_download_is_the_runs_own(run):
@@ -1695,7 +1712,8 @@ def test_a_replaced_yield_download_is_named_on_the_yield_series_only(run):
                 if n.code == "download_not_pinned")  # fmt: skip
     (d,) = note.params["downloads"]
     assert d["source"] == "fred" and d["covers_run_date"] is True
-    assert d["read_fetched_at"] == _newest_fetch_time(conn, "fred")
+    assert d["symbol"] == "DGS10"
+    assert d["read_fetched_at"] == _newest_fetch_time(conn, "fred", "DGS10")
     _no_market_date_after_the_run(answer)
 
 
@@ -1736,6 +1754,7 @@ def test_two_replaced_downloads_are_both_named_on_a_series_reading_both(run):
         "UPDATE runs SET price_fetch_sha256 = ?, index_fetch_sha256 = ? WHERE run_id = ?",
         ("0" * 64, "1" * 64, run_id),
     )
-    _answer, by_cell = _unpinned_by_cell(conn, run_id)
+    answer, by_cell = _unpinned_by_cell(conn, run_id)
     assert by_cell["beta"] == [["index", "price"]]
     assert by_cell["erp"] == [["index"]]
+    _no_market_date_after_the_run(answer)
