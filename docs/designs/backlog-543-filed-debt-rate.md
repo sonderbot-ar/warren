@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/543 (item 3 of #540, from the #533 analyst) · Branch `backlog-543-filed-debt-rate` · Version v0.10.53 when merged.
 
-Status: In progress (nov.26.2026). Steps 0 to 2 done; PR open.
+Status: Done (v0.10.53, nov.26.2026; PR #609, merge `41f93b9`, after CI green and a gatekeeper GO on the second pass). Snapshot `warren-20261126T202919Z` saved after the ingest.
 
 ## Problem
 
@@ -97,8 +97,8 @@ Serves brief Q5 (every input behind an answer, the cost-of-debt chart) and the `
 
 ## Follow-ups
 
-- Coca-Cola FY2020 and FY2021: take the early-extinguishment charges out of interest in D8 (it changes which figures a run reads).
+- #610: Coca-Cola FY2020 and FY2021, take the early-extinguishment charges out of interest in D8 (it changes which figures a run reads).
 
-## Where the work stopped
+## PR review
 
-Steps 0 to 2 built; PR, gatekeeper and merge next.
+- **Gatekeeper, first pass NO-GO:** CI red, `blended_rate` underflowed to zero for an amount of 5e-324 (Hypothesis), so the result left its two rates; fixed by writing the blend as the long-term rate moved by the short-term share, with that case pinned as an example. Taken: a test at the one-point line (0.99 and 1.01 points), the map notes name the note. Second pass GO; a weight-swap mutation fails three tests. Noted, not acted on: `_stated_rate_on`'s own `filed_at` check is redundant with `get_facts`'s `as_of` (kept, as in `_effective_rate`).
