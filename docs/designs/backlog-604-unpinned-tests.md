@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/604 (from the #603 gatekeeper) · Branch `backlog-604-unpinned-tests` · Version v0.10.52 when merged.
 
-Status: In progress.
+Status: Done (v0.10.52, nov.26.2026; PR #607, merge `f46d114`, after CI green and a gatekeeper GO).
 
 ## Problem
 
@@ -35,3 +35,5 @@ None. Tests only; no output, code or stored number changes.
 ## Review notes
 
 Explainer, analyst, professor: not run. Tests only, no method or output change, under the gatekeeper's own non-blocking notes.
+
+Gatekeeper GO on PR #607: 2962 passed, 10 skipped, ruff clean; no assertion removed or weakened; four mutations (the bound moved for every card, for ERP and shares only, for shares only, and the valued floor raised) each fail the four callers, so the ERP and share checks really run.
