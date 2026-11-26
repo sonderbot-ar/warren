@@ -102,7 +102,13 @@ SERIES_NOTES = (
     # the total); or, when Warren reads none in the window, fair_value_not_read (#481 item 3)
     "fair_value_as_filed",
     "fair_value_not_read",
+    # a market series read a download that is not the run's own (no kept download has the
+    # hash the run stored), so the newest stored download was read instead; params
+    # downloads: [{role, source, symbol, read_fetched_at, covers_run_date}] (backlog #601)
+    "download_not_pinned",
 )
+# The run's three market downloads, by role (backlog #601)
+DOWNLOAD_ROLES = ("price", "index", "yield")
 # The filed fair value of long-term debt (concept_map_reported.csv): context beside book debt,
 # never read by a valuation (backlog #481 item 3)
 FAIR_VALUE_ITEM = "debt_fair_value"
@@ -147,19 +153,24 @@ class Singles:
                 self._history = load_history(self.conn, self.run["cik"], self.as_of)
         return self._history
 
+    def _downloads(self) -> list[tuple[str, str, str, str]]:
+        """The run's three market downloads: (role, source, symbol, runs column of its hash)."""
+        from domains.market.prices import MARKET_INDEX
+        from domains.market.yields import RISK_FREE_SERIES
+
+        return [
+            ("price", "yahoo", self.run["ticker"], "price_fetch_sha256"),
+            ("index", "yahoo", MARKET_INDEX, "index_fetch_sha256"),
+            ("yield", "fred", RISK_FREE_SERIES, "yield_fetch_sha256"),
+        ]
+
     def _pin_map(self) -> dict:
         """The run's own downloads still stored, by (source, symbol); read once per answer."""
         if "pin_map" not in self.cache:
-            from domains.market.prices import MARKET_INDEX
             from domains.market.store import MarketDataError, fetch_with_hash
-            from domains.market.yields import RISK_FREE_SERIES
 
             pins = {}
-            for source, symbol, column in (
-                ("yahoo", self.run["ticker"], "price_fetch_sha256"),
-                ("yahoo", MARKET_INDEX, "index_fetch_sha256"),
-                ("fred", RISK_FREE_SERIES, "yield_fetch_sha256"),
-            ):
+            for _role, source, symbol, column in self._downloads():
                 try:  # pin each download the run names that is still stored
                     pins[(source, symbol)] = fetch_with_hash(
                         self.conn, source, symbol, self.run[column]
@@ -168,6 +179,62 @@ class Singles:
                     continue
             self.cache["pin_map"] = pins
         return self.cache["pin_map"]
+
+    def unpinned(self) -> list[dict]:
+        """Each of the run's downloads that could not be pinned (no kept download has the hash
+        the run stored), so reads inside `pins()` take the newest stored download instead, the
+        newest by `fetch_id` as `selected_fetch` reads it (backlog #601): its role, source and
+        symbol; when that download was made (UTC, ISO); and whether it covers the run's date
+        (made after that day ended in New York). Most reads refuse a download that does not cover
+        their date (`require_coverage`), but the share series' split factor does not
+        (`split_factor`), so a price download that stops before the run's date can miss a split
+        silently: `covers_run_date` false says so (analyst). A symbol with no stored download
+        at all is left out: its points already carry `market_data_not_loaded`, and a second
+        message would say the same (product lead)."""
+        if "unpinned" not in self.cache:
+            from domains.market.store import covered_through, fetch_time, latest_fetch
+
+            pins = self._pin_map()
+            out = []
+            for role, source, symbol, _column in self._downloads():
+                if (source, symbol) in pins:
+                    continue
+                newest = latest_fetch(self.conn, source, symbol)
+                if newest is None:
+                    continue
+                out.append(
+                    {
+                        "role": role,
+                        "source": source,
+                        "symbol": symbol,
+                        "read_fetched_at": fetch_time(newest).isoformat(),
+                        "covers_run_date": covered_through(newest) >= self.as_of,
+                    }
+                )
+            self.cache["unpinned"] = out
+        return self.cache["unpinned"]
+
+    def unpinned_note(self, *roles: str) -> list[Coded]:
+        """`download_not_pinned` for a series reading these downloads, or nothing when every
+        one was the run's own (backlog #601)."""
+        downloads = [d for d in self.unpinned() if d["role"] in roles]
+        if not downloads:
+            return []
+        names = ", ".join(
+            f"{d['role']} ({d['symbol']}, downloaded {d['read_fetched_at'][:10]}"
+            + ("" if d["covers_run_date"] else ", before the run's date ended")
+            + ")"
+            for d in downloads
+        )
+        return [
+            Coded(
+                "download_not_pinned",
+                {"downloads": downloads},
+                f"the run's own download is no longer stored, so this is drawn on the newest "
+                f"one: {names}; no point reads a date after its own, but the chart may differ "
+                "from the one the run would draw",
+            )
+        ]
 
     def pins(self):
         """The run's own downloads, as `reproduce` pins them; none if one is no longer stored."""
@@ -351,7 +418,7 @@ def _risk_free(singles: Singles):
         part = Part(rf.series, rf.rate, rf.date.isoformat(), None)
         return rf.rate, rf.date, [part], []
 
-    return _monthly(singles, "risk_free_yield", at)
+    return _monthly(singles, "risk_free_yield", at, singles.unpinned_note("yield"))
 
 
 def _beta(singles: Singles):
@@ -388,7 +455,7 @@ def _beta(singles: Singles):
         f"each point regresses the {BETA_WEEKS} weeks before its date, so neighbouring points "
         "share most of their weeks and move slowly",
     )
-    return _monthly(singles, "beta", at, [overlap])
+    return _monthly(singles, "beta", at, [overlap, *singles.unpinned_note("price", "index")])
 
 
 def _erp(singles: Singles):
@@ -436,7 +503,8 @@ def _erp(singles: Singles):
         f"each point averages every year from {first_year} to its own year, so one more year "
         "moves it only a little, and a good year for stocks raises it",
     )
-    return Series("erp", "year", "latest", True, None, points, [note])
+    notes = [note, *singles.unpinned_note("index", "yield")]
+    return Series("erp", "year", "latest", True, None, points, notes)
 
 
 def _erp_first_year(singles: Singles) -> int:
@@ -1243,10 +1311,28 @@ def _shares(singles: Singles):
         key=lambda p: (p.fiscal_year, _quarter_number(p.fiscal_period)),
     )
     cover_used = bool(counted and counted["item"] == "shares_outstanding")
+    # every point's split factor reads the company's price download (backlog #601)
+    split_notes = singles.unpinned_note("price")
     return [
-        Series("shares_outstanding", "date", "latest", cover_used, None, cover),
-        Series("diluted_shares", "quarter", "latest", any(p.used for p in diluted), None, diluted),
-        Series("diluted_shares", "year", "latest", any(p.used for p in yearly), None, yearly),
+        Series("shares_outstanding", "date", "latest", cover_used, None, cover, split_notes),
+        Series(
+            "diluted_shares",
+            "quarter",
+            "latest",
+            any(p.used for p in diluted),
+            None,
+            diluted,
+            list(split_notes),
+        ),
+        Series(
+            "diluted_shares",
+            "year",
+            "latest",
+            any(p.used for p in yearly),
+            None,
+            yearly,
+            list(split_notes),
+        ),
     ]
 
 
