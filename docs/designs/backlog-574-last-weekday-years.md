@@ -46,6 +46,8 @@ None today. The only output is `period_end` on a `not_filed_yet` cost-of-debt po
 
 ## Review notes
 
-Explainer and analyst not run: one date helper, no financial number, no stored output. The professor reads the method (the §441(f) rule and the tie between the two rules).
+Explainer and analyst not run: one date helper, no financial number, no stored output.
+
+Professor: GO. The two rules match Treas. Reg. §1.441-2(a)(1) exactly, (i) the weekday's last occurrence in a month and (ii) the weekday nearest a month's last day, and nothing more; the tie rule is sound, since with both fitting the band's middle always lands on one of the two legal answers and no answer right on `main` changes. Taken: the docstring now names the regulation's two forms first and presents the fixed-anchor band as the fallback (it had taught "the Saturday nearest 27 September", which is not one of the forms), and says an end fitting neither form is not a §441(f) calendar as filed. Idea for the lesson: the last-four-days overlap as a question the data cannot settle yet. The professor could not fetch the regulation live (law.cornell.edu is outside the cloud's allowed hosts) and worked from its text.
 
 Remaining, not in this item: the weekday nearest the end of February with several filed years can still be a week off, because the band compares ends across leap days; no Phase 1 company has a February year end.

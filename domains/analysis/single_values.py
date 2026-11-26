@@ -715,25 +715,25 @@ def expected_year_end(filed: list[tuple[date, date]], years_ahead: int) -> date:
     backlog #564).
 
     A calendar-month year ends on the same day, kept at the month's end when it ended on one
-    (Walmart's 31 January; 29 February falls to the 28th). A 52 or 53-week year (the newest is
-    364 or 371 days long) ends on the same weekday nearest a fixed date, its anchor (Apple: the
-    Saturday nearest 27 September; Johnson & Johnson: the Sunday nearest 31 December). Every
-    filed end is within three days of the anchor, so the anchor is the middle of the dates all
-    of them allow (the later of two middle days). With few years the band is wide and the middle
-    a guess; when no date fits every end (a changed calendar) the newest end alone is the
-    anchor, which is a week early before a 53-week year.
+    (Walmart's 31 January; 29 February falls to the 28th).
 
-    Two anchors come from a rule rather than a guess, and are tried first (backlog #574). The
-    weekday nearest a month's end (Johnson & Johnson's) fits when the band holds that month end;
-    the anchor is then the month end in the target year, so February's moves with leap years.
-    The other rule 26 U.S.C. §441(f) allows, the last given weekday of a month, can end a year six
-    days before the month's end (the last Saturday of January: 25 January 2025); when every filed
-    end is the last of its weekday in one month and no month end fits, the expected end is that
-    weekday's last day in the target month, read exactly. Apple's last Saturday of September
-    (24 to 30 September) is also the Saturday nearest 27 September, so both readings agree.
-    When the filed ends all sit in the month's last four days, both rules fit and neither is
-    taken: the middle of the band reads as before, until an end outside those days tells the two
-    apart."""
+    A 52 or 53-week year (the newest is 364 or 371 days long) ends, under 26 U.S.C. §441(f) and
+    Treas. Reg. §1.441-2(a)(1), on a given weekday either (i) the last time it occurs in a
+    calendar month (Apple: the last Saturday of September), which can be six days before the
+    month's end, or (ii) nearest the last day of a calendar month (Johnson & Johnson: the Sunday
+    nearest 31 December, which can fall in January). Both are tried first (backlog #574):
+    - (ii) fits when the month end nearest the newest end lies within three days of every filed
+      end; the expected end is then the weekday nearest that month end in the target year, so
+      February's follows leap years;
+    - (i) fits when every filed end is the last of its weekday in one and the same month; the
+      expected end is that weekday's last day in the target month.
+    Both fit only when every filed end sits in its month's last four days, and then nothing in
+    the filings tells them apart yet. That case, and a calendar that fits neither form (not a
+    §441(f) year as filed: a changed calendar, or a tag Warren misread), fall back to a band: an
+    anchor date within three days of every filed end, taken as the middle of the dates all of
+    them allow (the later of two middle days). With few years the band is wide and its middle a
+    guess, and when no date fits every end the newest end alone is the anchor, a week early
+    before a 53-week year. Either way the answer is an estimate until the 10-K is filed."""
     if years_ahead < 1:
         raise ValueError(f"years_ahead must be at least 1, got {years_ahead}")
     if not filed:
