@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/499 (from the #498 gatekeeper) · Branch `backlog-499-yield-window` · Version v0.10.50 when merged.
 
-Status: In progress (nov.26.2026).
+Status: PR open (nov.26.2026).
 
 ## Problem
 
@@ -55,3 +55,5 @@ Serves Q5 (the inputs behind an answer, the cost-of-debt chart). `below_risk_fre
 Product lead (front-end): OK. Serves Q5; nothing changes or breaks; the brief's clause reads `{tasa_libre}` live from the param (brief.md, Q5). The app should word the flag when false: append ", calculada con una descarga de la tasa posterior a la del cálculo original." Taken: the team-sync entry names the param and says it is only on the `year_average_yield` variant.
 
 Analyst: GO with changes. Taken: the 53-week companies are Apple and J&J, not Walmart and P&G; tests on Apple's and J&J's real dates (the 52-week "day before" case is a weekend in real data, so that test uses made-up dates and says so); the flag reads the yield's own pin, with the reverse test; the fallback wording; Step 3 says no note at all. Not taken here, with a reason: flag the price and index downloads too (they feed the price, beta and share series through the same `pins()`); that is a wider output change across several cells, so it is filed as its own backlog issue rather than grown into this item.
+
+Real-data check (snapshot `warren-20261125T103202Z`, each company's newest stored run, 10 years of chart): 16 years carry the `year_average_yield` note (Caterpillar 2, Coca-Cola 5, Microsoft 3, P&G 6); every one has the same window start, average and count on `main` and here, and `yield_fetch_pinned` is true on all 16. Apple, J&J and Walmart have no year below the yield in those windows, so the 53-week fix changes no answer shown today; it matters when one of their week-years is below the yield.
