@@ -1,90 +1,104 @@
-# Backlog #543: flag a cost of debt far from the company's own filed rate on its debt
+# Backlog #543: flag a cost of debt far from the rate the company states on its own debt
 
 Issue: https://github.com/sonderbot-ar/warren/issues/543 (item 3 of #540, from the #533 analyst) · Branch `backlog-543-filed-debt-rate` · Version v0.10.53 when merged.
 
-Status: In progress (nov.26.2026).
+Status: In progress (nov.26.2026). Steps 0 to 2 done; PR open.
 
 ## Problem
 
-Warren's cost of debt (D8, `docs/build-plan.md` line 196) is a fiscal year's interest over the average of its two year-end debts (`math_engine.cost_of_debt_year`). It is a book figure, and it can be far from what the company actually pays on its borrowing when the interest line holds something other than interest on the debt. Two cases are in Warren's data today:
+Warren's cost of debt (D8, `docs/build-plan.md` line 196) is a fiscal year's interest over the average of its two year-end debts (`math_engine.cost_of_debt_year`). It is a book figure, and it can be far from what the company pays on its borrowing when the interest line holds something besides interest on the debt. Nothing told a reader so, except for J&J, whose cost-of-debt chart has carried `interest_net_of_hedge_gains` since #542 (v0.10.35), with the rate J&J states on its long-term debt beside it. `cost_of_debt_out_of_bounds` (outside 0% to 15%) catches neither case below.
 
-- **J&J FY2019 to FY2022**: the interest line is net of about half a billion dollars a year of cross-currency swap gains (#540, #542), so D8 reads 0.67% to 1.33% while J&J's own weighted average effective rate on its long-term debt is 2.85% to 3.19%.
-- **Coca-Cola FY2020 and FY2021**: D8 reads 3.36% and 3.73% while Coca-Cola's filed weighted average rates on its debt are about 1.6% (to be confirmed by the analyst: the 10-Ks book charges for the early extinguishment of long-term debt inside interest expense).
+**Coca-Cola FY2020 and FY2021.** D8 reads 3.36% and 3.73%, while Coca-Cola states about 1.6% on its debt. Its FY2021 10-K (0000021344-22-000009, Note 10) says the early extinguishments of long-term debt "resulted in associated charges of $559 million [2021] / $459 million [2020] recorded in the line item interest expense" (Item 7 totals: $650M and $484M). Without the $650M, FY2021 reads about 2.21%, still +0.6 points: the charges explain most of the gap, not all (analyst).
 
-Nothing tells a reader of the run. Warren already warns when D8 is outside 0% to 15% (`cost_of_debt_out_of_bounds`), but both cases are inside that band. Three companies file, in their debt note, the rate they pay on average, as a tag without a dimension, so Warren can read it point-in-time like any fact:
+Three companies state, in the 10-K's debt note, a weighted average rate on their debt, tagged without a dimension, so Warren can read it point-in-time like any fact (company facts, nov.26.2026; analyst checked each against the filings):
 
-| Company | Long-term rate (year end) | Short-term rate (year end) |
-|---|---|---|
-| Coca-Cola | `LongtermDebtWeightedAverageInterestRate`, FY2016 on | `ShortTermDebtWeightedAverageInterestRate`, FY2009 on |
-| P&G | `LongtermDebtWeightedAverageInterestRate`, FY2014 on | `ShortTermDebtWeightedAverageInterestRate`, FY2009 on |
-| J&J | `DebtInstrumentInterestRateEffectivePercentage` (weighted average effective rate on long-term debt), FY2011 to FY2024; FY2025 not tagged | none |
+| Company | Long-term rate | Short-term rate | What the short-term rate covers |
+|---|---|---|---|
+| Coca-Cola | `LongtermDebtWeightedAverageInterestRate`, FY2016 on: the weighted-average effective rate on long-term debt before its current portion is taken out, adjusted for swaps | `ShortTermDebtWeightedAverageInterestRate`, FY2009 on: commercial paper | short-term borrowings and commercial paper (the loans and notes payable line, which also holds 845M of other short-term lines at 2021-12-31) |
+| P&G | `LongtermDebtWeightedAverageInterestRate`, FY2014 on: long-term debt after the current portion, with swaps | `ShortTermDebtWeightedAverageInterestRate`: "Debt due within one year" (FY2022 10-K, 0000080424-22-000064) | short-term borrowings, commercial paper and the current portion of long-term debt |
+| J&J | `DebtInstrumentInterestRateEffectivePercentage`, FY2011 to FY2024 (already read as `debt_effective_rate`, #542): the notes subtotal, current portion included | none Warren reads (its paper was at 0.11% in FY2021, not tagged) | the long-term rate stands for all its debt, which reads high when paper is a large share |
 
-Apple, Walmart and Exxon file only a short-term rate (Exxon's long-term 3.43% is tagged only with a dimension, which company facts leave out); Microsoft and Caterpillar file neither. (Company facts, nov.26.2026.)
+Apple, Walmart and Exxon state only a short-term rate (Exxon's long-term 3.43% is tagged only with a dimension); Microsoft and Caterpillar state neither. None of the three companies' rates is restated in a later 10-K (every year end agrees across filings, analyst). The rates are rounded (Coca-Cola's to 0.1%, so ±0.05 points each).
 
-This item adds a check, not a new method: D8's value does not change on any run. When the company files a rate, the run says how far D8 is from it, and warns when the gap is large.
-
-### What the check gives on today's data (fiscal years from FY2014, the run's newest-year rule, in memory)
-
-The filed rate is blended by the debt Warren counts at the cost-of-debt year's closing date: the short-term rate on the short-term borrowings and commercial paper, the long-term rate on the rest (the current and non-current portions of long-term debt, and any finance leases). Where the company files no short-term rate (J&J), the long-term rate stands for all of it, and the note says so.
-
-| Company | FY | D8 | Long-term | Short-term | Short-term share | Filed (blend) | Gap |
-|---|---|---|---|---|---|---|---|
-| KO | 2016–2019 | 1.64%–2.18% | 1.7%–1.9% | 0.8%–2.6% | 26%–31% | 1.46%–2.12% | −0.05 to +0.25 |
-| KO | 2020 | 3.36% | 1.6% | 1.3% | 5% | 1.58% | **+1.77** |
-| KO | 2021 | 3.73% | 1.7% | 0.1% | 8% | 1.58% | **+2.16** |
-| KO | 2022–2025 | 2.15%–3.83% | 2.3%–3.4% | 3.9%–5.3% | 3%–11% | 2.42%–3.61% | −0.26 to +0.37 |
-| PG | 2014–2026 | 1.38%–2.76% | 2.0%–3.3% | 0.2%–4.2% | 10%–37% | 1.70%–3.30% | −0.85 to −0.20 |
-| JNJ | 2014–2018 | 3.33%–3.52% | 3.19%–4.08% | none | 9%–35% | 3.19%–4.08% | −0.71 to +0.19 |
-| JNJ | 2019 | 1.33% | 3.19% | none | 4% | 3.19% | **−1.86** |
-| JNJ | 2020 | 0.84% | 2.85% | none | 7% | 2.85% | **−2.01** |
-| JNJ | 2021 | 0.67% | 2.89% | none | 11% | 2.89% | **−2.22** |
-| JNJ | 2022 | 0.89% | 3.04% | none | 32% | 3.04% | **−2.15** |
-| JNJ | 2023, 2024 | 2.44%, 2.53% | 2.98%, 3.36% | none | 12%, 16% | 2.98%, 3.36% | −0.54, −0.83 |
-| JNJ | 2025 | 2.57% | not tagged | none | | | no check |
-
-(D8 through today's map on the nov.25 snapshot, as known on 2026-11-20; rates from company facts, the first 10-K that filed each year end.)
-
-A gap of more than one percentage point separates the two known causes (J&J's swaps, Coca-Cola's charges) from the ordinary difference between a year-end rate and a year's average one: P&G's largest gap is −0.85 points in FY2023, a year when rates rose about four points, so its year-end rates sit above the year's average.
+This item adds a check, not a method: D8, the WACC and every number stay as they are.
 
 ## Plan
 
 **Step 0. This doc.**
 
-**Step 1. The filed rates in the map, and the note.**
+**Step 1. The stated rates as data, and the note on the cost-of-debt chart.**
 
-- Map (`domains/fundamentals/concept_map.csv`): two optional items, unit `pure`, period type `instant`.
-  - `debt_rate_long_term`: `us-gaap:LongtermDebtWeightedAverageInterestRate` priority 1 (KO, PG), `us-gaap:DebtInstrumentInterestRateEffectivePercentage` priority 2, limited to JNJ (a generic tag another company may use per instrument; J&J's undimensioned fact is the weighted average effective rate on its long-term debt). Priority 1 limited to KO and PG too, since the loader needs every row of an item limited when one is.
-  - `debt_rate_short_term`: `us-gaap:ShortTermDebtWeightedAverageInterestRate`, limited to KO and PG (the only companies with a long-term rate to blend it with; Apple's, Walmart's and Exxon's would never be used).
-  - Notes cite the filings. Map copy `concept_maps/<sha>.csv` and its `CHANGES.md` line.
-- Engine (`math_engine.py`): `FILED_RATE_ITEMS` read like the check items (only when the map in force has them, so a rebuild through an older map reads what it read). A new `FILED_RATE_GAP = 0.01` (one percentage point, a Warren working rule). After `_cost_of_debt` adds the row, `_filed_rate_note(history, year, kd, end, end_used, result)`:
-  - reads the cost-of-debt year's long-term rate (`history.year(year)`); none: no check, no note.
-  - short-term part = the closing debt's `short_term_borrowings` and `commercial_paper` facts above zero; rate = the year's short-term rate, or the long-term rate when none is filed (`short_term_rate` None in params).
-  - filed = (long-term rate × (closing debt − short-term part) + short-term rate × short-term part) / closing debt, through `financial_math` (a new `blended_rate`, with property tests).
-  - When |D8 − filed| > `FILED_RATE_GAP`: run note `cost_of_debt_far_from_filed_rate` (group `assumption`), params `{cost_of_debt, filed_rate, gap, threshold, fiscal_year, period_end, long_term_rate, short_term_rate, short_term_share, accession_no}` (rates and shares as fractions, `accession_no` the long-term rate's filing), English text "Cost of debt X% is Y points above/below the company's own filed rate on its debt (Z%, FY…)".
-  - The check never changes D8, WACC or any number.
-- `coded.RUN_NOTE_CODES` gains the code; `text.WARNING_LESSONS` gains its lesson (two sentences: a cost of debt from the income statement can hold things other than interest on the debt, such as hedge gains or charges for repaying debt early; the company's own rate is a check on it; the one point is a working rule), with `{threshold}` from the constant.
-- `reading_rules.md`: a row under version 15 (the note changes no figure a run reads, so the version stays).
-- Tests: `tests/analysis/test_filed_debt_rate.py` (new): a Test Corp fixture with a filed long-term rate that warns above the gap, stays silent within it, blends a short-term rate, uses the long-term rate for all when no short-term rate is filed (and says so), gives no note without a long-term rate, reads no rate filed after the run's date (point-in-time), and leaves every assumption row identical with and without the rates; `tests/analysis/test_warning_lessons.py` threshold table; `tests/fundamentals/test_concepts.py` and `test_ingest.py` for the map's scope; property tests for `blended_rate` in the `financial_math` suite (between its two rates, equal to the long-term rate at share 0, the short-term at share 1).
+- Map, the reported-only file (`concept_map_reported.csv`, outside the valuation map's fingerprint, never read by a valuation): `debt_average_rate_long_term` (`LongtermDebtWeightedAverageInterestRate`) and `debt_average_rate_short_term` (`ShortTermDebtWeightedAverageInterestRate`), unit `pure`, instant, optional, KO and PG only. J&J's long-term rate is the existing `debt_effective_rate`.
+- Companies as data (Decision 11): `domains/analysis/stated_debt_rates.csv` (`ticker, long_rate_item, short_rate_item, short_rate_covers, evidence`) and its loader `stated_debt_rates.py`, validated like `interest_caveats.csv` (known ticker, reported-only items, a closed `short_rate_covers` set, `short_term_borrowings` or `due_within_one_year`, an accession in the evidence). Rows: KO (`short_term_borrowings`), PG (`due_within_one_year`), JNJ (no short-term rate).
+- `financial_math.blended_rate(long_rate, long_amount, short_rate, short_amount)`: two rates weighted by the amounts they cover, refusing a negative amount or a zero total; property tests (between its two rates, either rate alone when the other amount is zero, the same in any unit).
+- `single_values._cost_of_debt_point`: on a year no interest caveat covers, `_stated_rate_note`:
+  - At each of the year's two year ends (the dates of the opening and closing debt D8 averaged), the stated rate dated exactly then, the newest filing's version known on the run's date. The short-term rate goes on the debt Warren counted there that `short_rate_covers` names (`short_term_borrowings` and `commercial_paper`, plus `debt_current` and `debt_current_total` for `due_within_one_year`), the long-term rate on the rest; with no short-term rate, the long-term rate on all of it.
+  - The stated rate is the mean of the two year ends' blends, or the closing one alone when the opening has no rate (a flow over the year against year-end rates, analyst B1). No closing rate: no check.
+  - When |cost of debt − stated| > `STATED_RATE_GAP` (0.01, one percentage point, a Warren working rule): point note `far_from_stated_rate`, params `fiscal_year`, `cost_of_debt` (the run's own row on the used year, as `below_risk_free` and the hedge note compare), `stated_rate`, `gap` (signed: cost of debt − stated rate, below zero when the book rate is lower), `threshold`, `short_rate_covers` (None when the long-term rate stood for all the debt), `year_ends` (oldest first: `period_end`, `stated_rate`, `long_term_rate`, `short_term_rate`, `short_term_share` as a fraction of that year end's debt, `long_term_rate_filing` and `short_term_rate_filing` in the #140 filing shape `{accession_no, form, filed_at, url, filer}` for the *Fuente* link).
+  - Never on a year an interest caveat covers: `interest_net_of_hedge_gains` already sets the book rate beside the stated one, with the cause (product lead, blocker 1). It can sit beside `below_risk_free` on one point (after it).
+  - The `cost_of_debt` cell carries the used year's note, as it does the hedge note (never both, since they never share a year).
+- `reading_rules.md`: a row under version 15 (`blended_rate` is in a rules module but no run calls it).
+- Tests: `tests/analysis/test_stated_debt_rate.py` (16: within and beyond the gap, both signs, two year ends averaged and the closing alone, each `short_rate_covers` blend by hand, the long-term rate for all with no short-term item, no note without a closing rate, a rate filed after the run's date never read, a caveat year gets the hedge note only, the cell, the closed lists, no number moves), `tests/analysis/test_stated_debt_rates.py` (9, the loader), the `blended_rate` properties, `tests/fundamentals/test_concepts.py` (the reported-only items and their scope). The test fixture now files any tag ending in `InterestRate` as a ratio, so the tests use the real tags.
 - Exit: `python -m pytest -q`, `ruff check .`, `ruff format --check .` green.
 
-**Step 2. Real data.** On the restored snapshot (`warren-20261125T103202Z`): `reproduce --all` and `--rebuild` before; `fundamentals ingest --all` (only KO, PG and JNJ should gain facts, the rates); `fundamentals report --all` (no new unexplained gaps; the items are optional); `reproduce --all` and `--rebuild` after, with as many identical rebuilds as before. Then every stored run date built fresh in memory through main's map and the new one; none stored. Exit: no assumption row moves on any run; the note appears only on the KO, JNJ runs whose cost-of-debt year is in the table's bold rows, listed by year. Save a snapshot.
+**Step 2. Real data.** On the restored snapshot (`warren-20261125T103202Z`): `reproduce --all` and `--rebuild` before; `fundamentals ingest --all` (only KO and PG should gain facts); `fundamentals report --all`; `reproduce --all` and `--rebuild` after, with as many identical rebuilds as before. Then every stored KO, PG and JNJ run's own cost-of-debt year through `cost_of_debt_notes`, and each company's newest run's chart. Exit: no stored run changes; the note on Coca-Cola's FY2020 and FY2021 only; J&J's covered years keep their hedge note alone. Save a snapshot.
+
+## Results (Step 2, nov.26.2026)
+
+On the restored snapshot `warren-20261125T103202Z`.
+
+- **Before anything changed** (main at `96ac329`): `reproduce --all`: 936 of 936 stored runs reproduced to the cent; `--rebuild`: 723 of 936 rebuilt to identical rows.
+- **Ingest.** Coca-Cola gains 50 facts and P&G 62 (the two rates, every 10-K's version); no other company gains any. `fundamentals report --all`: 0 unexplained gaps for all eight companies.
+- **After the ingest.** 936 of 936 reproduced to the cent; 723 of 936 rebuilt to identical rows, the same as before.
+- **The check on every stored run's own year** (gap = cost of debt − stated rate, in points):
+
+| Company | FY (runs) | Gap | Note |
+|---|---|---|---|
+| KO | 2018 (15), 2019 (13) | +0.12, +0.20 | no |
+| KO | **2020 (16)** | **+1.60** (3.36% against 1.76%, both year ends) | **yes** |
+| KO | **2021 (14)** | **+2.15** (3.73% against 1.58%) | **yes** |
+| KO | 2022 to 2025 (57) | +0.16 to +0.77 | no |
+| PG | 2018 to 2026 (115) | −0.70 to +0.54 | no |
+| JNJ | 2018 to 2025 (115) | | no: every run's year is one the hedge caveat covers, so its note stays alone |
+
+  On the newest runs' charts the same: Coca-Cola's FY2020 and FY2021 points only; P&G none; J&J FY2017 (the one uncovered year in its window) none. The largest quiet gap is Coca-Cola FY2023's +0.77, a year its stated short-term rate rose from 4.2% to 5.3% and its year-end rates sit above the year's average; the two firing years are at least 0.8 points beyond the line.
+- No stored run, row or number changes: the note is built when an answer is read, not stored.
 
 ## Alternatives considered
 
-- **Use the filed rate as the cost of debt.** Closer to what the company pays, but it changes D8's method (an M2 decision, `docs/build-plan.md` line 196; an owner card), only three companies file it, and it is a year-end rate. Rejected for this item; the note gives the evidence a later card would need.
-- **Compare with the long-term rate alone.** Simpler, but P&G and Coca-Cola carry 10% to 37% of their debt as commercial paper at much lower rates, so P&G would warn in four of its thirteen years (FY2014 to FY2017, gaps −1.08 to −1.30 points) for no reason. Rejected.
-- **A gap relative to the filed rate (for example D8 outside half to twice it).** At today's low rates a ratio fires on small absolute gaps (P&G FY2017: 1.50% against 1.82%), and an analyst reads a cost of debt in points. Rejected.
-- **Average the opening and closing filed rates.** Closer to the year's average, but the opening rate is a year older and J&J's first year would have none; the gap would barely move (P&G FY2023 −0.85 → about −0.5). Left for the review to weigh.
-- **Put the check on the cost-of-debt chart's every year too** (`single_values`). Useful for brief Q5's chart, but a second place for one rule; a follow-up once the run note settles.
+- **A run note in `math_engine` (the first draft).** The issue asked for one, but J&J's covered years would then carry two notes quoting the same stated rate with two causes (product lead, blocker 1), the check would change the valuation map's fingerprint for a figure no valuation reads, and the chart would still lack it per year. The chart and cell are where the hedge note already lives. Changed.
+- **Use the stated rate as the cost of debt.** It changes D8's method (an M2 decision, `docs/build-plan.md` line 196; an owner card), only three companies state it, it is a year-end rate, and it is not the market cost of new borrowing either (professor; Koller et al., *Valuation*, 7th ed., the cost of capital chapter). Rejected; the note is the evidence a later card would need.
+- **The short-term rate on short-term borrowings and commercial paper for every company (the first draft).** P&G's note puts its short-term rate on all debt due within one year, current portion included (analyst B1), so the split is per company, in the data file.
+- **The closing year end alone (the first draft).** In a year rates rise, year-end rates sit above the year's average: P&G FY2023 came to −0.997 points, 0.003 from firing, with the right split (analyst). Averaging both ends brings it to −0.25.
+- **Compare with the long-term rate alone.** P&G and Coca-Cola hold 10% to 37% of their debt as commercial paper at much lower rates. Rejected.
+- **A gap relative to the stated rate.** At low rates a ratio fires on small absolute gaps; an analyst reads a cost of debt in points. Rejected.
+- **Take Coca-Cola's charges out of its interest.** The right fix for its FY2020 and FY2021 D8, but it changes which figures a run reads; a follow-up issue, with the note's evidence.
 
 ## Files to change
 
-`domains/fundamentals/concept_map.csv`, `domains/fundamentals/concept_maps/<sha>.csv` and `CHANGES.md`, `domains/analysis/financial_math.py`, `domains/analysis/math_engine.py`, `domains/analysis/coded.py`, `domains/analysis/text.py`, `domains/analysis/reading_rules.md`, `tests/analysis/test_filed_debt_rate.py`, `tests/analysis/test_warning_lessons.py`, `tests/analysis/test_financial_math*.py`, `tests/fundamentals/test_concepts.py`, `tests/fundamentals/test_ingest.py`, this doc; on merge `docs/versions.md`, `docs/team-sync.md`. `docs/structure-guide.md` and `docs/build-plan.md` are unchanged (no milestone, no decision: D8's method is the same).
+`domains/fundamentals/concept_map_reported.csv`, `domains/analysis/stated_debt_rates.csv` (new), `domains/analysis/stated_debt_rates.py` (new), `domains/analysis/financial_math.py`, `domains/analysis/single_values.py`, `domains/analysis/reading_rules.md`, `tests/analysis/test_stated_debt_rate.py` (new), `tests/analysis/test_stated_debt_rates.py` (new), `tests/analysis/test_financial_math_properties.py`, `tests/analysis/conftest.py`, `tests/fundamentals/test_concepts.py`, this doc; on merge `docs/versions.md`, `docs/team-sync.md`. `docs/structure-guide.md` and `docs/build-plan.md` are unchanged (no milestone, no decision).
 
 ## Product impact
 
-Serves brief Q3, Q4 and Q5 (a value per share, the WACC and its parts, every input behind an answer): a run of Coca-Cola or J&J whose cost-of-debt year is far from the company's filed rate gets one new run note, `cost_of_debt_far_from_filed_rate`, group `assumption`, with its lesson, ranked like `cost_of_debt_out_of_bounds` and pointing at the `cost_of_debt` row. Params are raw (fractions for rates, gap and share; `short_term_rate` null when the long-term rate stood for all the debt; `accession_no` for a *Fuente* link through the #140 filing shape the app already builds). The app needs a Spanish title, sentence and lesson for it, and a catalogue line. No number on any run changes; no output is renamed or removed. Stored runs keep their notes: a fresh run beside a stored one of the same date shows the note only on the new one, under the same reading rules (15) but a different map fingerprint (brief "different map fingerprints" case).
+Serves brief Q5 (every input behind an answer, the cost-of-debt chart) and the `cost_of_debt` cell on Q3, Q4 and Q8's screens. One new code, `far_from_stated_rate`, in `single_values.POINT_NOTES` and `CELL_NOTES`; nothing renamed or removed; no number changes.
+
+- **Where it shows.** On a cost-of-debt point after `below_risk_free` when both are there, and on the `cost_of_debt` cell for the run's own year. Never with `interest_net_of_hedge_gains` (they never share a year).
+- **Params for the Spanish.** `gap`'s sign picks "por encima" or "por debajo"; `stated_rate`, `cost_of_debt` and `threshold` are fractions; each `year_ends` entry gives the date, the long-term and short-term rates (`short_term_rate` None: none stated, or no short-term debt that year end), and `short_term_share` as a fraction of that year end's debt ("el {x} % de su deuda vencía en el año"). `short_rate_covers` None means the long-term rate stood for all the debt; `short_term_borrowings` and `due_within_one_year` say which debt the short-term rate was on.
+- **Source link.** `long_term_rate_filing` and `short_term_rate_filing` are full filing objects, as the hedge note's `effective_rate_filing` (blocker 2).
+- **The app needs** a Spanish title, a sentence from the params, a short lesson (a book cost of debt moves with anything booked on the interest line, such as hedge gains or charges for repaying debt early; the company's own rate is a check, not the rate a valuation would ideally use, which is the market cost of new borrowing; the one point is Warren's working rule from three companies' history), and its catalogue line.
+- **Today** it appears on Coca-Cola's FY2020 and FY2021 points, and on the cell of the 30 Coca-Cola runs whose own year is one of them.
+
+## Design review (nov.26.2026)
+
+- **Analyst, NO-GO on the first draft, one blocker, taken.** B1: P&G's short-term rate covers all its debt due within one year, current portion included, and with that split the closing year end alone left P&G FY2023 0.003 points from firing; fixed with a per-company split in data and the mean of both year ends. Confirmed: Coca-Cola's charges in interest expense (0000021344-22-000009), what each rate covers, no restated rates, the `pure` unit. Taken: reuse the debt facts D8 counted (S2); rounding in the threshold's reason (S1). Noted: J&J's long-term rate on its paper biases its stated rate up (in the data file's evidence); P&G books its FY2021 extinguishment charge outside interest, so the lesson says "can", not "does" (S3).
+- **Professor, GO.** Taken: the lesson should say neither rate is the market cost of new borrowing (Koller et al.; Damodaran), that the one point comes from three companies' history, and the year-end against year-average timing (now handled by averaging both ends). J&J's swaps as synthetic foreign-currency debt are the hedge note's job, which this note never replaces. Idea for the app: a book, stated and market rate side by side (outside Phase 1).
+- **Product lead, NO-GO on the first draft, two blockers, taken.** J&J would have had two notes quoting one rate: the check moved to the chart and never runs on a caveat year. A full filing object for the source link. Gaps taken: `gap`'s sign, the note's position, the cell, `short_term_share`'s base.
+- **Explainer, 14 gaps.** Answered above: which year ends and dates (the debt D8 averaged), the long-term part (the rest of the counted debt), missing inputs (no closing rate, no note; debt not above zero, no year end), the run's date for point-in-time, the newest filing's version, the sign and units, the confirmed Coca-Cola cause, the `short_term_share` base. The map-copy question no longer applies (the reported-only file has no copies).
+
+## Follow-ups
+
+- Coca-Cola FY2020 and FY2021: take the early-extinguishment charges out of interest in D8 (it changes which figures a run reads).
 
 ## Where the work stopped
 
-Step 0 written; design review next.
+Steps 0 to 2 built; PR, gatekeeper and merge next.
