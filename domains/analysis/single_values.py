@@ -147,25 +147,42 @@ class Singles:
                 self._history = load_history(self.conn, self.run["cik"], self.as_of)
         return self._history
 
+    def _pin_map(self) -> dict:
+        """The run's own downloads still stored, by (source, symbol); read once per answer."""
+        if "pin_map" not in self.cache:
+            from domains.market.prices import MARKET_INDEX
+            from domains.market.store import MarketDataError, fetch_with_hash
+            from domains.market.yields import RISK_FREE_SERIES
+
+            pins = {}
+            for source, symbol, column in (
+                ("yahoo", self.run["ticker"], "price_fetch_sha256"),
+                ("yahoo", MARKET_INDEX, "index_fetch_sha256"),
+                ("fred", RISK_FREE_SERIES, "yield_fetch_sha256"),
+            ):
+                try:  # pin each download the run names that is still stored
+                    pins[(source, symbol)] = fetch_with_hash(
+                        self.conn, source, symbol, self.run[column]
+                    )["fetch_id"]
+                except (MarketDataError, KeyError, IndexError, TypeError):
+                    continue
+            self.cache["pin_map"] = pins
+        return self.cache["pin_map"]
+
     def pins(self):
         """The run's own downloads, as `reproduce` pins them; none if one is no longer stored."""
-        from domains.market.prices import MARKET_INDEX
-        from domains.market.store import MarketDataError, fetch_with_hash, pin_fetches
+        from domains.market.store import pin_fetches
+
+        pins = self._pin_map()
+        return pin_fetches(pins) if pins else nullcontext()
+
+    def yield_pinned(self) -> bool:
+        """Whether the run's own 10-year yield download is still stored, so a yield read inside
+        `pins()` is the run's; otherwise it is the newest download (backlog #499). The yield's
+        own pin, never "any pin"."""
         from domains.market.yields import RISK_FREE_SERIES
 
-        pins = {}
-        for source, symbol, column in (
-            ("yahoo", self.run["ticker"], "price_fetch_sha256"),
-            ("yahoo", MARKET_INDEX, "index_fetch_sha256"),
-            ("fred", RISK_FREE_SERIES, "yield_fetch_sha256"),
-        ):
-            try:  # pin each download the run names that is still stored
-                pins[(source, symbol)] = fetch_with_hash(
-                    self.conn, source, symbol, self.run[column]
-                )["fetch_id"]
-            except (MarketDataError, KeyError, IndexError, TypeError):
-                continue
-        return pin_fetches(pins) if pins else nullcontext()
+        return ("fred", RISK_FREE_SERIES) in self._pin_map()
 
     def months(self) -> list[date]:
         """The first of each month, `years` × 12 of them, before the run's date."""
@@ -1126,6 +1143,8 @@ def _below_risk_free(
             "against": "year_average_yield",
             "risk_free_from": obs[0].date.isoformat(),
             "observations": len(obs),
+            # false: the run's yield download is no longer stored, so the newest was read
+            "yield_fetch_pinned": singles.yield_pinned(),
         }
         benchmark = f"its average from {obs[0].date.isoformat()} to {rf_date}"
     if kd is None or not kd < rf:

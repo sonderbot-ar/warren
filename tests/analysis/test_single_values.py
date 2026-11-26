@@ -1533,7 +1533,9 @@ def yields_db(db_path):
         apply_migrations(conn)
         rows = [{"date": d.isoformat(), "value": v} for d, v in sorted(rates.items())]
         load_yields(conn, download=lambda s: rows, now=lambda: datetime(2024, 1, 2, tzinfo=UTC))
-        return SimpleNamespace(conn=conn, as_of=date(2024, 1, 2), pins=nullcontext)
+        return SimpleNamespace(
+            conn=conn, as_of=date(2024, 1, 2), pins=nullcontext, yield_pinned=lambda: True
+        )
 
     yield make
     for cm in managers:
@@ -1580,3 +1582,48 @@ def test_the_year_average_yield_reads_no_day_before_the_year(yields_db):
     (note,) = _below_risk_free(singles, 0.01, False, end, start)
     assert note.params["risk_free_from"] == start.isoformat()
     assert note.params["risk_free"] == pytest.approx(0.02)
+
+
+def _year_average_notes(conn, run_id):
+    points = _primary(_cell(inputs_behind(conn, run_id, VPS, years=5), "cost_of_debt")).points
+    return [
+        n
+        for p in points
+        for n in p.notes
+        if n.code == "below_risk_free" and n.params["against"] == "year_average_yield"
+    ]
+
+
+@pytest.fixture
+def cheap_run(make_company):
+    def cheap_interest(tag, row):  # a 1% book cost against a 3% yield: every year has the note
+        if tag == "InterestExpense":
+            return {**row, "val": row["val"] / 4}
+        return row
+
+    conn = make_company(cheap_interest)
+    return conn, run_baseline(conn, "TST", AS_OF, choices=CHOICES, today=AS_OF)
+
+
+def test_the_year_average_yield_says_it_read_the_runs_own_download(cheap_run):
+    notes = _year_average_notes(*cheap_run)
+    assert notes and all(n.params["yield_fetch_pinned"] is True for n in notes)
+
+
+def test_a_replaced_yield_download_is_flagged_and_still_point_in_time(cheap_run):
+    conn, run_id = cheap_run
+    before = _year_average_notes(conn, run_id)
+    # the run names a yield download that is no longer stored (replaced before migration 0006)
+    conn.execute("UPDATE runs SET yield_fetch_sha256 = ? WHERE run_id = ?", ("0" * 64, run_id))
+    after = _year_average_notes(conn, run_id)
+    assert len(after) == len(before) > 0
+    for n in after:
+        assert n.params["yield_fetch_pinned"] is False
+        assert date.fromisoformat(n.params["risk_free_date"]) < AS_OF
+
+
+def test_a_replaced_price_download_leaves_the_yield_flag_true(cheap_run):
+    conn, run_id = cheap_run
+    conn.execute("UPDATE runs SET price_fetch_sha256 = ? WHERE run_id = ?", ("0" * 64, run_id))
+    notes = _year_average_notes(conn, run_id)
+    assert notes and all(n.params["yield_fetch_pinned"] is True for n in notes)
