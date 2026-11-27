@@ -170,10 +170,18 @@ def test_microsofts_cash_path_never_reads_it():
 
 def test_the_shipped_file_loads():
     rows = mf.load_misdated_facts()
-    assert [(r.ticker, r.canonical_name, r.fiscal_year, r.accession_no) for r in rows] == [
-        ("KO", "debt_extinguishment_in_interest", 2016, "0000021344-17-000009"),
-        ("KO", "debt_extinguishment_in_interest", 2019, "0000021344-21-000008"),
+    assert [
+        (r.ticker, r.canonical_name, r.fiscal_year, r.accession_no, r.stated_fiscal_year)
+        for r in rows
+    ] == [
+        ("KO", "debt_extinguishment_in_interest", 2016, "0000021344-17-000009", 2015),
+        ("KO", "debt_extinguishment_in_interest", 2019, "0000021344-21-000008", 2018),
     ]
+    # the stated year is the one each row's quoted words give (backlog #613)
+    assert all(f"December 31, {r.stated_fiscal_year}" in r.evidence for r in rows)
+    row = mf.misdated_fact("debt_extinguishment_in_interest", 2019, "0000021344-21-000008")
+    assert row is rows[1] or row == rows[1]
+    assert mf.misdated_fact("debt_extinguishment_in_interest", 2018, "0000021344-21-000008") is None
     assert mf.is_misdated("debt_extinguishment_in_interest", 2019, "0000021344-21-000008")
     assert not mf.is_misdated("debt_extinguishment_in_interest", 2018, "0000021344-21-000008")
     assert not mf.is_misdated("interest_expense", 2019, "0000021344-21-000008")
@@ -186,7 +194,8 @@ def write(tmp_path: Path, *rows: str) -> Path:
 
 
 GOOD = (
-    'KO,debt_extinguishment_in_interest,2019,0000021344-21-000008,"0000021344-21-000008 says 2018"'
+    "KO,debt_extinguishment_in_interest,2019,0000021344-21-000008,2018,"
+    '"0000021344-21-000008 says 2018"'
 )
 
 
@@ -201,14 +210,18 @@ def test_a_good_row_loads(tmp_path):
         (GOOD.replace("debt_extinguishment_in_interest", "revenue"), "item 'revenue' is not"),
         (GOOD.replace(",2019,", ",FY19,"), "fiscal_year must be a whole number"),
         (
-            'KO,debt_extinguishment_in_interest,2019,21344-21-8,"21344-21-8"',
+            'KO,debt_extinguishment_in_interest,2019,21344-21-8,2018,"21344-21-8"',
             "'21344-21-8' is not an SEC accession number",
         ),
         (
-            'KO,debt_extinguishment_in_interest,2019,0000021344-21-000008,"no filing named"',
+            'KO,debt_extinguishment_in_interest,2019,0000021344-21-000008,2018,"no filing named"',
             "the evidence must quote the filing it names",
         ),
         ("KO,debt_extinguishment_in_interest,2019", "wrong number of fields"),
+        (GOOD.replace(",2018,", ",FY18,"), "stated_fiscal_year must be a whole number"),
+        (GOOD.replace(",2018,", ",,"), "stated_fiscal_year must be a whole number"),
+        (GOOD.replace(",2018,", ",2019,"), "stated_fiscal_year must differ from fiscal_year"),
+        (GOOD.replace("says 2018", "says so"), "the evidence must quote the year it states"),
     ],
 )
 def test_a_bad_row_is_refused(tmp_path, row, message):
