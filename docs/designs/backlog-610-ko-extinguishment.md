@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/610 (from the #543 analyst review, PR #609) · Branch `backlog-610-ko-extinguishment` · Version v0.10.54 when merged.
 
-Status: In review (nov.27.2026; Steps 0 to 2 done, PR open).
+Status: Done (nov.27.2026; v0.10.54, merge commit `33f286e`, PR #612).
 
 ## Problem
 
@@ -98,3 +98,7 @@ Coca-Cola appears in any company screen of the Q3, Q4, Q5, Q7, Q8 and Q9 kind (`
 - **Professor, GO, no blockers.** ASC 470-50-40-2 (the difference is recognised in the period of extinguishment), IFRS 9 3.3.3, and Koller et al. and Damodaran's yield-based cost of debt support taking a one-off out of a book-rate proxy; the list of misdated facts is sound because each error shows in the same filing. Taken into the lesson: part of a loss is unamortised issue cost and discount written off early, interest pulled forward, so removing the whole figure slightly understates the historic rate; the hedge reclass stays only because it is not tagged; FY2013's charge is not removed and says so.
 - **Explainer.** Seventeen gaps; taken: `fiscal_year` in the data file is the year the filing's dates give the fact (the wrong year); "left out" means the figure is not used and the year keeps its interest; the zero check is on the adjusted interest; a bad row fails the whole file with every problem listed; `interest − (−value)` is written as `interest + value`; FY2013 is excluded because it has no annual tag. The rest are defined in the files the doc links (map priority and `companies`, the earlier cases, the brief lines).
 - **Product lead, GO.** Two changes taken: the label is a capitalised noun phrase like the others, and the doc says the part's value carries its sign (above); the Spanish *Fuente* sentence is theirs.
+
+## Gatekeeper (nov.27.2026)
+
+**GO, no blockers.** 3,016 passed, 10 skipped; ruff clean. The map copy is byte-identical to the live map, the reading-rules fingerprint matches its v16 row, and 8 of the 23 new tests fail on main's engine, so they bite. Non-blocking notes: the FY2016 evidence also cites a later 10-K (corroboration only, the error shows in the filing itself); the loader does not check a row's ticker against the filing's filer; `rules_fingerprint(modules=...)` leaves out the rules data files and deserves a comment. Follow-up: #613.
