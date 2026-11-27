@@ -120,3 +120,60 @@ def test_the_shipped_coca_cola_rows_are_found_by_code(year):
     assert [c.code for c in ic.charges_caveats("KO", 2021)] == [RECLASS]
     assert ic.charges_caveats("KO", 2019) == () and ic.charges_caveats("KO", 2022) == ()
     assert ic.charges_caveats("JNJ", 2020) == ()
+
+
+# -- an older run whose row differs from today's reading (backlog #618) -------------------------
+
+
+def _older(conn, run_id, value):
+    """The run's stored cost of debt edited to `value`, as a run stored under older rules."""
+    conn.execute(
+        "UPDATE assumptions SET value = ? WHERE run_id = ? AND name = 'cost_of_debt'",
+        (value, run_id),
+    )
+
+
+def test_the_charges_note_gives_todays_reading_beside_the_runs(make_company, monkeypatch):
+    conn, run_id = _company(make_company, monkeypatch, _caveat(RECLASS, 2016, None))
+    cell, by_year = _by_year(conn, run_id)
+    for p in by_year.values():  # a fresh run: both params are the point's value, text unchanged
+        (note,) = [n for n in p.notes if n.code == RECLASS]
+        assert note.params["todays_cost_of_debt"] == note.params["cost_of_debt"] == p.value
+        assert "today's reading" not in note.text
+    assert not any(n.code == "run_read_differently" for n in cell.notes)
+    _older(conn, run_id, 0.06)  # higher than today's 4%: it held a charge since taken out
+    cell, by_year = _by_year(conn, run_id)
+    (used,) = [p for p in by_year.values() if p.used]
+    (note,) = [n for n in used.notes if n.code == RECLASS]
+    assert note.params["cost_of_debt"] == 0.06
+    assert note.params["todays_cost_of_debt"] == used.value != 0.06
+    assert f"today's reading, {used.value:.2%}" in note.text
+    assert "this run used 6.00%" in note.text and "higher than today's" in note.text
+    for p in by_year.values():  # other years keep the fresh text
+        if not p.used:
+            (other,) = [n for n in p.notes if n.code == RECLASS]
+            assert "today's reading" not in other.text
+    assert [n.code for n in cell.notes][:2] == ["run_read_differently", RECLASS]
+    (read,) = [n for n in used.notes if n.code == "run_read_differently"]
+    assert cell.notes[0] == read and cell.notes[1] == note  # the cell's copies are the point's
+    _older(conn, run_id, 0.035)  # lower than today's: said so, never "higher"
+    _, by_year = _by_year(conn, run_id)
+    (used,) = [p for p in by_year.values() if p.used]
+    (note,) = [n for n in used.notes if n.code == RECLASS]
+    assert "lower than today's" in note.text and "higher" not in note.text
+
+
+def test_the_cell_says_the_run_read_differently_through_both_calls(make_company, monkeypatch):
+    from domains.analysis.single_values import cost_of_debt_notes
+
+    conn, run_id = _company(make_company, monkeypatch)
+    _older(conn, run_id, 0.06)
+    cell = _cell(inputs_behind(conn, run_id, VPS), "cost_of_debt")
+    assert cell.notes[0].code == "run_read_differently"
+    assert cell.notes[0].params["run_value"] == 0.06
+    assert cost_of_debt_notes(conn, run_id).cell_notes == cell.notes
+    assert sum(n.code == "run_read_differently" for n in cell.notes) == 1
+
+
+def test_run_read_differently_is_a_cell_note():
+    assert "run_read_differently" in CELL_NOTES and "run_read_differently" in POINT_NOTES
