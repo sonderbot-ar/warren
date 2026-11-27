@@ -18,7 +18,7 @@ import hashlib
 import re
 from pathlib import Path
 
-READING_RULES_VERSION = 15
+READING_RULES_VERSION = 16
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ROOT_MODULES = (
@@ -31,6 +31,9 @@ NOT_RULES = {
     "shared_kernel/data_warnings.py": "the warning class only",
     "domains/analysis/reading_rules.py": "the version itself, checked against its log",
 }
+# Data files a rule reads that change what a run reads, so their bytes join the fingerprint: a
+# new row needs a new version, as a code change does (backlog #610)
+RULES_DATA = ("domains/analysis/misdated_facts.csv",)
 _PACKAGES = ("domains", "shared_kernel")
 LOG_PATH = Path(__file__).with_name("reading_rules.md")
 
@@ -108,13 +111,17 @@ def rules_modules(root: Path = REPO_ROOT) -> tuple[str, ...]:
 
 
 def rules_fingerprint(modules: tuple[str, ...] | None = None, root: Path = REPO_ROOT) -> str:
-    """SHA-256 of the reading rules' code, module by module in sorted path order."""
+    """SHA-256 of the reading rules' code, module by module in sorted path order, then the bytes
+    of RULES_DATA when the rules are today's (no `modules` given)."""
+    data = ()
     if modules is None:
-        modules = rules_modules(root)
+        modules, data = rules_modules(root), RULES_DATA
     digest = hashlib.sha256()
     for module in sorted(modules):
         text = module_fingerprint_text((root / module).read_text(encoding="utf-8"))
         digest.update(f"{module}\n{text}\n".encode())
+    for path in data:
+        digest.update(f"{path}\n".encode() + (root / path).read_bytes())
     return digest.hexdigest()
 
 
