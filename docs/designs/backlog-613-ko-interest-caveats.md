@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/613 (items 2 and 3, from the #610 analyst and professor) · Branch `backlog-613-ko-interest-caveats` · Version v0.10.56 when merged.
 
-Status: In progress (nov.27.2026).
+Status: Done (nov.27.2026), merged as v0.10.56 in `e41e3ee` (PR #619).
 
 ## Problem
 
