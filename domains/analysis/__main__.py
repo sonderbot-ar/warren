@@ -6,6 +6,7 @@
     python -m domains.analysis reproduce --all [--rebuild]
     python -m domains.analysis fallbacks [--as-of 2026-10-26]
     python -m domains.analysis debt-checks [--ticker XOM] [--as-of 2026-11-15] [--near-misses]
+    python -m domains.analysis misdated-scan [--ticker KO] [--as-of 2026-11-27]
     python -m domains.analysis simulate --run-id AAPL_2024-03-31_1 --shocks FILE [--n] [--seed]
     python -m domains.analysis reproduce-sim --sim-id AAPL_2024-03-31_1_sim1
     python -m domains.analysis reported --ticker AAPL --period latest-quarter [--as-of 2026-11-02]
@@ -29,6 +30,9 @@ known on the as-of date (backlog #140); `--json` prints the same for the app. No
 different meanings of a tag that changed meaning (backlog #297).
 `notes` prints a stored run's warnings as codes with parameters (backlog #172); `--backfill` gives
 runs stored before them their codes, only where the rebuilt text matches the stored text exactly.
+`misdated-scan` lists annual figures a filing may have put under the wrong year and compares them
+with `misdated_facts.csv` (backlog #613): it exits 1 when a candidate is not listed or a listed
+row is no longer found, and never writes the file.
 """
 
 import argparse
@@ -245,6 +249,24 @@ def cmd_debt_checks(args: argparse.Namespace) -> int:
             if check.near_miss or not args.near_misses:
                 print(line(check))
     return 0
+
+
+def cmd_misdated_scan(args: argparse.Namespace) -> int:
+    from domains.analysis.misdated_facts import scan, scan_lines
+
+    as_of = date.fromisoformat(args.as_of) if args.as_of else last_ended_day(datetime.now(UTC))
+    tickers = [args.ticker.upper()] if args.ticker else None
+    with get_db_connection() as conn:
+        try:
+            results = scan(conn, as_of, tickers)
+        except ValueError as error:
+            print(f"misdated-scan: {error}", file=sys.stderr)
+            return 2
+    print(f"Misdated-figure scan as known on {as_of.isoformat()}")
+    for result in results:
+        for line in scan_lines(result) or [f"none        {result.ticker}"]:
+            print(line)
+    return 1 if any(r.needs_a_person for r in results) else 0
 
 
 def cmd_simulate(args: argparse.Namespace) -> int:
@@ -872,6 +894,13 @@ def main(argv: list[str] | None = None) -> int:
     dc.add_argument("--as-of", help="YYYY-MM-DD (default: the last ended New York day)")
     dc.add_argument("--near-misses", action="store_true", help="only the near misses")
     dc.set_defaults(func=cmd_debt_checks)
+
+    ms = commands.add_parser(
+        "misdated-scan", help="figures a filing may have put under the wrong year (#613)"
+    )
+    ms.add_argument("--ticker", help="one company (default: every company)")
+    ms.add_argument("--as-of", help="YYYY-MM-DD (default: the last ended New York day)")
+    ms.set_defaults(func=cmd_misdated_scan)
 
     no = commands.add_parser("notes", help="a stored run's warnings, as codes (backlog #172)")
     no.add_argument("--run-id", help="the run (with --backfill: only this run)")

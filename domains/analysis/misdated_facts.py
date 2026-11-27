@@ -15,8 +15,11 @@ read against the list. The file's bytes are part of the reading rules' fingerpri
 import csv
 import re
 from dataclasses import dataclass
+from datetime import date
 from functools import cache
 from pathlib import Path
+
+from domains.fundamentals.misdating import MisdatingCandidate, misdating_candidates
 
 MISDATED_FACTS_PATH = Path(__file__).parent / "misdated_facts.csv"
 COLUMNS = [
@@ -117,3 +120,105 @@ def misdated_fact(
     """The listed row for a fact, or None: listed exactly when `is_misdated` says so, since both
     read the same table (backlog #613, the cost-of-debt chart's `misdated_fact_left_out`)."""
     return _by_key().get((item, fiscal_year, accession_no))
+
+
+# The scan against the list (backlog #613 item 1)
+
+
+@dataclass(frozen=True)
+class ScanResult:
+    """One company's scan as known on `as_of`: each candidate with the listed row it matches (or
+    None), and each listed row whose filing is public on `as_of` that no candidate matches (a row
+    that lost the shape, as a later filing repeated its figure). Listed rows whose filing is not
+    yet public are neither."""
+
+    ticker: str
+    as_of: date
+    candidates: list[tuple[MisdatingCandidate, MisdatedFact | None]]
+    not_found: list[MisdatedFact]
+
+    @property
+    def needs_a_person(self) -> bool:
+        return any(row is None for _, row in self.candidates) or bool(self.not_found)
+
+
+def scan(conn, as_of: date, tickers: list[str] | None = None) -> list[ScanResult]:
+    """Each company's `misdating_candidates` against the list, read only; never writes the
+    file. A candidate matches a row with the same item, fiscal year and filing."""
+    from domains.fundamentals.universe import load_universe
+
+    companies = [c for c in load_universe() if tickers is None or c.ticker in tickers]
+    unknown = sorted(set(tickers or ()) - {c.ticker for c in companies})
+    if unknown:
+        raise ValueError(f"not in universe.csv: {unknown}")
+    rows = load_misdated_facts()
+    results = []
+    for company in companies:
+        found = conn.execute(
+            "SELECT cik FROM companies WHERE ticker = ?", (company.ticker,)
+        ).fetchone()
+        candidates = misdating_candidates(conn, found[0], as_of) if found else []
+        listed = {
+            (r.canonical_name, r.fiscal_year, r.accession_no): r
+            for r in rows
+            if r.ticker == company.ticker
+        }
+        matched = [
+            (c, listed.get((c.canonical_name, c.fiscal_year, c.accession_no))) for c in candidates
+        ]
+        hit = {id(r) for _, r in matched if r is not None}
+        public = _filed_on_or_before(conn, [r.accession_no for r in listed.values()], as_of)
+        not_found = [r for r in listed.values() if id(r) not in hit and r.accession_no in public]
+        results.append(ScanResult(company.ticker, as_of, matched, not_found))
+    return results
+
+
+def _filed_on_or_before(conn, accessions: list[str], as_of: date) -> set[str]:
+    if not accessions:
+        return set()
+    marks = ", ".join("?" * len(accessions))
+    return {
+        r[0]
+        for r in conn.execute(
+            f"SELECT DISTINCT accession_no FROM financial_facts WHERE accession_no IN ({marks}) "
+            "AND filed_at <= ?",
+            (*accessions, as_of.isoformat()),
+        )
+    }
+
+
+def proposed_row(c: MisdatingCandidate) -> str:
+    """A template row for a candidate not listed. Its evidence is a placeholder that names
+    neither the filing nor a year, so the loader refuses it until a person replaces it with the
+    filing's own words."""
+    return (
+        f"{c.ticker},{c.canonical_name},{c.fiscal_year},{c.accession_no},"
+        f'{c.stated_fiscal_year},"<quote the filing\'s own words that give the year>"'
+    )
+
+
+def scan_lines(result: ScanResult) -> list[str]:
+    lines = []
+    for c, row in result.candidates:
+        where = (
+            f"{result.ticker} {c.canonical_name} FY{c.fiscal_year} {c.value / 1e6:,.0f}M in "
+            f"{c.accession_no} (filed {c.filed_at}), same as FY{c.stated_fiscal_year} in "
+            f"{c.prior_accession_no}"
+        )
+        if row is not None:
+            lines.append(f"listed      {where}")
+        elif c.canonical_name in CHECKED_ITEMS:
+            lines.append(f"NOT LISTED  {where}")
+            lines.append(f"    if its text names {c.stated_fiscal_year}, add: {proposed_row(c)}")
+        else:
+            lines.append(f"NOT LISTED  {where}")
+            lines.append(
+                "    this item is not read against the list: if its text names "
+                f"{c.stated_fiscal_year}, file a backlog issue to check it"
+            )
+    for r in result.not_found:
+        lines.append(
+            f"NOT FOUND   {result.ticker} {r.canonical_name} FY{r.fiscal_year} in "
+            f"{r.accession_no}: listed, but the scan no longer finds the shape"
+        )
+    return lines

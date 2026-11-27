@@ -24,6 +24,7 @@ from domains.fundamentals.facts import (
     skipped_sign_flips,
     tag_meaning_changes,
 )
+from domains.fundamentals.misdating import MisdatingCandidate, misdating_candidates
 from domains.fundamentals.schemas import MINUEND_WORDS, Fact
 from domains.fundamentals.universe import FISCAL_YEARS
 from shared_kernel.calendar import last_ended_day
@@ -112,6 +113,8 @@ class QualityReport:
     meaning_changes: list[MeaningChange] = field(default_factory=list)
     # quarters kept on a lower-ranked tag than their year's, as that tag disagrees (backlog #336)
     kept_on_own_tag: list[Fact] = field(default_factory=list)
+    # figures that may sit under the wrong fiscal year, every mapped flow (backlog #613 item 1)
+    misdating: list[MisdatingCandidate] = field(default_factory=list)
 
     @property
     def unexplained(self) -> list[Gap]:
@@ -160,6 +163,7 @@ class QualityReport:
             f"- Parts skipped as tagged as the whole: {len(self.parts_as_whole)} (see below)",
             f"- Tags that changed meaning in a later filing: {len(self.meaning_changes)} "
             "(informational; see below)",
+            f"- Possible misdated figures: {len(self.misdating)} (informational; see below)",
             "",
             "## Coverage",
             "",
@@ -295,6 +299,23 @@ class QualityReport:
             "",
         ]
         lines += [_kept_line(f) for f in self.kept_on_own_tag] or ["None."]
+
+        lines += [
+            "",
+            "## Possible misdated figures",
+            "",
+            "An annual figure a filing gives year Y that is exactly the figure filed earlier for "
+            "Y-1 under the same tag, where the filing gives Y-1 no equal figure and no other "
+            "filing gives Y that figure: the shape of the two misdated Coca-Cola figures "
+            "(backlog #610). Every mapped flow is scanned, optional items too. Nothing is left "
+            "out on this basis: check the filing's text for the year it gives the figure, and if "
+            "it names Y-1, add a row to `domains/analysis/misdated_facts.csv` "
+            "(`python -m domains.analysis misdated-scan` compares). Missed: a figure a later "
+            "filing repeats, one moved two years or revised, quarters and balances. A candidate "
+            "can go away on a later date, when a later filing gives the year the same figure.",
+            "",
+        ]
+        lines += [_misdating_line(c, self.cik) for c in self.misdating] or ["None."]
         return "\n".join(lines) + "\n"
 
     def _disagreement_lines(self) -> list[str]:
@@ -445,6 +466,7 @@ def build_report(
     # every year, not only the report's: the flips seen so far are all from 2008-2011
     report.sign_flips = skipped_sign_flips(conn, company["cik"], names, as_of)
     report.parts_as_whole = skipped_parts_as_whole(conn, company["cik"], names, as_of)
+    report.misdating = misdating_candidates(conn, company["cik"], as_of)
     report.meaning_changes = _within_years(
         tag_meaning_changes(conn, company["cik"], names, as_of), report.cells
     )
@@ -496,6 +518,17 @@ def _kept_line(fact: Fact) -> str:
         f"{amount(kept.on_own_tag)} "
         f"({', '.join(kept.inputs)}){own_filing}; on {kept.year_tag.split(':', 1)[1]} it would "
         f"be {amount(kept.on_year_tag)}"
+    )
+
+
+def _misdating_line(c: MisdatingCandidate, cik: str) -> str:
+    link = f"{EDGAR_ARCHIVES}/{int(cik)}/{c.accession_no.replace('-', '')}/"
+    return (
+        f"- **{c.canonical_name}** FY{c.fiscal_year}: {c.value / 1e6:,.0f}M "
+        f"({c.xbrl_concept.split(':', 1)[1]}) in the {c.form} filed {c.filed_at} "
+        f"([{c.accession_no}]({link})), the same as FY"
+        f"{c.stated_fiscal_year} in {c.prior_accession_no} (filed {c.prior_filed_at}): does its "
+        f"text put the figure in {c.stated_fiscal_year}?"
     )
 
 
