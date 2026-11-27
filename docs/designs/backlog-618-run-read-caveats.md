@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/618 (from the #613 items 2-3 analyst) · Branch `backlog-618-run-read-caveats` · Version v0.10.58 when merged.
 
-Status: In progress (nov.27.2026).
+Status: Done (nov.27.2026), merged as v0.10.58 in `e3f4bbf` (PR #625).
 
 ## Problem
 
