@@ -118,7 +118,7 @@ def test_a_listed_fact_filed_after_the_run_date_gives_no_note(make_company, monk
     assert by_year[2019].value == 8 / 200
 
 
-def test_the_note_reads_no_new_number(make_company, monkeypatch, company):
+def test_the_note_reads_no_new_number(make_company, monkeypatch):
     """The listed year's point equals the same company's with no extinguishment item at all."""
     listed = _company(make_company, monkeypatch, listed=[_row(2018, FY2018_10K, 2017)])
     plain = _company(make_company, monkeypatch, with_item=False)

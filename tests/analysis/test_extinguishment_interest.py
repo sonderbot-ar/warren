@@ -180,7 +180,7 @@ def test_the_shipped_file_loads():
     # the stated year is the one each row's quoted words give (backlog #613)
     assert all(f"December 31, {r.stated_fiscal_year}" in r.evidence for r in rows)
     row = mf.misdated_fact("debt_extinguishment_in_interest", 2019, "0000021344-21-000008")
-    assert row is rows[1] or row == rows[1]
+    assert row == rows[1]
     assert mf.misdated_fact("debt_extinguishment_in_interest", 2018, "0000021344-21-000008") is None
     assert mf.is_misdated("debt_extinguishment_in_interest", 2019, "0000021344-21-000008")
     assert not mf.is_misdated("debt_extinguishment_in_interest", 2018, "0000021344-21-000008")
