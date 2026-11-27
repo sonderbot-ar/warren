@@ -71,6 +71,9 @@ BALANCE_NOTES = (
 HEDGE_NOTE = "interest_net_of_hedge_gains"
 # The cost-of-debt note for a book rate far from the company's own stated rate (backlog #543)
 STATED_NOTE = "far_from_stated_rate"
+# The cost-of-debt note for a filed figure left out because its filing put it under the wrong
+# year (misdated_facts.csv; backlog #613)
+MISDATED_NOTE = "misdated_fact_left_out"
 # Notes of this module, a closed list
 POINT_NOTES = (
     "run_date",  # the run's own date (the last point of a monthly series), not a month start
@@ -90,6 +93,13 @@ POINT_NOTES = (
     # on its own debt (stated_debt_rates.csv), averaged over the year's two year ends; never on
     # a year an interest caveat covers, whose note already compares the two (backlog #543)
     STATED_NOTE,
+    # cost of debt: a filed figure of the year was left out of its interest because the filing
+    # put it under the wrong year (misdated_facts.csv); first among the point's notes, since it
+    # explains a part that is missing. Params fiscal_year, item, value (as filed, signed),
+    # filing (#140 shape), stated_fiscal_year (the year the filing's text gives),
+    # stated_year_value (that year's own figure as known on the run's date, or None),
+    # evidence (the filing's words, English) (backlog #613)
+    MISDATED_NOTE,
 )
 CELL_NOTES = (
     # the run's own cost-of-debt year is one an interest caveat covers (backlog #542)
@@ -922,7 +932,44 @@ def _cost_of_debt_point(singles: Singles, year: int, used: bool):
         # the run's own row on the used year, as `below_risk_free` compares (product lead, #542)
         shown = _run_row(singles, "cost_of_debt") if used else kd
         notes += _stated_rate_note(singles, year, shown, opening, closing)
+    notes = _misdated_notes(singles, year, paid) + notes
     return Point(label, year, "FY", period_end, kd, used, parts, notes)
+
+
+def _misdated_notes(singles: Singles, year: int, interest) -> list[Coded]:
+    """`misdated_fact_left_out` (backlog #613): the year's interest left out a filed figure that
+    misdated_facts.csv lists. Fires exactly when the engine left it out for that reason: the
+    year's fact (as known on the run's date) is listed, is not one of the interest's facts, and
+    the interest's method traces it (the cash fallback and the cash-paid path never read it)."""
+    from domains.analysis.math_engine import trace
+    from domains.analysis.misdated_facts import CHECKED_ITEMS, misdated_fact
+
+    notes = []
+    get = singles.history.year(year)
+    for item in CHECKED_ITEMS:
+        fact = get(item)
+        if fact is None or fact in interest.facts or trace(fact) not in interest.method:
+            continue
+        row = misdated_fact(item, fact.fiscal_year, fact.accession_no)
+        if row is None:
+            continue
+        stated = singles.history.year(row.stated_fiscal_year)(item)
+        params = {
+            "fiscal_year": year,
+            "item": item,
+            "value": fact.value,
+            "filing": _filing_of(singles, fact.accession_no),
+            "stated_fiscal_year": row.stated_fiscal_year,
+            "stated_year_value": stated.value if stated is not None else None,
+            "evidence": row.evidence,
+        }
+        text = (
+            f"FY{year}'s {item} ({fact.value:,.0f} as filed in {fact.accession_no}) is left out "
+            f"of the interest: the filing's own text puts it in FY{row.stated_fiscal_year} "
+            "(misdated_facts.csv)"
+        )
+        notes.append(Coded(MISDATED_NOTE, params, text))
+    return notes
 
 
 def _refuse_outside_window(singles: Singles, fiscal_year: int) -> None:
