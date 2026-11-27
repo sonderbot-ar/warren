@@ -79,6 +79,7 @@ MISDATED_NOTE = "misdated_fact_left_out"
 UNTAGGED_NOTE = "extinguishment_not_tagged"
 RECLASS_NOTE = "hedge_reclass_in_interest"
 CHARGES_NOTES = (UNTAGGED_NOTE, RECLASS_NOTE)
+READ_DIFFERENTLY_NOTE = "run_read_differently"
 # Notes of this module, a closed list
 POINT_NOTES = (
     "run_date",  # the run's own date (the last point of a monthly series), not a month start
@@ -120,6 +121,8 @@ CELL_NOTES = (
     STATED_NOTE,
     # the run's own cost-of-debt year still holds a charge an interest caveat names (#613)
     *CHARGES_NOTES,
+    # the run's own cost-of-debt row differs from today's reading of its year (backlog #618)
+    READ_DIFFERENTLY_NOTE,
     "follows_risk_free",  # terminal growth equals the risk-free rate by the owner's method
     "computed_from_other_cells",  # params inputs: the rows it is computed from
     # a what-if child's cost of debt is the risk-free rate, not a book year (backlog #481)
@@ -359,7 +362,11 @@ def _cost_of_debt_cell_notes(singles: Singles, used_point) -> list[Coded]:
         return [floored]
     if used_point is None:
         return []
-    return [n for n in used_point.notes if n.code in (HEDGE_NOTE, *CHARGES_NOTES, STATED_NOTE)]
+    # an older run whose row differs from today's reading of its year says so first, so a screen
+    # showing only the run's figure does not read the notes below against today's (backlog #618)
+    marked = _read_differently(used_point, _run_row(singles, "cost_of_debt"))
+    first = [n for n in marked.notes if n.code == READ_DIFFERENTLY_NOTE]
+    return first + [n for n in marked.notes if n.code in (HEDGE_NOTE, *CHARGES_NOTES, STATED_NOTE)]
 
 
 def _cached(singles: Singles, key: str, build):
@@ -386,17 +393,25 @@ def _read_differently(p, run_value: float | None):
 
     if (
         p.used
-        and run_value is not None
-        and p.value is not None
-        and abs(p.value - run_value) > 1e-9 * max(1.0, abs(run_value))
+        and _differs(p.value, run_value)
+        and not any(n.code == READ_DIFFERENTLY_NOTE for n in p.notes)
     ):
         note = Coded(
-            "run_read_differently",
+            READ_DIFFERENTLY_NOTE,
             {"period": p.period, "run_value": run_value, "value": p.value},
             f"the run read {p.period} as {run_value:.6g}, not {p.value:.6g}",
         )
         p = Point(**{**_fields(p), "notes": [*p.notes, note]})
     return p
+
+
+def _differs(value: float | None, run_value: float | None) -> bool:
+    """Both known and further apart than rounding: the run's row was read differently."""
+    return (
+        value is not None
+        and run_value is not None
+        and abs(value - run_value) > 1e-9 * max(1.0, abs(run_value))
+    )
 
 
 # -- market cells -----------------------------------------------------------------------------
@@ -946,14 +961,19 @@ def _cost_of_debt_point(singles: Singles, year: int, used: bool):
         # the run's own row on the used year, as `below_risk_free` compares (product lead, #542)
         shown = _run_row(singles, "cost_of_debt") if used else kd
         notes += _stated_rate_note(singles, year, shown, opening, closing)
-    notes = _misdated_notes(singles, year, paid) + _charges_notes(singles, year, shown) + notes
+    notes = _misdated_notes(singles, year, paid) + _charges_notes(singles, year, shown, kd) + notes
     return Point(label, year, "FY", period_end, kd, used, parts, notes)
 
 
-def _charges_notes(singles: Singles, year: int, kd: float | None) -> list[Coded]:
+def _charges_notes(
+    singles: Singles, year: int, kd: float | None, today: float | None
+) -> list[Coded]:
     """`extinguishment_not_tagged` and `hedge_reclass_in_interest` (backlog #613 items 2 and 3):
     the year's interest still holds a charge interest_caveats.csv names. Shown only when at
-    least one filing the row cites was filed on or before the run's date (point in time)."""
+    least one filing the row cites was filed on or before the run's date (point in time).
+    `kd` is the run's own row on the used year (the point's value otherwise) and `today` the
+    point's value; when they differ (an older run read the year differently) the text gives both,
+    since the run's figure may hold more than the charge named (backlog #618)."""
     from domains.analysis.interest_caveats import charges_caveats
 
     notes = []
@@ -967,6 +987,7 @@ def _charges_notes(singles: Singles, year: int, kd: float | None) -> list[Coded]
             "from_fiscal_year": caveat.from_fiscal_year,
             "to_fiscal_year": caveat.to_fiscal_year,
             "cost_of_debt": kd,
+            "todays_cost_of_debt": today,  # today's reading of the year (backlog #618)
             "evidence_filings": _public_filings(singles, public),
             # each public filing with its own words (English), so a run dated before a later
             # filing never quotes its figure (product lead)
@@ -978,14 +999,19 @@ def _charges_notes(singles: Singles, year: int, kd: float | None) -> list[Coded]
             else "hedge losses moved out of other comprehensive income with the early payoffs, "
             "not tagged apart"
         )
-        notes.append(
-            Coded(
-                caveat.code,
-                params,
-                f"FY{year}'s interest expense still holds {what}, so Warren cannot take it out "
-                "and this cost of debt reads a little high (interest_caveats.csv)",
-            )
+        text = (
+            f"FY{year}'s interest expense still holds {what}, so Warren cannot take it out "
+            "and this cost of debt reads a little high (interest_caveats.csv)"
         )
+        if _differs(today, kd):
+            text = (
+                f"FY{year}'s interest expense still holds {what}, so Warren cannot take it out "
+                f"and today's reading, {today:.2%}, reads a little high; this run used "
+                f"{kd:.2%}, read under older rules or before a later filing, "
+                f"{'higher' if kd > today else 'lower'} than today's reading "
+                "(interest_caveats.csv)"
+            )
+        notes.append(Coded(caveat.code, params, text))
     return notes
 
 
