@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/613 (item 4, the front-end team's ask in its comment of nov.27.2026; items 1 to 3 stay open in the issue) · Branch `backlog-613-misdated-note` · Version v0.10.55 when merged.
 
-Status: In progress (nov.27.2026).
+Status: Done (nov.27.2026), merged as v0.10.55 in `aec46e1` (PR #616).
 
 ## Problem
 
@@ -50,4 +50,4 @@ On the restored snapshot `warren-20261127T002823Z`, every one of Coca-Cola's 115
 
 ## Product impact
 
-Serves Q5 (the inputs behind an answer) and the `cost_of_debt` cell's chart on Q3, Q4 and Q8 (`docs/product/brief.md`). Adds one point note code, `misdated_fact_left_out`, on the cost-of-debt chart only, with params `fiscal_year`, `item`, `value`, `filing` (#140 shape: accession, form, filed date, link, filer), `stated_fiscal_year`. Today it shows on Coca-Cola's FY2016 and FY2019 points, on every run whose chart reaches those years and whose date is after the misdating filing. Needs its Spanish in the brief (title, sentence, lesson); the product lead proposed it in the review below, and the front-end team adds it to `docs/product/brief.md` after the merge, as for v0.10.53 and v0.10.54. No value, field or code is renamed or removed; no stored run changes.
+Serves Q5 (the inputs behind an answer) and the `cost_of_debt` cell's chart on Q3, Q4 and Q8 (`docs/product/brief.md`). Adds one point note code, `misdated_fact_left_out`, on the cost-of-debt chart only, with params `fiscal_year`, `item`, `value`, `filing` (#140 shape: accession, form, filed date, link, filer), `stated_fiscal_year`, `stated_year_value` (that year's own figure as known on the run's date, or null) and `evidence` (the filing's quoted words, English). Today it shows on Coca-Cola's FY2016 and FY2019 points, on every run whose chart reaches those years and whose date is after the misdating filing. Needs its Spanish in the brief (title, sentence, lesson); the product lead proposed it in the review below, and the front-end team adds it to `docs/product/brief.md` after the merge, as for v0.10.53 and v0.10.54. No value, field or code is renamed or removed; no stored run changes.
