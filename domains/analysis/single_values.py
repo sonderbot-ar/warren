@@ -74,6 +74,11 @@ STATED_NOTE = "far_from_stated_rate"
 # The cost-of-debt note for a filed figure left out because its filing put it under the wrong
 # year (misdated_facts.csv; backlog #613)
 MISDATED_NOTE = "misdated_fact_left_out"
+# The cost-of-debt notes for charges the year's interest still holds, from interest_caveats.csv
+# (backlog #613 items 2 and 3)
+UNTAGGED_NOTE = "extinguishment_not_tagged"
+RECLASS_NOTE = "hedge_reclass_in_interest"
+CHARGES_NOTES = (UNTAGGED_NOTE, RECLASS_NOTE)
 # Notes of this module, a closed list
 POINT_NOTES = (
     "run_date",  # the run's own date (the last point of a monthly series), not a month start
@@ -100,12 +105,21 @@ POINT_NOTES = (
     # stated_year_value (that year's own figure as known on the run's date, or None),
     # evidence (the filing's words, English) (backlog #613)
     MISDATED_NOTE,
+    # cost of debt: the year's interest still holds a charge Warren cannot take out
+    # (interest_caveats.csv): an early payoff charge no annual filing tags, or hedge losses
+    # moved out of other comprehensive income with the payoffs; after any misdated note,
+    # before the others, and only once a cited filing is public on the run's date. Params
+    # fiscal_year, from_fiscal_year, to_fiscal_year, cost_of_debt, evidence_filings, evidence
+    # ([{filing, quote}], public filings only) (backlog #613 items 2 and 3)
+    *CHARGES_NOTES,
 )
 CELL_NOTES = (
     # the run's own cost-of-debt year is one an interest caveat covers (backlog #542)
     HEDGE_NOTE,
     # the run's own cost-of-debt year is far from the company's stated rate (backlog #543)
     STATED_NOTE,
+    # the run's own cost-of-debt year still holds a charge an interest caveat names (#613)
+    *CHARGES_NOTES,
     "follows_risk_free",  # terminal growth equals the risk-free rate by the owner's method
     "computed_from_other_cells",  # params inputs: the rows it is computed from
     # a what-if child's cost of debt is the risk-free rate, not a book year (backlog #481)
@@ -345,7 +359,7 @@ def _cost_of_debt_cell_notes(singles: Singles, used_point) -> list[Coded]:
         return [floored]
     if used_point is None:
         return []
-    return [n for n in used_point.notes if n.code in (HEDGE_NOTE, STATED_NOTE)]
+    return [n for n in used_point.notes if n.code in (HEDGE_NOTE, *CHARGES_NOTES, STATED_NOTE)]
 
 
 def _cached(singles: Singles, key: str, build):
@@ -932,8 +946,57 @@ def _cost_of_debt_point(singles: Singles, year: int, used: bool):
         # the run's own row on the used year, as `below_risk_free` compares (product lead, #542)
         shown = _run_row(singles, "cost_of_debt") if used else kd
         notes += _stated_rate_note(singles, year, shown, opening, closing)
-    notes = _misdated_notes(singles, year, paid) + notes
+    notes = _misdated_notes(singles, year, paid) + _charges_notes(singles, year, shown) + notes
     return Point(label, year, "FY", period_end, kd, used, parts, notes)
+
+
+def _charges_notes(singles: Singles, year: int, kd: float | None) -> list[Coded]:
+    """`extinguishment_not_tagged` and `hedge_reclass_in_interest` (backlog #613 items 2 and 3):
+    the year's interest still holds a charge interest_caveats.csv names. Shown only when at
+    least one filing the row cites was filed on or before the run's date (point in time)."""
+    from domains.analysis.interest_caveats import charges_caveats
+
+    notes = []
+    for caveat in charges_caveats(singles.run["ticker"], year):
+        public = [a for a in caveat.accessions if _public_filings(singles, [a])]
+        if not public:
+            continue
+        quotes = caveat.quotes
+        params = {
+            "fiscal_year": year,
+            "from_fiscal_year": caveat.from_fiscal_year,
+            "to_fiscal_year": caveat.to_fiscal_year,
+            "cost_of_debt": kd,
+            "evidence_filings": _public_filings(singles, public),
+            # each public filing with its own words (English), so a run dated before a later
+            # filing never quotes its figure (product lead)
+            "evidence": [{"filing": _filing_of(singles, a), "quote": quotes[a]} for a in public],
+        }
+        what = (
+            "a charge for paying debt off early that no annual filing tags"
+            if caveat.code == UNTAGGED_NOTE
+            else "hedge losses moved out of other comprehensive income with the early payoffs, "
+            "not tagged apart"
+        )
+        notes.append(
+            Coded(
+                caveat.code,
+                params,
+                f"FY{year}'s interest expense still holds {what}, so Warren cannot take it out "
+                "and this cost of debt reads a little high (interest_caveats.csv)",
+            )
+        )
+    return notes
+
+
+def _public_filings(singles: Singles, accessions) -> list[dict]:
+    """The #140 shape of each accession Warren knows was filed on or before the run's date, in
+    the order given; an unknown or later one is left out (backlog #551)."""
+    return [
+        _filing_of(singles, a)
+        for a in accessions
+        if (filed := singles.filings.get(a).filed_at) is not None and filed <= singles.as_of
+    ]
 
 
 def _misdated_notes(singles: Singles, year: int, interest) -> list[Coded]:
@@ -1130,11 +1193,7 @@ def _hedge_note(
         "below_risk_free": dict(below[0].params) if below else None,
         # the filings the data file cites for the caveat, each only when Warren knows it was
         # filed on or before the run's date (backlog #551); an unknown accession is left out
-        "evidence_filings": [
-            _filing_of(singles, a)
-            for a in caveat.accessions
-            if (filed := singles.filings.get(a).filed_at) is not None and filed <= singles.as_of
-        ],
+        "evidence_filings": _public_filings(singles, caveat.accessions),
     }
     shown = "this cost of debt" if kd is None else f"this cost of debt ({kd:.2%})"
     if rate:
