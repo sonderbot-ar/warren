@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/613 (item 1, from the #610 analyst and professor) · Branch `backlog-613-misdated-scan` · Version v0.10.57 when merged.
 
-Status: In progress (nov.27.2026).
+Status: Done (nov.27.2026), merged as v0.10.57 in `86f6dc7` (PR #622).
 
 ## Problem
 
