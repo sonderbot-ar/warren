@@ -112,7 +112,7 @@ def test_the_codes_stay_in_the_closed_lists():
     assert ic.CHARGES_CODES == (UNTAGGED, RECLASS)
 
 
-@pytest.mark.parametrize("year", [2013])
+@pytest.mark.parametrize("year", [2013, 2020, 2021])
 def test_the_shipped_coca_cola_rows_are_found_by_code(year):
     assert ic.caveat_for("KO", year) is None  # never read as the hedge row
     assert [c.code for c in ic.charges_caveats("KO", 2013)] == [UNTAGGED]

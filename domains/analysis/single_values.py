@@ -109,8 +109,8 @@ POINT_NOTES = (
     # (interest_caveats.csv): an early payoff charge no annual filing tags, or hedge losses
     # moved out of other comprehensive income with the payoffs; after any misdated note,
     # before the others, and only once a cited filing is public on the run's date. Params
-    # fiscal_year, from_fiscal_year, to_fiscal_year, cost_of_debt, evidence_filings
-    # (backlog #613 items 2 and 3)
+    # fiscal_year, from_fiscal_year, to_fiscal_year, cost_of_debt, evidence_filings, evidence
+    # ([{filing, quote}], public filings only) (backlog #613 items 2 and 3)
     *CHARGES_NOTES,
 )
 CELL_NOTES = (

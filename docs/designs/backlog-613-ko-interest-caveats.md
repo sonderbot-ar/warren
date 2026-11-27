@@ -30,6 +30,16 @@ Warren should not type those amounts in (they would be hand-entered numbers in a
 
 **Step 2. Real data.** On the restored snapshot: every Coca-Cola run's cost-of-debt chart at ten years carries `extinguishment_not_tagged` on FY2013 and `hedge_reclass_in_interest` on FY2020 and FY2021 only, FY2020's only on runs dated after the FY2020 10-K (February 2021); the cell carries the hedge reclass note on runs whose own year is FY2020 or FY2021; no other company gets either note; `reproduce --all` to the cent. Exit: as stated, no run row changes.
 
+## Results (Step 2, nov.27.2026)
+
+On the restored snapshot `warren-20261127T002823Z`, every one of Coca-Cola's 115 stored runs and the newest run of each other company, the cost-of-debt chart at ten years:
+
+- **FY2013** carries `extinguishment_not_tagged` on 60 runs, 2019-04-01 to 2023 (later ten-year charts start after FY2013), quoting the FY2013 10-K and the two 2013 10-Qs.
+- **FY2020** carries `hedge_reclass_in_interest` on 87 runs, from 2021-03-01, the first run date after the FY2020 10-K (filed 2021-02-25); **FY2021** on 71 runs, from 2022-03-01, after the FY2021 10-K (2022-02-22). On runs dated between the two 10-Ks, FY2020's note quotes only the FY2020 10-K.
+- **The cell** carries `hedge_reclass_in_interest` on 30 runs whose own cost-of-debt year is FY2020 (16) or FY2021 (14), followed by `far_from_stated_rate` (these stored runs, dated before #610, still hold the whole charge in their row; #618).
+- No other year and no other company carries either note; no run errors. On the newest run (2026-10-30) FY2020's and FY2021's points carry only the new note.
+- No value changes (notes only; `test_the_values_are_the_same_with_and_without_the_caveat`). No data was added, so no new snapshot.
+
 ## Design review (nov.27.2026)
 
 - **Explainer.** Twelve gaps, all wording or already in the code: `caveat_for` filters by code, the cell list is extended, "before the others" means ahead of `below_risk_free` and `far_from_stated_rate`, any one public cited filing is enough. A run dated before the FY2021 10-K has no FY2021 point to carry a note (the year reads `not_filed_yet`).
