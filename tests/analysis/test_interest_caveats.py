@@ -23,8 +23,8 @@ def write(tmp_path, *rows, header=HEADER):
     return path
 
 
-def test_the_shipped_file_has_the_jnj_row_only():
-    [row] = load_interest_caveats()
+def test_the_shipped_file_has_the_jnj_row_and_coca_colas_two():
+    row, untagged, reclass = load_interest_caveats()
     assert (row.ticker, row.code, row.from_fiscal_year, row.to_fiscal_year) == (
         "JNJ",
         "interest_net_of_hedge_gains",
@@ -34,13 +34,58 @@ def test_the_shipped_file_has_the_jnj_row_only():
     assert row.rate_item == "debt_effective_rate"
     assert "0000200406-19-000009" in row.evidence and "ASU 2017-12" in row.evidence
     assert row.code in CAVEAT_CODES
+    assert (untagged.ticker, untagged.code, untagged.from_fiscal_year) == (
+        "KO",
+        "extinguishment_not_tagged",
+        2013,
+    )
+    assert untagged.to_fiscal_year == 2013 and untagged.rate_item is None
+    assert untagged.accessions == (
+        "0000021344-14-000008",
+        "0000021344-13-000039",
+        "0000021344-13-000050",
+    )
+    assert "$53 million" in untagged.quotes["0000021344-14-000008"]
+    assert "$23 million" in untagged.quotes["0000021344-13-000039"]
+    assert (reclass.ticker, reclass.code, reclass.from_fiscal_year, reclass.to_fiscal_year) == (
+        "KO",
+        "hedge_reclass_in_interest",
+        2020,
+        2021,
+    )
+    assert reclass.rate_item is None
+    assert "$25 million" in reclass.quotes["0000021344-21-000008"]
+    assert "$91 million" in reclass.quotes["0000021344-22-000009"]
+
+
+def test_every_coca_cola_accession_is_coca_colas_and_quoted_once():
+    """Each charges row's accessions carry Coca-Cola's filer prefix (CIK 21344), and each is
+    followed by its own quoted words (backlog #613), so a run quotes only filings public on
+    its date."""
+    for row in load_interest_caveats()[1:]:
+        assert row.accessions and all(a.startswith("0000021344-") for a in row.accessions)
+        assert list(row.quotes) == list(row.accessions)
+        assert all(q.count('"') >= 2 for q in row.quotes.values())
+
+
+def test_a_charges_row_refuses_a_rate_item_and_evidence_without_an_opening_accession(tmp_path):
+    path = write(
+        tmp_path,
+        'KO,hedge_reclass_in_interest,2020,2021,debt_effective_rate,"0000021344-22-000009: x",',
+        'KO,extinguishment_not_tagged,2013,2013,,"the FY2015 10-K says so",',
+    )
+    with pytest.raises(InterestCaveatError) as err:
+        load_interest_caveats(path)
+    text = str(err.value)
+    assert "line 2: rate_item is only read for interest_net_of_hedge_gains" in text
+    assert "line 3: extinguishment_not_tagged evidence must open with an accession" in text
 
 
 def test_caveat_for_covers_its_years_and_company_only():
     assert caveat_for("JNJ", 2018).code == "interest_net_of_hedge_gains"
     assert caveat_for("JNJ", 2025) is not None and caveat_for("JNJ", 2040) is not None
     assert caveat_for("JNJ", 2017) is None
-    for ticker in ("AAPL", "MSFT", "KO", "XOM", "PG", "CAT", "WMT"):
+    for ticker in ("AAPL", "MSFT", "KO", "XOM", "PG", "CAT", "WMT"):  # KO's rows are not hedge
         assert caveat_for(ticker, 2021) is None
 
 
@@ -84,7 +129,7 @@ def test_wrong_columns_are_refused(tmp_path):
 
 
 def test_the_shipped_rows_accessions_are_its_four_10ks_in_order():
-    [row] = load_interest_caveats()
+    (row,) = [r for r in load_interest_caveats() if r.code == "interest_net_of_hedge_gains"]
     assert row.accessions == (
         "0000200406-19-000009",
         "0000200406-20-000010",
@@ -97,7 +142,7 @@ def test_each_named_filing_is_followed_by_figures_it_holds():
     """Backlog #558: since #551 the app links every filing the evidence names, so each one
     must be followed by figures from its own table, never by another filing's years. A 10-K
     shows its own fiscal year and the one before (checked by hand on sec.gov, nov.24.2026)."""
-    [row] = load_interest_caveats()
+    (row,) = [r for r in load_interest_caveats() if r.code == "interest_net_of_hedge_gains"]
     pieces = ACCESSION.split(row.evidence)[1:]  # the text after each accession, up to the next
     for accession, text in zip(row.accessions, pieces, strict=True):
         years = [int(y) for y in re.findall(r"\(FY(\d{4})\)", text)]
