@@ -38,6 +38,7 @@ from domains.analysis.coded import (
     require_code,
 )
 from domains.analysis.dcf import QUARTERS, SEED, YEARS
+from domains.analysis.misdated_facts import is_misdated
 from domains.analysis.reading_rules import READING_RULES_VERSION
 from domains.analysis.schemas import SINGLE, Assumption
 from domains.analysis.statutory_tax import StatutoryRateError, statutory_rate
@@ -167,10 +168,21 @@ CAPITALISED = "interest_capitalized"
 # it (its segment note: "non-debt-related interest expense", 300M FY2025) and it files the amount,
 # so its cost of debt takes it out.
 NON_DEBT = "interest_not_on_debt"
+# The gain or loss on paying debt off before maturity (backlog #610): Coca-Cola records it in its
+# interest expense line and files the amount, so its cost of debt takes it out. A gain is
+# positive. A fact listed in misdated_facts.csv (a filing put it under the wrong year) is left out.
+EXTINGUISHMENT = "debt_extinguishment_in_interest"
 # Interest tags that by their GAAP definition hold debt interest only, so a finance-lease interest
 # read apart can be added to them without counting it twice (backlog #527)
 DEBT_ONLY_INTEREST_TAGS = frozenset({"us-gaap:InterestExpenseDebt"})
-OPTIONAL_ITEMS = (*CHECK_ITEMS, LEASE_INTEREST, PAID_ON_DEBT, CAPITALISED, NON_DEBT)
+OPTIONAL_ITEMS = (
+    *CHECK_ITEMS,
+    LEASE_INTEREST,
+    PAID_ON_DEBT,
+    CAPITALISED,
+    NON_DEBT,
+    EXTINGUISHMENT,
+)
 ITEMS += [*BALANCE_ITEMS, *SHARE_ITEMS, *OPTIONAL_ITEMS]
 
 
@@ -1767,12 +1779,48 @@ def _short_term_at(opening_debt: list[Fact], closing_debt: list[Fact]) -> bool:
     )
 
 
-def _incurred(interest: Resolved, capitalised: Fact | None, non_debt: Fact | None) -> Resolved:
+def _without_extinguishment(interest: Resolved, extinguishment: Fact | None) -> Resolved:
+    """The interest without the gain or loss on paying debt off early that the filing records
+    inside it (backlog #610; Coca-Cola): a loss (negative) is taken out and a gain added back, so
+    the interest is `interest + value`. Left out, with the figure's trace in the method, when the
+    fact is listed in misdated_facts.csv (no older version stands in) or when the interest would
+    be at or below zero; a left-out figure is not one of the row's facts."""
+    if extinguishment is None:
+        return interest
+    if is_misdated(EXTINGUISHMENT, extinguishment.fiscal_year, extinguishment.accession_no):
+        why = "the filing put another year's figure under this year, misdated_facts.csv"
+    elif interest.value + extinguishment.value <= 0:
+        why = "it would leave no interest"
+    else:
+        return Resolved(
+            interest.value + extinguishment.value,
+            f"{interest.method} - gain or loss on early extinguishment of debt (recorded in "
+            f"interest expense; a loss is taken out, a gain added back): {trace(extinguishment)}",
+            interest.fallback,
+            (*interest.facts, extinguishment),
+        )
+    return Resolved(
+        interest.value,
+        f"{interest.method} (gain or loss on early extinguishment of debt left out, {why}: "
+        f"{trace(extinguishment)})",
+        interest.fallback,
+        interest.facts,
+    )
+
+
+def _incurred(
+    interest: Resolved,
+    capitalised: Fact | None,
+    non_debt: Fact | None,
+    extinguishment: Fact | None = None,
+) -> Resolved:
     """The interest on debt incurred in the year (backlog #533; ExxonMobil, and J&J from #540): the
-    interest less the part the filing says is not on debt, plus the interest capitalised. A
-    non-debt figure below zero or not below the interest, or a negative capitalised figure, is
-    left out, and the method says so with the figure's trace (backlog #540); a left-out figure is
-    not one of the row's facts."""
+    interest without the gain or loss on paying debt off early (backlog #610, Coca-Cola), less
+    the part the filing says is not on debt, plus the interest capitalised. A non-debt figure
+    below zero or not below the interest, or a negative capitalised figure, is left out, and the
+    method says so with the figure's trace (backlog #540); a left-out figure is not one of the
+    row's facts."""
+    interest = _without_extinguishment(interest, extinguishment)
     if non_debt is not None:
         if 0 <= non_debt.value < interest.value:
             interest = Resolved(
@@ -1829,7 +1877,10 @@ def d8_interest(
        net of the interest it capitalises and holds some that is not on debt; backlog #540: J&J,
        capitalised interest only), the interest less
        the part not on debt plus the interest capitalised: interest incurred on debt = expensed
-       on debt + capitalised (ASC 835-20), on the basis of its debt.
+       on debt + capitalised (ASC 835-20), on the basis of its debt. First, where the map reads
+       it (backlog #610: Coca-Cola), the gain or loss on paying debt off early that the interest
+       line holds is taken out (ASC 470-50-40-2: it belongs to the year of the extinguishment, not
+       to the cost of carrying the debt).
     3. Then the year's finance-lease interest added to an interest line that is debt only by its
        tag (backlog #497: Walmart), when the leases were counted at both year ends. An interest
        with no facts is never debt only (backlog #534).
@@ -1851,7 +1902,7 @@ def d8_interest(
     debt_only = bool(interest.facts) and all(
         f.xbrl_concept in DEBT_ONLY_INTEREST_TAGS for f in interest.facts
     )
-    interest = _incurred(interest, get(CAPITALISED), get(NON_DEBT))
+    interest = _incurred(interest, get(CAPITALISED), get(NON_DEBT), get(EXTINGUISHMENT))
     if lease is None or not debt_only or not all(leases):
         return interest
     return Resolved(

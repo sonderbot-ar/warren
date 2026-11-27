@@ -376,6 +376,8 @@ def test_the_shipped_maps_scope_only_the_rows_checked_for_each_company():
         ("interest_capitalized", "InterestPaidCapitalized", 1, {"JNJ", "XOM"}),
         ("interest_capitalized", "InterestCostsCapitalized", 2, {"JNJ", "XOM"}),
         ("interest_not_on_debt", "InterestExpenseOther", 1, {"XOM"}),
+        # backlog #610: Coca-Cola's gain or loss on paying debt off early, inside its interest
+        ("debt_extinguishment_in_interest", "GainsLossesOnExtinguishmentOfDebt", 1, {"KO"}),
         # backlog #542 (reported-only file): J&J's stated effective rate on its long-term debt
         ("debt_effective_rate", "DebtInstrumentInterestRateEffectivePercentage", 1, {"JNJ"}),
         # backlog #543 (reported-only file): Coca-Cola's and P&G's stated average rates on their
