@@ -123,3 +123,16 @@ def test_the_command_exits_1_and_never_writes_the_file(tst, monkeypatch, capsys)
 
 def test_the_shipped_list_rows_are_all_on_checked_items():
     assert {r.canonical_name for r in mf.load_misdated_facts()} <= set(mf.CHECKED_ITEMS)
+
+
+def test_the_command_refuses_an_unknown_ticker_in_one_line(tst, monkeypatch, capsys):
+    class Conn:
+        def __enter__(self):
+            return tst
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(cli, "get_db_connection", lambda: Conn())
+    assert cli.main(["misdated-scan", "--ticker", "ZZZ"]) == 2
+    assert capsys.readouterr().err.strip() == "misdated-scan: not in universe.csv: ['ZZZ']"

@@ -257,7 +257,11 @@ def cmd_misdated_scan(args: argparse.Namespace) -> int:
     as_of = date.fromisoformat(args.as_of) if args.as_of else last_ended_day(datetime.now(UTC))
     tickers = [args.ticker.upper()] if args.ticker else None
     with get_db_connection() as conn:
-        results = scan(conn, as_of, tickers)
+        try:
+            results = scan(conn, as_of, tickers)
+        except ValueError as error:
+            print(f"misdated-scan: {error}", file=sys.stderr)
+            return 2
     print(f"Misdated-figure scan as known on {as_of.isoformat()}")
     for result in results:
         for line in scan_lines(result) or [f"none        {result.ticker}"]:
