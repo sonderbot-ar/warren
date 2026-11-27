@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/610 (from the #543 analyst review, PR #609) · Branch `backlog-610-ko-extinguishment` · Version v0.10.54 when merged.
 
-Status: In progress (nov.27.2026).
+Status: In review (nov.27.2026; Steps 0 to 2 done, PR open).
 
 ## Problem
 
@@ -51,7 +51,31 @@ FY2016 and FY2019 do not move (the context errors are left out). FY2021 still re
 - Tests (`tests/analysis/test_extinguishment_interest.py`, `tests/fundamentals/test_concepts.py`): the shipped map loads with the scoped row; Coca-Cola's FY2021 figures give (1,597 − 559) / 42,777; a gain adds back (FY2018); a listed fact is left out and the method says why; a figure that would take the interest to zero or below is left out; never on the `interest_paid` fallback; Exxon's #533, J&J's #540, Microsoft's #527 and Walmart's #497 cases unchanged; the data file's loader refuses each bad row and the shipped file loads.
 - Exit: `python -m pytest -q`, `ruff check .`, `ruff format --check .` green.
 
-**Step 2. Real data.** On the restored snapshot (`warren-20261126T202919Z`): `fundamentals ingest --all` (only Coca-Cola should gain facts); `fundamentals report --all`; `reproduce --all` to the cent, and `reproduce --all --rebuild` with as many runs rebuilding to identical rows after the ingest as before. Then every stored run date built fresh in memory through main's map and code and the new ones, pinned market data and choices, none stored; list cost of debt, WACC, value per share and the cost-of-debt chart's `far_from_stated_rate` and `below_risk_free` by year. Exit: only Coca-Cola moves, only its `cost_of_debt` row and what follows from it, and only on runs whose own year is FY2015, 2017, 2018, 2020, 2021 or 2024. Save a snapshot.
+**Step 2. Real data.** On the restored snapshot (`warren-20261126T202919Z`): `fundamentals ingest --all` (only Coca-Cola should gain facts); `fundamentals report --all`; `reproduce --all` to the cent, and `reproduce --all --rebuild` with as many runs rebuilding to identical rows after the ingest as before. Then every stored run date built fresh in memory through main's map and code and the new ones, pinned market data and choices, none stored; list cost of debt, WACC, value per share and the cost-of-debt chart's `far_from_stated_rate` and `below_risk_free` by year. Exit: only Coca-Cola moves, only its `cost_of_debt` row and what follows from it, and only on runs whose own year is FY2015, 2017, 2018, 2020, 2021 or 2024; the stored runs reproduce and rebuild as before (same counts, no tolerance: to the cent, as `reproduce` checks). Save a snapshot.
+
+## Results (Step 2, nov.27.2026)
+
+On the restored snapshot `warren-20261126T202919Z`.
+
+- **Before anything changed.** `reproduce --all --rebuild`: 936 of 936 stored runs reproduced to the cent, 723 of 936 rebuilt to identical rows.
+- **Ingest.** `fundamentals ingest --all`: Coca-Cola gains 37 facts (`GainsLossesOnExtinguishmentOfDebt`, years and quarters, every filing's version); every other company gains none. `fundamentals report --all`: 0 unexplained gaps for all eight companies.
+- **Stored runs after the ingest.** 936 of 936 reproduced to the cent; 723 of 936 rebuilt to identical rows, the same count as before (each run reads through its own map, which has no such item).
+- **Fresh runs.** Every stored run date (914 company-dates, the newest run of each) built twice in memory with its pinned market data and choices, once with main's rule (the extinguishment step switched off) and once with the new one; none stored, none refused. **The other seven companies do not move (801 dates, 0 moved).** Coca-Cola moves on 59 of its 113 dates, on each only the `cost_of_debt` row and what follows from it; no run note is added or removed. Stored runs start in 2019, so the FY2015 and FY2017 changes show only on the chart.
+
+| Runs dated | Moved | Own year | Cost of debt | WACC | Value per share |
+|---|---|---|---|---|---|
+| 2019 | 12 of 12 | FY2018 | 2.00% → 2.06% | 4.04% → 4.05% | −0.2% to −0.3% |
+| 2020 (to Feb) | 3 of 14 | FY2018 | 2.00% → 2.06% | 3.95% → 3.96% | −0.2% |
+| 2021 | 12 of 14 | FY2020 | 3.36% → 2.29% | 5.35% → 5.22% | +2.9% to +3.8% |
+| 2022 (to Feb) | 3 of 15 | FY2020 | 3.36% → 2.29% | 6.54% → 6.42% | +2.4% to +2.8% |
+| 2022 | 12 of 15 | FY2021 | 3.73% → 2.43% | 7.01% → 6.88% | +2.3% to +2.9% |
+| 2023 (to Feb) | 2 of 14 | FY2021 | 3.73% → 2.43% | 6.70% → 6.56% | +2.3% to +2.5% |
+| 2025 | 12 of 14 | FY2024 | 3.83% → 3.88% | 6.12% → 6.12% | −0.1% |
+| 2026 (to Feb) | 3 of 16 | FY2024 | 3.83% → 3.88% | 6.23% → 6.24% | −0.1% |
+
+  FY2018 reads 2.00% → 2.06% here, not the 2.07% → 2.13% above: runs dated 2019 read FY2018's interest as first reported (919M), before the FY2019 10-K restated it to 950M (analyst). Example: Coca-Cola as of 2022-12-01, cost of debt 3.73% → 2.43%, WACC 7.01% → 6.88%, value per share $31.63 → $32.37. FY2016 and FY2019, the two misdated years, do not move.
+- **The chart.** On the newest run (as of 2026-10-30), `far_from_stated_rate` stops firing on FY2020 (2.29%) and FY2021 (2.43%); `below_risk_free` is unchanged on every year (it fires on FY2017, FY2018 and FY2022 to FY2025 before and after). On a stored run as of 2022-12-01, whose own row still holds 3.73%, FY2021's point reads 2.43% with `far_from_stated_rate` (the note compares the run's own stored row, as designed in #543) and `run_read_differently`.
+- Snapshot saved after the ingest.
 
 ## Alternatives considered
 
