@@ -2,7 +2,7 @@
 
 Issues: https://github.com/sonderbot-ar/warren/issues/626 (item 1), https://github.com/sonderbot-ar/warren/issues/485 · Branch `claude/project-thread-juyyyj` (the cloud run's assigned branch) · Version v0.10.60 when merged.
 
-Status: In progress (nov.28.2026).
+Status: Done (nov.28.2026), merged as v0.10.60 in `2d5454e` (PR #631, gatekeeper GO, CI green).
 
 ## Problem
 
