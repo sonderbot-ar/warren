@@ -30,6 +30,15 @@ Item 1 of #626 (fresh runs under today's rules for the 696 stored runs whose cos
 
 **Step 3. Real data.** On the restored snapshot, every stored run's cost-of-debt cell (`cost_of_debt_notes(conn, run_id, years=10)`, every run in `runs`): the 696 cells (one per run) with `run_read_differently` carry the three params; count them by (run version, same map), the null versions apart; count charges notes whose two printed figures are equal and confirm none says "higher" or "lower"; `python -m domains.analysis reproduce --all` to the cent. Exit: those counts in Results below, no figure changed, reproduce 936 of 936.
 
+## Results (Step 3, nov.28.2026)
+
+On the restored snapshot `warren-20261127T002823Z` (936 stored runs), `cost_of_debt_notes` at ten years on every run, no errors:
+
+- **697 cost-of-debt cells carry `run_read_differently`**, one per run: Caterpillar 113, J&J 116, Coca-Cola 99, Microsoft 67, P&G 114, Walmart 87, ExxonMobil 101. These are the #618 Results' per-company counts exactly; their sum is 697, not the 696 that doc and #626 say (an addition slip there, no run differs).
+- **What they read with:** 695 have no stored reading rules version (made before v0.9.67) and 2 were made under version 11 (today 16). All 697 were made under a concept map other than today's (`run_concept_map_same` false). So on today's data every gap is explained at least in part by a change Warren made, which the stored facts can now say; none is a case of "same rules, same map, so a later filing".
+- **Charges notes:** 30 (the Coca-Cola FY2020 and FY2021 cells); none has two figures that print the same, so none of today's texts changes, as #618's 0.02-point minimum gap predicted.
+- No value changes: `python -m domains.analysis reproduce --all` gives 936 of 936 to the cent.
+
 ## Design review (nov.28.2026)
 
 Explainer, analyst, professor and product lead: professor GO, the other three GO with changes; no NO-GO.
