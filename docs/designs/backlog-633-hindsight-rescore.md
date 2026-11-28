@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/633 · Branch `claude/project-thread-8md91m` (the cloud run's assigned branch) · Version v0.10.61 when merged.
 
-Status: In progress (nov.28.2026).
+Status: In progress (nov.28.2026). PR open; gatekeeper next.
 
 ## Problem
 
@@ -27,6 +27,18 @@ v0.10.60 built a fresh baseline under today's reading rules for every stored dat
 - Exit: `python -m pytest -q`, `ruff check .`, `ruff format --check .` green.
 
 **Step 2. Real data.** On the restored snapshot: the command on every origin; per company and item the old and fresh mean absolute error, the better and worse counts; the largest moves explained from the assumption rows that differ between the two runs; `reproduce --all` and `ranges reproduce` still OK (nothing stored moves). Exit: the command finishes with no failed origin, or each failure explained; the reproduce checks pass.
+
+## Results (Step 2, nov.28.2026)
+
+On the restored snapshot `warren-20261128T052153Z` (the 914 fresh runs of v0.10.60), actuals as first reported by 2026-11-27. Scored with today's rules (hindsight), so not the forecast record. Full tables: `data/reports/eval/rescore_hindsight.md` (git-ignored; `python -m domains.evaluation rescore` writes it again in about two minutes).
+
+- **728 of 728 origins re-scored, none failed;** 5,542 quarter rows compared (2,771 per item, 247 distinct company quarters); 282 rows not compared because the run of the time had them missing or excluded. No compared row had a differing actual.
+- **Revenue: a little better.** Mean absolute error 10.67% to 10.60%; 11 rows moved, 8 better and 3 worse, all at h1 (h1 mean 10.69% to 10.44%). The gains are J&J and Coca-Cola: J&J's FY2023Q4 forecast from 2023-11-01 and 2023-12-01 missed by 46.4% and now by 19.4%, because the year-ago quarter it grows from (FY2022Q4) was read as 34.9B and is now 23.7B, the quarter as filed; Coca-Cola's FY2019Q4 from 2019-11-01 and 2019-12-01 missed by 61.3% and now by 39.1% (FY2018Q4 5.36B, now 7.06B as filed). Exxon's three rows got worse (FY2019Q4 from +1.4% to −7.3%), on a corrected FY2018Q4 (61.0B to 68.3B): the right year-ago figure gave a worse forecast that quarter.
+- **Operating profit: slightly worse.** Mean absolute error 5.42 to 5.44 margin points; 65 rows moved, 7 better and 58 worse, by 1.0 point on average on the moved rows. Caterpillar (11 worse; FY2016Q4 operating profit read −598M before, −1,262M now, the loss with its restructuring and pension charges) and J&J (16 worse) carry most of it. Every move is in a fourth quarter, whose margin forecast is built from the same quarter in earlier years: the fixes read those fourth quarters right, and a right figure that holds one-off charges is a worse guide to next year's quarter than a wrong one that happened to look normal.
+- **Everything else the fixes changed (tax rate, debt, working capital, the cost of debt) moves value, not the revenue and operating-profit forecasts this scores.** Apple, Microsoft, P&G and Walmart: no row moved.
+- **Stored drift: 46 rows** (Apple 24, Caterpillar 22), all quarters stored as missing whose actual has been filed since; not a code difference. They are outside the comparison, which scores both runs today.
+- **No significance test**, by design (see Step 1). The 11 moved revenue rows are 3 distinct quarters (J&J FY2023Q4, Coca-Cola and Exxon FY2019Q4) and the 65 operating-profit rows are 7 (Caterpillar FY2019Q4, J&J FY2023Q4 and FY2024Q4, Coca-Cola and Exxon FY2019Q4 and FY2020Q4), so the numbers describe a small change, nothing more.
+- `python -m domains.analysis reproduce --all` and `ranges reproduce` on the newest build: 1,850 of 1,850 runs reproduce to the cent, and `ranges_2026-11-25_1` checks 5,496 errors and 15,664 ranges OK; nothing stored moved.
 
 ## Decisions in this item
 
