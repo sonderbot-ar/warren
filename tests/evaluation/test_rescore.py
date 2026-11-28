@@ -74,10 +74,10 @@ def test_a_changed_forecast_moves_the_error_by_what_m9_gives(company):
 def test_origins_without_a_fresh_run_or_already_fresh_are_counted_apart(company):
     origin(company)  # its own run is under today's rules
     got = S.hindsight_rescore(company, actuals_as_of=TODAY)
-    assert got.skipped == {"origin: its own run is already under today's rules": 1}
+    assert got.skipped_origins == {"its own run is already under today's rules": 1}
     age(company, company.execute("SELECT run_id FROM forecast_origins").fetchone()[0])
     got = S.hindsight_rescore(company, actuals_as_of=TODAY)
-    assert got.skipped == {"origin: no fresh run under today's rules": 1}
+    assert got.skipped_origins == {"no fresh run under today's rules": 1}
     assert got.rescored == 0 and not got.pairs
 
 
@@ -86,7 +86,8 @@ def test_a_differing_actual_is_not_compared():
     new = [_row("FY2019Q3", "revenue", 101.0, 0.02)]
     out = S.Rescore(TODAY)
     S.compare("TST_2019-05-01", "TST", old, new, out)
-    assert out.pairs == [] and out.skipped == {"actual differs": 1}
+    assert out.pairs == [] and out.skipped_rows == {"actual differs": 1}
+    assert out.skipped_origins == {}
 
 
 def test_quarters_pair_by_period_not_horizon():
@@ -146,3 +147,42 @@ def _reuse(conn):
         yield conn
 
     return opened
+
+
+def test_not_compared_names_its_unit_on_every_line(tmp_path):
+    # #635 item 2: origins and quarter rows are counted apart, and each line says which
+    out = S.Rescore(TODAY)
+    out.skip_origin("no fresh run under today's rules")
+    out.skip_origin("no fresh run under today's rules")
+    out.skip_row("actual differs")
+    text = S.write_report(out, tmp_path / "r.md").read_text()
+    section = text.split("## Not compared", 1)[1].split("\n## ", 1)[0]
+    items = [line for line in section.splitlines() if line.startswith("- ")]
+    assert items == [
+        "- no fresh run under today's rules: 2 origins",
+        "- actual differs: 1 quarter row",
+    ]
+
+
+def test_the_command_fails_when_any_origin_cannot_be_scored(company, monkeypatch, tmp_path, capsys):
+    # #635 item 1: one failed origin fails the command, even when another was re-scored
+    from domains.evaluation import __main__ as cli
+
+    second = date(2019, 6, 1)
+    age(company, origin(company))
+    age(company, origin(company, second))
+    fresh(company)
+    fresh(company, second)
+    real = S.evaluate_case
+
+    def flaky(conn, case, **kw):
+        if case.event_date == second:
+            raise ValueError("cannot score")
+        return real(conn, case, **kw)
+
+    monkeypatch.setattr(S, "evaluate_case", flaky)
+    monkeypatch.setattr(cli, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(cli, "get_db_connection", _reuse(company))
+    assert cli.main(["rescore", "--actuals-as-of", TODAY.isoformat()]) == 1
+    assert "1 origins could not be scored" in capsys.readouterr().err
+    assert (tmp_path / "data" / "reports" / "eval" / "rescore_hindsight.md").exists()
