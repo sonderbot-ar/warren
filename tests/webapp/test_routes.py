@@ -82,7 +82,7 @@ def test_the_language_toggle_sets_the_region_and_returns_to_the_same_page(client
     assert response.headers["location"] == back
     client.cookies.set("warren_region", "en-US")
     page = client.get(back).text
-    assert '<html lang="en">' in page
+    assert '<html lang="en" ' in page
     assert "Cut-off date" in page and "Nov 3, 2026" in page
 
 

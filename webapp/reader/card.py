@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
 from babel.numbers import get_decimal_symbol, get_group_symbol
@@ -372,7 +372,14 @@ def card_for(
     asks.extend(sorted(per_input, key=lambda a: order[a.code]))  # stable within a code
 
     corte = (
-        Item("corte_default", {"date": format_date(last_ended_day, region)})
+        Item(
+            "corte_default",
+            {
+                "date": format_date(last_ended_day, region),
+                # today in New York is the day after the last ended one
+                "today": format_date(last_ended_day + timedelta(days=1), region),
+            },
+        )
         if reading.as_of is None
         else Item(
             "corte_from_question",

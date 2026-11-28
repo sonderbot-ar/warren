@@ -1,0 +1,6122 @@
+{
+ "run_id": "AAPL_2026-10-30_1",
+ "as_of": "2026-10-30",
+ "company": {
+  "ticker": "AAPL",
+  "name": "Apple Inc.",
+  "fiscal_year_end": "0925"
+ },
+ "ranges": {
+  "errors_filed_to": "2026-10-28",
+  "quarters": [
+   {
+    "period": "FY2026Q4",
+    "revenue_forecast": 104394767155.95512,
+    "band": {
+     "n_errors": 711,
+     "revenue": {
+      "p10": 88099524056.21823,
+      "p50": 104838114818.5283,
+      "p90": 122413067359.36021
+     }
+    }
+   },
+   {
+    "period": "FY2027Q1",
+    "revenue_forecast": 146461988828.21115,
+    "band": {
+     "n_errors": 688,
+     "revenue": {
+      "p10": 123600366758.00467,
+      "p50": 147020018611.47678,
+      "p90": 172104427991.90924
+     }
+    }
+   },
+   {
+    "period": "FY2027Q2",
+    "revenue_forecast": 113276870293.2457,
+    "band": {
+     "n_errors": 664,
+     "revenue": {
+      "p10": 93092428190.03012,
+      "p50": 113708462598.41978,
+      "p90": 132296608900.83192
+     }
+    }
+   },
+   {
+    "period": "FY2027Q3",
+    "revenue_forecast": 111476609196.25185,
+    "band": {
+     "n_errors": 642,
+     "revenue": {
+      "p10": 92343801669.33502,
+      "p50": 111781856730.06444,
+      "p90": 130194075191.59526
+     }
+    }
+   }
+  ],
+  "coverage": [
+   {
+    "pool": "pooled",
+    "scope": "all",
+    "item": "revenue",
+    "inside": 1690,
+    "below": 181,
+    "above": 162,
+    "n": 2033,
+    "n_quarters": 186,
+    "n_clusters": 25,
+    "share": 0.8312838170191835,
+    "interval": [
+     0.7847950377562029,
+     0.8718525384034831
+    ],
+    "target": 0.8,
+    "acceptable": [
+     0.65,
+     0.95
+    ],
+    "verdict": "held",
+    "target_in_interval": true,
+    "differs_from_all": null,
+    "width": 0.3897224286557541,
+    "basis_changes": null,
+    "basis_changes_outside": null,
+    "origins_from": "2021-01-01",
+    "missing": null,
+    "notes": [
+     {
+      "code": "basis_unchecked",
+      "params": {
+       "checked": "AAPL"
+      },
+      "text": "changes of reporting basis are counted for AAPL only; other companies' misses may include some, scored as misses (backlog #162)"
+     }
+    ]
+   },
+   {
+    "pool": "pooled",
+    "scope": "company",
+    "item": "revenue",
+    "inside": 205,
+    "below": 25,
+    "above": 20,
+    "n": 250,
+    "n_quarters": 23,
+    "n_clusters": 22,
+    "share": 0.82,
+    "interval": [
+     0.7098214285714286,
+     0.9157088122605364
+    ],
+    "target": 0.8,
+    "acceptable": [
+     0.65,
+     0.95
+    ],
+    "verdict": "held",
+    "target_in_interval": true,
+    "differs_from_all": false,
+    "width": 0.3903007874155999,
+    "basis_changes": 0,
+    "basis_changes_outside": 0,
+    "origins_from": "2021-01-01",
+    "missing": null,
+    "notes": []
+   }
+  ]
+ },
+ "sources": {
+  "outputs": [
+   {
+    "name": "revenue",
+    "period": "FY2026Q4",
+    "value": 104394767155.95512,
+    "formula": "revenue_from_growth_vs_year_earlier",
+    "inputs": [
+     {
+      "of": "row",
+      "name": "revenue_seed",
+      "period": "FY2025Q4"
+     },
+     {
+      "of": "row",
+      "name": "revenue_growth",
+      "period": "FY2026Q4"
+     }
+    ],
+    "no_value": null
+   },
+   {
+    "name": "revenue",
+    "period": "FY2027Q1",
+    "value": 146461988828.21115,
+    "formula": "revenue_from_growth_vs_year_earlier",
+    "inputs": [
+     {
+      "of": "row",
+      "name": "revenue_seed",
+      "period": "FY2026Q1"
+     },
+     {
+      "of": "row",
+      "name": "revenue_growth",
+      "period": "FY2027Q1"
+     }
+    ],
+    "no_value": null
+   },
+   {
+    "name": "revenue",
+    "period": "FY2027Q2",
+    "value": 113276870293.2457,
+    "formula": "revenue_from_growth_vs_year_earlier",
+    "inputs": [
+     {
+      "of": "row",
+      "name": "revenue_seed",
+      "period": "FY2026Q2"
+     },
+     {
+      "of": "row",
+      "name": "revenue_growth",
+      "period": "FY2027Q2"
+     }
+    ],
+    "no_value": null
+   },
+   {
+    "name": "revenue",
+    "period": "FY2027Q3",
+    "value": 111476609196.25185,
+    "formula": "revenue_from_growth_vs_year_earlier",
+    "inputs": [
+     {
+      "of": "row",
+      "name": "revenue_seed",
+      "period": "FY2026Q3"
+     },
+     {
+      "of": "row",
+      "name": "revenue_growth",
+      "period": "FY2027Q3"
+     }
+    ],
+    "no_value": null
+   }
+  ],
+  "rows": [
+   {
+    "name": "revenue_growth",
+    "period": "FY2026Q4",
+    "value": 0.018823484433423077,
+    "sources": [
+     {
+      "kind": "filing",
+      "accession_no": "0000320193-25-000079",
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "derived": false,
+      "filed_at": "2025-10-31",
+      "fiscal_period": "FY",
+      "fiscal_year": 2025,
+      "inputs": [],
+      "item": "revenue",
+      "period_end": "2025-09-27",
+      "period_start": "2024-09-29",
+      "restated": false,
+      "unit": "USD",
+      "value": 416161000000.0,
+      "filing": {
+       "accession_no": "0000320193-25-000079",
+       "form": "10-K",
+       "filed_at": "2025-10-31",
+       "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+      },
+      "input_filings": []
+     },
+     {
+      "kind": "filing",
+      "accession_no": "0000320193-25-000079",
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "derived": false,
+      "filed_at": "2025-10-31",
+      "fiscal_period": "FY",
+      "fiscal_year": 2024,
+      "inputs": [],
+      "item": "revenue",
+      "period_end": "2024-09-28",
+      "period_start": "2023-10-01",
+      "restated": false,
+      "unit": "USD",
+      "value": 391035000000.0,
+      "filing": {
+       "accession_no": "0000320193-25-000079",
+       "form": "10-K",
+       "filed_at": "2025-10-31",
+       "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+      },
+      "input_filings": []
+     },
+     {
+      "kind": "filing",
+      "accession_no": "0000320193-24-000123",
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "derived": false,
+      "filed_at": "2024-11-01",
+      "fiscal_period": "FY",
+      "fiscal_year": 2024,
+      "inputs": [],
+      "item": "revenue",
+      "period_end": "2024-09-28",
+      "period_start": "2023-10-01",
+      "restated": false,
+      "unit": "USD",
+      "value": 391035000000.0,
+      "filing": {
+       "accession_no": "0000320193-24-000123",
+       "form": "10-K",
+       "filed_at": "2024-11-01",
+       "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/"
+      },
+      "input_filings": []
+     },
+     {
+      "kind": "filing",
+      "accession_no": "0000320193-24-000123",
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "derived": false,
+      "filed_at": "2024-11-01",
+      "fiscal_period": "FY",
+      "fiscal_year": 2023,
+      "inputs": [],
+      "item": "revenue",
+      "period_end": "2023-09-30",
+      "period_start": "2022-09-25",
+      "restated": false,
+      "unit": "USD",
+      "value": 383285000000.0,
+      "filing": {
+       "accession_no": "0000320193-24-000123",
+       "form": "10-K",
+       "filed_at": "2024-11-01",
+       "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/"
+      },
+      "input_filings": []
+     },
+     {
+      "kind": "filing",
+      "accession_no": "0000320193-23-000106",
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "derived": false,
+      "filed_at": "2023-11-03",
+      "fiscal_period": "FY",
+      "fiscal_year": 2023,
+      "inputs": [],
+      "item": "revenue",
+      "period_end": "2023-09-30",
+      "period_start": "2022-09-25",
+      "restated": false,
+      "unit": "USD",
+      "value": 383285000000.0,
+      "filing": {
+       "accession_no": "0000320193-23-000106",
+       "form": "10-K",
+       "filed_at": "2023-11-03",
+       "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000106/"
+      },
+      "input_filings": []
+     },
+     {
+      "kind": "filing",
+      "accession_no": "0000320193-23-000106",
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "derived": false,
+      "filed_at": "2023-11-03",
+      "fiscal_period": "FY",
+      "fiscal_year": 2022,
+      "inputs": [],
+      "item": "revenue",
+      "period_end": "2022-09-24",
+      "period_start": "2021-09-26",
+      "restated": false,
+      "unit": "USD",
+      "value": 394328000000.0,
+      "filing": {
+       "accession_no": "0000320193-23-000106",
+       "form": "10-K",
+       "filed_at": "2023-11-03",
+       "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000106/"
+      },
+      "input_filings": []
+     },
+     {
+      "kind": "derived",
+      "inputs": [
+       {
+        "name": "terminal_growth",
+        "period": "-"
+       }
+      ]
+     }
+    ],
+    "gap": null
+   },
+   {
+    "name": "revenue_growth",
+    "period": "FY2027Q1",
+    "value": 0.018823484433423077,
+    "sources": [
+     {
+      "kind": "filing",
+      "accession_no": "0000320193-25-000079",
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "derived": false,
+      "filed_at": "2025-10-31",
+      "fiscal_period": "FY",
+      "fiscal_year": 2025,
+      "inputs": [],
+      "item": "revenue",
+      "period_end": "2025-09-27",
+      "period_start": "2024-09-29",
+      "restated": false,
+      "unit": "USD",
+      "value": 416161000000.0,
+      "filing": {
+       "accession_no": "0000320193-25-000079",
+       "form": "10-K",
+       "filed_at": "2025-10-31",
+       "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+      },
+      "input_filings": []
+     },
+     {
+      "kind": "filing",
+      "accession_no": "0000320193-25-000079",
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "derived": false,
+      "filed_at": "2025-10-31",
+      "fiscal_period": "FY",
+      "fiscal_year": 2024,
+      "inputs": [],
+      "item": "revenue",
+      "period_end": "2024-09-28",
+      "period_start": "2023-10-01",
+      "restated": false,
+      "unit": "USD",
+      "value": 391035000000.0,
+      "filing": {
+       "accession_no": "0000320193-25-000079",
+       "form": "10-K",
+       "filed_at": "2025-10-31",
+       "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+      },
+      "input_filings": []
+     },
+     {
+      "kind": "filing",
+      "accession_no": "0000320193-24-000123",
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "derived": false,
+      "filed_at": "2024-11-01",
+      "fiscal_period": "FY",
+      "fiscal_year": 2024,
+      "inputs": [],
+      "item": "revenue",
+      "period_end": "2024-09-28",
+      "period_start": "2023-10-01",
+      "restated": false,
+      "unit": "USD",
+      "value": 391035000000.0,
+      "filing": {
+       "accession_no": "0000320193-24-000123",
+       "form": "10-K",
+       "filed_at": "2024-11-01",
+       "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/"
+      },
+      "input_filings": []
+     },
+     {
+      "kind": "filing",
+      "accession_no": "0000320193-24-000123",
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "derived": false,
+      "filed_at": "2024-11-01",
+      "fiscal_period": "FY",
+      "fiscal_year": 2023,
+      "inputs": [],
+      "item": "revenue",
+      "period_end": "2023-09-30",
+      "period_start": "2022-09-25",
+      "restated": false,
+      "unit": "USD",
+      "value": 383285000000.0,
+      "filing": {
+       "accession_no": "0000320193-24-000123",
+       "form": "10-K",
+       "filed_at": "2024-11-01",
+       "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/"
+      },
+      "input_filings": []
+     },
+     {
+      "kind": "filing",
+      "accession_no": "0000320193-23-000106",
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "derived": false,
+      "filed_at": "2023-11-03",
+      "fiscal_period": "FY",
+      "fiscal_year": 2023,
+      "inputs": [],
+      "item": "revenue",
+      "period_end": "2023-09-30",
+      "period_start": "2022-09-25",
+      "restated": false,
+      "unit": "USD",
+      "value": 383285000000.0,
+      "filing": {
+       "accession_no": "0000320193-23-000106",
+       "form": "10-K",
+       "filed_at": "2023-11-03",
+       "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000106/"
+      },
+      "input_filings": []
+     },
+     {
+      "kind": "filing",
+      "accession_no": "0000320193-23-000106",
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "derived": false,
+      "filed_at": "2023-11-03",
+      "fiscal_period": "FY",
+      "fiscal_year": 2022,
+      "inputs": [],
+      "item": "revenue",
+      "period_end": "2022-09-24",
+      "period_start": "2021-09-26",
+      "restated": false,
+      "unit": "USD",
+      "value": 394328000000.0,
+      "filing": {
+       "accession_no": "0000320193-23-000106",
+       "form": "10-K",
+       "filed_at": "2023-11-03",
+       "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000106/"
+      },
+      "input_filings": []
+     },
+     {
+      "kind": "derived",
+      "inputs": [
+       {
+        "name": "terminal_growth",
+        "period": "-"
+       }
+      ]
+     }
+    ],
+    "gap": null
+   },
+   {
+    "name": "revenue_growth",
+    "period": "FY2027Q2",
+    "value": 0.018823484433423077,
+    "sources": [
+     {
+      "kind": "filing",
+      "accession_no": "0000320193-25-000079",
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "derived": false,
+      "filed_at": "2025-10-31",
+      "fiscal_period": "FY",
+      "fiscal_year": 2025,
+      "inputs": [],
+      "item": "revenue",
+      "period_end": "2025-09-27",
+      "period_start": "2024-09-29",
+      "restated": false,
+      "unit": "USD",
+      "value": 416161000000.0,
+      "filing": {
+       "accession_no": "0000320193-25-000079",
+       "form": "10-K",
+       "filed_at": "2025-10-31",
+       "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+      },
+      "input_filings": []
+     },
+     {
+      "kind": "filing",
+      "accession_no": "0000320193-25-000079",
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "derived": false,
+      "filed_at": "2025-10-31",
+      "fiscal_period": "FY",
+      "fiscal_year": 2024,
+      "inputs": [],
+      "item": "revenue",
+      "period_end": "2024-09-28",
+      "period_start": "2023-10-01",
+      "restated": false,
+      "unit": "USD",
+      "value": 391035000000.0,
+      "filing": {
+       "accession_no": "0000320193-25-000079",
+       "form": "10-K",
+       "filed_at": "2025-10-31",
+       "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+      },
+      "input_filings": []
+     },
+     {
+      "kind": "filing",
+      "accession_no": "0000320193-24-000123",
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "derived": false,
+      "filed_at": "2024-11-01",
+      "fiscal_period": "FY",
+      "fiscal_year": 2024,
+      "inputs": [],
+      "item": "revenue",
+      "period_end": "2024-09-28",
+      "period_start": "2023-10-01",
+      "restated": false,
+      "unit": "USD",
+      "value": 391035000000.0,
+      "filing": {
+       "accession_no": "0000320193-24-000123",
+       "form": "10-K",
+       "filed_at": "2024-11-01",
+       "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/"
+      },
+      "input_filings": []
+     },
+     {
+      "kind": "filing",
+      "accession_no": "0000320193-24-000123",
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "derived": false,
+      "filed_at": "2024-11-01",
+      "fiscal_period": "FY",
+      "fiscal_year": 2023,
+      "inputs": [],
+      "item": "revenue",
+      "period_end": "2023-09-30",
+      "period_start": "2022-09-25",
+      "restated": false,
+      "unit": "USD",
+      "value": 383285000000.0,
+      "filing": {
+       "accession_no": "0000320193-24-000123",
+       "form": "10-K",
+       "filed_at": "2024-11-01",
+       "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/"
+      },
+      "input_filings": []
+     },
+     {
+      "kind": "filing",
+      "accession_no": "0000320193-23-000106",
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "derived": false,
+      "filed_at": "2023-11-03",
+      "fiscal_period": "FY",
+      "fiscal_year": 2023,
+      "inputs": [],
+      "item": "revenue",
+      "period_end": "2023-09-30",
+      "period_start": "2022-09-25",
+      "restated": false,
+      "unit": "USD",
+      "value": 383285000000.0,
+      "filing": {
+       "accession_no": "0000320193-23-000106",
+       "form": "10-K",
+       "filed_at": "2023-11-03",
+       "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000106/"
+      },
+      "input_filings": []
+     },
+     {
+      "kind": "filing",
+      "accession_no": "0000320193-23-000106",
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "derived": false,
+      "filed_at": "2023-11-03",
+      "fiscal_period": "FY",
+      "fiscal_year": 2022,
+      "inputs": [],
+      "item": "revenue",
+      "period_end": "2022-09-24",
+      "period_start": "2021-09-26",
+      "restated": false,
+      "unit": "USD",
+      "value": 394328000000.0,
+      "filing": {
+       "accession_no": "0000320193-23-000106",
+       "form": "10-K",
+       "filed_at": "2023-11-03",
+       "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000106/"
+      },
+      "input_filings": []
+     },
+     {
+      "kind": "derived",
+      "inputs": [
+       {
+        "name": "terminal_growth",
+        "period": "-"
+       }
+      ]
+     }
+    ],
+    "gap": null
+   },
+   {
+    "name": "revenue_growth",
+    "period": "FY2027Q3",
+    "value": 0.018823484433423077,
+    "sources": [
+     {
+      "kind": "filing",
+      "accession_no": "0000320193-25-000079",
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "derived": false,
+      "filed_at": "2025-10-31",
+      "fiscal_period": "FY",
+      "fiscal_year": 2025,
+      "inputs": [],
+      "item": "revenue",
+      "period_end": "2025-09-27",
+      "period_start": "2024-09-29",
+      "restated": false,
+      "unit": "USD",
+      "value": 416161000000.0,
+      "filing": {
+       "accession_no": "0000320193-25-000079",
+       "form": "10-K",
+       "filed_at": "2025-10-31",
+       "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+      },
+      "input_filings": []
+     },
+     {
+      "kind": "filing",
+      "accession_no": "0000320193-25-000079",
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "derived": false,
+      "filed_at": "2025-10-31",
+      "fiscal_period": "FY",
+      "fiscal_year": 2024,
+      "inputs": [],
+      "item": "revenue",
+      "period_end": "2024-09-28",
+      "period_start": "2023-10-01",
+      "restated": false,
+      "unit": "USD",
+      "value": 391035000000.0,
+      "filing": {
+       "accession_no": "0000320193-25-000079",
+       "form": "10-K",
+       "filed_at": "2025-10-31",
+       "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+      },
+      "input_filings": []
+     },
+     {
+      "kind": "filing",
+      "accession_no": "0000320193-24-000123",
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "derived": false,
+      "filed_at": "2024-11-01",
+      "fiscal_period": "FY",
+      "fiscal_year": 2024,
+      "inputs": [],
+      "item": "revenue",
+      "period_end": "2024-09-28",
+      "period_start": "2023-10-01",
+      "restated": false,
+      "unit": "USD",
+      "value": 391035000000.0,
+      "filing": {
+       "accession_no": "0000320193-24-000123",
+       "form": "10-K",
+       "filed_at": "2024-11-01",
+       "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/"
+      },
+      "input_filings": []
+     },
+     {
+      "kind": "filing",
+      "accession_no": "0000320193-24-000123",
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "derived": false,
+      "filed_at": "2024-11-01",
+      "fiscal_period": "FY",
+      "fiscal_year": 2023,
+      "inputs": [],
+      "item": "revenue",
+      "period_end": "2023-09-30",
+      "period_start": "2022-09-25",
+      "restated": false,
+      "unit": "USD",
+      "value": 383285000000.0,
+      "filing": {
+       "accession_no": "0000320193-24-000123",
+       "form": "10-K",
+       "filed_at": "2024-11-01",
+       "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/"
+      },
+      "input_filings": []
+     },
+     {
+      "kind": "filing",
+      "accession_no": "0000320193-23-000106",
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "derived": false,
+      "filed_at": "2023-11-03",
+      "fiscal_period": "FY",
+      "fiscal_year": 2023,
+      "inputs": [],
+      "item": "revenue",
+      "period_end": "2023-09-30",
+      "period_start": "2022-09-25",
+      "restated": false,
+      "unit": "USD",
+      "value": 383285000000.0,
+      "filing": {
+       "accession_no": "0000320193-23-000106",
+       "form": "10-K",
+       "filed_at": "2023-11-03",
+       "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000106/"
+      },
+      "input_filings": []
+     },
+     {
+      "kind": "filing",
+      "accession_no": "0000320193-23-000106",
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "derived": false,
+      "filed_at": "2023-11-03",
+      "fiscal_period": "FY",
+      "fiscal_year": 2022,
+      "inputs": [],
+      "item": "revenue",
+      "period_end": "2022-09-24",
+      "period_start": "2021-09-26",
+      "restated": false,
+      "unit": "USD",
+      "value": 394328000000.0,
+      "filing": {
+       "accession_no": "0000320193-23-000106",
+       "form": "10-K",
+       "filed_at": "2023-11-03",
+       "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000106/"
+      },
+      "input_filings": []
+     },
+     {
+      "kind": "derived",
+      "inputs": [
+       {
+        "name": "terminal_growth",
+        "period": "-"
+       }
+      ]
+     }
+    ],
+    "gap": null
+   },
+   {
+    "name": "revenue_seed",
+    "period": "FY2025Q4",
+    "value": 102466000000.0,
+    "sources": [
+     {
+      "kind": "filing",
+      "accession_no": null,
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "derived": true,
+      "filed_at": "2026-07-31",
+      "fiscal_period": "Q4",
+      "fiscal_year": 2025,
+      "inputs": [
+       "0000320193-25-000079",
+       "0000320193-26-000020"
+      ],
+      "item": "revenue",
+      "period_end": "2025-09-27",
+      "period_start": "2025-06-29",
+      "restated": false,
+      "unit": "USD",
+      "value": 102466000000.0,
+      "filing": null,
+      "input_filings": [
+       {
+        "accession_no": "0000320193-25-000079",
+        "form": "10-K",
+        "filed_at": "2025-10-31",
+        "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+       },
+       {
+        "accession_no": "0000320193-26-000020",
+        "form": "10-Q",
+        "filed_at": "2026-07-31",
+        "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000020/"
+       }
+      ]
+     }
+    ],
+    "gap": null
+   },
+   {
+    "name": "revenue_seed",
+    "period": "FY2026Q1",
+    "value": 143756000000.0,
+    "sources": [
+     {
+      "kind": "filing",
+      "accession_no": "0000320193-26-000006",
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "derived": false,
+      "filed_at": "2026-01-30",
+      "fiscal_period": "Q1",
+      "fiscal_year": 2026,
+      "inputs": [],
+      "item": "revenue",
+      "period_end": "2025-12-27",
+      "period_start": "2025-09-28",
+      "restated": false,
+      "unit": "USD",
+      "value": 143756000000.0,
+      "filing": {
+       "accession_no": "0000320193-26-000006",
+       "form": "10-Q",
+       "filed_at": "2026-01-30",
+       "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000006/"
+      },
+      "input_filings": []
+     }
+    ],
+    "gap": null
+   },
+   {
+    "name": "revenue_seed",
+    "period": "FY2026Q2",
+    "value": 111184000000.0,
+    "sources": [
+     {
+      "kind": "filing",
+      "accession_no": "0000320193-26-000013",
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "derived": false,
+      "filed_at": "2026-05-01",
+      "fiscal_period": "Q2",
+      "fiscal_year": 2026,
+      "inputs": [],
+      "item": "revenue",
+      "period_end": "2026-03-28",
+      "period_start": "2025-12-28",
+      "restated": false,
+      "unit": "USD",
+      "value": 111184000000.0,
+      "filing": {
+       "accession_no": "0000320193-26-000013",
+       "form": "10-Q",
+       "filed_at": "2026-05-01",
+       "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000013/"
+      },
+      "input_filings": []
+     }
+    ],
+    "gap": null
+   },
+   {
+    "name": "revenue_seed",
+    "period": "FY2026Q3",
+    "value": 109417000000.0,
+    "sources": [
+     {
+      "kind": "filing",
+      "accession_no": "0000320193-26-000020",
+      "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+      "derived": false,
+      "filed_at": "2026-07-31",
+      "fiscal_period": "Q3",
+      "fiscal_year": 2026,
+      "inputs": [],
+      "item": "revenue",
+      "period_end": "2026-06-27",
+      "period_start": "2026-03-29",
+      "restated": false,
+      "unit": "USD",
+      "value": 109417000000.0,
+      "filing": {
+       "accession_no": "0000320193-26-000020",
+       "form": "10-Q",
+       "filed_at": "2026-07-31",
+       "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000020/"
+      },
+      "input_filings": []
+     }
+    ],
+    "gap": null
+   }
+  ]
+ },
+ "inputs": {
+  "run_id": "AAPL_2026-10-30_1",
+  "ticker": "AAPL",
+  "as_of": "2026-10-30",
+  "years": 10,
+  "outputs": [
+   {
+    "name": "revenue",
+    "period": "FY2026Q4",
+    "value": 104394767155.95512
+   },
+   {
+    "name": "revenue",
+    "period": "FY2027Q1",
+    "value": 146461988828.21115
+   },
+   {
+    "name": "revenue",
+    "period": "FY2027Q2",
+    "value": 113276870293.2457
+   },
+   {
+    "name": "revenue",
+    "period": "FY2027Q3",
+    "value": 111476609196.25185
+   }
+  ],
+  "cells": [
+   {
+    "name": "revenue_seed",
+    "rows": [
+     {
+      "period": "FY2025Q4",
+      "value": 102466000000.0,
+      "method_code": "seed_quarter",
+      "used": [
+       "FY2025Q4"
+      ]
+     },
+     {
+      "period": "FY2026Q1",
+      "value": 143756000000.0,
+      "method_code": "seed_quarter",
+      "used": [
+       "FY2026Q1"
+      ]
+     },
+     {
+      "period": "FY2026Q2",
+      "value": 111184000000.0,
+      "method_code": "seed_quarter",
+      "used": [
+       "FY2026Q2"
+      ]
+     },
+     {
+      "period": "FY2026Q3",
+      "value": 109417000000.0,
+      "method_code": "seed_quarter",
+      "used": [
+       "FY2026Q3"
+      ]
+     }
+    ],
+    "history": [
+     {
+      "measure": "revenue",
+      "frequency": "quarter",
+      "basis": "latest",
+      "primary": true,
+      "fiscal_quarter": 1,
+      "points": [
+       {
+        "period": "FY2017Q1",
+        "fiscal_year": 2017,
+        "fiscal_period": "Q1",
+        "period_end": "2016-12-31",
+        "value": 78351000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 78351000000.0,
+          "period": "FY2017Q1",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2018Q1",
+        "fiscal_year": 2018,
+        "fiscal_period": "Q1",
+        "period_end": "2017-12-30",
+        "value": 88293000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 88293000000.0,
+          "period": "FY2018Q1",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2019Q1",
+        "fiscal_year": 2019,
+        "fiscal_period": "Q1",
+        "period_end": "2018-12-29",
+        "value": 84310000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 84310000000.0,
+          "period": "FY2019Q1",
+          "filing": {
+           "accession_no": "0000320193-20-000096",
+           "form": "10-K",
+           "filed_at": "2020-10-30",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019320000096/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2020Q1",
+        "fiscal_year": 2020,
+        "fiscal_period": "Q1",
+        "period_end": "2019-12-28",
+        "value": 91819000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 91819000000.0,
+          "period": "FY2020Q1",
+          "filing": {
+           "accession_no": "0000320193-21-000010",
+           "form": "10-Q",
+           "filed_at": "2021-01-28",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019321000010/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2021Q1",
+        "fiscal_year": 2021,
+        "fiscal_period": "Q1",
+        "period_end": "2020-12-26",
+        "value": 111439000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 111439000000.0,
+          "period": "FY2021Q1",
+          "filing": {
+           "accession_no": "0000320193-22-000007",
+           "form": "10-Q",
+           "filed_at": "2022-01-28",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019322000007/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2022Q1",
+        "fiscal_year": 2022,
+        "fiscal_period": "Q1",
+        "period_end": "2021-12-25",
+        "value": 123945000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 123945000000.0,
+          "period": "FY2022Q1",
+          "filing": {
+           "accession_no": "0000320193-23-000006",
+           "form": "10-Q",
+           "filed_at": "2023-02-03",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000006/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2023Q1",
+        "fiscal_year": 2023,
+        "fiscal_period": "Q1",
+        "period_end": "2022-12-31",
+        "value": 117154000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 117154000000.0,
+          "period": "FY2023Q1",
+          "filing": {
+           "accession_no": "0000320193-24-000006",
+           "form": "10-Q",
+           "filed_at": "2024-02-02",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000006/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2024Q1",
+        "fiscal_year": 2024,
+        "fiscal_period": "Q1",
+        "period_end": "2023-12-30",
+        "value": 119575000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 119575000000.0,
+          "period": "FY2024Q1",
+          "filing": {
+           "accession_no": "0000320193-25-000008",
+           "form": "10-Q",
+           "filed_at": "2025-01-31",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000008/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2025Q1",
+        "fiscal_year": 2025,
+        "fiscal_period": "Q1",
+        "period_end": "2024-12-28",
+        "value": 124300000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 124300000000.0,
+          "period": "FY2025Q1",
+          "filing": {
+           "accession_no": "0000320193-26-000006",
+           "form": "10-Q",
+           "filed_at": "2026-01-30",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000006/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2026Q1",
+        "fiscal_year": 2026,
+        "fiscal_period": "Q1",
+        "period_end": "2025-12-27",
+        "value": 143756000000.0,
+        "used": true,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 143756000000.0,
+          "period": "FY2026Q1",
+          "filing": {
+           "accession_no": "0000320193-26-000006",
+           "form": "10-Q",
+           "filed_at": "2026-01-30",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000006/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       }
+      ],
+      "notes": [],
+      "reference": null
+     },
+     {
+      "measure": "revenue",
+      "frequency": "quarter",
+      "basis": "latest",
+      "primary": true,
+      "fiscal_quarter": 2,
+      "points": [
+       {
+        "period": "FY2017Q2",
+        "fiscal_year": 2017,
+        "fiscal_period": "Q2",
+        "period_end": "2017-04-01",
+        "value": 52896000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 52896000000.0,
+          "period": "FY2017Q2",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2018Q2",
+        "fiscal_year": 2018,
+        "fiscal_period": "Q2",
+        "period_end": "2018-03-31",
+        "value": 61137000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 61137000000.0,
+          "period": "FY2018Q2",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2019Q2",
+        "fiscal_year": 2019,
+        "fiscal_period": "Q2",
+        "period_end": "2019-03-30",
+        "value": 58015000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 58015000000.0,
+          "period": "FY2019Q2",
+          "filing": {
+           "accession_no": "0000320193-20-000096",
+           "form": "10-K",
+           "filed_at": "2020-10-30",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019320000096/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2020Q2",
+        "fiscal_year": 2020,
+        "fiscal_period": "Q2",
+        "period_end": "2020-03-28",
+        "value": 58313000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 58313000000.0,
+          "period": "FY2020Q2",
+          "filing": {
+           "accession_no": "0000320193-21-000056",
+           "form": "10-Q",
+           "filed_at": "2021-04-29",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019321000056/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2021Q2",
+        "fiscal_year": 2021,
+        "fiscal_period": "Q2",
+        "period_end": "2021-03-27",
+        "value": 89584000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 89584000000.0,
+          "period": "FY2021Q2",
+          "filing": {
+           "accession_no": "0000320193-22-000059",
+           "form": "10-Q",
+           "filed_at": "2022-04-29",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019322000059/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2022Q2",
+        "fiscal_year": 2022,
+        "fiscal_period": "Q2",
+        "period_end": "2022-03-26",
+        "value": 97278000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 97278000000.0,
+          "period": "FY2022Q2",
+          "filing": {
+           "accession_no": "0000320193-23-000064",
+           "form": "10-Q",
+           "filed_at": "2023-05-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000064/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2023Q2",
+        "fiscal_year": 2023,
+        "fiscal_period": "Q2",
+        "period_end": "2023-04-01",
+        "value": 94836000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 94836000000.0,
+          "period": "FY2023Q2",
+          "filing": {
+           "accession_no": "0000320193-24-000069",
+           "form": "10-Q",
+           "filed_at": "2024-05-03",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000069/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2024Q2",
+        "fiscal_year": 2024,
+        "fiscal_period": "Q2",
+        "period_end": "2024-03-30",
+        "value": 90753000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 90753000000.0,
+          "period": "FY2024Q2",
+          "filing": {
+           "accession_no": "0000320193-25-000057",
+           "form": "10-Q",
+           "filed_at": "2025-05-02",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000057/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2025Q2",
+        "fiscal_year": 2025,
+        "fiscal_period": "Q2",
+        "period_end": "2025-03-29",
+        "value": 95359000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 95359000000.0,
+          "period": "FY2025Q2",
+          "filing": {
+           "accession_no": "0000320193-26-000013",
+           "form": "10-Q",
+           "filed_at": "2026-05-01",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000013/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2026Q2",
+        "fiscal_year": 2026,
+        "fiscal_period": "Q2",
+        "period_end": "2026-03-28",
+        "value": 111184000000.0,
+        "used": true,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 111184000000.0,
+          "period": "FY2026Q2",
+          "filing": {
+           "accession_no": "0000320193-26-000013",
+           "form": "10-Q",
+           "filed_at": "2026-05-01",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000013/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       }
+      ],
+      "notes": [],
+      "reference": null
+     },
+     {
+      "measure": "revenue",
+      "frequency": "quarter",
+      "basis": "latest",
+      "primary": true,
+      "fiscal_quarter": 3,
+      "points": [
+       {
+        "period": "FY2017Q3",
+        "fiscal_year": 2017,
+        "fiscal_period": "Q3",
+        "period_end": "2017-07-01",
+        "value": 45408000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 45408000000.0,
+          "period": "FY2017Q3",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2018Q3",
+        "fiscal_year": 2018,
+        "fiscal_period": "Q3",
+        "period_end": "2018-06-30",
+        "value": 53265000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 53265000000.0,
+          "period": "FY2018Q3",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2019Q3",
+        "fiscal_year": 2019,
+        "fiscal_period": "Q3",
+        "period_end": "2019-06-29",
+        "value": 53809000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 53809000000.0,
+          "period": "FY2019Q3",
+          "filing": {
+           "accession_no": "0000320193-20-000096",
+           "form": "10-K",
+           "filed_at": "2020-10-30",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019320000096/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2020Q3",
+        "fiscal_year": 2020,
+        "fiscal_period": "Q3",
+        "period_end": "2020-06-27",
+        "value": 59685000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 59685000000.0,
+          "period": "FY2020Q3",
+          "filing": {
+           "accession_no": "0000320193-21-000065",
+           "form": "10-Q",
+           "filed_at": "2021-07-28",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019321000065/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2021Q3",
+        "fiscal_year": 2021,
+        "fiscal_period": "Q3",
+        "period_end": "2021-06-26",
+        "value": 81434000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 81434000000.0,
+          "period": "FY2021Q3",
+          "filing": {
+           "accession_no": "0000320193-22-000070",
+           "form": "10-Q",
+           "filed_at": "2022-07-29",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019322000070/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2022Q3",
+        "fiscal_year": 2022,
+        "fiscal_period": "Q3",
+        "period_end": "2022-06-25",
+        "value": 82959000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 82959000000.0,
+          "period": "FY2022Q3",
+          "filing": {
+           "accession_no": "0000320193-23-000077",
+           "form": "10-Q",
+           "filed_at": "2023-08-04",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000077/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2023Q3",
+        "fiscal_year": 2023,
+        "fiscal_period": "Q3",
+        "period_end": "2023-07-01",
+        "value": 81797000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 81797000000.0,
+          "period": "FY2023Q3",
+          "filing": {
+           "accession_no": "0000320193-24-000081",
+           "form": "10-Q",
+           "filed_at": "2024-08-02",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000081/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2024Q3",
+        "fiscal_year": 2024,
+        "fiscal_period": "Q3",
+        "period_end": "2024-06-29",
+        "value": 85777000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 85777000000.0,
+          "period": "FY2024Q3",
+          "filing": {
+           "accession_no": "0000320193-25-000073",
+           "form": "10-Q",
+           "filed_at": "2025-08-01",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000073/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2025Q3",
+        "fiscal_year": 2025,
+        "fiscal_period": "Q3",
+        "period_end": "2025-06-28",
+        "value": 94036000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 94036000000.0,
+          "period": "FY2025Q3",
+          "filing": {
+           "accession_no": "0000320193-26-000020",
+           "form": "10-Q",
+           "filed_at": "2026-07-31",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000020/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2026Q3",
+        "fiscal_year": 2026,
+        "fiscal_period": "Q3",
+        "period_end": "2026-06-27",
+        "value": 109417000000.0,
+        "used": true,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 109417000000.0,
+          "period": "FY2026Q3",
+          "filing": {
+           "accession_no": "0000320193-26-000020",
+           "form": "10-Q",
+           "filed_at": "2026-07-31",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000020/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       }
+      ],
+      "notes": [],
+      "reference": null
+     },
+     {
+      "measure": "revenue",
+      "frequency": "quarter",
+      "basis": "latest",
+      "primary": true,
+      "fiscal_quarter": 4,
+      "points": [
+       {
+        "period": "FY2016Q4",
+        "fiscal_year": 2016,
+        "fiscal_period": "Q4",
+        "period_end": "2016-09-24",
+        "value": 46852000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 46852000000.0,
+          "period": "FY2016Q4",
+          "filing": {
+           "accession_no": "0000320193-17-000070",
+           "form": "10-K",
+           "filed_at": "2017-11-03",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019317000070/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2017Q4",
+        "fiscal_year": 2017,
+        "fiscal_period": "Q4",
+        "period_end": "2017-09-30",
+        "value": 52579000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 52579000000.0,
+          "period": "FY2017Q4",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2018Q4",
+        "fiscal_year": 2018,
+        "fiscal_period": "Q4",
+        "period_end": "2018-09-29",
+        "value": 62900000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 62900000000.0,
+          "period": "FY2018Q4",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2019Q4",
+        "fiscal_year": 2019,
+        "fiscal_period": "Q4",
+        "period_end": "2019-09-28",
+        "value": 64040000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 64040000000.0,
+          "period": "FY2019Q4",
+          "filing": {
+           "accession_no": "0000320193-20-000096",
+           "form": "10-K",
+           "filed_at": "2020-10-30",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019320000096/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2020Q4",
+        "fiscal_year": 2020,
+        "fiscal_period": "Q4",
+        "period_end": "2020-09-26",
+        "value": 64698000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 64698000000.0,
+          "period": "FY2020Q4",
+          "filing": {
+           "accession_no": "0000320193-20-000096",
+           "form": "10-K",
+           "filed_at": "2020-10-30",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019320000096/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2021Q4",
+        "fiscal_year": 2021,
+        "fiscal_period": "Q4",
+        "period_end": "2021-09-25",
+        "value": 83360000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 83360000000.0,
+          "period": "FY2021Q4",
+          "filing": null,
+          "derived": true,
+          "inputs": [
+           {
+            "accession_no": "0000320193-23-000106",
+            "form": "10-K",
+            "filed_at": "2023-11-03",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000106/"
+           },
+           {
+            "accession_no": "0000320193-22-000070",
+            "form": "10-Q",
+            "filed_at": "2022-07-29",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019322000070/"
+           }
+          ],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "derived_from_other_periods",
+          "params": {
+           "period": "FY2021Q4",
+           "inputs": [
+            "0000320193-23-000106",
+            "0000320193-22-000070"
+           ]
+          },
+          "text": "computed by Warren from other periods' filings (e.g. Q4 = the year − nine months)"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2022Q4",
+        "fiscal_year": 2022,
+        "fiscal_period": "Q4",
+        "period_end": "2022-09-24",
+        "value": 90146000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 90146000000.0,
+          "period": "FY2022Q4",
+          "filing": null,
+          "derived": true,
+          "inputs": [
+           {
+            "accession_no": "0000320193-24-000123",
+            "form": "10-K",
+            "filed_at": "2024-11-01",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/"
+           },
+           {
+            "accession_no": "0000320193-23-000077",
+            "form": "10-Q",
+            "filed_at": "2023-08-04",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000077/"
+           }
+          ],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "derived_from_other_periods",
+          "params": {
+           "period": "FY2022Q4",
+           "inputs": [
+            "0000320193-24-000123",
+            "0000320193-23-000077"
+           ]
+          },
+          "text": "computed by Warren from other periods' filings (e.g. Q4 = the year − nine months)"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2023Q4",
+        "fiscal_year": 2023,
+        "fiscal_period": "Q4",
+        "period_end": "2023-09-30",
+        "value": 89498000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 89498000000.0,
+          "period": "FY2023Q4",
+          "filing": null,
+          "derived": true,
+          "inputs": [
+           {
+            "accession_no": "0000320193-25-000079",
+            "form": "10-K",
+            "filed_at": "2025-10-31",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+           },
+           {
+            "accession_no": "0000320193-24-000081",
+            "form": "10-Q",
+            "filed_at": "2024-08-02",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000081/"
+           }
+          ],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "derived_from_other_periods",
+          "params": {
+           "period": "FY2023Q4",
+           "inputs": [
+            "0000320193-25-000079",
+            "0000320193-24-000081"
+           ]
+          },
+          "text": "computed by Warren from other periods' filings (e.g. Q4 = the year − nine months)"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2024Q4",
+        "fiscal_year": 2024,
+        "fiscal_period": "Q4",
+        "period_end": "2024-09-28",
+        "value": 94930000000.0,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 94930000000.0,
+          "period": "FY2024Q4",
+          "filing": null,
+          "derived": true,
+          "inputs": [
+           {
+            "accession_no": "0000320193-25-000079",
+            "form": "10-K",
+            "filed_at": "2025-10-31",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+           },
+           {
+            "accession_no": "0000320193-25-000073",
+            "form": "10-Q",
+            "filed_at": "2025-08-01",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000073/"
+           }
+          ],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "derived_from_other_periods",
+          "params": {
+           "period": "FY2024Q4",
+           "inputs": [
+            "0000320193-25-000079",
+            "0000320193-25-000073"
+           ]
+          },
+          "text": "computed by Warren from other periods' filings (e.g. Q4 = the year − nine months)"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2025Q4",
+        "fiscal_year": 2025,
+        "fiscal_period": "Q4",
+        "period_end": "2025-09-27",
+        "value": 102466000000.0,
+        "used": true,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 102466000000.0,
+          "period": "FY2025Q4",
+          "filing": null,
+          "derived": true,
+          "inputs": [
+           {
+            "accession_no": "0000320193-25-000079",
+            "form": "10-K",
+            "filed_at": "2025-10-31",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+           },
+           {
+            "accession_no": "0000320193-26-000020",
+            "form": "10-Q",
+            "filed_at": "2026-07-31",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000020/"
+           }
+          ],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "derived_from_other_periods",
+          "params": {
+           "period": "FY2025Q4",
+           "inputs": [
+            "0000320193-25-000079",
+            "0000320193-26-000020"
+           ]
+          },
+          "text": "computed by Warren from other periods' filings (e.g. Q4 = the year − nine months)"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       }
+      ],
+      "notes": [],
+      "reference": null
+     }
+    ],
+    "gap": null,
+    "notes": []
+   },
+   {
+    "name": "revenue_growth",
+    "rows": [
+     {
+      "period": "FY2026Q4",
+      "value": 0.018823484433423077,
+      "method_code": "same_filing_average_fading",
+      "used": [
+       "FY2023",
+       "FY2024",
+       "FY2025"
+      ]
+     },
+     {
+      "period": "FY2027Q1",
+      "value": 0.018823484433423077,
+      "method_code": "same_filing_average_fading",
+      "used": [
+       "FY2023",
+       "FY2024",
+       "FY2025"
+      ]
+     },
+     {
+      "period": "FY2027Q2",
+      "value": 0.018823484433423077,
+      "method_code": "same_filing_average_fading",
+      "used": [
+       "FY2023",
+       "FY2024",
+       "FY2025"
+      ]
+     },
+     {
+      "period": "FY2027Q3",
+      "value": 0.018823484433423077,
+      "method_code": "same_filing_average_fading",
+      "used": [
+       "FY2023",
+       "FY2024",
+       "FY2025"
+      ]
+     }
+    ],
+    "history": [
+     {
+      "measure": "revenue_growth_yoy",
+      "frequency": "year",
+      "basis": "same_filing",
+      "primary": true,
+      "fiscal_quarter": null,
+      "points": [
+       {
+        "period": "FY2017",
+        "fiscal_year": 2017,
+        "fiscal_period": "FY",
+        "period_end": "2017-09-30",
+        "value": 0.06304518199398057,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 229234000000.0,
+          "period": "FY2017",
+          "filing": {
+           "accession_no": "0000320193-17-000070",
+           "form": "10-K",
+           "filed_at": "2017-11-03",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019317000070/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 215639000000.0,
+          "period": "FY2016",
+          "filing": {
+           "accession_no": "0000320193-17-000070",
+           "form": "10-K",
+           "filed_at": "2017-11-03",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019317000070/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "period_length_differs",
+          "params": {
+           "days": 371,
+           "prior_days": 364
+          },
+          "text": "the periods differ in length (371 days against 364): a 53-week year or a 14-week quarter"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2018",
+        "fiscal_year": 2018,
+        "fiscal_period": "FY",
+        "period_end": "2018-09-29",
+        "value": 0.15861957650261305,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 265595000000.0,
+          "period": "FY2018",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 229234000000.0,
+          "period": "FY2017",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "period_length_differs",
+          "params": {
+           "days": 364,
+           "prior_days": 371
+          },
+          "text": "the periods differ in length (364 days against 371): a 53-week year or a 14-week quarter"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2019",
+        "fiscal_year": 2019,
+        "fiscal_period": "FY",
+        "period_end": "2019-09-28",
+        "value": -0.0204107758052674,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 260174000000.0,
+          "period": "FY2019",
+          "filing": {
+           "accession_no": "0000320193-19-000119",
+           "form": "10-K",
+           "filed_at": "2019-10-31",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019319000119/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 265595000000.0,
+          "period": "FY2018",
+          "filing": {
+           "accession_no": "0000320193-19-000119",
+           "form": "10-K",
+           "filed_at": "2019-10-31",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019319000119/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2020",
+        "fiscal_year": 2020,
+        "fiscal_period": "FY",
+        "period_end": "2020-09-26",
+        "value": 0.05512080376978479,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 274515000000.0,
+          "period": "FY2020",
+          "filing": {
+           "accession_no": "0000320193-20-000096",
+           "form": "10-K",
+           "filed_at": "2020-10-30",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019320000096/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 260174000000.0,
+          "period": "FY2019",
+          "filing": {
+           "accession_no": "0000320193-20-000096",
+           "form": "10-K",
+           "filed_at": "2020-10-30",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019320000096/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2021",
+        "fiscal_year": 2021,
+        "fiscal_period": "FY",
+        "period_end": "2021-09-25",
+        "value": 0.33259384733074704,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 365817000000.0,
+          "period": "FY2021",
+          "filing": {
+           "accession_no": "0000320193-21-000105",
+           "form": "10-K",
+           "filed_at": "2021-10-29",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019321000105/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 274515000000.0,
+          "period": "FY2020",
+          "filing": {
+           "accession_no": "0000320193-21-000105",
+           "form": "10-K",
+           "filed_at": "2021-10-29",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019321000105/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2022",
+        "fiscal_year": 2022,
+        "fiscal_period": "FY",
+        "period_end": "2022-09-24",
+        "value": 0.0779378760418461,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 394328000000.0,
+          "period": "FY2022",
+          "filing": {
+           "accession_no": "0000320193-22-000108",
+           "form": "10-K",
+           "filed_at": "2022-10-28",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019322000108/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 365817000000.0,
+          "period": "FY2021",
+          "filing": {
+           "accession_no": "0000320193-22-000108",
+           "form": "10-K",
+           "filed_at": "2022-10-28",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019322000108/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2023",
+        "fiscal_year": 2023,
+        "fiscal_period": "FY",
+        "period_end": "2023-09-30",
+        "value": -0.02800460530319937,
+        "used": true,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 383285000000.0,
+          "period": "FY2023",
+          "filing": {
+           "accession_no": "0000320193-23-000106",
+           "form": "10-K",
+           "filed_at": "2023-11-03",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000106/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 394328000000.0,
+          "period": "FY2022",
+          "filing": {
+           "accession_no": "0000320193-23-000106",
+           "form": "10-K",
+           "filed_at": "2023-11-03",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000106/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "period_length_differs",
+          "params": {
+           "days": 371,
+           "prior_days": 364
+          },
+          "text": "the periods differ in length (371 days against 364): a 53-week year or a 14-week quarter"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2024",
+        "fiscal_year": 2024,
+        "fiscal_period": "FY",
+        "period_end": "2024-09-28",
+        "value": 0.02021994077514111,
+        "used": true,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 391035000000.0,
+          "period": "FY2024",
+          "filing": {
+           "accession_no": "0000320193-24-000123",
+           "form": "10-K",
+           "filed_at": "2024-11-01",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 383285000000.0,
+          "period": "FY2023",
+          "filing": {
+           "accession_no": "0000320193-24-000123",
+           "form": "10-K",
+           "filed_at": "2024-11-01",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "period_length_differs",
+          "params": {
+           "days": 364,
+           "prior_days": 371
+          },
+          "text": "the periods differ in length (364 days against 371): a 53-week year or a 14-week quarter"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2025",
+        "fiscal_year": 2025,
+        "fiscal_period": "FY",
+        "period_end": "2025-09-27",
+        "value": 0.06425511782832749,
+        "used": true,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 416161000000.0,
+          "period": "FY2025",
+          "filing": {
+           "accession_no": "0000320193-25-000079",
+           "form": "10-K",
+           "filed_at": "2025-10-31",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 391035000000.0,
+          "period": "FY2024",
+          "filing": {
+           "accession_no": "0000320193-25-000079",
+           "form": "10-K",
+           "filed_at": "2025-10-31",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       },
+       {
+        "period": "FY2026",
+        "fiscal_year": 2026,
+        "fiscal_period": "FY",
+        "period_end": null,
+        "value": null,
+        "used": false,
+        "parts": [],
+        "notes": [],
+        "missing": {
+         "code": "period_not_reported",
+         "params": {
+          "period": "FY2026"
+         },
+         "text": "FY2026 was not reported by the run's date (a year or quarter not yet filed, or not in the company's filings)"
+        },
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       }
+      ],
+      "notes": [],
+      "reference": {
+       "method_code": "same_filing_average_fading",
+       "how": "mean",
+       "value": 0.018823484433423077,
+       "simple_mean": 0.018823484433423077,
+       "periods": [
+        "FY2023",
+        "FY2024",
+        "FY2025"
+       ],
+       "weights": [
+        0.3333333333333333,
+        0.3333333333333333,
+        0.3333333333333333
+       ],
+       "numerator_sum": null,
+       "base_sum": null,
+       "numerator_code": null,
+       "base_code": null,
+       "rows": [
+        "FY2026Q4",
+        "FY2027Q1",
+        "FY2027Q2",
+        "FY2027Q3"
+       ],
+       "notes": []
+      }
+     },
+     {
+      "measure": "revenue_growth_yoy",
+      "frequency": "year",
+      "basis": "latest",
+      "primary": false,
+      "fiscal_quarter": null,
+      "points": [
+       {
+        "period": "FY2017",
+        "fiscal_year": 2017,
+        "fiscal_period": "FY",
+        "period_end": "2017-09-30",
+        "value": 0.06304518199398057,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 229234000000.0,
+          "period": "FY2017",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 215639000000.0,
+          "period": "FY2016",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 2479000000.0,
+          "period": "FY2017Q1",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": 0.011496065183014204,
+          "notes": [
+           {
+            "code": "period_length_differs",
+            "params": {
+             "days": 98,
+             "prior_days": 91
+            },
+            "text": "the periods differ in length (98 days against 91): a 53-week year or a 14-week quarter"
+           }
+          ]
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 2339000000.0,
+          "period": "FY2017Q2",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": 0.010846831973808077,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 3050000000.0,
+          "period": "FY2017Q3",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": 0.01414400920056205,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 5727000000.0,
+          "period": "FY2017Q4",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": 0.026558275636596348,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "period_length_differs",
+          "params": {
+           "days": 371,
+           "prior_days": 364
+          },
+          "text": "the periods differ in length (371 days against 364): a 53-week year or a 14-week quarter"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2018",
+        "fiscal_year": 2018,
+        "fiscal_period": "FY",
+        "period_end": "2018-09-29",
+        "value": 0.15861957650261305,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 265595000000.0,
+          "period": "FY2018",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 229234000000.0,
+          "period": "FY2017",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 9942000000.0,
+          "period": "FY2018Q1",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": 0.043370529677098514,
+          "notes": [
+           {
+            "code": "period_length_differs",
+            "params": {
+             "days": 91,
+             "prior_days": 98
+            },
+            "text": "the periods differ in length (91 days against 98): a 53-week year or a 14-week quarter"
+           }
+          ]
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 8241000000.0,
+          "period": "FY2018Q2",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": 0.035950164460769346,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 7857000000.0,
+          "period": "FY2018Q3",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": 0.034275020284949005,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 10321000000.0,
+          "period": "FY2018Q4",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": 0.04502386207979619,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "period_length_differs",
+          "params": {
+           "days": 364,
+           "prior_days": 371
+          },
+          "text": "the periods differ in length (364 days against 371): a 53-week year or a 14-week quarter"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2019",
+        "fiscal_year": 2019,
+        "fiscal_period": "FY",
+        "period_end": "2019-09-28",
+        "value": -0.0204107758052674,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 260174000000.0,
+          "period": "FY2019",
+          "filing": {
+           "accession_no": "0000320193-21-000105",
+           "form": "10-K",
+           "filed_at": "2021-10-29",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019321000105/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 265595000000.0,
+          "period": "FY2018",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": -3983000000.0,
+          "period": "FY2019Q1",
+          "filing": {
+           "accession_no": "0000320193-20-000096",
+           "form": "10-K",
+           "filed_at": "2020-10-30",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019320000096/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": -0.01499651725371336,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": -3122000000.0,
+          "period": "FY2019Q2",
+          "filing": {
+           "accession_no": "0000320193-20-000096",
+           "form": "10-K",
+           "filed_at": "2020-10-30",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019320000096/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": -0.01175473935879817,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 544000000.0,
+          "period": "FY2019Q3",
+          "filing": {
+           "accession_no": "0000320193-20-000096",
+           "form": "10-K",
+           "filed_at": "2020-10-30",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019320000096/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": 0.0020482313296560552,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 1140000000.0,
+          "period": "FY2019Q4",
+          "filing": {
+           "accession_no": "0000320193-20-000096",
+           "form": "10-K",
+           "filed_at": "2020-10-30",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019320000096/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": 0.004292249477588057,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "tag_differs",
+          "params": {
+           "tag": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+           "prior_tag": "us-gaap:Revenues"
+          },
+          "text": "the two years use different tags (us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax against us-gaap:Revenues)"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2020",
+        "fiscal_year": 2020,
+        "fiscal_period": "FY",
+        "period_end": "2020-09-26",
+        "value": 0.05512080376978479,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 274515000000.0,
+          "period": "FY2020",
+          "filing": {
+           "accession_no": "0000320193-22-000108",
+           "form": "10-K",
+           "filed_at": "2022-10-28",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019322000108/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 260174000000.0,
+          "period": "FY2019",
+          "filing": {
+           "accession_no": "0000320193-21-000105",
+           "form": "10-K",
+           "filed_at": "2021-10-29",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019321000105/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 7509000000.0,
+          "period": "FY2020Q1",
+          "filing": {
+           "accession_no": "0000320193-21-000010",
+           "form": "10-Q",
+           "filed_at": "2021-01-28",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019321000010/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": 0.028861454257535342,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 298000000.0,
+          "period": "FY2020Q2",
+          "filing": {
+           "accession_no": "0000320193-21-000056",
+           "form": "10-Q",
+           "filed_at": "2021-04-29",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019321000056/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": 0.0011453873177181425,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 5876000000.0,
+          "period": "FY2020Q3",
+          "filing": {
+           "accession_no": "0000320193-21-000065",
+           "form": "10-Q",
+           "filed_at": "2021-07-28",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019321000065/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": 0.022584885499704044,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 658000000.0,
+          "period": "FY2020Q4",
+          "filing": {
+           "accession_no": "0000320193-20-000096",
+           "form": "10-K",
+           "filed_at": "2020-10-30",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019320000096/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": 0.002529076694827308,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2021",
+        "fiscal_year": 2021,
+        "fiscal_period": "FY",
+        "period_end": "2021-09-25",
+        "value": 0.33259384733074704,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 365817000000.0,
+          "period": "FY2021",
+          "filing": {
+           "accession_no": "0000320193-23-000106",
+           "form": "10-K",
+           "filed_at": "2023-11-03",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000106/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 274515000000.0,
+          "period": "FY2020",
+          "filing": {
+           "accession_no": "0000320193-22-000108",
+           "form": "10-K",
+           "filed_at": "2022-10-28",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019322000108/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 19620000000.0,
+          "period": "FY2021Q1",
+          "filing": {
+           "accession_no": "0000320193-22-000007",
+           "form": "10-Q",
+           "filed_at": "2022-01-28",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019322000007/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": 0.07147150428938309,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 31271000000.0,
+          "period": "FY2021Q2",
+          "filing": {
+           "accession_no": "0000320193-22-000059",
+           "form": "10-Q",
+           "filed_at": "2022-04-29",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019322000059/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": 0.11391362949201318,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 21749000000.0,
+          "period": "FY2021Q3",
+          "filing": {
+           "accession_no": "0000320193-22-000070",
+           "form": "10-Q",
+           "filed_at": "2022-07-29",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019322000070/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": 0.07922700034606488,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 18662000000.0,
+          "period": "FY2021Q4",
+          "filing": null,
+          "derived": true,
+          "inputs": [
+           {
+            "accession_no": "0000320193-23-000106",
+            "form": "10-K",
+            "filed_at": "2023-11-03",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000106/"
+           },
+           {
+            "accession_no": "0000320193-22-000070",
+            "form": "10-Q",
+            "filed_at": "2022-07-29",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019322000070/"
+           }
+          ],
+          "contribution": 0.06798171320328579,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2022",
+        "fiscal_year": 2022,
+        "fiscal_period": "FY",
+        "period_end": "2022-09-24",
+        "value": 0.0779378760418461,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 394328000000.0,
+          "period": "FY2022",
+          "filing": {
+           "accession_no": "0000320193-24-000123",
+           "form": "10-K",
+           "filed_at": "2024-11-01",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 365817000000.0,
+          "period": "FY2021",
+          "filing": {
+           "accession_no": "0000320193-23-000106",
+           "form": "10-K",
+           "filed_at": "2023-11-03",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000106/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 12506000000.0,
+          "period": "FY2022Q1",
+          "filing": {
+           "accession_no": "0000320193-23-000006",
+           "form": "10-Q",
+           "filed_at": "2023-02-03",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000006/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": 0.03418649215318042,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 7694000000.0,
+          "period": "FY2022Q2",
+          "filing": {
+           "accession_no": "0000320193-23-000064",
+           "form": "10-Q",
+           "filed_at": "2023-05-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000064/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": 0.021032374110552542,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 1525000000.0,
+          "period": "FY2022Q3",
+          "filing": {
+           "accession_no": "0000320193-23-000077",
+           "form": "10-Q",
+           "filed_at": "2023-08-04",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000077/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": 0.00416875104218776,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 6786000000.0,
+          "period": "FY2022Q4",
+          "filing": null,
+          "derived": true,
+          "inputs": [
+           {
+            "accession_no": "0000320193-24-000123",
+            "form": "10-K",
+            "filed_at": "2024-11-01",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/"
+           },
+           {
+            "accession_no": "0000320193-23-000077",
+            "form": "10-Q",
+            "filed_at": "2023-08-04",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000077/"
+           }
+          ],
+          "contribution": 0.018550258735925338,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2023",
+        "fiscal_year": 2023,
+        "fiscal_period": "FY",
+        "period_end": "2023-09-30",
+        "value": -0.02800460530319937,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 383285000000.0,
+          "period": "FY2023",
+          "filing": {
+           "accession_no": "0000320193-25-000079",
+           "form": "10-K",
+           "filed_at": "2025-10-31",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 394328000000.0,
+          "period": "FY2022",
+          "filing": {
+           "accession_no": "0000320193-24-000123",
+           "form": "10-K",
+           "filed_at": "2024-11-01",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": -6791000000.0,
+          "period": "FY2023Q1",
+          "filing": {
+           "accession_no": "0000320193-24-000006",
+           "form": "10-Q",
+           "filed_at": "2024-02-02",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000006/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": -0.017221703759306973,
+          "notes": [
+           {
+            "code": "period_length_differs",
+            "params": {
+             "days": 98,
+             "prior_days": 91
+            },
+            "text": "the periods differ in length (98 days against 91): a 53-week year or a 14-week quarter"
+           }
+          ]
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": -2442000000.0,
+          "period": "FY2023Q2",
+          "filing": {
+           "accession_no": "0000320193-24-000069",
+           "form": "10-Q",
+           "filed_at": "2024-05-03",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000069/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": -0.006192814103994644,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": -1162000000.0,
+          "period": "FY2023Q3",
+          "filing": {
+           "accession_no": "0000320193-24-000081",
+           "form": "10-Q",
+           "filed_at": "2024-08-02",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000081/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": -0.0029467854172161244,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": -648000000.0,
+          "period": "FY2023Q4",
+          "filing": null,
+          "derived": true,
+          "inputs": [
+           {
+            "accession_no": "0000320193-25-000079",
+            "form": "10-K",
+            "filed_at": "2025-10-31",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+           },
+           {
+            "accession_no": "0000320193-24-000081",
+            "form": "10-Q",
+            "filed_at": "2024-08-02",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000081/"
+           }
+          ],
+          "contribution": -0.0016433020226816254,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "period_length_differs",
+          "params": {
+           "days": 371,
+           "prior_days": 364
+          },
+          "text": "the periods differ in length (371 days against 364): a 53-week year or a 14-week quarter"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2024",
+        "fiscal_year": 2024,
+        "fiscal_period": "FY",
+        "period_end": "2024-09-28",
+        "value": 0.02021994077514111,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 391035000000.0,
+          "period": "FY2024",
+          "filing": {
+           "accession_no": "0000320193-25-000079",
+           "form": "10-K",
+           "filed_at": "2025-10-31",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 383285000000.0,
+          "period": "FY2023",
+          "filing": {
+           "accession_no": "0000320193-25-000079",
+           "form": "10-K",
+           "filed_at": "2025-10-31",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 2421000000.0,
+          "period": "FY2024Q1",
+          "filing": {
+           "accession_no": "0000320193-25-000008",
+           "form": "10-Q",
+           "filed_at": "2025-01-31",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000008/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": 0.0063164485956925,
+          "notes": [
+           {
+            "code": "period_length_differs",
+            "params": {
+             "days": 91,
+             "prior_days": 98
+            },
+            "text": "the periods differ in length (91 days against 98): a 53-week year or a 14-week quarter"
+           }
+          ]
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": -4083000000.0,
+          "period": "FY2024Q2",
+          "filing": {
+           "accession_no": "0000320193-25-000057",
+           "form": "10-Q",
+           "filed_at": "2025-05-02",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000057/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": -0.010652647507729235,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 3980000000.0,
+          "period": "FY2024Q3",
+          "filing": {
+           "accession_no": "0000320193-25-000073",
+           "form": "10-Q",
+           "filed_at": "2025-08-01",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000073/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": 0.01038391797226607,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 5432000000.0,
+          "period": "FY2024Q4",
+          "filing": null,
+          "derived": true,
+          "inputs": [
+           {
+            "accession_no": "0000320193-25-000079",
+            "form": "10-K",
+            "filed_at": "2025-10-31",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+           },
+           {
+            "accession_no": "0000320193-25-000073",
+            "form": "10-Q",
+            "filed_at": "2025-08-01",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000073/"
+           }
+          ],
+          "contribution": 0.01417222171491188,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "period_length_differs",
+          "params": {
+           "days": 364,
+           "prior_days": 371
+          },
+          "text": "the periods differ in length (364 days against 371): a 53-week year or a 14-week quarter"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2025",
+        "fiscal_year": 2025,
+        "fiscal_period": "FY",
+        "period_end": "2025-09-27",
+        "value": 0.06425511782832749,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 416161000000.0,
+          "period": "FY2025",
+          "filing": {
+           "accession_no": "0000320193-25-000079",
+           "form": "10-K",
+           "filed_at": "2025-10-31",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 391035000000.0,
+          "period": "FY2024",
+          "filing": {
+           "accession_no": "0000320193-25-000079",
+           "form": "10-K",
+           "filed_at": "2025-10-31",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 4725000000.0,
+          "period": "FY2025Q1",
+          "filing": {
+           "accession_no": "0000320193-26-000006",
+           "form": "10-Q",
+           "filed_at": "2026-01-30",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000006/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": 0.012083317350109325,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 4606000000.0,
+          "period": "FY2025Q2",
+          "filing": {
+           "accession_no": "0000320193-26-000013",
+           "form": "10-Q",
+           "filed_at": "2026-05-01",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000013/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": 0.011778996764995461,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 8259000000.0,
+          "period": "FY2025Q3",
+          "filing": {
+           "accession_no": "0000320193-26-000020",
+           "form": "10-Q",
+           "filed_at": "2026-07-31",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000020/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": 0.021120871533238713,
+          "notes": []
+         },
+         {
+          "name": "revenue_quarter_contribution",
+          "value": 7536000000.0,
+          "period": "FY2025Q4",
+          "filing": null,
+          "derived": true,
+          "inputs": [
+           {
+            "accession_no": "0000320193-25-000079",
+            "form": "10-K",
+            "filed_at": "2025-10-31",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+           },
+           {
+            "accession_no": "0000320193-26-000020",
+            "form": "10-Q",
+            "filed_at": "2026-07-31",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000020/"
+           }
+          ],
+          "contribution": 0.019271932179983887,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2026",
+        "fiscal_year": 2026,
+        "fiscal_period": "FY",
+        "period_end": null,
+        "value": null,
+        "used": false,
+        "parts": [],
+        "notes": [],
+        "missing": {
+         "code": "period_not_reported",
+         "params": {
+          "period": "FY2026"
+         },
+         "text": "FY2026 was not reported by the run's date (a year or quarter not yet filed, or not in the company's filings)"
+        },
+        "numerator": null,
+        "base": null,
+        "formula_id": null
+       }
+      ],
+      "notes": [],
+      "reference": null
+     },
+     {
+      "measure": "revenue_growth_yoy",
+      "frequency": "quarter",
+      "basis": "latest",
+      "primary": false,
+      "fiscal_quarter": null,
+      "points": [
+       {
+        "period": "FY2016Q4",
+        "fiscal_year": 2016,
+        "fiscal_period": "Q4",
+        "period_end": "2016-09-24",
+        "value": -0.09027009184287682,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 46852000000.0,
+          "period": "FY2016Q4",
+          "filing": {
+           "accession_no": "0000320193-17-000070",
+           "form": "10-K",
+           "filed_at": "2017-11-03",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019317000070/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 51501000000.0,
+          "period": "FY2015Q4",
+          "filing": {
+           "accession_no": "0001628280-16-020309",
+           "form": "10-K",
+           "filed_at": "2016-10-26",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000162828016020309/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2017Q1",
+        "fiscal_year": 2017,
+        "fiscal_period": "Q1",
+        "period_end": "2016-12-31",
+        "value": 0.032673450021088124,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 78351000000.0,
+          "period": "FY2017Q1",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 75872000000.0,
+          "period": "FY2016Q1",
+          "filing": {
+           "accession_no": "0000320193-17-000070",
+           "form": "10-K",
+           "filed_at": "2017-11-03",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019317000070/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "period_length_differs",
+          "params": {
+           "days": 98,
+           "prior_days": 91
+          },
+          "text": "the periods differ in length (98 days against 91): a 53-week year or a 14-week quarter"
+         },
+         {
+          "code": "tag_differs",
+          "params": {
+           "tag": "us-gaap:Revenues",
+           "prior_tag": "us-gaap:SalesRevenueNet"
+          },
+          "text": "the two years use different tags (us-gaap:Revenues against us-gaap:SalesRevenueNet)"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2017Q2",
+        "fiscal_year": 2017,
+        "fiscal_period": "Q2",
+        "period_end": "2017-04-01",
+        "value": 0.04626461221987066,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 52896000000.0,
+          "period": "FY2017Q2",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 50557000000.0,
+          "period": "FY2016Q2",
+          "filing": {
+           "accession_no": "0000320193-17-000070",
+           "form": "10-K",
+           "filed_at": "2017-11-03",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019317000070/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "tag_differs",
+          "params": {
+           "tag": "us-gaap:Revenues",
+           "prior_tag": "us-gaap:SalesRevenueNet"
+          },
+          "text": "the two years use different tags (us-gaap:Revenues against us-gaap:SalesRevenueNet)"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2017Q3",
+        "fiscal_year": 2017,
+        "fiscal_period": "Q3",
+        "period_end": "2017-07-01",
+        "value": 0.07200528825723596,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 45408000000.0,
+          "period": "FY2017Q3",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 42358000000.0,
+          "period": "FY2016Q3",
+          "filing": {
+           "accession_no": "0000320193-17-000070",
+           "form": "10-K",
+           "filed_at": "2017-11-03",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019317000070/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "tag_differs",
+          "params": {
+           "tag": "us-gaap:Revenues",
+           "prior_tag": "us-gaap:SalesRevenueNet"
+          },
+          "text": "the two years use different tags (us-gaap:Revenues against us-gaap:SalesRevenueNet)"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2017Q4",
+        "fiscal_year": 2017,
+        "fiscal_period": "Q4",
+        "period_end": "2017-09-30",
+        "value": 0.1222359771194399,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 52579000000.0,
+          "period": "FY2017Q4",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 46852000000.0,
+          "period": "FY2016Q4",
+          "filing": {
+           "accession_no": "0000320193-17-000070",
+           "form": "10-K",
+           "filed_at": "2017-11-03",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019317000070/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "tag_differs",
+          "params": {
+           "tag": "us-gaap:Revenues",
+           "prior_tag": "us-gaap:SalesRevenueNet"
+          },
+          "text": "the two years use different tags (us-gaap:Revenues against us-gaap:SalesRevenueNet)"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2018Q1",
+        "fiscal_year": 2018,
+        "fiscal_period": "Q1",
+        "period_end": "2017-12-30",
+        "value": 0.12689053107171566,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 88293000000.0,
+          "period": "FY2018Q1",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 78351000000.0,
+          "period": "FY2017Q1",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "period_length_differs",
+          "params": {
+           "days": 91,
+           "prior_days": 98
+          },
+          "text": "the periods differ in length (91 days against 98): a 53-week year or a 14-week quarter"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2018Q2",
+        "fiscal_year": 2018,
+        "fiscal_period": "Q2",
+        "period_end": "2018-03-31",
+        "value": 0.15579627949183306,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 61137000000.0,
+          "period": "FY2018Q2",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 52896000000.0,
+          "period": "FY2017Q2",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2018Q3",
+        "fiscal_year": 2018,
+        "fiscal_period": "Q3",
+        "period_end": "2018-06-30",
+        "value": 0.17303118393234662,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 53265000000.0,
+          "period": "FY2018Q3",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 45408000000.0,
+          "period": "FY2017Q3",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2018Q4",
+        "fiscal_year": 2018,
+        "fiscal_period": "Q4",
+        "period_end": "2018-09-29",
+        "value": 0.19629509880370488,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 62900000000.0,
+          "period": "FY2018Q4",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 52579000000.0,
+          "period": "FY2017Q4",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2019Q1",
+        "fiscal_year": 2019,
+        "fiscal_period": "Q1",
+        "period_end": "2018-12-29",
+        "value": -0.04511116396543324,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 84310000000.0,
+          "period": "FY2019Q1",
+          "filing": {
+           "accession_no": "0000320193-20-000096",
+           "form": "10-K",
+           "filed_at": "2020-10-30",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019320000096/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 88293000000.0,
+          "period": "FY2018Q1",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "tag_differs",
+          "params": {
+           "tag": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+           "prior_tag": "us-gaap:Revenues"
+          },
+          "text": "the two years use different tags (us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax against us-gaap:Revenues)"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2019Q2",
+        "fiscal_year": 2019,
+        "fiscal_period": "Q2",
+        "period_end": "2019-03-30",
+        "value": -0.05106563946546283,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 58015000000.0,
+          "period": "FY2019Q2",
+          "filing": {
+           "accession_no": "0000320193-20-000096",
+           "form": "10-K",
+           "filed_at": "2020-10-30",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019320000096/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 61137000000.0,
+          "period": "FY2018Q2",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "tag_differs",
+          "params": {
+           "tag": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+           "prior_tag": "us-gaap:Revenues"
+          },
+          "text": "the two years use different tags (us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax against us-gaap:Revenues)"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2019Q3",
+        "fiscal_year": 2019,
+        "fiscal_period": "Q3",
+        "period_end": "2019-06-29",
+        "value": 0.010213085515817122,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 53809000000.0,
+          "period": "FY2019Q3",
+          "filing": {
+           "accession_no": "0000320193-20-000096",
+           "form": "10-K",
+           "filed_at": "2020-10-30",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019320000096/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 53265000000.0,
+          "period": "FY2018Q3",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "tag_differs",
+          "params": {
+           "tag": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+           "prior_tag": "us-gaap:Revenues"
+          },
+          "text": "the two years use different tags (us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax against us-gaap:Revenues)"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2019Q4",
+        "fiscal_year": 2019,
+        "fiscal_period": "Q4",
+        "period_end": "2019-09-28",
+        "value": 0.01812400635930045,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 64040000000.0,
+          "period": "FY2019Q4",
+          "filing": {
+           "accession_no": "0000320193-20-000096",
+           "form": "10-K",
+           "filed_at": "2020-10-30",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019320000096/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 62900000000.0,
+          "period": "FY2018Q4",
+          "filing": {
+           "accession_no": "0000320193-18-000145",
+           "form": "10-K",
+           "filed_at": "2018-11-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019318000145/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "tag_differs",
+          "params": {
+           "tag": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+           "prior_tag": "us-gaap:Revenues"
+          },
+          "text": "the two years use different tags (us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax against us-gaap:Revenues)"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2020Q1",
+        "fiscal_year": 2020,
+        "fiscal_period": "Q1",
+        "period_end": "2019-12-28",
+        "value": 0.0890641679516071,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 91819000000.0,
+          "period": "FY2020Q1",
+          "filing": {
+           "accession_no": "0000320193-21-000010",
+           "form": "10-Q",
+           "filed_at": "2021-01-28",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019321000010/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 84310000000.0,
+          "period": "FY2019Q1",
+          "filing": {
+           "accession_no": "0000320193-20-000096",
+           "form": "10-K",
+           "filed_at": "2020-10-30",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019320000096/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2020Q2",
+        "fiscal_year": 2020,
+        "fiscal_period": "Q2",
+        "period_end": "2020-03-28",
+        "value": 0.005136602602775042,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 58313000000.0,
+          "period": "FY2020Q2",
+          "filing": {
+           "accession_no": "0000320193-21-000056",
+           "form": "10-Q",
+           "filed_at": "2021-04-29",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019321000056/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 58015000000.0,
+          "period": "FY2019Q2",
+          "filing": {
+           "accession_no": "0000320193-20-000096",
+           "form": "10-K",
+           "filed_at": "2020-10-30",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019320000096/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2020Q3",
+        "fiscal_year": 2020,
+        "fiscal_period": "Q3",
+        "period_end": "2020-06-27",
+        "value": 0.10920106301919752,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 59685000000.0,
+          "period": "FY2020Q3",
+          "filing": {
+           "accession_no": "0000320193-21-000065",
+           "form": "10-Q",
+           "filed_at": "2021-07-28",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019321000065/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 53809000000.0,
+          "period": "FY2019Q3",
+          "filing": {
+           "accession_no": "0000320193-20-000096",
+           "form": "10-K",
+           "filed_at": "2020-10-30",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019320000096/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2020Q4",
+        "fiscal_year": 2020,
+        "fiscal_period": "Q4",
+        "period_end": "2020-09-26",
+        "value": 0.010274828232354816,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 64698000000.0,
+          "period": "FY2020Q4",
+          "filing": {
+           "accession_no": "0000320193-20-000096",
+           "form": "10-K",
+           "filed_at": "2020-10-30",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019320000096/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 64040000000.0,
+          "period": "FY2019Q4",
+          "filing": {
+           "accession_no": "0000320193-20-000096",
+           "form": "10-K",
+           "filed_at": "2020-10-30",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019320000096/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2021Q1",
+        "fiscal_year": 2021,
+        "fiscal_period": "Q1",
+        "period_end": "2020-12-26",
+        "value": 0.21368126422635836,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 111439000000.0,
+          "period": "FY2021Q1",
+          "filing": {
+           "accession_no": "0000320193-22-000007",
+           "form": "10-Q",
+           "filed_at": "2022-01-28",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019322000007/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 91819000000.0,
+          "period": "FY2020Q1",
+          "filing": {
+           "accession_no": "0000320193-21-000010",
+           "form": "10-Q",
+           "filed_at": "2021-01-28",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019321000010/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2021Q2",
+        "fiscal_year": 2021,
+        "fiscal_period": "Q2",
+        "period_end": "2021-03-27",
+        "value": 0.536261211050709,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 89584000000.0,
+          "period": "FY2021Q2",
+          "filing": {
+           "accession_no": "0000320193-22-000059",
+           "form": "10-Q",
+           "filed_at": "2022-04-29",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019322000059/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 58313000000.0,
+          "period": "FY2020Q2",
+          "filing": {
+           "accession_no": "0000320193-21-000056",
+           "form": "10-Q",
+           "filed_at": "2021-04-29",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019321000056/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2021Q3",
+        "fiscal_year": 2021,
+        "fiscal_period": "Q3",
+        "period_end": "2021-06-26",
+        "value": 0.3643964145095082,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 81434000000.0,
+          "period": "FY2021Q3",
+          "filing": {
+           "accession_no": "0000320193-22-000070",
+           "form": "10-Q",
+           "filed_at": "2022-07-29",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019322000070/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 59685000000.0,
+          "period": "FY2020Q3",
+          "filing": {
+           "accession_no": "0000320193-21-000065",
+           "form": "10-Q",
+           "filed_at": "2021-07-28",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019321000065/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2021Q4",
+        "fiscal_year": 2021,
+        "fiscal_period": "Q4",
+        "period_end": "2021-09-25",
+        "value": 0.28844786546724777,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 83360000000.0,
+          "period": "FY2021Q4",
+          "filing": null,
+          "derived": true,
+          "inputs": [
+           {
+            "accession_no": "0000320193-23-000106",
+            "form": "10-K",
+            "filed_at": "2023-11-03",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000106/"
+           },
+           {
+            "accession_no": "0000320193-22-000070",
+            "form": "10-Q",
+            "filed_at": "2022-07-29",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019322000070/"
+           }
+          ],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 64698000000.0,
+          "period": "FY2020Q4",
+          "filing": {
+           "accession_no": "0000320193-20-000096",
+           "form": "10-K",
+           "filed_at": "2020-10-30",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019320000096/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "derived_from_other_periods",
+          "params": {
+           "period": "FY2021Q4",
+           "inputs": [
+            "0000320193-23-000106",
+            "0000320193-22-000070"
+           ]
+          },
+          "text": "computed by Warren from other periods' filings (e.g. Q4 = the year − nine months)"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2022Q1",
+        "fiscal_year": 2022,
+        "fiscal_period": "Q1",
+        "period_end": "2021-12-25",
+        "value": 0.11222283042740866,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 123945000000.0,
+          "period": "FY2022Q1",
+          "filing": {
+           "accession_no": "0000320193-23-000006",
+           "form": "10-Q",
+           "filed_at": "2023-02-03",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000006/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 111439000000.0,
+          "period": "FY2021Q1",
+          "filing": {
+           "accession_no": "0000320193-22-000007",
+           "form": "10-Q",
+           "filed_at": "2022-01-28",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019322000007/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2022Q2",
+        "fiscal_year": 2022,
+        "fiscal_period": "Q2",
+        "period_end": "2022-03-26",
+        "value": 0.08588587247722801,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 97278000000.0,
+          "period": "FY2022Q2",
+          "filing": {
+           "accession_no": "0000320193-23-000064",
+           "form": "10-Q",
+           "filed_at": "2023-05-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000064/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 89584000000.0,
+          "period": "FY2021Q2",
+          "filing": {
+           "accession_no": "0000320193-22-000059",
+           "form": "10-Q",
+           "filed_at": "2022-04-29",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019322000059/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2022Q3",
+        "fiscal_year": 2022,
+        "fiscal_period": "Q3",
+        "period_end": "2022-06-25",
+        "value": 0.018726821720657316,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 82959000000.0,
+          "period": "FY2022Q3",
+          "filing": {
+           "accession_no": "0000320193-23-000077",
+           "form": "10-Q",
+           "filed_at": "2023-08-04",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000077/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 81434000000.0,
+          "period": "FY2021Q3",
+          "filing": {
+           "accession_no": "0000320193-22-000070",
+           "form": "10-Q",
+           "filed_at": "2022-07-29",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019322000070/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2022Q4",
+        "fiscal_year": 2022,
+        "fiscal_period": "Q4",
+        "period_end": "2022-09-24",
+        "value": 0.08140595009596918,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 90146000000.0,
+          "period": "FY2022Q4",
+          "filing": null,
+          "derived": true,
+          "inputs": [
+           {
+            "accession_no": "0000320193-24-000123",
+            "form": "10-K",
+            "filed_at": "2024-11-01",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/"
+           },
+           {
+            "accession_no": "0000320193-23-000077",
+            "form": "10-Q",
+            "filed_at": "2023-08-04",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000077/"
+           }
+          ],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 83360000000.0,
+          "period": "FY2021Q4",
+          "filing": null,
+          "derived": true,
+          "inputs": [
+           {
+            "accession_no": "0000320193-23-000106",
+            "form": "10-K",
+            "filed_at": "2023-11-03",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000106/"
+           },
+           {
+            "accession_no": "0000320193-22-000070",
+            "form": "10-Q",
+            "filed_at": "2022-07-29",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019322000070/"
+           }
+          ],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "derived_from_other_periods",
+          "params": {
+           "period": "FY2022Q4",
+           "inputs": [
+            "0000320193-24-000123",
+            "0000320193-23-000077"
+           ]
+          },
+          "text": "computed by Warren from other periods' filings (e.g. Q4 = the year − nine months)"
+         },
+         {
+          "code": "derived_from_other_periods",
+          "params": {
+           "period": "FY2021Q4",
+           "inputs": [
+            "0000320193-23-000106",
+            "0000320193-22-000070"
+           ]
+          },
+          "text": "computed by Warren from other periods' filings (e.g. Q4 = the year − nine months)"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2023Q1",
+        "fiscal_year": 2023,
+        "fiscal_period": "Q1",
+        "period_end": "2022-12-31",
+        "value": -0.05479043123966276,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 117154000000.0,
+          "period": "FY2023Q1",
+          "filing": {
+           "accession_no": "0000320193-24-000006",
+           "form": "10-Q",
+           "filed_at": "2024-02-02",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000006/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 123945000000.0,
+          "period": "FY2022Q1",
+          "filing": {
+           "accession_no": "0000320193-23-000006",
+           "form": "10-Q",
+           "filed_at": "2023-02-03",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000006/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "period_length_differs",
+          "params": {
+           "days": 98,
+           "prior_days": 91
+          },
+          "text": "the periods differ in length (98 days against 91): a 53-week year or a 14-week quarter"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2023Q2",
+        "fiscal_year": 2023,
+        "fiscal_period": "Q2",
+        "period_end": "2023-04-01",
+        "value": -0.025103312156911084,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 94836000000.0,
+          "period": "FY2023Q2",
+          "filing": {
+           "accession_no": "0000320193-24-000069",
+           "form": "10-Q",
+           "filed_at": "2024-05-03",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000069/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 97278000000.0,
+          "period": "FY2022Q2",
+          "filing": {
+           "accession_no": "0000320193-23-000064",
+           "form": "10-Q",
+           "filed_at": "2023-05-05",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000064/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2023Q3",
+        "fiscal_year": 2023,
+        "fiscal_period": "Q3",
+        "period_end": "2023-07-01",
+        "value": -0.014006919080509661,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 81797000000.0,
+          "period": "FY2023Q3",
+          "filing": {
+           "accession_no": "0000320193-24-000081",
+           "form": "10-Q",
+           "filed_at": "2024-08-02",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000081/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 82959000000.0,
+          "period": "FY2022Q3",
+          "filing": {
+           "accession_no": "0000320193-23-000077",
+           "form": "10-Q",
+           "filed_at": "2023-08-04",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000077/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2023Q4",
+        "fiscal_year": 2023,
+        "fiscal_period": "Q4",
+        "period_end": "2023-09-30",
+        "value": -0.007188338916868209,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 89498000000.0,
+          "period": "FY2023Q4",
+          "filing": null,
+          "derived": true,
+          "inputs": [
+           {
+            "accession_no": "0000320193-25-000079",
+            "form": "10-K",
+            "filed_at": "2025-10-31",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+           },
+           {
+            "accession_no": "0000320193-24-000081",
+            "form": "10-Q",
+            "filed_at": "2024-08-02",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000081/"
+           }
+          ],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 90146000000.0,
+          "period": "FY2022Q4",
+          "filing": null,
+          "derived": true,
+          "inputs": [
+           {
+            "accession_no": "0000320193-24-000123",
+            "form": "10-K",
+            "filed_at": "2024-11-01",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/"
+           },
+           {
+            "accession_no": "0000320193-23-000077",
+            "form": "10-Q",
+            "filed_at": "2023-08-04",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019323000077/"
+           }
+          ],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "derived_from_other_periods",
+          "params": {
+           "period": "FY2023Q4",
+           "inputs": [
+            "0000320193-25-000079",
+            "0000320193-24-000081"
+           ]
+          },
+          "text": "computed by Warren from other periods' filings (e.g. Q4 = the year − nine months)"
+         },
+         {
+          "code": "derived_from_other_periods",
+          "params": {
+           "period": "FY2022Q4",
+           "inputs": [
+            "0000320193-24-000123",
+            "0000320193-23-000077"
+           ]
+          },
+          "text": "computed by Warren from other periods' filings (e.g. Q4 = the year − nine months)"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2024Q1",
+        "fiscal_year": 2024,
+        "fiscal_period": "Q1",
+        "period_end": "2023-12-30",
+        "value": 0.02066510746538741,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 119575000000.0,
+          "period": "FY2024Q1",
+          "filing": {
+           "accession_no": "0000320193-25-000008",
+           "form": "10-Q",
+           "filed_at": "2025-01-31",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000008/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 117154000000.0,
+          "period": "FY2023Q1",
+          "filing": {
+           "accession_no": "0000320193-24-000006",
+           "form": "10-Q",
+           "filed_at": "2024-02-02",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000006/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "period_length_differs",
+          "params": {
+           "days": 91,
+           "prior_days": 98
+          },
+          "text": "the periods differ in length (91 days against 98): a 53-week year or a 14-week quarter"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2024Q2",
+        "fiscal_year": 2024,
+        "fiscal_period": "Q2",
+        "period_end": "2024-03-30",
+        "value": -0.04305327090978106,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 90753000000.0,
+          "period": "FY2024Q2",
+          "filing": {
+           "accession_no": "0000320193-25-000057",
+           "form": "10-Q",
+           "filed_at": "2025-05-02",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000057/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 94836000000.0,
+          "period": "FY2023Q2",
+          "filing": {
+           "accession_no": "0000320193-24-000069",
+           "form": "10-Q",
+           "filed_at": "2024-05-03",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000069/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2024Q3",
+        "fiscal_year": 2024,
+        "fiscal_period": "Q3",
+        "period_end": "2024-06-29",
+        "value": 0.04865704121178038,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 85777000000.0,
+          "period": "FY2024Q3",
+          "filing": {
+           "accession_no": "0000320193-25-000073",
+           "form": "10-Q",
+           "filed_at": "2025-08-01",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000073/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 81797000000.0,
+          "period": "FY2023Q3",
+          "filing": {
+           "accession_no": "0000320193-24-000081",
+           "form": "10-Q",
+           "filed_at": "2024-08-02",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000081/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2024Q4",
+        "fiscal_year": 2024,
+        "fiscal_period": "Q4",
+        "period_end": "2024-09-28",
+        "value": 0.060694093722764686,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 94930000000.0,
+          "period": "FY2024Q4",
+          "filing": null,
+          "derived": true,
+          "inputs": [
+           {
+            "accession_no": "0000320193-25-000079",
+            "form": "10-K",
+            "filed_at": "2025-10-31",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+           },
+           {
+            "accession_no": "0000320193-25-000073",
+            "form": "10-Q",
+            "filed_at": "2025-08-01",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000073/"
+           }
+          ],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 89498000000.0,
+          "period": "FY2023Q4",
+          "filing": null,
+          "derived": true,
+          "inputs": [
+           {
+            "accession_no": "0000320193-25-000079",
+            "form": "10-K",
+            "filed_at": "2025-10-31",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+           },
+           {
+            "accession_no": "0000320193-24-000081",
+            "form": "10-Q",
+            "filed_at": "2024-08-02",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000081/"
+           }
+          ],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "derived_from_other_periods",
+          "params": {
+           "period": "FY2024Q4",
+           "inputs": [
+            "0000320193-25-000079",
+            "0000320193-25-000073"
+           ]
+          },
+          "text": "computed by Warren from other periods' filings (e.g. Q4 = the year − nine months)"
+         },
+         {
+          "code": "derived_from_other_periods",
+          "params": {
+           "period": "FY2023Q4",
+           "inputs": [
+            "0000320193-25-000079",
+            "0000320193-24-000081"
+           ]
+          },
+          "text": "computed by Warren from other periods' filings (e.g. Q4 = the year − nine months)"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2025Q1",
+        "fiscal_year": 2025,
+        "fiscal_period": "Q1",
+        "period_end": "2024-12-28",
+        "value": 0.03951494877691819,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 124300000000.0,
+          "period": "FY2025Q1",
+          "filing": {
+           "accession_no": "0000320193-26-000006",
+           "form": "10-Q",
+           "filed_at": "2026-01-30",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000006/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 119575000000.0,
+          "period": "FY2024Q1",
+          "filing": {
+           "accession_no": "0000320193-25-000008",
+           "form": "10-Q",
+           "filed_at": "2025-01-31",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000008/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2025Q2",
+        "fiscal_year": 2025,
+        "fiscal_period": "Q2",
+        "period_end": "2025-03-29",
+        "value": 0.05075314314678292,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 95359000000.0,
+          "period": "FY2025Q2",
+          "filing": {
+           "accession_no": "0000320193-26-000013",
+           "form": "10-Q",
+           "filed_at": "2026-05-01",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000013/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 90753000000.0,
+          "period": "FY2024Q2",
+          "filing": {
+           "accession_no": "0000320193-25-000057",
+           "form": "10-Q",
+           "filed_at": "2025-05-02",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000057/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2025Q3",
+        "fiscal_year": 2025,
+        "fiscal_period": "Q3",
+        "period_end": "2025-06-28",
+        "value": 0.09628455180293094,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 94036000000.0,
+          "period": "FY2025Q3",
+          "filing": {
+           "accession_no": "0000320193-26-000020",
+           "form": "10-Q",
+           "filed_at": "2026-07-31",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000020/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 85777000000.0,
+          "period": "FY2024Q3",
+          "filing": {
+           "accession_no": "0000320193-25-000073",
+           "form": "10-Q",
+           "filed_at": "2025-08-01",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000073/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2025Q4",
+        "fiscal_year": 2025,
+        "fiscal_period": "Q4",
+        "period_end": "2025-09-27",
+        "value": 0.07938480985989682,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 102466000000.0,
+          "period": "FY2025Q4",
+          "filing": null,
+          "derived": true,
+          "inputs": [
+           {
+            "accession_no": "0000320193-25-000079",
+            "form": "10-K",
+            "filed_at": "2025-10-31",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+           },
+           {
+            "accession_no": "0000320193-26-000020",
+            "form": "10-Q",
+            "filed_at": "2026-07-31",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000020/"
+           }
+          ],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 94930000000.0,
+          "period": "FY2024Q4",
+          "filing": null,
+          "derived": true,
+          "inputs": [
+           {
+            "accession_no": "0000320193-25-000079",
+            "form": "10-K",
+            "filed_at": "2025-10-31",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/"
+           },
+           {
+            "accession_no": "0000320193-25-000073",
+            "form": "10-Q",
+            "filed_at": "2025-08-01",
+            "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000073/"
+           }
+          ],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [
+         {
+          "code": "derived_from_other_periods",
+          "params": {
+           "period": "FY2025Q4",
+           "inputs": [
+            "0000320193-25-000079",
+            "0000320193-26-000020"
+           ]
+          },
+          "text": "computed by Warren from other periods' filings (e.g. Q4 = the year − nine months)"
+         },
+         {
+          "code": "derived_from_other_periods",
+          "params": {
+           "period": "FY2024Q4",
+           "inputs": [
+            "0000320193-25-000079",
+            "0000320193-25-000073"
+           ]
+          },
+          "text": "computed by Warren from other periods' filings (e.g. Q4 = the year − nine months)"
+         }
+        ],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2026Q1",
+        "fiscal_year": 2026,
+        "fiscal_period": "Q1",
+        "period_end": "2025-12-27",
+        "value": 0.15652453740949324,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 143756000000.0,
+          "period": "FY2026Q1",
+          "filing": {
+           "accession_no": "0000320193-26-000006",
+           "form": "10-Q",
+           "filed_at": "2026-01-30",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000006/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 124300000000.0,
+          "period": "FY2025Q1",
+          "filing": {
+           "accession_no": "0000320193-26-000006",
+           "form": "10-Q",
+           "filed_at": "2026-01-30",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000006/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2026Q2",
+        "fiscal_year": 2026,
+        "fiscal_period": "Q2",
+        "period_end": "2026-03-28",
+        "value": 0.16595182415922993,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 111184000000.0,
+          "period": "FY2026Q2",
+          "filing": {
+           "accession_no": "0000320193-26-000013",
+           "form": "10-Q",
+           "filed_at": "2026-05-01",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000013/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 95359000000.0,
+          "period": "FY2025Q2",
+          "filing": {
+           "accession_no": "0000320193-26-000013",
+           "form": "10-Q",
+           "filed_at": "2026-05-01",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000013/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       },
+       {
+        "period": "FY2026Q3",
+        "fiscal_year": 2026,
+        "fiscal_period": "Q3",
+        "period_end": "2026-06-27",
+        "value": 0.16356501765281384,
+        "used": false,
+        "parts": [
+         {
+          "name": "revenue",
+          "value": 109417000000.0,
+          "period": "FY2026Q3",
+          "filing": {
+           "accession_no": "0000320193-26-000020",
+           "form": "10-Q",
+           "filed_at": "2026-07-31",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000020/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         },
+         {
+          "name": "revenue",
+          "value": 94036000000.0,
+          "period": "FY2025Q3",
+          "filing": {
+           "accession_no": "0000320193-26-000020",
+           "form": "10-Q",
+           "filed_at": "2026-07-31",
+           "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000020/"
+          },
+          "derived": false,
+          "inputs": [],
+          "contribution": null,
+          "notes": []
+         }
+        ],
+        "notes": [],
+        "missing": null,
+        "numerator": null,
+        "base": null,
+        "formula_id": "revenue_yoy"
+       }
+      ],
+      "notes": [],
+      "reference": null
+     }
+    ],
+    "gap": null,
+    "notes": []
+   }
+  ]
+ }
+}

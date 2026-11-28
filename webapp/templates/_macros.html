@@ -1,0 +1,7 @@
+{# Shared pieces of the answer's templates. A figure is a door to the side panel (design
+   principle 2): a link that works without JavaScript, swapped in place by htmx when it runs. #}
+{% macro fig(f, extra="") -%}
+  <a class="fig{{ extra }}{% if open_figure == f.id %} on{% endif %}" href="{{ figure_url(f.id) }}"
+     data-figura="{{ f.id }}" hx-get="{{ figure_fragment_url(f.id) }}" hx-target="#panel-host"
+     hx-push-url="{{ figure_url(f.id) }}" aria-haspopup="dialog">{{ f.text }}</a>
+{%- endmacro %}
