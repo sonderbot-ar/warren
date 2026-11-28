@@ -392,7 +392,8 @@ def reading_versions(singles: Singles) -> dict:
     """What the run read with against today, as stored facts, never a cause (backlog #626):
     `run_rules_version` (the run's stored reading rules version; null on runs stored before
     v0.9.67, which says nothing, never "the same"), `rules_version` (today's) and
-    `run_concept_map_same` (the run's stored concept map fingerprint equals today's map's).
+    `run_concept_map_same` (the run's stored concept map fingerprint equals today's map's;
+    never unknown, since every run stores its map's fingerprint).
 
     One-sided: different versions or maps mean the reading changed since the run (the gap may
     still hold a later filing or download too). Equal versions and the same map rule out a change

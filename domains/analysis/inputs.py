@@ -977,7 +977,7 @@ def _inputs_behind(
     run_values = {(a.name, a.period): a.value for a in rows}
     growth_pairs = _growth_filings(stored)
 
-    from domains.analysis.single_values import Singles, run_reading_versions
+    from domains.analysis.single_values import Singles, reading_versions
 
     singles = Singles(conn, run, as_of, years, stored, reader, filings)
     names: dict[str, list[Assumption]] = {}
@@ -994,7 +994,7 @@ def _inputs_behind(
             cell_rows.append(CellRow(a.period, a.value, code, _used(name, a, sources, code, k)))
         cell = _cell(name, cell_rows, reader, run, years, filings, singles)
         if cell.gap is None and name in DRIVER_CELLS:  # single values check their own
-            cell = _with_run_reads(cell, run_values, growth_pairs, run_reading_versions(run))
+            cell = _with_run_reads(cell, run_values, growth_pairs, reading_versions(singles))
             cell = _with_references(cell)
         if name in ("tax_rate", "debt_tax_rate") and tax_notes:
             cell = Cell(cell.name, cell.rows, cell.history, cell.gap, [*tax_notes, *cell.notes])

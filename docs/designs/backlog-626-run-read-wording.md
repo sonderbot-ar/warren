@@ -18,7 +18,7 @@ Item 1 of #626 (fresh runs under today's rules for the 696 stored runs whose cos
 **Step 1. The charges note says "higher" or "lower" only when the figures print differently.**
 
 - In `_charges_notes`, the two-figure branch is taken when `f"{kd:.2%}" != f"{today:.2%}"` (both known), not on `_differs`. When the figures differ but print the same, the note keeps the plain text (the run's figure and today's are the same to the shown precision, and the plain text is true of both). The params are unchanged: `cost_of_debt` and `todays_cost_of_debt` still carry the two raw values, so the app can still word its own branch from them; the brief will say to compare them as the Spanish screen prints them (see Product impact). The plain text is kept word for word ("… so Warren cannot take it out and this cost of debt reads a little high (interest_caveats.csv)").
-- Tests (`tests/analysis/test_charges_caveats.py`): an older run whose row is 0.0001 points (a fraction of 0.000001) above today's reading (differs, prints the same) gets the plain text, no "higher" or "lower", with both raw params; a gap of 0.0001 that crosses a rounding edge (today 4.00% against a run row of 4.01%, 0.01 points apart) gets the two-figure text; the existing 6% and 3.5% cases (`test_the_charges_note_gives_todays_reading_beside_the_runs`) are unchanged.
+- Tests (`tests/analysis/test_charges_caveats.py`): an older run whose row is 0.0001 points (a fraction of 0.000001) above today's reading (differs, prints the same) gets the plain text, no "higher" or "lower", with both raw params; a gap of 0.0001 that crosses a rounding edge (a run row 0.01 points above today's reading) gets the two-figure text; the existing 6% and 3.5% cases (`test_the_charges_note_gives_todays_reading_beside_the_runs`) are unchanged.
 - Exit: `python -m pytest -q`, `ruff check .`, `ruff format --check .` green.
 
 **Step 2. `run_read_differently` on a single-value cell carries the reading rules versions.**
@@ -54,7 +54,7 @@ Explainer, analyst, professor and product lead: professor GO, the other three GO
 
 ## Files to change
 
-`domains/analysis/single_values.py`, `tests/analysis/test_charges_caveats.py`, `docs/versions.md`, `docs/team-sync.md`, `docs/build-plan.md` (none: backlog items are not in Section 2).
+`domains/analysis/single_values.py`, `domains/analysis/inputs.py`, `tests/analysis/test_charges_caveats.py`, `tests/analysis/test_single_values.py`, `docs/versions.md`, `docs/team-sync.md`, `docs/build-plan.md` (none: backlog items are not in Section 2).
 
 ## Product impact
 
