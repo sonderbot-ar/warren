@@ -220,3 +220,19 @@ def test_a_window_with_no_events_makes_no_call_and_no_proposal(world):
     assert world.client.requests == []
     assert done.events_chosen == 0 and done.proposal_set == {"named": None}
     assert done.sim == {"named": None}
+
+
+def test_a_baseline_read_under_older_rules_is_not_reused(world, state):
+    # backlog #626: a run with today's ingest, map and choices but older reading rules reads the
+    # filings differently, so the pipeline builds a new one instead of reusing it
+    first = run_through(world, state, upto="build_baseline")
+    world.conn.execute(
+        "UPDATE runs SET reading_rules_version = reading_rules_version - 1 WHERE run_id = ?",
+        (first.run_id,),
+    )
+    world.conn.commit()
+    out = nodes.build_baseline(first, world.deps())
+    assert out["run_id"] != first.run_id and not out["baseline_reused"]
+    assert out["baseline_value_per_share"] == first.baseline_value_per_share
+    again = nodes.build_baseline(first, world.deps())
+    assert again["run_id"] == out["run_id"] and again["baseline_reused"]

@@ -23,6 +23,7 @@ from langgraph.types import interrupt
 
 from domains.analysis import montecarlo, shocks
 from domains.analysis.math_engine import load_user_assumptions
+from domains.analysis.reading_rules import READING_RULES_VERSION
 from domains.analysis.runs import load_assumptions, run_baseline, stored_choices
 from domains.fundamentals.concepts import concept_map_sha256
 from domains.fundamentals.ingest import ingest_company
@@ -182,6 +183,8 @@ def _same_inputs(conn: sqlite3.Connection, run: sqlite3.Row, ticker: str) -> boo
     if latest is None or run["ingest_run_id"] != latest["run_id"]:
         return False
     if run["concept_map_sha256"] != concept_map_sha256():
+        return False
+    if run["reading_rules_version"] != READING_RULES_VERSION:  # read under older rules (#626)
         return False
     for column, source, symbol in fetches:
         fetch = selected_fetch(conn, source, symbol)

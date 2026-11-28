@@ -269,6 +269,36 @@ def cmd_misdated_scan(args: argparse.Namespace) -> int:
     return 1 if any(r.needs_a_person for r in results) else 0
 
 
+def cmd_fresh_runs(args: argparse.Namespace) -> int:
+    from domains.analysis.fresh_runs import refresh, stale_dates
+
+    tickers = [args.ticker] if args.ticker else None
+    with get_db_connection() as conn:
+        apply_migrations(conn)
+        stale = stale_dates(conn, tickers)
+        if args.newest:  # only each company's newest stale date
+            newest = {}
+            for item in stale:
+                newest[item.ticker] = item
+            stale = list(newest.values())
+        print(f"{len(stale)} dates whose newest baseline was read under older rules")
+        if args.dry_run:
+            for item in stale:
+                print(f"stale   {item.ticker:5} {item.as_of}  {item.run_id:22} {item.reason}")
+            return 0
+        results = refresh(conn, stale)
+    failed = 0
+    for done in results:
+        item = done.stale
+        if done.run_id is None:
+            failed += 1
+            print(f"FAILED  {item.ticker:5} {item.as_of}  {item.run_id:22} {done.error}")
+        else:
+            print(f"fresh   {item.ticker:5} {item.as_of}  {item.run_id:22} -> {done.run_id}")
+    print(f"{len(results) - failed} of {len(results)} fresh runs built; stored runs unchanged")
+    return 1 if failed else 0
+
+
 def cmd_simulate(args: argparse.Namespace) -> int:
     with get_db_connection() as conn:
         apply_migrations(conn)
@@ -901,6 +931,15 @@ def main(argv: list[str] | None = None) -> int:
     ms.add_argument("--ticker", help="one company (default: every company)")
     ms.add_argument("--as-of", help="YYYY-MM-DD (default: the last ended New York day)")
     ms.set_defaults(func=cmd_misdated_scan)
+
+    fr = commands.add_parser(
+        "fresh-runs",
+        help="a new baseline for each date whose newest run was read under older rules (#626)",
+    )
+    fr.add_argument("--ticker", help="one company (default: every company)")
+    fr.add_argument("--newest", action="store_true", help="only each company's newest stale date")
+    fr.add_argument("--dry-run", action="store_true", help="list the dates, build nothing")
+    fr.set_defaults(func=cmd_fresh_runs)
 
     no = commands.add_parser("notes", help="a stored run's warnings, as codes (backlog #172)")
     no.add_argument("--run-id", help="the run (with --backfill: only this run)")
