@@ -7,8 +7,10 @@ from domains.analysis.fresh_runs import StaleDate, refresh, stale_dates
 from domains.analysis.reading_rules import READING_RULES_VERSION
 from domains.analysis.runs import reproduce, run_baseline
 from domains.analysis.single_values import cost_of_debt_notes
+from domains.fundamentals.ingest import ingest_company
 from domains.market.store import MarketDataError
-from tests.analysis.conftest import AS_OF, CHOICES
+from tests.analysis.conftest import AS_OF, CHOICES, companyfacts
+from tests.fundamentals.conftest import FakeEdgar
 
 OTHER_DAY = date(2020, 5, 29)
 
@@ -122,3 +124,23 @@ def test_a_failed_build_is_reported_and_the_rest_continue(company):
     first, second = refresh(company, [a, b], build=flaky)
     assert first.run_id is None and "no price stored" in first.error
     assert second.run_id and second.error is None
+
+
+def test_a_fresh_run_reads_a_newer_ingest_but_nothing_filed_after_its_date(company):
+    # professor review: the fresh run reads the newest ingest, cut by filing date at its as_of
+    old = build(company, "TST", AS_OF)
+    age(company, old, rules=READING_RULES_VERSION - 1)
+    facts = companyfacts()
+    facts["facts"]["us-gaap"]["Revenues"]["units"]["USD"].append(
+        {"start": "2020-04-01", "end": "2020-06-30", "val": 999.0, "accn": "0000000123-20-000099",
+         "fy": 2020, "fp": "Q2", "form": "10-Q", "filed": "2020-07-30"})  # fmt: skip
+    client = FakeEdgar()
+    client.facts = facts
+    ingest_company(company, "TST", client=client)
+    (done,) = refresh(company, stale_dates(company), build=build)
+    ingests = company.execute(
+        "SELECT run_id, ingest_run_id FROM runs WHERE run_id IN (?, ?)", (old, done.run_id)
+    ).fetchall()
+    by_run = {r["run_id"]: r["ingest_run_id"] for r in ingests}
+    assert by_run[done.run_id] > by_run[old]  # the newer download
+    assert stored(company, done.run_id) == stored(company, old)  # the later filing is not read
