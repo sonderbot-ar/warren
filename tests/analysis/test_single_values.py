@@ -1758,3 +1758,65 @@ def test_two_replaced_downloads_are_both_named_on_a_series_reading_both(run):
     assert by_cell["beta"] == [["index", "price"]]
     assert by_cell["erp"] == [["index"]]
     _no_market_date_after_the_run(answer)
+
+
+# -- what the run read with, beside `run_read_differently` (backlog #626 item 3) ---------------
+
+VERSION_PARAMS = ("run_rules_version", "rules_version", "run_concept_map_same")
+
+
+def _beta_and_nwc_notes(conn, run_id):
+    """`run_read_differently` on the beta cell's used point (a single value) and on the nwc
+    cell's FY2018 point (a history cell), after editing both stored rows."""
+    conn.execute(
+        "UPDATE assumptions SET value = value * 1.1 WHERE run_id = ? AND name = 'beta'", (run_id,)
+    )
+    conn.execute(
+        "UPDATE assumptions SET value = value * 1.5 WHERE run_id = ? AND name = 'history:nwc' "
+        "AND period = 'FY2018'",
+        (run_id,),
+    )
+    answer = inputs_behind(conn, run_id, VPS)
+    (used,) = [p for p in _primary(_cell(answer, "beta")).points if p.used]
+    (single,) = [n for n in used.notes if n.code == "run_read_differently"]
+    point = next(p for p in _cell(answer, "nwc_pct").history[0].points if p.period == "FY2018")
+    (history,) = [n for n in point.notes if n.code == "run_read_differently"]
+    return single, history
+
+
+def test_both_copies_of_run_read_differently_carry_the_same_reading_versions(run):
+    from domains.analysis.reading_rules import READING_RULES_VERSION
+
+    conn, run_id = run
+    single, history = _beta_and_nwc_notes(conn, run_id)
+    assert (
+        set(single.params)
+        == set(history.params)
+        == {"period", "run_value", "value"} | set(VERSION_PARAMS)
+    )
+    for note in (single, history):
+        assert note.params["rules_version"] == READING_RULES_VERSION
+        assert note.params["run_rules_version"] == READING_RULES_VERSION  # a fresh run's own
+        assert note.params["run_concept_map_same"] is True
+    assert "rules" not in single.text  # stored facts in the params, no cause in the sentence
+
+
+def test_the_reading_versions_follow_the_runs_stored_columns(run):
+    conn, run_id = run
+    for stored, expected in ((9, 9), (None, None)):  # NULL: made before v0.9.67, says nothing
+        conn.execute(
+            "UPDATE runs SET reading_rules_version = ?, concept_map_sha256 = ? WHERE run_id = ?",
+            (stored, "0" * 64, run_id),
+        )
+        for note in _beta_and_nwc_notes(conn, run_id):
+            assert note.params["run_rules_version"] == expected
+            assert note.params["run_concept_map_same"] is False
+        conn.execute(  # undo the edits so the next round edits a fresh row
+            "UPDATE assumptions SET value = value / 1.1 WHERE run_id = ? AND name = 'beta'",
+            (run_id,),
+        )
+        conn.execute(
+            "UPDATE assumptions SET value = value / 1.5 WHERE run_id = ? AND name = 'history:nwc' "
+            "AND period = 'FY2018'",
+            (run_id,),
+        )
