@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/626 (from the #618 review) · Branch `backlog-626-run-read-wording` · Version v0.10.59 when merged.
 
-Status: In progress (nov.28.2026).
+Status: Done (nov.28.2026), merged as v0.10.59 in `1553e3d` (PR #628, gatekeeper GO).
 
 Item 1 of #626 (fresh runs under today's rules for the 696 stored runs whose cost-of-debt cell reads differently) is not in this item: it builds runs on the real snapshot and belongs with #485's pattern. It stays open on #626.
 
