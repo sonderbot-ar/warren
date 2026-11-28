@@ -334,7 +334,7 @@ def single_cell(singles: Singles, name: str, cell_rows: list):
             "so its history is the risk-free rate's",
         )
         series = _cached(singles, "risk_free", lambda: _risk_free(singles))
-        series = _checked(series, cell_rows)
+        series = _checked(series, cell_rows, reading_versions(singles))
         return Cell(name, cell_rows, [series], None, [note])
     builders = {
         "risk_free": lambda: [_risk_free(singles)],
@@ -347,7 +347,7 @@ def single_cell(singles: Singles, name: str, cell_rows: list):
     }
     if name not in builders:
         return None
-    history = [_checked(s, cell_rows) for s in builders[name]()]
+    history = [_checked(s, cell_rows, reading_versions(singles)) for s in builders[name]()]
     notes = []
     if name == "cost_of_debt":
         notes = _cost_of_debt_cell_notes(singles, singles.cache.get("cost_of_debt_used_notes"))
@@ -364,7 +364,9 @@ def _cost_of_debt_cell_notes(singles: Singles, used_point) -> list[Coded]:
         return []
     # an older run whose row differs from today's reading of its year says so first, so a screen
     # showing only the run's figure does not read the notes below against today's (backlog #618)
-    marked = _read_differently(used_point, _run_row(singles, "cost_of_debt"))
+    marked = _read_differently(
+        used_point, _run_row(singles, "cost_of_debt"), reading_versions(singles)
+    )
     first = [n for n in marked.notes if n.code == READ_DIFFERENTLY_NOTE]
     return first + [n for n in marked.notes if n.code in (HEDGE_NOTE, *CHARGES_NOTES, STATED_NOTE)]
 
@@ -375,20 +377,49 @@ def _cached(singles: Singles, key: str, build):
     return singles.cache[key]
 
 
-def _checked(series, cell_rows):
+def _checked(series, cell_rows, versions: dict):
     """Mark the primary series' used point when its value differs from the run's row (a run
     stored before a filing or a download changed the figure): `run_read_differently`."""
     from domains.analysis.inputs import Series, _fields_of
 
     if not series.primary or not cell_rows or cell_rows[0].value is None:
         return series
-    points = [_read_differently(p, cell_rows[0].value) for p in series.points]
+    points = [_read_differently(p, cell_rows[0].value, versions) for p in series.points]
     return Series(**{**_fields_of(series), "points": points})
 
 
-def _read_differently(p, run_value: float | None):
+def reading_versions(singles: Singles) -> dict:
+    """What the run read with against today, as stored facts, never a cause (backlog #626):
+    `run_rules_version` (the run's stored reading rules version; null on runs stored before
+    v0.9.67, which says nothing, never "the same"), `rules_version` (today's) and
+    `run_concept_map_same` (the run's stored concept map fingerprint equals today's map's).
+
+    One-sided: different versions or maps mean the reading changed since the run (the gap may
+    still hold a later filing or download too). Equal versions and the same map rule out a change
+    to the versioned code, to `misdated_facts.csv` and to the map, leaving a later filing or
+    download. The version is one number for all the rules, so on a market cell a different
+    version does not say the rules changed that cell. The same params sit on the history cells'
+    copy of `run_read_differently` (`inputs._with_run_reads`)."""
+    if "reading_versions" not in singles.cache:
+        singles.cache["reading_versions"] = run_reading_versions(singles.run)
+    return singles.cache["reading_versions"]
+
+
+def run_reading_versions(run) -> dict:
+    """`reading_versions` for a stored run row (see there)."""
+    from domains.analysis.reading_rules import READING_RULES_VERSION
+    from domains.fundamentals.concepts import concept_map_sha256
+
+    return {
+        "run_rules_version": run["reading_rules_version"],
+        "rules_version": READING_RULES_VERSION,
+        "run_concept_map_same": run["concept_map_sha256"] == concept_map_sha256(),
+    }
+
+
+def _read_differently(p, run_value: float | None, versions: dict):
     """The point with `run_read_differently` added when it is the used one and its value
-    differs from the run's row."""
+    differs from the run's row, with the run's reading versions (`reading_versions`)."""
     from domains.analysis.inputs import Point, _fields
 
     if (
@@ -398,7 +429,7 @@ def _read_differently(p, run_value: float | None):
     ):
         note = Coded(
             READ_DIFFERENTLY_NOTE,
-            {"period": p.period, "run_value": run_value, "value": p.value},
+            {"period": p.period, "run_value": run_value, "value": p.value, **versions},
             f"the run read {p.period} as {run_value:.6g}, not {p.value:.6g}",
         )
         p = Point(**{**_fields(p), "notes": [*p.notes, note]})
@@ -1003,7 +1034,7 @@ def _charges_notes(
             f"FY{year}'s interest expense still holds {what}, so Warren cannot take it out "
             "and this cost of debt reads a little high (interest_caveats.csv)"
         )
-        if _differs(today, kd):
+        if _prints_differently(today, kd):
             text = (
                 f"FY{year}'s interest expense still holds {what}, so Warren cannot take it out "
                 f"and today's reading, {today:.2%}, reads a little high; this run used "
@@ -1013,6 +1044,12 @@ def _charges_notes(
             )
         notes.append(Coded(caveat.code, params, text))
     return notes
+
+
+def _prints_differently(today: float | None, kd: float | None) -> bool:
+    """Both known and different as the note prints them (two decimals of a percentage), so the
+    sentence never calls one figure higher than another it prints the same (backlog #626)."""
+    return today is not None and kd is not None and f"{today:.2%}" != f"{kd:.2%}"
 
 
 def _public_filings(singles: Singles, accessions) -> list[dict]:
@@ -1145,7 +1182,9 @@ def cost_of_debt_notes(
         run_value = _run_row(singles, "cost_of_debt")
         used = None
         if used_year is not None:
-            used = _read_differently(_cost_of_debt_point(singles, used_year, True), run_value)
+            used = _read_differently(
+                _cost_of_debt_point(singles, used_year, True), run_value, reading_versions(singles)
+            )
         year = used_year if fiscal_year is None else fiscal_year
         if year is None:
             point = None

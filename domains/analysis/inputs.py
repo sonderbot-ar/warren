@@ -702,11 +702,11 @@ def _run_value(name: str, label: str, stored: dict, growth_filings: dict) -> flo
     return fm.ratio(num, den)
 
 
-def _with_run_reads(cell: "Cell", stored: dict, growth_filings: dict, rules: int | None) -> "Cell":
+def _with_run_reads(cell: "Cell", stored: dict, growth_filings: dict, versions: dict) -> "Cell":
     """Mark each used point whose value differs from what the run read (a run stored under
     older reading rules, or before a later filing restated the figure): `run_read_differently`
-    with the run's own value, so the chart can show both."""
-    from domains.analysis.reading_rules import READING_RULES_VERSION
+    with the run's own value, so the chart can show both, and the run's reading versions
+    (`single_values.reading_versions`: stored facts, never a cause)."""
 
     seed_shared = {r.period for r in cell.rows if r.method_code == "seed_year_times_share"}
     history = []
@@ -726,8 +726,7 @@ def _with_run_reads(cell: "Cell", stored: dict, growth_filings: dict, rules: int
                     "period": p.period,
                     "run_value": run_value,
                     "value": p.value,
-                    "run_rules_version": rules,
-                    "rules_version": READING_RULES_VERSION,
+                    **versions,
                 },
                 f"the run read {p.period} as {run_value:.6g}, not {p.value:.6g}: it was stored "
                 "under other reading rules or before a filing changed the figure",
@@ -978,7 +977,7 @@ def _inputs_behind(
     run_values = {(a.name, a.period): a.value for a in rows}
     growth_pairs = _growth_filings(stored)
 
-    from domains.analysis.single_values import Singles
+    from domains.analysis.single_values import Singles, run_reading_versions
 
     singles = Singles(conn, run, as_of, years, stored, reader, filings)
     names: dict[str, list[Assumption]] = {}
@@ -995,7 +994,7 @@ def _inputs_behind(
             cell_rows.append(CellRow(a.period, a.value, code, _used(name, a, sources, code, k)))
         cell = _cell(name, cell_rows, reader, run, years, filings, singles)
         if cell.gap is None and name in DRIVER_CELLS:  # single values check their own
-            cell = _with_run_reads(cell, run_values, growth_pairs, run["reading_rules_version"])
+            cell = _with_run_reads(cell, run_values, growth_pairs, run_reading_versions(run))
             cell = _with_references(cell)
         if name in ("tax_rate", "debt_tax_rate") and tax_notes:
             cell = Cell(cell.name, cell.rows, cell.history, cell.gap, [*tax_notes, *cell.notes])

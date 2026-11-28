@@ -177,3 +177,37 @@ def test_the_cell_says_the_run_read_differently_through_both_calls(make_company,
 
 def test_run_read_differently_is_a_cell_note():
     assert "run_read_differently" in CELL_NOTES and "run_read_differently" in POINT_NOTES
+
+
+# -- the text compares the figures as it prints them (backlog #626 item 2) ----------------------
+
+
+def _used_note(conn, run_id):
+    _, by_year = _by_year(conn, run_id)
+    (used,) = [p for p in by_year.values() if p.used]
+    (note,) = [n for n in used.notes if n.code == RECLASS]
+    return used, note
+
+
+def test_figures_that_print_the_same_keep_the_plain_text(make_company, monkeypatch):
+    conn, run_id = _company(make_company, monkeypatch, _caveat(RECLASS, 2016, None))
+    used, plain = _used_note(conn, run_id)
+    _older(conn, run_id, used.value + 1e-6)  # 0.0001 points apart: the same at two decimals
+    used, note = _used_note(conn, run_id)
+    assert f"{note.params['cost_of_debt']:.2%}" == f"{used.value:.2%}"
+    assert note.params["cost_of_debt"] == used.value + 1e-6  # the raw figures stay in the params
+    assert note.params["todays_cost_of_debt"] == used.value
+    assert note.text == plain.text
+    assert "higher" not in note.text and "lower" not in note.text
+    # the point and the cell still say the run read the year differently, with both figures
+    assert any(n.code == "run_read_differently" for n in used.notes)
+
+
+def test_figures_one_hundredth_of_a_point_apart_get_both(make_company, monkeypatch):
+    conn, run_id = _company(make_company, monkeypatch, _caveat(RECLASS, 2016, None))
+    used, _ = _used_note(conn, run_id)
+    run_value = used.value + 0.0001  # 0.01 points apart: prints differently
+    _older(conn, run_id, run_value)
+    used, note = _used_note(conn, run_id)
+    assert f"{run_value:.2%}" != f"{used.value:.2%}"
+    assert f"this run used {run_value:.2%}" in note.text and "higher than today's" in note.text
