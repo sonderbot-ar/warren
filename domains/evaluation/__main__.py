@@ -399,7 +399,9 @@ def cmd_rescore(args: argparse.Namespace) -> int:
                   f" ({x.moved} moved: {x.better} better, {x.worse} worse)")  # fmt: skip
     print(f"wrote {_shown(path)}")
     if result.failed:  # any origin that could not be scored fails the command (#635 item 1)
-        print(f"error: {len(result.failed)} origins could not be scored; see the report's"
+        n = len(result.failed)
+        unit = "origin" if n == 1 else "origins"
+        print(f"error: {n} {unit} could not be scored; see the report's"
               " \"Fresh runs that could not be scored\"", file=sys.stderr)  # fmt: skip
         return 1
     return 0
