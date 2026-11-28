@@ -64,14 +64,20 @@ class Pair:
 class Rescore:
     actuals_as_of: date
     pairs: list[Pair] = field(default_factory=list)
-    skipped: dict[str, int] = field(default_factory=dict)  # reason -> origins or quarters
+    skipped_origins: dict[str, int] = field(default_factory=dict)  # reason -> monthly origins
+    skipped_rows: dict[str, int] = field(default_factory=dict)  # reason -> quarter rows
     failed: list[tuple[str, str]] = field(default_factory=list)  # (origin_id, error)
     origins: int = 0  # ok origins looked at
     rescored: int = 0  # origins whose two runs were scored
     stored_drift: int = 0  # stored misses that differ from the run of the time scored today
 
-    def skip(self, reason: str, n: int = 1) -> None:
-        self.skipped[reason] = self.skipped.get(reason, 0) + n
+    def skip_origin(self, reason: str) -> None:
+        """One monthly origin not compared, for this reason."""
+        self.skipped_origins[reason] = self.skipped_origins.get(reason, 0) + 1
+
+    def skip_row(self, reason: str) -> None:
+        """One quarter row (a quarter and an item) not compared, for this reason."""
+        self.skipped_rows[reason] = self.skipped_rows.get(reason, 0) + 1
 
 
 def _same(a, b) -> bool:
@@ -88,13 +94,13 @@ def compare(oid: str, ticker: str, old: list[dict], fresh: list[dict], out: Resc
     for s in old:
         f = by_key.get((s["period"], s["item"]))
         if s["status"] != "ok":
-            out.skip("quarter not ok on the run of the time (missing or excluded)")
+            out.skip_row("quarter not ok on the run of the time (missing or excluded)")
         elif f is None or f["status"] != "ok":
-            out.skip("quarter not ok or not forecast on the fresh run")
+            out.skip_row("quarter not ok or not forecast on the fresh run")
         elif not (
             _same(s["actual"], f["actual"]) and _same(s["actual_revenue"], f["actual_revenue"])
         ):
-            out.skip("actual differs")
+            out.skip_row("actual differs")
         else:
             out.pairs.append(
                 Pair(oid, ticker, s["horizon"], s["period"], s["item"], s["error"], f["error"])
@@ -137,14 +143,14 @@ def hindsight_rescore(
             _FRESH, (o["ticker"], o["as_of"], READING_RULES_VERSION, today_map)
         ).fetchone()
         if o["status"] != "ok":
-            out.skip("origin failed when built" + ("" if fresh is None else ", has a fresh run"))
+            out.skip_origin("failed when built" + ("" if fresh is None else ", has a fresh run"))
             continue
         out.origins += 1
         if fresh is None:
-            out.skip("origin: no fresh run under today's rules")
+            out.skip_origin("no fresh run under today's rules")
             continue
         if fresh["run_id"] == o["run_id"]:
-            out.skip("origin: its own run is already under today's rules")
+            out.skip_origin("its own run is already under today's rules")
             continue
         as_of, oid = date.fromisoformat(o["as_of"]), o["origin_id"]
         case = origin_case(o["ticker"], as_of)
@@ -180,9 +186,9 @@ class Line:
     old_median: float
     new_median: float
     quarters: int  # distinct (company, period): one quarter is forecast from several origins
-    better: int  # moved quarters whose absolute error fell
-    worse: int  # moved quarters whose absolute error rose
-    moved_change: float | None  # mean change of absolute error on the moved quarters only
+    better: int  # moved rows whose absolute error fell
+    worse: int  # moved rows whose absolute error rose
+    moved_change: float | None  # mean change of absolute error on the moved rows only
 
     @property
     def change(self) -> float:
@@ -273,7 +279,7 @@ def report(result: Rescore) -> str:
         " them. The numbers below describe the change; they do not test it.",
         "",
         f"Origins looked at: {result.origins}; re-scored on a fresh run: {result.rescored};"
-        f" failed: {len(result.failed)}; quarters compared: {len(result.pairs)}. Stored misses"
+        f" failed: {len(result.failed)}; quarter rows compared: {len(result.pairs)}. Stored misses"
         f" that differ from the run of the time scored again today: {result.stored_drift} (the"
         " comparison scores both runs today, so these do not enter it).",
         "",
@@ -312,9 +318,12 @@ def report(result: Rescore) -> str:
                 f" {100 * p.old_error:+.2f} | {100 * p.new_error:+.2f} |"
             )
         lines.append("")
-    if result.skipped:
+    if result.skipped_origins or result.skipped_rows:
         lines += ["## Not compared", ""]
-        lines += [f"- {reason}: {n}" for reason, n in sorted(result.skipped.items())]
+        for reason, n in sorted(result.skipped_origins.items()):
+            lines.append(f"- {reason}: {n} {'origin' if n == 1 else 'origins'}")
+        for reason, n in sorted(result.skipped_rows.items()):
+            lines.append(f"- {reason}: {n} quarter {'row' if n == 1 else 'rows'}")
         lines.append("")
     if result.failed:
         lines += ["## Fresh runs that could not be scored", ""]

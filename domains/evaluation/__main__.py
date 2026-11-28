@@ -392,13 +392,17 @@ def cmd_rescore(args: argparse.Namespace) -> int:
         result, PROJECT_ROOT / "data" / "reports" / "eval" / "rescore_hindsight.md"
     )
     print(f"{rescore.LABEL}: {result.rescored} of {result.origins} origins re-scored, "
-          f"{len(result.pairs)} quarters compared, {len(result.failed)} failed")  # fmt: skip
+          f"{len(result.pairs)} quarter rows compared, {len(result.failed)} failed")  # fmt: skip
     for x in rescore.summary(result):
         if x.ticker == "All":
             print(f"  {x.item}: mean absolute error {100 * x.old_mae:.2f} -> {100 * x.new_mae:.2f}"
                   f" ({x.moved} moved: {x.better} better, {x.worse} worse)")  # fmt: skip
     print(f"wrote {_shown(path)}")
-    return 1 if result.failed and not result.rescored else 0
+    if result.failed:  # any origin that could not be scored fails the command (#635 item 1)
+        print(f"error: {len(result.failed)} origins could not be scored; see the report's"
+              " \"Fresh runs that could not be scored\"", file=sys.stderr)  # fmt: skip
+        return 1
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
