@@ -184,5 +184,5 @@ def test_the_command_fails_when_any_origin_cannot_be_scored(company, monkeypatch
     monkeypatch.setattr(cli, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(cli, "get_db_connection", _reuse(company))
     assert cli.main(["rescore", "--actuals-as-of", TODAY.isoformat()]) == 1
-    assert "1 origins could not be scored" in capsys.readouterr().err
+    assert "error: 1 origin could not be scored" in capsys.readouterr().err
     assert (tmp_path / "data" / "reports" / "eval" / "rescore_hindsight.md").exists()

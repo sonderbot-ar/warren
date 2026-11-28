@@ -2,7 +2,7 @@
 
 Issue: https://github.com/sonderbot-ar/warren/issues/635 · Branch `claude/project-thread-xgtprr` (the cloud run's assigned branch) · Version v0.10.62 when merged.
 
-Status: In progress (nov.28.2026).
+Status: Done (nov.28.2026). Merged as v0.10.62 in `b005c8f` (PR #638); gatekeeper GO; the stderr line's plural ("1 origins", the gatekeeper's nit) fixed in the record PR.
 
 ## Problem
 
