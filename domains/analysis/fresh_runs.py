@@ -12,6 +12,13 @@ Only the reading is compared: a run built from an older filings download (`inges
 older market downloads is not called stale here, because its reading rules are today's and a new
 download is a data question (the pipeline's reuse check, `orchestration.nodes._same_inputs`,
 handles it on a pipeline run).
+
+A change to the valuation maths is a reading-rules change too: `financial_math.py`, `dcf.py` and
+the rest of what `math_engine.py` imports are in `reading_rules.rules_modules()`, so a code change
+there must add a row to `reading_rules.md`, under the next version (every date goes stale here)
+or under the same one with a reason. A change that moves a stored run's outputs from its stored
+rows also fails `reproduce --all`, and relaxing that invariant is an owner decision (backlog #633
+item 2).
 """
 
 import sqlite3

@@ -45,6 +45,13 @@ nothing.
 that type, chosen by rule, each with the forecast made the day before, what was reported after
 and that miss beside the company's usual miss, plus n, the thin-evidence flag and the metrics to
 watch. Without --as-of it uses the last day ended in New York. It writes nothing.
+
+    python -m domains.evaluation rescore [--ticker T ...] [--actuals-as-of D]
+
+`rescore` (backlog #633) scores every M9 monthly origin's run of the time and its fresh run
+under today's reading rules (v0.10.60) against the same first-reported actuals, and writes
+data/reports/eval/rescore_hindsight.md, labelled "Scored with today's rules (hindsight)". It is
+not the forecast record and stores nothing.
 """
 
 import argparse
@@ -375,6 +382,25 @@ def cmd_past_events(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_rescore(args: argparse.Namespace) -> int:
+    from domains.evaluation import rescore
+
+    actuals = date.fromisoformat(args.actuals_as_of) if args.actuals_as_of else None
+    with get_db_connection() as conn:
+        result = rescore.hindsight_rescore(conn, args.ticker, actuals)
+    path = rescore.write_report(
+        result, PROJECT_ROOT / "data" / "reports" / "eval" / "rescore_hindsight.md"
+    )
+    print(f"{rescore.LABEL}: {result.rescored} of {result.origins} origins re-scored, "
+          f"{len(result.pairs)} quarters compared, {len(result.failed)} failed")  # fmt: skip
+    for x in rescore.summary(result):
+        if x.ticker == "All":
+            print(f"  {x.item}: mean absolute error {100 * x.old_mae:.2f} -> {100 * x.new_mae:.2f}"
+                  f" ({x.moved} moved: {x.better} better, {x.worse} worse)")  # fmt: skip
+    print(f"wrote {_shown(path)}")
+    return 1 if result.failed and not result.rescored else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m domains.evaluation")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -442,6 +468,10 @@ def main(argv: list[str] | None = None) -> int:
     pe.add_argument("--as-of", help="YYYY-MM-DD; default: the last day ended in New York")
     pe.add_argument("--json", action="store_true", help="print JSON for the app")
     pe.set_defaults(func=cmd_past_events)
+    rs = commands.add_parser("rescore", help="hindsight: the M9 origins on the fresh runs")
+    rs.add_argument("--ticker", action="append", help="a ticker (repeatable); default: all")
+    rs.add_argument("--actuals-as-of", help="first-reported actuals known by this day")
+    rs.set_defaults(func=cmd_rescore)
     args = parser.parse_args(argv)
     return args.func(args)
 
